@@ -1,0 +1,47 @@
+/* MarkFlow — Pico CSS base + custom overrides */
+
+/* Import Pico CSS from CDN (loaded in HTML) */
+
+:root {
+    --markflow-primary: #0d6efd;
+    --markflow-success: #198754;
+    --markflow-warning: #ffc107;
+    --markflow-danger: #dc3545;
+}
+
+body {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 1rem;
+}
+
+.drop-zone {
+    border: 2px dashed var(--pico-muted-border-color, #ccc);
+    border-radius: 8px;
+    padding: 3rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background-color 0.2s;
+}
+
+.drop-zone:hover,
+.drop-zone.drag-over {
+    border-color: var(--markflow-primary);
+    background-color: rgba(13, 110, 253, 0.05);
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 0.25em 0.6em;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.status-success { background: #d1e7dd; color: #0f5132; }
+.status-error   { background: #f8d7da; color: #842029; }
+.status-partial { background: #fff3cd; color: #664d03; }
+.status-queued  { background: #e2e3e5; color: #41464b; }
+.status-processing { background: #cff4fc; color: #055160; }
+
+progress { width: 100%; }

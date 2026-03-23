@@ -1,0 +1,16 @@
+.git
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+output/
+logs/
+markflow.db
+data/
+*.db
+.env
+.env.*
+input/
+tests/fixtures/

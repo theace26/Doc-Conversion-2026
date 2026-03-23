@@ -1,0 +1,44 @@
+# Web framework
+fastapi
+uvicorn[standard]
+python-multipart
+
+# Document processing — DOCX
+python-docx
+mammoth
+markdownify
+
+# Document processing — PDF
+pymupdf
+pdfplumber
+pdf2image
+pytesseract
+
+# Document processing — PPTX / XLSX
+python-pptx
+openpyxl
+pandas
+
+# Image processing
+Pillow
+
+# PDF export
+weasyprint
+fpdf2
+
+# Markdown parsing
+mistune
+
+# Alternative conversion engine
+markitdown[all]
+
+# Utilities
+pyyaml
+aiofiles
+aiosqlite
+structlog
+
+# Testing
+pytest
+pytest-asyncio
+httpx

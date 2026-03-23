@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MarkFlow — Document Conversion</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="container">
+    <nav>
+      <ul>
+        <li><strong>MarkFlow</strong> <small>Document Conversion</small></li>
+      </ul>
+      <ul>
+        <li><a href="/history.html">History</a></li>
+        <li><a href="/settings.html">Settings</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main class="container">
+    <!-- Error banner (hidden by default) -->
+    <div id="error-banner" role="alert" class="pico-background-red-100" style="padding:1rem;border-radius:4px;margin-bottom:1rem;" hidden></div>
+
+    <hgroup>
+      <h1>Document Conversion</h1>
+      <p>Convert documents to and from Markdown. Supports DOCX, PDF, PPTX, XLSX, and CSV.</p>
+    </hgroup>
+
+    <!-- System status card -->
+    <article id="health-card">
+      <header>System Status</header>
+      <div id="health-status">
+        <p aria-busy="true">Checking dependencies…</p>
+      </div>
+    </article>
+
+    <!-- Conversion form -->
+    <article>
+      <header>Convert Documents</header>
+
+      <!-- Direction toggle -->
+      <fieldset>
+        <legend>Direction</legend>
+        <label>
+          <input type="radio" name="direction" value="to_md" checked>
+          Document → Markdown
+        </label>
+        <label>
+          <input type="radio" name="direction" value="from_md">
+          Markdown → Document
+        </label>
+      </fieldset>
+
+      <!-- Target format (shown when from_md) -->
+      <div id="target-format-row" hidden>
+        <label for="target-format">Target Format</label>
+        <select id="target-format" name="target_format">
+          <option value="docx">DOCX</option>
+          <option value="pdf">PDF</option>
+          <option value="pptx">PPTX</option>
+          <option value="xlsx">XLSX</option>
+        </select>
+      </div>
+
+      <!-- Drop zone -->
+      <div id="drop-zone" class="drop-zone" tabindex="0" role="button"
+           aria-label="Drop files here or click to browse">
+        <p>&#128196; Drop files here, or <strong>click to browse</strong></p>
+        <p><small>Supports: .docx, .doc, .pdf, .pptx, .xlsx, .csv, .md</small></p>
+        <input type="file" id="file-input" multiple accept=".docx,.doc,.pdf,.pptx,.xlsx,.csv,.md" style="display:none">
+      </div>
+
+      <!-- File list -->
+      <div id="file-list" hidden>
+        <ul id="selected-files"></ul>
+        <button class="secondary outline" id="clear-files">Clear</button>
+      </div>
+
+      <!-- Output directory -->
+      <label for="output-dir">Output Directory (optional — leave blank for default)</label>
+      <input type="text" id="output-dir" name="output_dir" placeholder="/app/output">
+
+      <!-- Unattended mode -->
+      <label>
+        <input type="checkbox" id="unattended" name="unattended">
+        Unattended mode (auto-accept all OCR results)
+      </label>
+
+      <!-- Actions -->
+      <div class="grid">
+        <button class="outline secondary" id="btn-preview" disabled>Preview</button>
+        <button id="btn-convert" disabled>Convert</button>
+      </div>
+    </article>
+  </main>
+
+  <footer class="container">
+    <small>MarkFlow v0.1.0 &mdash; <a href="/api/health">System Health</a> &mdash;
+    <a href="http://localhost:8000/docs" target="_blank">API Docs</a></small>
+  </footer>
+
+  <script src="/static/app.js"></script>
+  <script>
+  // ── Health check on load ────────────────────────────────────────────────────
+  (async () => {
+    try {
+      const health = await API.get('/api/health');
+      renderHealth(health);
+    } catch (e) {
+      document.getElementById('health-status').innerHTML =
+        '<p style="color:red">Could not reach server.</p>';
+    }
+  })();
+
+  function renderHealth(h) {
+    const icons = { true: '✅', false: '❌' };
+    const rows = Object.entries(h).map(([dep, s]) => {
+      const ok = icons[String(s.ok)];
+      const detail = s.version || s.error || (s.free_gb != null ? `${s.free_gb} GB free` : '');
+      return `<tr><td>${dep}</td><td>${ok}</td><td><small>${detail || ''}</small></td></tr>`;
+    }).join('');
+    document.getElementById('health-status').innerHTML =
+      `<table><tbody>${rows}</tbody></table>`;
+  }
+
+  // ── Load preferences ────────────────────────────────────────────────────────
+  (async () => {
+    try {
+      const prefs = await API.get('/api/preferences');
+      if (prefs.last_save_directory) document.getElementById('output-dir').value = prefs.last_save_directory;
+      if (prefs.default_direction) {
+        document.querySelector(`input[name=direction][value="${prefs.default_direction}"]`).checked = true;
+        toggleDirection(prefs.default_direction);
+      }
+    } catch (e) { /* prefs not critical */ }
+  })();
+
+  // ── Direction toggle ────────────────────────────────────────────────────────
+  document.querySelectorAll('input[name=direction]').forEach(r =>
+    r.addEventListener('change', e => toggleDirection(e.target.value))
+  );
+
+  function toggleDirection(dir) {
+    document.getElementById('target-format-row').hidden = dir !== 'from_md';
+  }
+
+  // ── File drop zone ──────────────────────────────────────────────────────────
+  const dropZone = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('file-input');
+  let selectedFiles = [];
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); });
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    addFiles([...e.dataTransfer.files]);
+  });
+  fileInput.addEventListener('change', () => addFiles([...fileInput.files]));
+
+  document.getElementById('clear-files').addEventListener('click', () => {
+    selectedFiles = [];
+    renderFileList();
+  });
+
+  function addFiles(files) {
+    selectedFiles = [...selectedFiles, ...files];
+    renderFileList();
+  }
+
+  function renderFileList() {
+    const list = document.getElementById('selected-files');
+    const container = document.getElementById('file-list');
+    if (!selectedFiles.length) {
+      container.hidden = true;
+      document.getElementById('btn-preview').disabled = true;
+      document.getElementById('btn-convert').disabled = true;
+      return;
+    }
+    container.hidden = false;
+    list.innerHTML = selectedFiles.map((f, i) =>
+      `<li>${f.name} <small>(${formatBytes(f.size)})</small>
+       <a href="#" onclick="removeFile(${i});return false">✕</a></li>`
+    ).join('');
+    document.getElementById('btn-preview').disabled = false;
+    document.getElementById('btn-convert').disabled = false;
+  }
+
+  function removeFile(idx) {
+    selectedFiles.splice(idx, 1);
+    renderFileList();
+  }
+
+  // ── Preview ─────────────────────────────────────────────────────────────────
+  document.getElementById('btn-preview').addEventListener('click', async () => {
+    if (!selectedFiles.length) return;
+    const file = selectedFiles[0];
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('direction', document.querySelector('input[name=direction]:checked').value);
+    try {
+      const result = await API.upload('/api/convert/preview', fd);
+      alert(`Format: ${result.format}\nPages: ${result.page_count ?? 'N/A'}\nOCR likely: ${result.ocr_likely}\nWarnings: ${(result.warnings||[]).join(', ') || 'none'}`);
+    } catch (e) {
+      showError(`Preview failed: ${e.message}`);
+    }
+  });
+
+  // ── Convert ─────────────────────────────────────────────────────────────────
+  document.getElementById('btn-convert').addEventListener('click', async () => {
+    if (!selectedFiles.length) return;
+    hideError();
+    const fd = new FormData();
+    selectedFiles.forEach(f => fd.append('files', f));
+    fd.append('direction', document.querySelector('input[name=direction]:checked').value);
+    fd.append('output_dir', document.getElementById('output-dir').value);
+    fd.append('unattended', document.getElementById('unattended').checked);
+    if (document.querySelector('input[name=direction]:checked').value === 'from_md') {
+      fd.append('target_format', document.getElementById('target-format').value);
+    }
+    try {
+      const result = await API.upload('/api/convert', fd);
+      window.location.href = `/progress.html?batch_id=${result.batch_id}`;
+    } catch (e) {
+      showError(`Conversion failed: ${e.message}`);
+    }
+  });
+  </script>
+</body>
+</html>

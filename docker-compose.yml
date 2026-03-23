@@ -1,0 +1,18 @@
+services:
+  markflow:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./input:/app/input        # Source files
+      - ./output:/app/output      # Converted files
+      - ./logs:/app/logs          # Log files
+      - markflow-db:/app/data     # SQLite DB (persistent volume)
+    environment:
+      - DEBUG=false
+      - WORKERS=1
+      - DB_PATH=/app/data/markflow.db
+    restart: unless-stopped
+
+volumes:
+  markflow-db:
