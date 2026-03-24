@@ -125,6 +125,7 @@ async def convert_files(
         batch_id=batch_id,
         total_files=len(saved_paths),
         message="Conversion started.",
+        stream_url=f"/api/batch/{batch_id}/stream",
     )
 
 

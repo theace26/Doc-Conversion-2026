@@ -29,6 +29,22 @@ from formats.base import get_handler_for_path
 
 log = structlog.get_logger(__name__)
 
+# ── SSE progress queues (per batch_id) ────────────────────────────────────────
+_progress_queues: dict[str, asyncio.Queue] = {}
+
+def get_progress_queue(batch_id: str) -> asyncio.Queue | None:
+    """Return the progress queue for a batch, or None if not active."""
+    return _progress_queues.get(batch_id)
+
+def _emit_event(batch_id: str, event: str, data: dict) -> None:
+    """Put an SSE event into the batch's progress queue (non-blocking)."""
+    q = _progress_queues.get(batch_id)
+    if q is not None:
+        try:
+            q.put_nowait({"event": event, "data": data})
+        except asyncio.QueueFull:
+            pass  # drop event if queue is full (shouldn't happen)
+
 # Allowed extensions for upload
 ALLOWED_EXTENSIONS = {".docx", ".doc", ".pdf", ".pptx", ".xlsx", ".csv", ".tsv", ".md"}
 
@@ -433,28 +449,33 @@ class ConversionOrchestrator:
         """
         Convert a list of files concurrently (up to MAX_CONCURRENT_CONVERSIONS).
         Records results in the DB and updates batch_state.
+        Emits SSE progress events if a queue exists for this batch.
         """
         opts = options or {}
         t_batch = time.perf_counter()
+        total = len(file_paths)
 
-        bind_batch_context(batch_id, len(file_paths))
+        # Create progress queue for SSE streaming
+        _progress_queues[batch_id] = asyncio.Queue(maxsize=200)
+
+        bind_batch_context(batch_id, total)
         log.info(
             "conversion_start",
             batch_id=batch_id,
-            file_count=len(file_paths),
+            file_count=total,
             fidelity_tier=opts.get("fidelity_tier", 1),
         )
 
         await upsert_batch_state(
             batch_id,
             status="processing",
-            total_files=len(file_paths),
+            total_files=total,
             unattended=opts.get("unattended", False),
         )
 
         tasks = [
-            self._convert_one(fp, direction, batch_id, opts)
-            for fp in file_paths
+            self._convert_one(fp, direction, batch_id, opts, idx, total)
+            for idx, fp in enumerate(file_paths)
         ]
         results = await asyncio.gather(*tasks, return_exceptions=False)
 
@@ -503,6 +524,17 @@ class ConversionOrchestrator:
             encoding="utf-8",
         )
 
+        # Emit final SSE events
+        _emit_event(batch_id, "batch_complete", {
+            "batch_id": batch_id,
+            "success": success,
+            "error": failed,
+            "total": total,
+            "duration_ms": total_duration_ms,
+            "download_url": f"/api/batch/{batch_id}/download",
+        })
+        _emit_event(batch_id, "done", {})
+
         return list(results)
 
     async def _convert_one(
@@ -511,12 +543,25 @@ class ConversionOrchestrator:
         direction: str,
         batch_id: str,
         options: dict[str, Any],
+        index: int = 0,
+        total: int = 1,
     ) -> ConvertResult:
+        file_id = file_path.stem
+        filename = file_path.name
         bind_file_context(
-            file_id=file_path.stem,
-            filename=file_path.name,
+            file_id=file_id,
+            filename=filename,
             fmt=file_path.suffix.lower().lstrip("."),
         )
+
+        # Emit file_start
+        _emit_event(batch_id, "file_start", {
+            "file_id": file_id,
+            "filename": filename,
+            "index": index + 1,
+            "total": total,
+        })
+
         async with _semaphore:
             result = await asyncio.to_thread(
                 _convert_file_sync,
@@ -545,6 +590,33 @@ class ConversionOrchestrator:
             "duration_ms": result.duration_ms,
             "warnings": result.warnings,
         })
+
+        # Emit file_complete or file_error
+        if result.status == "success":
+            _emit_event(batch_id, "file_complete", {
+                "file_id": file_id,
+                "filename": filename,
+                "status": "success",
+                "duration_ms": result.duration_ms,
+                "output_filename": result.output_filename,
+                "tier": result.fidelity_tier,
+            })
+        else:
+            _emit_event(batch_id, "file_error", {
+                "file_id": file_id,
+                "filename": filename,
+                "status": "error",
+                "error": result.error_message or "Unknown error",
+            })
+
+        # Emit ocr_flag if applicable
+        if result.ocr_flags_total > 0:
+            _emit_event(batch_id, "ocr_flag", {
+                "file_id": file_id,
+                "filename": filename,
+                "flag_count": result.ocr_flags_total,
+                "review_url": f"/review.html?batch_id={batch_id}",
+            })
 
         return result
 

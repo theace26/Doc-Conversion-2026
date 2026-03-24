@@ -1,18 +1,288 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MarkFlow — Settings</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-<link rel="stylesheet" href="/static/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MarkFlow — Settings</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+  <style>
+    .tier-desc { font-size: 0.82rem; color: var(--text-muted); margin-top: 0.2rem; }
+  </style>
 </head>
 <body>
-<main class="container">
-<h1>MarkFlow — Settings</h1>
-<p>This page is implemented in a later phase.</p>
-<a href="/">← Back to Home</a>
-</main>
-<script src="/static/app.js"></script>
+  <nav class="nav-bar">
+    <a href="/" class="nav-logo">MarkFlow</a>
+    <div class="nav-links">
+      <a href="/" class="nav-link">Convert</a>
+      <a href="/history.html" class="nav-link">History</a>
+      <a href="/settings.html" class="nav-link">Settings</a>
+    </div>
+  </nav>
+
+  <div class="container page-content">
+    <div id="error-banner" role="alert" hidden></div>
+
+    <h1>Settings</h1>
+    <p class="text-muted mb-2">Configure conversion preferences. Changes are saved explicitly.</p>
+
+    <div id="loading" style="text-align:center;padding:2rem"><span class="spinner"></span> Loading settings...</div>
+
+    <form id="settings-form" hidden>
+      <!-- Conversion section -->
+      <div class="section-title">Conversion</div>
+      <div class="card">
+        <div class="form-group">
+          <label for="pref-default_direction">Default conversion direction</label>
+          <select id="pref-default_direction" data-key="default_direction">
+            <option value="to_md">Document &rarr; Markdown</option>
+            <option value="from_md">Markdown &rarr; Document</option>
+          </select>
+          <div class="inline-error" id="err-default_direction"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-max_upload_size_mb">Max upload file size (MB)</label>
+          <input type="number" id="pref-max_upload_size_mb" data-key="max_upload_size_mb" min="1" max="500">
+          <div class="inline-error" id="err-max_upload_size_mb"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-retention_days">Output retention (days, 0 = forever)</label>
+          <input type="number" id="pref-retention_days" data-key="retention_days" min="0" max="365">
+          <div class="inline-error" id="err-retention_days"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-max_concurrent_conversions">Max concurrent conversions</label>
+          <input type="number" id="pref-max_concurrent_conversions" data-key="max_concurrent_conversions" min="1" max="10">
+          <div class="inline-error" id="err-max_concurrent_conversions"></div>
+        </div>
+      </div>
+
+      <!-- OCR section -->
+      <div class="section-title">OCR</div>
+      <div class="card">
+        <div class="form-group">
+          <label for="pref-ocr_confidence_threshold">Confidence threshold</label>
+          <div class="range-group">
+            <input type="range" id="pref-ocr_confidence_threshold" data-key="ocr_confidence_threshold" min="0" max="100" step="1">
+            <output id="range-output">—</output>
+          </div>
+          <div class="inline-error" id="err-ocr_confidence_threshold"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Unattended mode</label>
+          <label class="toggle">
+            <input type="checkbox" id="pref-unattended_default" data-key="unattended_default">
+            <span class="toggle-track"></span>
+            <span class="toggle-label" id="toggle-label">OFF</span>
+          </label>
+          <p class="hint">Skip review and auto-accept all OCR flags.</p>
+          <div class="inline-error" id="err-unattended_default"></div>
+        </div>
+      </div>
+
+      <!-- Info section -->
+      <div class="section-title">Info</div>
+      <div class="card">
+        <div class="form-group">
+          <label for="pref-last_save_directory">Last save directory</label>
+          <input type="text" id="pref-last_save_directory" data-key="last_save_directory" readonly>
+        </div>
+        <div class="form-group">
+          <label for="pref-last_source_directory">Last source directory</label>
+          <input type="text" id="pref-last_source_directory" data-key="last_source_directory" readonly>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="btn-group mt-2">
+        <button type="submit" class="btn btn-primary" id="btn-save">Save Changes</button>
+        <button type="button" class="btn btn-ghost" id="btn-reset">Reset to Defaults</button>
+      </div>
+    </form>
+
+    <!-- Confirm dialog -->
+    <div class="dialog-backdrop" id="reset-dialog">
+      <div class="dialog">
+        <h3>Reset to Defaults?</h3>
+        <p>This will reset all preferences to their default values. This cannot be undone.</p>
+        <div class="btn-group">
+          <button class="btn btn-ghost" id="reset-cancel">Cancel</button>
+          <button class="btn btn-danger" id="reset-confirm">Reset</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script>
+  let originalValues = {};
+  let defaults = {};
+
+  const DEFAULTS = {
+    last_save_directory: '',
+    last_source_directory: '',
+    ocr_confidence_threshold: '80',
+    default_direction: 'to_md',
+    max_upload_size_mb: '100',
+    max_batch_size_mb: '500',
+    retention_days: '30',
+    max_concurrent_conversions: '3',
+    pdf_engine: 'pymupdf',
+    pdf_export_engine: 'weasyprint',
+    unattended_default: 'false',
+    conversion_engine: 'native',
+  };
+
+  // Load preferences
+  (async () => {
+    try {
+      const data = await API.get('/api/preferences');
+      const prefs = data.preferences || data;
+      originalValues = { ...prefs };
+      defaults = { ...DEFAULTS };
+      populateForm(prefs);
+      document.getElementById('loading').hidden = true;
+      document.getElementById('settings-form').hidden = false;
+    } catch (e) {
+      document.getElementById('loading').innerHTML = `<span class="status-error">Failed to load settings: ${e.message}</span>`;
+    }
+  })();
+
+  function populateForm(prefs) {
+    for (const [key, value] of Object.entries(prefs)) {
+      const el = document.getElementById(`pref-${key}`);
+      if (!el) continue;
+
+      if (el.type === 'checkbox') {
+        el.checked = value === 'true';
+        updateToggleLabel(el);
+      } else if (el.type === 'range') {
+        el.value = value;
+        document.getElementById('range-output').textContent = value + '%';
+      } else {
+        el.value = value;
+      }
+    }
+  }
+
+  // Range slider live update
+  const slider = document.getElementById('pref-ocr_confidence_threshold');
+  slider.addEventListener('input', () => {
+    document.getElementById('range-output').textContent = slider.value + '%';
+  });
+
+  // Toggle label update
+  const toggle = document.getElementById('pref-unattended_default');
+  toggle.addEventListener('change', () => updateToggleLabel(toggle));
+
+  function updateToggleLabel(el) {
+    document.getElementById('toggle-label').textContent = el.checked ? 'ON' : 'OFF';
+  }
+
+  // Save
+  document.getElementById('settings-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearAllErrors();
+
+    const btn = document.getElementById('btn-save');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner spinner-sm"></span> Saving...';
+
+    const changed = getChangedValues();
+    if (Object.keys(changed).length === 0) {
+      showToast('No changes to save.', 'info');
+      btn.disabled = false;
+      btn.textContent = 'Save Changes';
+      return;
+    }
+
+    let hasError = false;
+    for (const [key, value] of Object.entries(changed)) {
+      try {
+        await API.put(`/api/preferences/${key}`, { value });
+        originalValues[key] = value;
+      } catch (err) {
+        hasError = true;
+        showFieldError(key, err.message);
+      }
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Save Changes';
+
+    if (!hasError) {
+      showToast('Settings saved.', 'success');
+    }
+  });
+
+  function getChangedValues() {
+    const changed = {};
+    document.querySelectorAll('[data-key]').forEach(el => {
+      const key = el.dataset.key;
+      let value;
+      if (el.type === 'checkbox') {
+        value = el.checked ? 'true' : 'false';
+      } else {
+        value = el.value;
+      }
+      if (value !== originalValues[key]) {
+        changed[key] = value;
+      }
+    });
+    return changed;
+  }
+
+  function showFieldError(key, message) {
+    const el = document.getElementById(`err-${key}`);
+    if (el) {
+      el.textContent = message;
+      el.classList.add('visible');
+    }
+  }
+
+  function clearAllErrors() {
+    document.querySelectorAll('.inline-error').forEach(el => {
+      el.textContent = '';
+      el.classList.remove('visible');
+    });
+  }
+
+  // Reset
+  document.getElementById('btn-reset').addEventListener('click', () => {
+    document.getElementById('reset-dialog').classList.add('open');
+  });
+
+  document.getElementById('reset-cancel').addEventListener('click', () => {
+    document.getElementById('reset-dialog').classList.remove('open');
+  });
+
+  document.getElementById('reset-confirm').addEventListener('click', async () => {
+    document.getElementById('reset-dialog').classList.remove('open');
+    const btn = document.getElementById('btn-reset');
+    btn.disabled = true;
+    btn.textContent = 'Resetting...';
+
+    for (const [key, value] of Object.entries(defaults)) {
+      if (key === 'last_save_directory' || key === 'last_source_directory') continue;
+      try {
+        await API.put(`/api/preferences/${key}`, { value });
+        originalValues[key] = value;
+      } catch (e) { /* best effort */ }
+    }
+
+    populateForm(defaults);
+    btn.disabled = false;
+    btn.textContent = 'Reset to Defaults';
+    showToast('Settings reset to defaults.', 'success');
+  });
+
+  // Close dialog on backdrop click
+  document.getElementById('reset-dialog').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+  });
+  </script>
 </body>
 </html>

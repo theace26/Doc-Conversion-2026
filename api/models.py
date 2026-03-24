@@ -16,6 +16,7 @@ class ConvertResponse(BaseModel):
     batch_id: str = Field(..., examples=["20260307_143000_123456"])
     total_files: int = Field(..., examples=[2])
     message: str = Field(default="Conversion started.")
+    stream_url: str = Field(default="", examples=["/api/batch/20260307_143000_123456/stream"])
 
     class Config:
         json_schema_extra = {
@@ -23,6 +24,7 @@ class ConvertResponse(BaseModel):
                 "batch_id": "20260307_143000_123456",
                 "total_files": 1,
                 "message": "Conversion started.",
+                "stream_url": "/api/batch/20260307_143000_123456/stream",
             }
         }
 
@@ -110,6 +112,11 @@ class HistoryListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+    page: int = 1
+    per_page: int = 25
+    total_pages: int = 1
+    formats_available: list[str] = Field(default_factory=list)
+    has_errors: bool = False
     records: list[HistoryRecord]
 
 
@@ -121,7 +128,10 @@ class StatsResponse(BaseModel):
     most_used_format: str | None = None
     total_ocr_flags: int = 0
     total_duration_ms: int = 0
+    avg_duration_ms: int = 0
+    total_size_bytes_processed: int = 0
     formats: dict[str, int] = Field(default_factory=dict)
+    by_format: dict[str, int] = Field(default_factory=dict)
 
 
 # ── Preferences ───────────────────────────────────────────────────────────────

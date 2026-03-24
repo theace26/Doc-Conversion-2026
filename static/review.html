@@ -1,348 +1,295 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OCR Review — MarkFlow</title>
+  <link rel="stylesheet" href="/static/markflow.css">
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #f4f6f8;
-      color: #222;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-    }
-
-    /* ── Header ── */
-    header {
-      background: #1e293b;
-      color: #f8fafc;
-      padding: 14px 24px;
+    .review-header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0.75rem 1.5rem;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
+      box-shadow: var(--shadow);
     }
-    header h1 { font-size: 1.1rem; font-weight: 600; }
-    #progress-label { font-size: 0.9rem; color: #94a3b8; white-space: nowrap; }
+    .review-header h1 { font-size: 1.1rem; font-weight: 600; margin: 0; }
 
-    /* ── Main layout ── */
-    main {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 24px 16px;
-      gap: 20px;
-    }
-
-    #batch-title { font-size: 0.85rem; color: #64748b; text-align: center; }
-
-    /* ── Card ── */
-    #review-card {
-      background: #fff;
-      border-radius: 10px;
-      box-shadow: 0 2px 12px rgba(0,0,0,.08);
+    .review-card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-lg);
       width: 100%;
       max-width: 900px;
       overflow: hidden;
     }
 
-    #card-body {
+    .review-body {
       display: grid;
       grid-template-columns: 1fr 1fr;
       min-height: 340px;
     }
 
-    /* Left pane: image */
-    #image-pane {
+    .image-pane {
       background: #0f172a;
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 16px;
+      padding: 1rem;
       min-height: 240px;
     }
-    #region-img {
+
+    .image-pane img {
       max-width: 100%;
       max-height: 300px;
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       object-fit: contain;
       display: none;
     }
-    #no-image-msg { color: #475569; font-size: 0.85rem; text-align: center; }
 
-    /* Right pane: text + meta */
-    #text-pane {
-      padding: 20px;
+    .no-image-msg { color: var(--text-muted); font-size: 0.85rem; text-align: center; }
+
+    .text-pane {
+      padding: 1.25rem;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 0.75rem;
     }
-    #text-pane label { font-size: 0.8rem; font-weight: 600; color: #64748b; }
-    #ocr-text {
+
+    .text-pane label { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); }
+
+    .text-pane textarea {
       width: 100%;
       flex: 1;
       min-height: 120px;
-      border: 1.5px solid #e2e8f0;
-      border-radius: 6px;
-      padding: 10px;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0.75rem;
       font-size: 1rem;
       resize: vertical;
-      font-family: inherit;
+      font-family: var(--font-sans);
       line-height: 1.5;
+      background: var(--surface);
+      color: var(--text);
     }
-    #ocr-text:focus { outline: none; border-color: #6366f1; }
+    .text-pane textarea:focus { outline: none; border-color: var(--accent); }
 
-    #meta-row { display: flex; gap: 16px; font-size: 0.82rem; color: #64748b; }
-    #confidence-badge {
+    .meta-row { display: flex; gap: 1rem; font-size: 0.82rem; color: var(--text-muted); }
+
+    .conf-badge {
       font-weight: 600;
-      padding: 2px 8px;
+      padding: 0.1em 0.5em;
       border-radius: 99px;
+      font-size: 0.82rem;
     }
-    .conf-low  { background: #fee2e2; color: #b91c1c; }
-    .conf-mid  { background: #fef9c3; color: #854d0e; }
-    .conf-high { background: #dcfce7; color: #15803d; }
+    .conf-low  { background: rgba(220,38,38,.1); color: var(--error); }
+    .conf-mid  { background: rgba(245,158,11,.1); color: var(--warn); }
+    .conf-high { background: rgba(22,163,74,.1); color: var(--ok); }
 
-    /* ── Action bar ── */
-    #action-bar {
-      border-top: 1px solid #f1f5f9;
-      padding: 14px 20px;
+    .action-bar {
+      border-top: 1px solid var(--border);
+      padding: 0.85rem 1.25rem;
       display: flex;
-      gap: 10px;
+      gap: 0.5rem;
       flex-wrap: wrap;
       align-items: center;
     }
 
-    button {
-      cursor: pointer;
-      border: none;
-      border-radius: 6px;
-      padding: 8px 18px;
-      font-size: 0.9rem;
-      font-weight: 500;
-      transition: opacity .15s;
-    }
-    button:disabled { opacity: .4; cursor: default; }
-    button:hover:not(:disabled) { opacity: .85; }
-
-    #btn-accept      { background: #22c55e; color: #fff; }
-    #btn-edit-accept { background: #6366f1; color: #fff; }
-    #btn-skip        { background: #94a3b8; color: #fff; }
-    #btn-accept-all  { background: #f59e0b; color: #fff; margin-left: auto; }
-
-    /* ── Done state ── */
-    #done-msg {
+    .done-msg {
       display: none;
       text-align: center;
-      padding: 40px 20px;
-      color: #15803d;
+      padding: 3rem 1.5rem;
     }
-    #done-msg h2 { font-size: 1.4rem; margin-bottom: 8px; }
-    #done-msg p  { color: #64748b; font-size: 0.9rem; }
-    #done-msg a  {
-      display: inline-block;
-      margin-top: 16px;
-      background: #6366f1;
-      color: #fff;
-      padding: 9px 22px;
-      border-radius: 6px;
-      text-decoration: none;
-      font-weight: 500;
-    }
-
-    #error-msg {
-      display: none;
-      color: #b91c1c;
-      background: #fee2e2;
-      padding: 10px 16px;
-      border-radius: 6px;
-      font-size: 0.9rem;
-      width: 100%;
-      max-width: 900px;
-    }
+    .done-msg h2 { color: var(--ok); margin-bottom: 0.5rem; }
+    .done-msg p { color: var(--text-muted); }
 
     @media (max-width: 620px) {
-      #card-body { grid-template-columns: 1fr; }
+      .review-body { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
 
-<header>
+<div class="review-header">
   <h1>OCR Review</h1>
-  <span id="progress-label">Loading…</span>
-</header>
+  <span id="progress-label" class="text-sm text-muted">Loading...</span>
+</div>
 
-<main>
-  <p id="batch-title"></p>
-  <div id="error-msg"></div>
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;padding:1.5rem 1rem;gap:1.25rem">
+  <p id="batch-title" class="text-sm text-muted"></p>
+  <div id="error-msg" class="error-banner" hidden></div>
 
-  <div id="review-card">
-    <div id="card-body">
-      <div id="image-pane">
-        <img id="region-img" alt="Flagged region" />
-        <p id="no-image-msg">No image preview available</p>
+  <div class="review-card" id="review-card">
+    <div class="review-body">
+      <div class="image-pane">
+        <img id="region-img" alt="Flagged region">
+        <p id="no-image-msg" class="no-image-msg">No image preview available</p>
       </div>
-      <div id="text-pane">
+      <div class="text-pane">
         <label for="ocr-text">OCR Text (edit to correct)</label>
         <textarea id="ocr-text" spellcheck="true"></textarea>
-        <div id="meta-row">
-          <span>Confidence: <span id="confidence-badge">—</span></span>
+        <div class="meta-row">
+          <span>Confidence: <span id="confidence-badge" class="conf-badge">—</span></span>
           <span id="location-info"></span>
         </div>
       </div>
     </div>
-    <div id="action-bar">
-      <button id="btn-accept">Accept</button>
-      <button id="btn-edit-accept">Edit &amp; Accept</button>
-      <button id="btn-skip">Skip</button>
-      <button id="btn-accept-all">Accept All</button>
+    <div class="action-bar">
+      <button class="btn btn-primary btn-sm" id="btn-accept" style="background:var(--ok)">Accept</button>
+      <button class="btn btn-primary btn-sm" id="btn-edit-accept">Edit &amp; Accept</button>
+      <button class="btn btn-ghost btn-sm" id="btn-skip">Skip</button>
+      <div style="flex:1"></div>
+      <button class="btn btn-sm" id="btn-accept-all" style="background:var(--warn);color:white">Accept All</button>
     </div>
   </div>
 
-  <div id="done-msg">
+  <div class="done-msg" id="done-msg">
     <h2>Review complete</h2>
     <p>All OCR flags have been resolved.</p>
-    <a id="results-link" href="#">Back to results</a>
+    <a id="results-link" href="#" class="btn btn-primary mt-1">Back to progress</a>
   </div>
-</main>
 
+  <a href="/" class="text-sm text-muted" style="margin-top:0.5rem">&larr; Back to home</a>
+</div>
+
+<script src="/static/app.js"></script>
 <script>
-  const params  = new URLSearchParams(location.search);
-  const batchId = params.get("batch_id") || "";
-  let flags  = [];
-  let current = 0;
+const params  = new URLSearchParams(location.search);
+const batchId = params.get("batch_id") || "";
+let flags  = [];
+let current = 0;
 
-  const progressLabel = document.getElementById("progress-label");
-  const batchTitle    = document.getElementById("batch-title");
-  const errorMsg      = document.getElementById("error-msg");
-  const card          = document.getElementById("review-card");
-  const doneMsg       = document.getElementById("done-msg");
-  const regionImg     = document.getElementById("region-img");
-  const noImageMsg    = document.getElementById("no-image-msg");
-  const ocrText       = document.getElementById("ocr-text");
-  const confBadge     = document.getElementById("confidence-badge");
-  const locationInfo  = document.getElementById("location-info");
-  const btnAccept     = document.getElementById("btn-accept");
-  const btnEdit       = document.getElementById("btn-edit-accept");
-  const btnSkip       = document.getElementById("btn-skip");
-  const btnAcceptAll  = document.getElementById("btn-accept-all");
-  const resultsLink   = document.getElementById("results-link");
+const progressLabel = document.getElementById("progress-label");
+const batchTitle    = document.getElementById("batch-title");
+const errorMsgEl    = document.getElementById("error-msg");
+const card          = document.getElementById("review-card");
+const doneMsg       = document.getElementById("done-msg");
+const regionImg     = document.getElementById("region-img");
+const noImageMsg    = document.getElementById("no-image-msg");
+const ocrText       = document.getElementById("ocr-text");
+const confBadge     = document.getElementById("confidence-badge");
+const locationInfo  = document.getElementById("location-info");
+const btnAccept     = document.getElementById("btn-accept");
+const btnEdit       = document.getElementById("btn-edit-accept");
+const btnSkip       = document.getElementById("btn-skip");
+const btnAcceptAll  = document.getElementById("btn-accept-all");
+const resultsLink   = document.getElementById("results-link");
 
-  if (!batchId) {
-    showError("No batch_id in URL. Navigate here from the conversion results page.");
-  } else {
-    batchTitle.textContent = `Batch: ${batchId}`;
-    resultsLink.href = `/results.html?batch_id=${encodeURIComponent(batchId)}`;
-    loadFlags();
-  }
+if (!batchId) {
+  showErrMsg("No batch_id in URL. Navigate here from the conversion progress page.");
+} else {
+  batchTitle.textContent = `Batch: ${batchId}`;
+  resultsLink.href = `/progress.html?batch_id=${encodeURIComponent(batchId)}`;
+  loadFlags();
+}
 
-  async function loadFlags() {
-    try {
-      const r = await fetch(`/api/batch/${batchId}/review?status=pending`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      flags = await r.json();
-      current = 0;
-      flags.length === 0 ? showDone() : renderFlag(0);
-    } catch (e) {
-      showError(`Failed to load flags: ${e.message}`);
-    }
-  }
-
-  function renderFlag(idx) {
-    if (idx >= flags.length) { showDone(); return; }
-    const f = flags[idx];
-    progressLabel.textContent = `Reviewing flag ${idx + 1} of ${flags.length}`;
-
-    if (f.image_url) {
-      regionImg.src = f.image_url;
-      regionImg.style.display = "block";
-      noImageMsg.style.display = "none";
+async function loadFlags() {
+  try {
+    const r = await fetch(`/api/batch/${batchId}/review?status=pending`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    flags = await r.json();
+    current = 0;
+    if (flags.length === 0) {
+      showDone();
     } else {
-      regionImg.style.display = "none";
-      noImageMsg.style.display = "block";
+      renderFlag(0);
     }
+  } catch (e) {
+    showErrMsg(`Failed to load flags: ${e.message}`);
+  }
+}
 
-    ocrText.value = f.ocr_text || "";
+function renderFlag(idx) {
+  if (idx >= flags.length) { showDone(); return; }
+  const f = flags[idx];
+  progressLabel.textContent = `Reviewing flag ${idx + 1} of ${flags.length}`;
 
-    const conf = f.confidence ?? 0;
-    confBadge.textContent = `${conf.toFixed(1)}%`;
-    confBadge.className = conf < 50 ? "conf-low" : conf < 80 ? "conf-mid" : "conf-high";
+  if (f.image_url) {
+    regionImg.src = f.image_url;
+    regionImg.style.display = "block";
+    noImageMsg.style.display = "none";
+  } else {
+    regionImg.style.display = "none";
+    noImageMsg.style.display = "block";
+  }
 
-    const bbox = f.region_bbox || [];
-    locationInfo.textContent =
-      `Page ${f.page_num}${bbox.length ? `, region (${bbox.join(", ")})` : ""}`;
+  ocrText.value = f.ocr_text || "";
+  const conf = f.confidence ?? 0;
+  confBadge.textContent = `${conf.toFixed(1)}%`;
+  confBadge.className = `conf-badge ${conf < 50 ? 'conf-low' : conf < 80 ? 'conf-mid' : 'conf-high'}`;
+  const bbox = f.region_bbox || [];
+  locationInfo.textContent = `Page ${f.page_num}${bbox.length ? `, region (${bbox.join(", ")})` : ""}`;
+  setDisabled(false);
+}
 
+btnAccept.addEventListener("click", () => submit("accept", null));
+btnEdit.addEventListener("click",   () => submit("edit",   ocrText.value.trim()));
+btnSkip.addEventListener("click",   () => submit("skip",   null));
+
+btnAcceptAll.addEventListener("click", async () => {
+  setDisabled(true);
+  try {
+    const r = await fetch(`/api/batch/${batchId}/review/accept-all`, { method: "POST" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    showDone();
+  } catch (e) {
+    showErrMsg(`Accept-all failed: ${e.message}`);
     setDisabled(false);
   }
+});
 
-  btnAccept.addEventListener("click", () => submit("accept", null));
-  btnEdit.addEventListener("click",   () => submit("edit",   ocrText.value.trim()));
-  btnSkip.addEventListener("click",   () => submit("skip",   null));
+async function submit(action, correctedText) {
+  if (current >= flags.length) return;
+  if (action === "edit" && !correctedText) {
+    showErrMsg("Please enter corrected text before clicking Edit & Accept.");
+    return;
+  }
+  setDisabled(true);
+  clearErrMsg();
 
-  btnAcceptAll.addEventListener("click", async () => {
-    setDisabled(true);
-    try {
-      const r = await fetch(`/api/batch/${batchId}/review/accept-all`, { method: "POST" });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      showDone();
-    } catch (e) {
-      showError(`Accept-all failed: ${e.message}`);
-      setDisabled(false);
+  const flag = flags[current];
+  const body = { action };
+  if (correctedText !== null) body.corrected_text = correctedText;
+
+  try {
+    const r = await fetch(`/api/batch/${batchId}/review/${flag.flag_id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      throw new Error(d.detail || `HTTP ${r.status}`);
     }
-  });
+    current++;
+    current >= flags.length ? showDone() : renderFlag(current);
+  } catch (e) {
+    showErrMsg(`Failed to submit: ${e.message}`);
+    setDisabled(false);
+  }
+}
 
-  async function submit(action, correctedText) {
-    if (current >= flags.length) return;
-    if (action === "edit" && !correctedText) {
-      showError("Please enter corrected text before clicking Edit & Accept.");
-      return;
-    }
-    setDisabled(true);
-    clearError();
+function showDone() {
+  card.style.display = "none";
+  doneMsg.style.display = "block";
+  progressLabel.textContent = "Done";
+}
 
-    const flag = flags[current];
-    const body = { action };
-    if (correctedText !== null) body.corrected_text = correctedText;
+function showErrMsg(msg) {
+  errorMsgEl.textContent = msg;
+  errorMsgEl.hidden = false;
+}
 
-    try {
-      const r = await fetch(`/api/batch/${batchId}/review/${flag.flag_id}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) {
-        const d = await r.json().catch(() => ({}));
-        throw new Error(d.detail || `HTTP ${r.status}`);
-      }
-      current++;
-      current >= flags.length ? showDone() : renderFlag(current);
-    } catch (e) {
-      showError(`Failed to submit: ${e.message}`);
-      setDisabled(false);
-    }
-  }
+function clearErrMsg() {
+  errorMsgEl.textContent = "";
+  errorMsgEl.hidden = true;
+}
 
-  function showDone() {
-    card.style.display = "none";
-    doneMsg.style.display = "block";
-    progressLabel.textContent = "Done";
-  }
-  function showError(msg) {
-    errorMsg.textContent = msg;
-    errorMsg.style.display = "block";
-  }
-  function clearError() {
-    errorMsg.textContent = "";
-    errorMsg.style.display = "none";
-  }
-  function setDisabled(v) {
-    [btnAccept, btnEdit, btnSkip, btnAcceptAll].forEach(b => b.disabled = v);
-  }
+function setDisabled(v) {
+  [btnAccept, btnEdit, btnSkip, btnAcceptAll].forEach(b => b.disabled = v);
+}
 </script>
 </body>
 </html>

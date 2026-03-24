@@ -26,7 +26,9 @@ async def test_health_ok(client):
 async def test_get_preferences(client):
     resp = await client.get("/api/preferences")
     assert resp.status_code == 200
-    prefs = resp.json()
+    data = resp.json()
+    # Phase 6: response is now {preferences: {}, schema: {}}
+    prefs = data.get("preferences", data)
     assert "default_direction" in prefs
     assert "max_upload_size_mb" in prefs
 
@@ -162,11 +164,11 @@ async def test_history_filters_by_format(client):
 
 
 async def test_history_pagination(client):
-    resp = await client.get("/api/history?limit=5&offset=0")
+    resp = await client.get("/api/history?page=1&per_page=5")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["limit"] == 5
-    assert body["offset"] == 0
+    assert body["per_page"] == 5
+    assert body["page"] == 1
     assert len(body["records"]) <= 5
 
 

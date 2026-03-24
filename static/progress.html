@@ -1,53 +1,62 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MarkFlow — Converting…</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-  <link rel="stylesheet" href="/static/style.css">
+  <title>MarkFlow — Converting...</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+  <style>
+    .file-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 0; border-bottom: 1px solid var(--border); }
+    .file-row:last-child { border-bottom: none; }
+    .file-icon { font-size: 1.1rem; width: 1.5rem; text-align: center; flex-shrink: 0; }
+    .file-name { font-family: var(--font-mono); font-size: 0.9rem; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-arrow { color: var(--text-muted); font-size: 0.85rem; }
+    .file-output { font-family: var(--font-mono); font-size: 0.85rem; color: var(--text-muted); }
+    .file-duration { font-family: var(--font-mono); font-size: 0.85rem; color: var(--text-muted); white-space: nowrap; }
+    .file-detail { font-size: 0.85rem; color: var(--error); padding: 0.3rem 0 0 2.25rem; }
+    .file-detail summary { cursor: pointer; }
+  </style>
 </head>
 <body>
-  <header class="container">
-    <nav>
-      <ul><li><strong>MarkFlow</strong> <small>Document Conversion</small></li></ul>
-      <ul>
-        <li><a href="/history.html">History</a></li>
-        <li><a href="/settings.html">Settings</a></li>
-      </ul>
-    </nav>
-  </header>
+  <nav class="nav-bar">
+    <a href="/" class="nav-logo">MarkFlow</a>
+    <div class="nav-links">
+      <a href="/" class="nav-link">Convert</a>
+      <a href="/history.html" class="nav-link">History</a>
+      <a href="/settings.html" class="nav-link">Settings</a>
+    </div>
+  </nav>
 
-  <main class="container">
-    <hgroup>
-      <h1>Converting…</h1>
-      <p id="subtitle">Processing your documents.</p>
-    </hgroup>
+  <div class="container page-content">
+    <div id="error-banner" role="alert" hidden></div>
 
-    <article>
-      <header>Batch Status</header>
-      <div id="progress-area">
-        <progress id="progress-bar"></progress>
-        <p id="progress-text" aria-live="polite">Starting…</p>
+    <h1 id="page-title">Converting...</h1>
+    <p id="subtitle" class="text-muted mb-2">Processing your documents.</p>
+
+    <div class="card">
+      <div class="card-header">
+        <span>Batch Progress</span>
+        <span id="connection-badge" class="reconnecting" hidden><span class="spinner spinner-sm"></span> Reconnecting...</span>
       </div>
 
-      <div id="file-table-wrap" hidden>
-        <table>
-          <thead><tr><th>File</th><th>Status</th><th>Duration</th><th>Warnings</th></tr></thead>
-          <tbody id="file-rows"></tbody>
-        </table>
+      <!-- Progress bar -->
+      <div class="progress-bar mb-1" id="progress-wrap">
+        <div class="progress-bar__fill" id="progress-fill" style="width:0%"></div>
       </div>
-    </article>
+      <p id="progress-text" class="text-sm text-muted mb-2" aria-live="polite">Waiting for first file...</p>
 
-    <div id="done-actions" hidden>
-      <div class="grid">
-        <a href="#" id="btn-download-all" role="button">Download All (.zip)</a>
-        <a href="#" id="btn-view-results" role="button" class="secondary">View Results</a>
-      </div>
+      <!-- File list -->
+      <div id="file-list"></div>
     </div>
 
-    <a href="/">← Convert More Files</a>
-  </main>
+    <!-- Actions (hidden until done) -->
+    <div id="done-actions" class="btn-group mt-2" hidden>
+      <a href="#" id="btn-download-all" class="btn btn-primary btn-lg" style="pointer-events:none;opacity:0.5">Download All (.zip)</a>
+      <a href="/history.html" class="btn btn-ghost btn-lg">View History</a>
+    </div>
+
+    <a href="/" class="text-sm mt-2" style="display:inline-block">&larr; Convert More Files</a>
+  </div>
 
   <script src="/static/app.js"></script>
   <script>
@@ -55,65 +64,154 @@
   const batchId = params.get('batch_id');
 
   if (!batchId) {
-    document.getElementById('subtitle').textContent = 'No batch ID in URL.';
+    document.getElementById('subtitle').textContent = 'No batch ID provided.';
+    showError('No batch_id in URL. Start a conversion from the home page.');
   } else {
-    document.getElementById('btn-download-all').href = `/api/batch/${batchId}/download`;
-    document.getElementById('btn-view-results').href = `/results.html?batch_id=${batchId}`;
-    poll();
+    startSSE();
   }
 
-  let pollInterval;
+  // File tracking
+  const fileState = {}; // keyed by file_id
+  let totalFiles = 0;
+  let completedFiles = 0;
+  let failedFiles = 0;
 
-  async function poll() {
-    try {
-      const status = await API.get(`/api/batch/${batchId}/status`);
-      render(status);
+  function startSSE() {
+    const evtSource = new EventSource(`/api/batch/${batchId}/stream`);
+    let reconnectAttempts = 0;
 
-      const done = ['done', 'partial', 'failed'].includes(status.status);
-      if (done) {
-        clearInterval(pollInterval);
+    evtSource.addEventListener('file_start', e => {
+      reconnectAttempts = 0;
+      hideReconnecting();
+      const d = JSON.parse(e.data);
+      totalFiles = d.total;
+      fileState[d.file_id] = { ...d, status: 'converting' };
+      renderFiles();
+      updateProgress();
+    });
+
+    evtSource.addEventListener('file_complete', e => {
+      const d = JSON.parse(e.data);
+      fileState[d.file_id] = { ...fileState[d.file_id], ...d, status: 'success' };
+      completedFiles++;
+      renderFiles();
+      updateProgress();
+    });
+
+    evtSource.addEventListener('file_error', e => {
+      const d = JSON.parse(e.data);
+      fileState[d.file_id] = { ...fileState[d.file_id], ...d, status: 'error' };
+      failedFiles++;
+      renderFiles();
+      updateProgress();
+    });
+
+    evtSource.addEventListener('ocr_flag', e => {
+      const d = JSON.parse(e.data);
+      if (fileState[d.file_id]) {
+        fileState[d.file_id].ocr = d;
       }
-    } catch (e) {
-      document.getElementById('progress-text').textContent = `Error: ${e.message}`;
-    }
-  }
+      renderFiles();
+    });
 
-  function render(s) {
-    const total = s.total_files || 1;
-    const done = (s.completed_files || 0) + (s.failed_files || 0);
-    const pct = Math.round(done / total * 100);
+    evtSource.addEventListener('batch_complete', e => {
+      const d = JSON.parse(e.data);
+      totalFiles = d.total;
+      completedFiles = d.success;
+      failedFiles = d.error;
 
-    const bar = document.getElementById('progress-bar');
-    bar.value = pct;
-    bar.max = 100;
+      const allFailed = d.success === 0 && d.error > 0;
+      document.getElementById('page-title').textContent =
+        allFailed ? `Failed - 0 of ${d.total} succeeded` : `Done - ${d.success} of ${d.total} succeeded`;
 
-    const isDone = ['done', 'partial', 'failed'].includes(s.status);
-    document.getElementById('progress-text').textContent =
-      isDone
-        ? `Done — ${s.completed_files} converted, ${s.failed_files} failed.`
-        : `Processing… ${done} / ${total} files (${pct}%)`;
+      document.getElementById('progress-fill').style.width = '100%';
+      if (allFailed) {
+        document.getElementById('progress-wrap').classList.add('progress-bar--error');
+      } else {
+        document.getElementById('progress-wrap').classList.add('progress-bar--ok');
+      }
 
-    document.getElementById('subtitle').textContent =
-      `Batch: ${batchId} · Status: ${s.status}`;
-
-    if (s.files && s.files.length) {
-      document.getElementById('file-table-wrap').hidden = false;
-      document.getElementById('file-rows').innerHTML = s.files.map(f => {
-        const badge = f.status === 'success'
-          ? '<span style="color:green">✓ success</span>'
-          : `<span style="color:red">✗ ${f.status}</span>`;
-        const warn = (f.warnings || []).join(', ') || '';
-        const dur = f.duration_ms ? formatDuration(f.duration_ms) : '…';
-        return `<tr><td>${f.source}</td><td>${badge}</td><td>${dur}</td><td><small>${warn}</small></td></tr>`;
-      }).join('');
-    }
-
-    if (isDone) {
+      const dlBtn = document.getElementById('btn-download-all');
+      dlBtn.href = d.download_url || `/api/batch/${batchId}/download`;
+      dlBtn.style.pointerEvents = 'auto';
+      dlBtn.style.opacity = '1';
       document.getElementById('done-actions').hidden = false;
+
+      updateProgress();
+    });
+
+    evtSource.addEventListener('done', () => {
+      evtSource.close();
+    });
+
+    evtSource.onerror = () => {
+      reconnectAttempts++;
+      if (reconnectAttempts >= 3) {
+        evtSource.close();
+        showReconnecting(true);
+      } else {
+        showReconnecting(false);
+      }
+    };
+  }
+
+  function showReconnecting(failed) {
+    const badge = document.getElementById('connection-badge');
+    badge.hidden = false;
+    if (failed) {
+      badge.innerHTML = 'Connection lost &mdash; <a href="javascript:location.reload()" style="color:inherit;text-decoration:underline">Refresh</a>';
     }
   }
 
-  pollInterval = setInterval(poll, 1500);
+  function hideReconnecting() {
+    document.getElementById('connection-badge').hidden = true;
+  }
+
+  function updateProgress() {
+    const done = completedFiles + failedFiles;
+    const pct = totalFiles > 0 ? Math.round(done / totalFiles * 100) : 0;
+    document.getElementById('progress-fill').style.width = pct + '%';
+    document.getElementById('progress-text').textContent =
+      `${done} / ${totalFiles || '?'} files processed (${pct}%)`;
+    document.getElementById('subtitle').textContent = `Batch: ${batchId}`;
+  }
+
+  function renderFiles() {
+    const container = document.getElementById('file-list');
+    const entries = Object.values(fileState);
+
+    container.innerHTML = entries.map(f => {
+      let icon, iconClass;
+      if (f.status === 'success') { icon = '&#10003;'; iconClass = 'file-status-ok'; }
+      else if (f.status === 'error') { icon = '&#10007;'; iconClass = 'file-status-error'; }
+      else if (f.status === 'converting') { icon = '<span class="spinner spinner-sm"></span>'; iconClass = 'file-status-active'; }
+      else { icon = '&#183;'; iconClass = 'file-status-pending'; }
+
+      const arrow = f.output_filename ? `<span class="file-arrow">&rarr;</span><span class="file-output">${f.output_filename}</span>` : '';
+      const dur = f.duration_ms ? `<span class="file-duration">${formatDuration(f.duration_ms)}</span>` : '';
+      const statusLabel = f.status === 'converting' ? '<span class="text-sm text-muted">converting...</span>' :
+                          f.status === 'waiting' ? '<span class="text-sm text-muted">waiting</span>' : '';
+
+      let extra = '';
+      if (f.status === 'error' && f.error) {
+        const short = f.error.length > 60 ? f.error.slice(0, 60) + '...' : f.error;
+        extra = `<div class="file-detail"><details><summary>${short}</summary><p>${f.error}</p></details></div>`;
+      }
+
+      let ocrBanner = '';
+      if (f.ocr) {
+        ocrBanner = `<div class="ocr-banner">${f.ocr.flag_count} page(s) need OCR review &mdash; <a href="${f.ocr.review_url}">Review now</a></div>`;
+      }
+
+      return `<div class="file-row">
+        <span class="file-icon ${iconClass}">${icon}</span>
+        <span class="file-name">${f.filename}</span>
+        ${arrow}
+        ${statusLabel}
+        ${dur}
+      </div>${extra}${ocrBanner}`;
+    }).join('');
+  }
   </script>
 </body>
 </html>

@@ -1,61 +1,50 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MarkFlow — Document Conversion</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/markflow.css">
 </head>
 <body>
-  <header class="container">
-    <nav>
-      <ul>
-        <li><strong>MarkFlow</strong> <small>Document Conversion</small></li>
-      </ul>
-      <ul>
-        <li><a href="/history.html">History</a></li>
-        <li><a href="/settings.html">Settings</a></li>
-      </ul>
-    </nav>
-  </header>
+  <nav class="nav-bar">
+    <a href="/" class="nav-logo">MarkFlow</a>
+    <div class="nav-links">
+      <a href="/" class="nav-link">Convert</a>
+      <a href="/history.html" class="nav-link">History</a>
+      <a href="/settings.html" class="nav-link">Settings</a>
+    </div>
+  </nav>
 
-  <main class="container">
-    <!-- Error banner (hidden by default) -->
-    <div id="error-banner" role="alert" class="pico-background-red-100" style="padding:1rem;border-radius:4px;margin-bottom:1rem;" hidden></div>
+  <div class="container page-content">
+    <div id="error-banner" role="alert" hidden></div>
 
-    <hgroup>
-      <h1>Document Conversion</h1>
-      <p>Convert documents to and from Markdown. Supports DOCX, PDF, PPTX, XLSX, and CSV.</p>
-    </hgroup>
+    <h1>Document Conversion</h1>
+    <p class="text-muted mb-2">Convert documents to and from Markdown. Supports DOCX, PDF, PPTX, XLSX, and CSV.</p>
 
-    <!-- System status card -->
-    <article id="health-card">
-      <header>System Status</header>
-      <div id="health-status">
-        <p aria-busy="true">Checking dependencies…</p>
-      </div>
-    </article>
+    <!-- System status -->
+    <div class="card mb-2" id="health-card">
+      <div class="card-header">System Status</div>
+      <div id="health-status"><span class="spinner"></span> Checking dependencies...</div>
+    </div>
 
     <!-- Conversion form -->
-    <article>
-      <header>Convert Documents</header>
+    <div class="card">
+      <div class="card-header">Convert Documents</div>
 
       <!-- Direction toggle -->
-      <fieldset>
-        <legend>Direction</legend>
-        <label>
-          <input type="radio" name="direction" value="to_md" checked>
-          Document → Markdown
+      <fieldset class="mb-2" style="border:none;padding:0">
+        <div class="text-sm text-muted mb-1" style="font-weight:600">Direction</div>
+        <label style="display:inline-flex;align-items:center;gap:0.4rem;margin-right:1.5rem;cursor:pointer">
+          <input type="radio" name="direction" value="to_md" checked> Document &rarr; Markdown
         </label>
-        <label>
-          <input type="radio" name="direction" value="from_md">
-          Markdown → Document
+        <label style="display:inline-flex;align-items:center;gap:0.4rem;cursor:pointer">
+          <input type="radio" name="direction" value="from_md"> Markdown &rarr; Document
         </label>
       </fieldset>
 
-      <!-- Target format (shown when from_md) -->
-      <div id="target-format-row" hidden>
+      <!-- Target format (from_md only) -->
+      <div id="target-format-row" class="form-group" hidden>
         <label for="target-format">Target Format</label>
         <select id="target-format" name="target_format">
           <option value="docx">DOCX</option>
@@ -63,97 +52,85 @@
           <option value="pptx">PPTX</option>
           <option value="xlsx">XLSX</option>
         </select>
-        <p id="sidecar-hint"><small>
-          <strong>Fidelity tip:</strong> For best results, upload the
-          <code>.styles.json</code> sidecar alongside the <code>.md</code> file (Tier 2 — fonts,
-          spacing, alignment restored). Also upload the original <code>.docx</code> for
-          near-perfect reconstruction (Tier 3).
-        </small></p>
+        <p class="hint">For best results, upload the <code>.styles.json</code> sidecar alongside the <code>.md</code> file (Tier 2). Also upload the original file for near-perfect reconstruction (Tier 3).</p>
       </div>
 
       <!-- Drop zone -->
-      <div id="drop-zone" class="drop-zone" tabindex="0" role="button"
-           aria-label="Drop files here or click to browse">
-        <p>&#128196; Drop files here, or <strong>click to browse</strong></p>
-        <p><small>Supports: .docx, .doc, .pdf, .pptx, .xlsx, .csv, .md</small></p>
+      <div id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="Drop files here or click to browse">
+        <p style="font-size:1.5rem">&#128196;</p>
+        <p>Drop files here, or <strong>click to browse</strong></p>
+        <p class="text-sm text-muted">Supports: .docx, .doc, .pdf, .pptx, .xlsx, .csv, .md</p>
         <input type="file" id="file-input" multiple accept=".docx,.doc,.pdf,.pptx,.xlsx,.csv,.md" style="display:none">
       </div>
 
       <!-- File list -->
-      <div id="file-list" hidden>
-        <ul id="selected-files"></ul>
-        <button class="secondary outline" id="clear-files">Clear</button>
+      <div id="file-list" hidden class="mt-1">
+        <ul id="selected-files" style="list-style:none;padding:0"></ul>
+        <button class="btn btn-ghost btn-sm" id="clear-files">Clear all</button>
       </div>
 
       <!-- Output directory -->
-      <label for="output-dir">Output Directory (optional — leave blank for default)</label>
-      <input type="text" id="output-dir" name="output_dir" placeholder="/app/output">
+      <div class="form-group mt-2">
+        <label for="output-dir">Output Directory <span class="text-muted">(optional)</span></label>
+        <input type="text" id="output-dir" name="output_dir" placeholder="/app/output">
+      </div>
 
       <!-- Unattended mode -->
-      <label>
+      <label class="toggle mb-2">
         <input type="checkbox" id="unattended" name="unattended">
-        Unattended mode (auto-accept all OCR results)
+        <span class="toggle-track"></span>
+        <span class="toggle-label">Unattended mode (auto-accept all OCR results)</span>
       </label>
 
       <!-- Actions -->
-      <div class="grid">
-        <button class="outline secondary" id="btn-preview" disabled>Preview</button>
-        <button id="btn-convert" disabled>Convert</button>
+      <div class="btn-group mt-2">
+        <button class="btn btn-ghost" id="btn-preview" disabled>Preview</button>
+        <button class="btn btn-primary" id="btn-convert" disabled>Convert</button>
       </div>
-    </article>
-  </main>
-
-  <footer class="container">
-    <small>MarkFlow v0.2.0 &mdash; <a href="/api/health">System Health</a> &mdash;
-    <a href="http://localhost:8000/docs" target="_blank">API Docs</a></small>
-  </footer>
+    </div>
+  </div>
 
   <script src="/static/app.js"></script>
   <script>
-  // ── Health check on load ────────────────────────────────────────────────────
+  // ── Health check ──────────────────────────────────────────────────────────
   (async () => {
     try {
       const health = await API.get('/api/health');
-      renderHealth(health);
+      const comps = health.components || health;
+      const rows = Object.entries(comps).map(([dep, s]) => {
+        const ok = s.ok ? '<span class="status-ok">OK</span>' : '<span class="status-error">FAIL</span>';
+        const detail = s.version || s.error || (s.free_gb != null ? `${s.free_gb} GB free` : '');
+        return `<tr><td>${dep}</td><td>${ok}</td><td class="text-sm text-muted">${detail || ''}</td></tr>`;
+      }).join('');
+      document.getElementById('health-status').innerHTML = `<table class="data-table">${rows}</table>`;
     } catch (e) {
       document.getElementById('health-status').innerHTML =
-        '<p style="color:red">Could not reach server.</p>';
+        '<span class="status-error">Could not reach server.</span>';
     }
   })();
 
-  function renderHealth(h) {
-    const icons = { true: '✅', false: '❌' };
-    const rows = Object.entries(h).map(([dep, s]) => {
-      const ok = icons[String(s.ok)];
-      const detail = s.version || s.error || (s.free_gb != null ? `${s.free_gb} GB free` : '');
-      return `<tr><td>${dep}</td><td>${ok}</td><td><small>${detail || ''}</small></td></tr>`;
-    }).join('');
-    document.getElementById('health-status').innerHTML =
-      `<table><tbody>${rows}</tbody></table>`;
-  }
-
-  // ── Load preferences ────────────────────────────────────────────────────────
+  // ── Load preferences ──────────────────────────────────────────────────────
   (async () => {
     try {
-      const prefs = await API.get('/api/preferences');
+      const data = await API.get('/api/preferences');
+      const prefs = data.preferences || data;
       if (prefs.last_save_directory) document.getElementById('output-dir').value = prefs.last_save_directory;
       if (prefs.default_direction) {
-        document.querySelector(`input[name=direction][value="${prefs.default_direction}"]`).checked = true;
-        toggleDirection(prefs.default_direction);
+        const radio = document.querySelector(`input[name=direction][value="${prefs.default_direction}"]`);
+        if (radio) { radio.checked = true; toggleDirection(prefs.default_direction); }
       }
     } catch (e) { /* prefs not critical */ }
   })();
 
-  // ── Direction toggle ────────────────────────────────────────────────────────
+  // ── Direction toggle ──────────────────────────────────────────────────────
   document.querySelectorAll('input[name=direction]').forEach(r =>
     r.addEventListener('change', e => toggleDirection(e.target.value))
   );
-
   function toggleDirection(dir) {
     document.getElementById('target-format-row').hidden = dir !== 'from_md';
   }
 
-  // ── File drop zone ──────────────────────────────────────────────────────────
+  // ── File drop zone ────────────────────────────────────────────────────────
   const dropZone = document.getElementById('drop-zone');
   const fileInput = document.getElementById('file-input');
   let selectedFiles = [];
@@ -167,7 +144,7 @@
     dropZone.classList.remove('drag-over');
     addFiles([...e.dataTransfer.files]);
   });
-  fileInput.addEventListener('change', () => addFiles([...fileInput.files]));
+  fileInput.addEventListener('change', () => { addFiles([...fileInput.files]); fileInput.value = ''; });
 
   document.getElementById('clear-files').addEventListener('click', () => {
     selectedFiles = [];
@@ -190,8 +167,12 @@
     }
     container.hidden = false;
     list.innerHTML = selectedFiles.map((f, i) =>
-      `<li>${f.name} <small>(${formatBytes(f.size)})</small>
-       <a href="#" onclick="removeFile(${i});return false">✕</a></li>`
+      `<li style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0">
+        ${formatBadge(f.name.split('.').pop())}
+        <span class="text-mono text-sm">${f.name}</span>
+        <span class="text-sm text-muted">(${formatBytes(f.size)})</span>
+        <a href="#" onclick="removeFile(${i});return false" style="color:var(--error);font-size:0.85rem">&#x2715;</a>
+      </li>`
     ).join('');
     document.getElementById('btn-preview').disabled = false;
     document.getElementById('btn-convert').disabled = false;
@@ -202,7 +183,7 @@
     renderFileList();
   }
 
-  // ── Preview ─────────────────────────────────────────────────────────────────
+  // ── Preview ───────────────────────────────────────────────────────────────
   document.getElementById('btn-preview').addEventListener('click', async () => {
     if (!selectedFiles.length) return;
     const file = selectedFiles[0];
@@ -217,10 +198,17 @@
     }
   });
 
-  // ── Convert ─────────────────────────────────────────────────────────────────
+  // ── Convert ───────────────────────────────────────────────────────────────
   document.getElementById('btn-convert').addEventListener('click', async () => {
-    if (!selectedFiles.length) return;
+    if (!selectedFiles.length) {
+      showError('Please select at least one file.');
+      return;
+    }
     hideError();
+    const btn = document.getElementById('btn-convert');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner spinner-sm"></span> Uploading...';
+
     const fd = new FormData();
     selectedFiles.forEach(f => fd.append('files', f));
     fd.append('direction', document.querySelector('input[name=direction]:checked').value);
@@ -233,7 +221,9 @@
       const result = await API.upload('/api/convert', fd);
       window.location.href = `/progress.html?batch_id=${result.batch_id}`;
     } catch (e) {
-      showError(`Conversion failed: ${e.message}`);
+      showError(e.message);
+      btn.disabled = false;
+      btn.textContent = 'Convert';
     }
   });
   </script>

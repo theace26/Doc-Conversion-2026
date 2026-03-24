@@ -1,18 +1,339 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MarkFlow — History</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-<link rel="stylesheet" href="/static/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MarkFlow — History</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+  <style>
+    .detail-row { display: none; }
+    .detail-row.open { display: table-row; }
+    .detail-row td { background: var(--surface-alt); padding: 1rem 1.25rem; }
+    .detail-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.5rem 1.5rem; }
+    .detail-grid dt { font-weight: 600; color: var(--text-muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; }
+    .detail-grid dd { margin: 0 0 0.6rem 0; font-size: 0.9rem; }
+    .clickable-row { cursor: pointer; }
+    .clickable-row:hover td { background: var(--surface-alt); }
+  </style>
 </head>
 <body>
-<main class="container">
-<h1>MarkFlow — History</h1>
-<p>This page is implemented in a later phase.</p>
-<a href="/">← Back to Home</a>
-</main>
-<script src="/static/app.js"></script>
+  <nav class="nav-bar">
+    <a href="/" class="nav-logo">MarkFlow</a>
+    <div class="nav-links">
+      <a href="/" class="nav-link">Convert</a>
+      <a href="/history.html" class="nav-link">History</a>
+      <a href="/settings.html" class="nav-link">Settings</a>
+    </div>
+  </nav>
+
+  <div class="container page-content">
+    <div id="error-banner" role="alert" hidden></div>
+
+    <h1>Conversion History</h1>
+    <div id="stats-row" class="stats-row mt-1 mb-2"></div>
+
+    <!-- Filters -->
+    <div class="filter-bar">
+      <select id="filter-format">
+        <option value="">All formats</option>
+      </select>
+      <select id="filter-status">
+        <option value="">All status</option>
+        <option value="success">Success</option>
+        <option value="error">Error</option>
+      </select>
+      <input type="search" id="filter-search" placeholder="Search files...">
+    </div>
+
+    <!-- Table -->
+    <div class="card" style="padding:0;overflow:auto">
+      <table class="data-table" id="history-table">
+        <thead>
+          <tr>
+            <th data-sort="date_desc">Filename <span class="sort-icon"></span></th>
+            <th>Format</th>
+            <th>Status</th>
+            <th data-sort="duration_desc">Duration <span class="sort-icon"></span></th>
+            <th data-sort="date_desc">Date <span class="sort-icon"></span></th>
+          </tr>
+        </thead>
+        <tbody id="history-body">
+          <tr><td colspan="5" style="text-align:center;padding:2rem"><span class="spinner"></span> Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    <div class="pagination" id="pagination">
+      <span id="pagination-info" class="text-sm text-muted"></span>
+      <div class="pagination-pages" id="pagination-pages"></div>
+    </div>
+
+    <!-- Empty state -->
+    <div id="empty-state" class="empty-state" hidden>
+      <h3>No conversions yet</h3>
+      <p>Convert your first file to see it here.</p>
+      <a href="/" class="btn btn-primary">Convert a file</a>
+    </div>
+
+    <div id="empty-filtered" class="empty-state" hidden>
+      <h3>No results match your filters</h3>
+      <p id="empty-filtered-text"></p>
+      <button class="btn btn-ghost" onclick="clearFilters()">Clear filters</button>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script>
+  // State
+  let currentPage = 1;
+  let currentSort = 'date_desc';
+  let currentFormat = '';
+  let currentStatus = '';
+  let currentSearch = '';
+  let debounceTimer = null;
+  let expandedRow = null;
+
+  // Init from URL params
+  const urlParams = new URLSearchParams(location.search);
+  if (urlParams.get('format')) { currentFormat = urlParams.get('format'); document.getElementById('filter-format').value = currentFormat; }
+  if (urlParams.get('status')) { currentStatus = urlParams.get('status'); document.getElementById('filter-status').value = currentStatus; }
+  if (urlParams.get('search')) { currentSearch = urlParams.get('search'); document.getElementById('filter-search').value = currentSearch; }
+  if (urlParams.get('page'))   { currentPage = parseInt(urlParams.get('page')) || 1; }
+  if (urlParams.get('sort'))   { currentSort = urlParams.get('sort'); }
+
+  // Load stats
+  (async () => {
+    try {
+      const stats = await API.get('/api/history/stats');
+      const rate = stats.total_conversions > 0 ? stats.success_rate_pct : 0;
+      document.getElementById('stats-row').innerHTML =
+        `<span><strong>${stats.total_conversions}</strong> conversions</span>` +
+        `<span><strong>${rate}%</strong> success</span>` +
+        `<span>avg <strong>${formatDuration(stats.avg_duration_ms)}</strong></span>` +
+        `<span><strong>${formatBytes(stats.total_size_bytes_processed)}</strong> processed</span>`;
+    } catch (e) { /* stats not critical */ }
+  })();
+
+  // Fetch and render
+  async function loadHistory() {
+    updateURL();
+    const qs = new URLSearchParams({
+      page: currentPage,
+      per_page: 25,
+      sort: currentSort,
+    });
+    if (currentFormat) qs.set('format', currentFormat);
+    if (currentStatus) qs.set('status', currentStatus);
+    if (currentSearch) qs.set('search', currentSearch);
+
+    try {
+      const data = await API.get(`/api/history?${qs}`);
+      renderTable(data);
+      renderPagination(data);
+      populateFormatFilter(data.formats_available || []);
+
+      // Show/hide states
+      const hasRecords = data.records.length > 0;
+      const isFiltered = currentFormat || currentStatus || currentSearch;
+
+      document.getElementById('history-table').closest('.card').hidden = !hasRecords;
+      document.getElementById('pagination').hidden = !hasRecords;
+      document.getElementById('empty-state').hidden = hasRecords || isFiltered;
+      document.getElementById('empty-filtered').hidden = hasRecords || !isFiltered;
+
+      if (!hasRecords && isFiltered) {
+        const term = currentSearch ? ` matching "${currentSearch}"` : '';
+        document.getElementById('empty-filtered-text').textContent = `No conversions${term} with the current filters.`;
+      }
+    } catch (e) {
+      showError(`Failed to load history: ${e.message}`);
+    }
+  }
+
+  function renderTable(data) {
+    const body = document.getElementById('history-body');
+    if (!data.records.length) { body.innerHTML = ''; return; }
+
+    body.innerHTML = data.records.map(r => {
+      const statusBadge = r.status === 'success'
+        ? '<span class="status-ok">Success</span>'
+        : '<span class="status-error">Error</span>';
+      const rowClass = r.status === 'error' ? 'clickable-row row-error' : 'clickable-row';
+      return `<tr class="${rowClass}" data-id="${r.id}">
+        <td class="text-mono text-sm">${r.source_filename}</td>
+        <td>${formatBadge(r.source_format)}</td>
+        <td>${statusBadge}</td>
+        <td class="text-mono text-sm">${formatDuration(r.duration_ms)}</td>
+        <td class="text-sm">${formatDate(r.created_at)}</td>
+      </tr>
+      <tr class="detail-row" id="detail-${r.id}">
+        <td colspan="5">
+          <dl class="detail-grid">
+            <dt>Converted</dt><dd>${r.created_at || '—'}</dd>
+            <dt>Direction</dt><dd>${r.direction === 'to_md' ? 'Document &rarr; Markdown' : 'Markdown &rarr; Document'}</dd>
+            <dt>Output</dt><dd class="text-mono">${r.output_filename || '—'} ${r.file_size_bytes ? '(' + formatBytes(r.file_size_bytes) + ')' : ''}</dd>
+            <dt>Batch</dt><dd class="text-mono text-sm">${r.batch_id}</dd>
+            <dt>OCR flags</dt><dd>${r.ocr_flags_total || 0} total, ${r.ocr_flags_resolved || 0} resolved</dd>
+            ${r.error_message ? `<dt>Error</dt><dd class="status-error">${r.error_message}</dd>` : ''}
+            ${r.warnings && r.warnings.length ? `<dt>Warnings</dt><dd>${r.warnings.join(', ')}</dd>` : ''}
+          </dl>
+          <div class="btn-group mt-1">
+            <button class="btn btn-ghost btn-sm" onclick="redownload(${r.id}, this)">Download</button>
+            ${r.ocr_flags_total > 0 ? `<a href="/review.html?batch_id=${r.batch_id}" class="btn btn-ghost btn-sm">OCR Review</a>` : ''}
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+
+    // Click handlers for rows
+    body.querySelectorAll('.clickable-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const id = row.dataset.id;
+        const detail = document.getElementById(`detail-${id}`);
+        if (expandedRow && expandedRow !== detail) expandedRow.classList.remove('open');
+        detail.classList.toggle('open');
+        expandedRow = detail.classList.contains('open') ? detail : null;
+      });
+    });
+  }
+
+  function renderPagination(data) {
+    const info = document.getElementById('pagination-info');
+    const pages = document.getElementById('pagination-pages');
+    const start = (data.page - 1) * data.per_page + 1;
+    const end = Math.min(data.page * data.per_page, data.total);
+    info.textContent = data.total > 0 ? `Showing ${start}–${end} of ${data.total}` : '';
+
+    if (data.total_pages <= 1) { pages.innerHTML = ''; return; }
+
+    let html = '';
+    html += `<button ${data.page <= 1 ? 'disabled' : ''} onclick="goToPage(${data.page - 1})">&larr; Prev</button>`;
+
+    const maxVisible = 7;
+    const tp = data.total_pages;
+    const cp = data.page;
+    let pageNums = [];
+
+    if (tp <= maxVisible) {
+      for (let i = 1; i <= tp; i++) pageNums.push(i);
+    } else {
+      pageNums.push(1);
+      if (cp > 3) pageNums.push('...');
+      for (let i = Math.max(2, cp - 1); i <= Math.min(tp - 1, cp + 1); i++) pageNums.push(i);
+      if (cp < tp - 2) pageNums.push('...');
+      pageNums.push(tp);
+    }
+
+    for (const p of pageNums) {
+      if (p === '...') {
+        html += `<span class="ellipsis">...</span>`;
+      } else {
+        html += `<button class="${p === cp ? 'active' : ''}" onclick="goToPage(${p})">${p}</button>`;
+      }
+    }
+
+    html += `<button ${data.page >= tp ? 'disabled' : ''} onclick="goToPage(${data.page + 1})">Next &rarr;</button>`;
+    pages.innerHTML = html;
+  }
+
+  function populateFormatFilter(formats) {
+    const sel = document.getElementById('filter-format');
+    const current = sel.value;
+    // Only repopulate if options changed
+    if (sel.options.length - 1 === formats.length) return;
+    sel.innerHTML = '<option value="">All formats</option>' +
+      formats.map(f => `<option value="${f}" ${f === current ? 'selected' : ''}>${f.toUpperCase()}</option>`).join('');
+  }
+
+  async function redownload(id, btn) {
+    btn.disabled = true;
+    btn.textContent = 'Downloading...';
+    try {
+      const res = await fetch(`/api/history/${id}/redownload`);
+      if (res.status === 410) {
+        const data = await res.json().catch(() => ({}));
+        btn.textContent = 'Expired';
+        btn.disabled = true;
+        showToast(data.message || data.detail?.message || 'Output files expired', 'error');
+        return;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const cd = res.headers.get('content-disposition') || '';
+      const match = cd.match(/filename="?([^"]+)"?/);
+      const filename = match ? match[1] : 'download';
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      btn.textContent = 'Download';
+      btn.disabled = false;
+    } catch (e) {
+      btn.textContent = 'Download';
+      btn.disabled = false;
+      showToast('Download failed: ' + e.message, 'error');
+    }
+  }
+
+  // Navigation
+  function goToPage(p) { currentPage = p; loadHistory(); }
+
+  function updateURL() {
+    const p = new URLSearchParams();
+    if (currentFormat) p.set('format', currentFormat);
+    if (currentStatus) p.set('status', currentStatus);
+    if (currentSearch) p.set('search', currentSearch);
+    if (currentSort !== 'date_desc') p.set('sort', currentSort);
+    if (currentPage > 1) p.set('page', currentPage);
+    const qs = p.toString();
+    history.replaceState(null, '', qs ? `?${qs}` : location.pathname);
+  }
+
+  function clearFilters() {
+    currentFormat = '';
+    currentStatus = '';
+    currentSearch = '';
+    currentPage = 1;
+    document.getElementById('filter-format').value = '';
+    document.getElementById('filter-status').value = '';
+    document.getElementById('filter-search').value = '';
+    loadHistory();
+  }
+
+  // Sorting
+  document.querySelectorAll('[data-sort]').forEach(th => {
+    th.addEventListener('click', () => {
+      const base = th.dataset.sort.replace(/_(?:asc|desc)$/, '');
+      const isAsc = currentSort === base + '_asc';
+      currentSort = isAsc ? base + '_desc' : base + '_asc';
+      currentPage = 1;
+      // Update sort indicators
+      document.querySelectorAll('.sort-icon').forEach(s => s.textContent = '');
+      th.querySelector('.sort-icon').textContent = isAsc ? ' ↓' : ' ↑';
+      loadHistory();
+    });
+  });
+
+  // Filter events
+  document.getElementById('filter-format').addEventListener('change', e => {
+    currentFormat = e.target.value; currentPage = 1; loadHistory();
+  });
+  document.getElementById('filter-status').addEventListener('change', e => {
+    currentStatus = e.target.value; currentPage = 1; loadHistory();
+  });
+  document.getElementById('filter-search').addEventListener('input', e => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      currentSearch = e.target.value.trim();
+      currentPage = 1;
+      loadHistory();
+    }, 300);
+  });
+
+  // Initial load
+  loadHistory();
+  </script>
 </body>
 </html>

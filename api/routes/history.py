@@ -3,15 +3,22 @@ Conversion history endpoints.
 
 GET /api/history                — Paginated, filterable conversion history.
 GET /api/history/{id}           — Single conversion record.
+GET /api/history/{id}/redownload — Re-download output file(s) for a past conversion.
 GET /api/history/stats          — Aggregate stats (totals, success rate, most-used format, OCR flags).
 """
 
+import io
 import json
+import math
+import zipfile
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import FileResponse, StreamingResponse
 
 from api.models import HistoryListResponse, HistoryRecord, StatsResponse
+from core.converter import OUTPUT_BASE
 from core.database import db_fetch_all, db_fetch_one
 
 router = APIRouter(prefix="/api/history", tags=["history"])
@@ -57,7 +64,8 @@ def _row_to_record(row: dict) -> HistoryRecord:
 async def history_stats():
     """Aggregate conversion statistics."""
     rows = await db_fetch_all(
-        "SELECT status, source_format, duration_ms, ocr_flags_total FROM conversion_history"
+        "SELECT status, source_format, duration_ms, ocr_flags_total, file_size_bytes "
+        "FROM conversion_history"
     )
 
     total = len(rows)
@@ -68,13 +76,16 @@ async def history_stats():
     format_counts: dict[str, int] = {}
     total_ocr = 0
     total_duration = 0
+    total_size = 0
     for r in rows:
         fmt = r.get("source_format") or "unknown"
         format_counts[fmt] = format_counts.get(fmt, 0) + 1
         total_ocr += r.get("ocr_flags_total") or 0
         total_duration += r.get("duration_ms") or 0
+        total_size += r.get("file_size_bytes") or 0
 
     most_used = max(format_counts, key=format_counts.get) if format_counts else None
+    avg_duration = total_duration // total if total else 0
 
     return StatsResponse(
         total_conversions=total,
@@ -84,7 +95,10 @@ async def history_stats():
         most_used_format=most_used,
         total_ocr_flags=total_ocr,
         total_duration_ms=total_duration,
+        avg_duration_ms=avg_duration,
+        total_size_bytes_processed=total_size,
         formats=format_counts,
+        by_format=format_counts,
     )
 
 
@@ -94,14 +108,17 @@ async def history_stats():
 async def list_history(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
+    page: Annotated[int, Query(ge=1)] = 1,
+    per_page: Annotated[int, Query(ge=1, le=200)] = 25,
     format: str | None = Query(default=None),
     status: str | None = Query(default=None),
     direction: str | None = Query(default=None),
     search: str | None = Query(default=None),
+    sort: str | None = Query(default=None),
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
 ):
-    """Paginated, filterable conversion history."""
+    """Paginated, filterable, sortable conversion history."""
     conditions = []
     params: list = []
 
@@ -127,21 +144,105 @@ async def list_history(
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
+    # Sort order
+    sort_map = {
+        "date_desc": "created_at DESC",
+        "date_asc": "created_at ASC",
+        "duration_asc": "duration_ms ASC",
+        "duration_desc": "duration_ms DESC",
+    }
+    order_by = sort_map.get(sort or "date_desc", "created_at DESC")
+
     count_row = await db_fetch_one(
         f"SELECT COUNT(*) as n FROM conversion_history {where}", tuple(params)
     )
     total = count_row["n"] if count_row else 0
 
+    # Calculate pagination (page/per_page take priority over offset/limit)
+    effective_limit = per_page
+    effective_offset = (page - 1) * per_page
+    total_pages = max(1, math.ceil(total / per_page)) if total else 1
+
     rows = await db_fetch_all(
-        f"SELECT * FROM conversion_history {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
-        tuple(params + [limit, offset]),
+        f"SELECT * FROM conversion_history {where} ORDER BY {order_by} "
+        f"LIMIT ? OFFSET ?",
+        tuple(params + [effective_limit, effective_offset]),
     )
+
+    # Get available formats and error status for filter UI
+    fmt_rows = await db_fetch_all(
+        "SELECT DISTINCT source_format FROM conversion_history ORDER BY source_format"
+    )
+    formats_available = [r["source_format"] for r in fmt_rows]
+
+    err_row = await db_fetch_one(
+        "SELECT COUNT(*) as n FROM conversion_history WHERE status = 'error'"
+    )
+    has_errors = (err_row["n"] if err_row else 0) > 0
 
     return HistoryListResponse(
         total=total,
-        limit=limit,
-        offset=offset,
+        limit=effective_limit,
+        offset=effective_offset,
+        page=page,
+        per_page=per_page,
+        total_pages=total_pages,
+        formats_available=formats_available,
+        has_errors=has_errors,
         records=[_row_to_record(r) for r in rows],
+    )
+
+
+# ── GET /api/history/{id}/redownload ──────────────────────────────────────────
+
+@router.get("/{record_id}/redownload")
+async def redownload(record_id: int):
+    """
+    Re-download the output file for a past conversion.
+
+    Returns 410 Gone if the output files have been cleaned up.
+    """
+    row = await db_fetch_one(
+        "SELECT * FROM conversion_history WHERE id = ?", (record_id,)
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Record {record_id} not found.")
+
+    batch_id = row["batch_id"]
+    output_filename = row.get("output_filename", "")
+
+    if not output_filename:
+        raise HTTPException(
+            status_code=410,
+            detail={"error": "output_expired", "message": "No output file was produced for this conversion."},
+        )
+
+    batch_dir = OUTPUT_BASE / batch_id
+    output_path = batch_dir / output_filename
+
+    if not output_path.exists():
+        # Try returning the whole batch as zip
+        if batch_dir.exists():
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for p in batch_dir.rglob("*"):
+                    if p.is_file() and "_originals" not in p.parts:
+                        zf.write(p, p.relative_to(batch_dir))
+            buf.seek(0)
+            return StreamingResponse(
+                buf,
+                media_type="application/zip",
+                headers={"Content-Disposition": f'attachment; filename="{batch_id}.zip"'},
+            )
+        raise HTTPException(
+            status_code=410,
+            detail={"error": "output_expired", "message": "Output files for this batch are no longer available."},
+        )
+
+    return FileResponse(
+        path=str(output_path),
+        filename=output_filename,
+        media_type="application/octet-stream",
     )
 
 

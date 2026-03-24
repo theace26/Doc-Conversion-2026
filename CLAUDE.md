@@ -22,7 +22,10 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 **Phase 4 complete** — PDF, PPTX, XLSX/CSV format handlers (both directions). 231 tests passing. Tagged v0.4.0.
 **Phase 5 complete** — Full test suite (350+ tests), structured JSON logging throughout all
   pipeline stages, debug dashboard at /debug. Tagged v0.5.0.
-**Next: Phase 6** — Full UI, batch progress, history page, settings, polish.
+**Phase 6 complete** — Full UI: live SSE batch progress, history page (filter/sort/search/
+  redownload), settings page (preferences with validation), shared CSS design system,
+  dark mode, comprehensive error UX. 378 tests passing. Tagged v0.6.0.
+**Next: Phase 7** — Bulk conversion, Adobe indexing, Meilisearch search, Cowork integration.
 
 ---
 
@@ -36,7 +39,8 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 | 3 | OCR pipeline (multi-signal detection, review UI, unattended mode) | ✅ Done |
 | 4 | Remaining formats: PDF, PPTX, XLSX/CSV (both directions) | ✅ Done |
 | 5 | Testing & debug infrastructure (full test suite, structlog, debug dashboard) | ✅ Done |
-| 6 | Full UI, batch progress, history page, settings, polish | ⬜ |
+| 6 | Full UI, batch progress, history page, settings, polish | ✅ Done |
+| 7 | Bulk conversion, Adobe indexing, Meilisearch search, Cowork integration | ⬜ |
 
 ---
 
@@ -138,8 +142,18 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 | `api/middleware.py` | Request ID injection, timing, debug headers |
 | `api/routes/review.py` | OCR review endpoints: list, counts, single-flag, resolve, accept-all |
 | `api/routes/debug.py` | Debug dashboard API: /debug, /debug/api/health, /debug/api/activity, /debug/api/logs, /debug/api/ocr_distribution |
+| `api/routes/batch.py` | Batch status, download, manifest + SSE stream (`/api/batch/{id}/stream`) |
+| `api/routes/history.py` | History list (filter/sort/search/paginate), stats, redownload |
+| `api/routes/preferences.py` | Preferences CRUD with per-key validation + schema metadata |
+| `static/markflow.css` | Shared design system: CSS variables, dark mode, components |
+| `static/index.html` | Upload UI: drag-and-drop, direction toggle, format badges |
+| `static/progress.html` | Live SSE batch progress: per-file status, progress bar, OCR banners |
+| `static/history.html` | History browser: filter, sort, search, pagination, inline detail |
+| `static/settings.html` | Preferences form: range sliders, toggles, validation, reset dialog |
+| `static/results.html` | Redirect shim → history page (legacy bookmark support) |
 | `static/review.html` | Interactive OCR review page (side-by-side image + editable text) |
 | `static/debug.html` | Developer debug dashboard — health pills, activity, OCR distribution, log viewer |
+| `static/app.js` | Shared JS: API helpers, formatters, toast, nav link highlighter |
 | `pytest.ini` | Test configuration: asyncio_mode, custom markers (slow, ocr, integration) |
 | `docker-compose.yml` | Port 8000, volumes: input/output/logs + named volume for DB |
 
@@ -239,6 +253,31 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 
 - **Debug dashboard always mounted**: `/debug` routes are no longer behind `DEBUG=true`.
   The dashboard is a developer tool and is always available at `/debug`.
+
+- **SSE progress queues**: `_progress_queues` in `converter.py` is a module-level
+  `dict[str, asyncio.Queue]`. One queue per active batch. The SSE endpoint reads from it;
+  the queue is cleaned up when the SSE stream ends or after the `done` event. If the batch
+  completes before the SSE client connects, events are replayed from the DB instead.
+
+- **`GET /api/preferences` response envelope changed in Phase 6**: Now returns
+  `{"preferences": {...}, "schema": {...}}` instead of a flat `{key: value}` dict.
+  Frontend code uses `data.preferences || data` for backwards compat. Tests updated.
+
+- **History `page`/`per_page` vs `limit`/`offset`**: Phase 6 added page-based pagination
+  (`page=1&per_page=25`). The old `limit`/`offset` params are still accepted but
+  `per_page` takes precedence for pagination math. Tests use page/per_page.
+
+- **Preference validation**: `PUT /api/preferences/{key}` now validates values server-side
+  based on `_PREFERENCE_SCHEMA`. Out-of-range numbers return 422 with a descriptive message.
+  Read-only keys (`last_source_directory`, `last_save_directory`) return 403.
+
+- **No Pico CSS in Phase 6**: All user-facing pages migrated from Pico CSS to `markflow.css`.
+  The shared CSS file defines CSS variables for light and dark themes. Dark mode activates
+  via `@media (prefers-color-scheme: dark)` — no JS toggle needed.
+
+- **`review.html` and `debug.html` excluded from nav**: These pages have their own headers.
+  `review.html` uses `markflow.css` for shared component styles but has a contextual
+  "OCR Review" header instead of the main nav bar.
 
 ---
 
