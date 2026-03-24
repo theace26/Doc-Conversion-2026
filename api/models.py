@@ -133,6 +133,32 @@ class PreferenceUpdate(BaseModel):
         json_schema_extra = {"example": {"value": "90"}}
 
 
+# ── OCR Review ────────────────────────────────────────────────────────────────
+
+class OCRFlagResponse(BaseModel):
+    flag_id: str
+    page_num: int
+    ocr_text: str
+    confidence: float
+    status: str
+    image_url: str              # URL to the cropped region image for the review UI
+    corrected_text: str | None = None
+    region_bbox: list[int] = Field(default_factory=list)
+
+
+class OCRReviewAction(BaseModel):
+    action: str = Field(..., examples=["accept", "edit", "skip"])
+    corrected_text: str | None = None  # required when action == "edit"
+
+
+class OCRFlagCounts(BaseModel):
+    pending: int = 0
+    accepted: int = 0
+    edited: int = 0
+    skipped: int = 0
+    total: int = 0
+
+
 # ── Errors ────────────────────────────────────────────────────────────────────
 
 class ErrorResponse(BaseModel):

@@ -26,7 +26,7 @@ from fastapi.staticfiles import StaticFiles
 from core.database import init_db
 from core.health import HealthChecker
 from core.logging_config import configure_logging
-from api.routes import convert, batch, history, preferences
+from api.routes import convert, batch, history, preferences, review
 from api.middleware import add_middleware
 
 # ── Logging ──────────────────────────────────────────────────────────────────
@@ -78,6 +78,7 @@ app.include_router(convert.router)
 app.include_router(batch.router)
 app.include_router(history.router)
 app.include_router(preferences.router)
+app.include_router(review.router)
 
 # Debug routes — only in DEBUG mode
 if DEBUG:
@@ -87,6 +88,12 @@ if DEBUG:
 
 # ── Static files ──────────────────────────────────────────────────────────────
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# OCR debug / flag crop images — served from the output directory
+import os as _os
+_output_dir = _os.getenv("OUTPUT_DIR", "output")
+_os.makedirs(_output_dir, exist_ok=True)
+app.mount("/ocr-images", StaticFiles(directory=_output_dir), name="ocr-images")
 
 
 # ── Health endpoint ───────────────────────────────────────────────────────────

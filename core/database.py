@@ -83,6 +83,24 @@ CREATE TABLE IF NOT EXISTS batch_state (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS ocr_flags (
+    flag_id TEXT PRIMARY KEY,
+    batch_id TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    page_num INTEGER NOT NULL,
+    region_bbox TEXT NOT NULL,          -- JSON: [x1, y1, x2, y2]
+    ocr_text TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    corrected_text TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    image_path TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    resolved_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_ocr_flags_batch  ON ocr_flags(batch_id);
+CREATE INDEX IF NOT EXISTS idx_ocr_flags_status ON ocr_flags(batch_id, status);
 """
 
 
@@ -236,3 +254,92 @@ async def get_batch_state(batch_id: str) -> dict[str, Any] | None:
     return await db_fetch_one(
         "SELECT * FROM batch_state WHERE batch_id = ?", (batch_id,)
     )
+
+
+# ── OCR flag helpers ──────────────────────────────────────────────────────────
+
+async def insert_ocr_flag(flag: Any) -> None:
+    """Persist an OCRFlag dataclass to the ocr_flags table."""
+    bbox_json = json.dumps(list(flag.region_bbox))
+    async with get_db() as conn:
+        await conn.execute(
+            """INSERT OR IGNORE INTO ocr_flags
+               (flag_id, batch_id, file_name, page_num, region_bbox,
+                ocr_text, confidence, corrected_text, status, image_path)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (
+                flag.flag_id,
+                flag.batch_id,
+                flag.file_name,
+                flag.page_num,
+                bbox_json,
+                flag.ocr_text,
+                flag.confidence,
+                flag.corrected_text,
+                flag.status.value if hasattr(flag.status, "value") else flag.status,
+                flag.image_path,
+            ),
+        )
+        await conn.commit()
+
+
+async def get_flags_for_batch(
+    batch_id: str, status: str | None = None
+) -> list[dict[str, Any]]:
+    """Return OCR flags for a batch, optionally filtered by status."""
+    if status:
+        rows = await db_fetch_all(
+            "SELECT * FROM ocr_flags WHERE batch_id=? AND status=? ORDER BY page_num, flag_id",
+            (batch_id, status),
+        )
+    else:
+        rows = await db_fetch_all(
+            "SELECT * FROM ocr_flags WHERE batch_id=? ORDER BY page_num, flag_id",
+            (batch_id,),
+        )
+    # Deserialise region_bbox from JSON
+    for row in rows:
+        if isinstance(row.get("region_bbox"), str):
+            row["region_bbox"] = json.loads(row["region_bbox"])
+    return rows
+
+
+async def resolve_flag(
+    flag_id: str, status: str, corrected_text: str | None = None
+) -> None:
+    """Update a single OCR flag's status (and optional corrected text)."""
+    async with get_db() as conn:
+        await conn.execute(
+            """UPDATE ocr_flags
+               SET status=?, corrected_text=?, resolved_at=CURRENT_TIMESTAMP
+               WHERE flag_id=?""",
+            (status, corrected_text, flag_id),
+        )
+        await conn.commit()
+
+
+async def resolve_all_pending(batch_id: str) -> int:
+    """Accept all pending flags for a batch. Returns the number of rows updated."""
+    async with get_db() as conn:
+        async with conn.execute(
+            """UPDATE ocr_flags
+               SET status='accepted', resolved_at=CURRENT_TIMESTAMP
+               WHERE batch_id=? AND status='pending'""",
+            (batch_id,),
+        ) as cur:
+            count = cur.rowcount
+        await conn.commit()
+    return count
+
+
+async def get_flag_counts(batch_id: str) -> dict[str, int]:
+    """Return {pending, accepted, edited, skipped, total} counts for a batch."""
+    rows = await db_fetch_all(
+        "SELECT status, COUNT(*) AS cnt FROM ocr_flags WHERE batch_id=? GROUP BY status",
+        (batch_id,),
+    )
+    counts = {"pending": 0, "accepted": 0, "edited": 0, "skipped": 0}
+    for row in rows:
+        counts[row["status"]] = row["cnt"]
+    counts["total"] = sum(counts.values())
+    return counts
