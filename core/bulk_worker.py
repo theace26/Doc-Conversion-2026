@@ -243,6 +243,7 @@ class BulkJob:
                 "path_too_long": scan_result.path_too_long_count,
                 "collisions": scan_result.collision_count,
                 "case_collisions": scan_result.case_collision_count,
+                "unrecognized": scan_result.unrecognized_count,
             })
 
             # Emit path issues event if any

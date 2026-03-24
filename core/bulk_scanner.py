@@ -41,6 +41,7 @@ class ScanResult:
     total_discovered: int = 0
     convertible_count: int = 0
     adobe_count: int = 0
+    unrecognized_count: int = 0
     skipped_count: int = 0
     new_count: int = 0
     changed_count: int = 0
@@ -97,10 +98,6 @@ class BulkScanner:
                 file_path = Path(dirpath) / filename
                 ext = file_path.suffix.lower()
 
-                if ext not in ALL_SUPPORTED:
-                    log.debug("bulk_scan_skip_unsupported", path=str(file_path), ext=ext)
-                    continue
-
                 # Stat the file
                 try:
                     stat = file_path.stat()
@@ -115,17 +112,28 @@ class BulkScanner:
                 if ext in CONVERTIBLE_EXTENSIONS:
                     result.convertible_count += 1
                     self._convertible_paths.append(file_path)
-                else:
+
+                    file_id = await upsert_bulk_file(
+                        job_id=self.job_id,
+                        source_path=str(file_path),
+                        file_ext=ext,
+                        file_size_bytes=file_size,
+                        source_mtime=mtime,
+                    )
+                elif ext in ADOBE_EXTENSIONS:
                     result.adobe_count += 1
 
-                # Upsert into DB — the function handles skip/pending logic
-                file_id = await upsert_bulk_file(
-                    job_id=self.job_id,
-                    source_path=str(file_path),
-                    file_ext=ext,
-                    file_size_bytes=file_size,
-                    source_mtime=mtime,
-                )
+                    file_id = await upsert_bulk_file(
+                        job_id=self.job_id,
+                        source_path=str(file_path),
+                        file_ext=ext,
+                        file_size_bytes=file_size,
+                        source_mtime=mtime,
+                    )
+                else:
+                    # Unrecognized file — catalog with MIME detection
+                    result.unrecognized_count += 1
+                    await self._record_unrecognized(file_path, ext, file_size, mtime)
 
                 file_count += 1
                 if file_count % self._yield_interval == 0:
@@ -151,6 +159,7 @@ class BulkScanner:
             total_discovered=result.total_discovered,
             convertible=result.convertible_count,
             adobe=result.adobe_count,
+            unrecognized=result.unrecognized_count,
             skipped=result.skipped_count,
             pending=pending,
             too_long=result.path_too_long_count,
@@ -160,6 +169,31 @@ class BulkScanner:
         )
 
         return result
+
+    async def _record_unrecognized(
+        self, path: Path, ext: str, file_size: int, mtime: float
+    ) -> None:
+        """Record an unrecognized file with MIME detection."""
+        try:
+            from core.mime_classifier import classify
+            mime_type, category = classify(path)
+        except Exception:
+            mime_type, category = "application/octet-stream", "unknown"
+
+        file_id = await upsert_bulk_file(
+            job_id=self.job_id,
+            source_path=str(path),
+            file_ext=ext or ".unknown",
+            file_size_bytes=file_size,
+            source_mtime=mtime,
+        )
+        # Update the status and MIME fields
+        await update_bulk_file(
+            file_id,
+            status="unrecognized",
+            mime_type=mime_type,
+            file_category=category,
+        )
 
     async def _run_path_safety_pass(self, scan_result: ScanResult) -> PathSafetyResult:
         """Run path length and collision checks on all convertible files."""

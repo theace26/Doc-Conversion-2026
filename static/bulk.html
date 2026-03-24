@@ -128,6 +128,7 @@
           <div class="counter"><span class="counter-value" id="c-failed">0</span><span class="counter-label">Failed</span></div>
           <div class="counter"><span class="counter-value" id="c-skipped">0</span><span class="counter-label">Skipped</span></div>
           <div class="counter"><span class="counter-value" id="c-adobe">0</span><span class="counter-label">Adobe</span></div>
+          <div class="counter" id="c-unrecognized-wrap" style="display:none"><a id="c-unrecognized-link" href="/unrecognized.html" style="text-decoration:none;color:inherit"><span class="counter-value" id="c-unrecognized">0</span><span class="counter-label">Unrecognized</span></a></div>
         </div>
         <div id="review-queue-counter" class="text-sm" style="margin-top:0.5rem;color:var(--warn)" hidden>
           ⚠ <span id="rq-count">0</span> files need attention after job completes
@@ -345,6 +346,13 @@
       bar.textContent = '0%';
       document.getElementById('active-status').textContent = 'RUNNING';
       document.getElementById('active-status').className = 'job-status running';
+      // Show unrecognized count if any
+      const unrec = d.unrecognized || 0;
+      if (unrec > 0) {
+        document.getElementById('c-unrecognized').textContent = unrec.toLocaleString();
+        document.getElementById('c-unrecognized-wrap').style.display = '';
+        if (activeJobId) document.getElementById('c-unrecognized-link').href = `/unrecognized.html?job_id=${activeJobId}`;
+      }
     });
 
     eventSource.addEventListener('file_start', e => {

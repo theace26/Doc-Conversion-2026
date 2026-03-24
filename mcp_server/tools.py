@@ -320,3 +320,52 @@ async def get_document_summary(path: str) -> str:
         return "\n".join(lines)
     except Exception as exc:
         return f"Error getting summary: {exc}"
+
+
+async def list_unrecognized(
+    category: str | None = None,
+    job_id: str | None = None,
+    page: int = 1,
+    per_page: int = 20,
+) -> str:
+    """List files found during bulk scans that MarkFlow could not convert."""
+    try:
+        from core.database import get_unrecognized_files, get_unrecognized_stats
+
+        if page == 1 and not category and not job_id:
+            stats = await get_unrecognized_stats()
+            if stats["total"] == 0:
+                return "No unrecognized files found. All files in the repository have handlers."
+            lines = [f"**Unrecognized Files Summary** ({stats['total']} files, {_fmt_bytes(stats['total_bytes'])})\n"]
+            for cat, count in stats["by_category"].items():
+                lines.append(f"  {cat}: {count}")
+            lines.append(f"\nTop formats: {', '.join(f'{k} ({v})' for k, v in list(stats['by_format'].items())[:10])}")
+            lines.append(f"\nUse category filter to drill down. Valid categories: "
+                         "disk_image, raster_image, vector_image, video, audio, "
+                         "archive, executable, database, font, code, unknown")
+            return "\n".join(lines)
+
+        data = await get_unrecognized_files(
+            job_id=job_id, category=category, page=page, per_page=per_page
+        )
+        if not data["files"]:
+            return f"No unrecognized files match filters (category={category}, job_id={job_id})."
+
+        lines = [f"**Unrecognized Files** (page {data['page']}/{data['pages']}, {data['total']} total)\n"]
+        for f in data["files"]:
+            size = _fmt_bytes(f.get("file_size_bytes", 0))
+            cat = f.get("file_category", "unknown")
+            lines.append(f"  {f['source_path']}  [{f.get('file_ext', '')}]  {cat}  {size}")
+        return "\n".join(lines)
+    except Exception as exc:
+        return f"Error listing unrecognized files: {exc}"
+
+
+def _fmt_bytes(b: int) -> str:
+    if b < 1024:
+        return f"{b} B"
+    if b < 1024 * 1024:
+        return f"{b / 1024:.1f} KB"
+    if b < 1024 * 1024 * 1024:
+        return f"{b / (1024 * 1024):.1f} MB"
+    return f"{b / (1024 * 1024 * 1024):.1f} GB"

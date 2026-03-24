@@ -64,6 +64,15 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
   Meilisearch index extended with frame_descriptions field. Settings UI Vision section
   with provider display linking to existing providers.html. History detail panel shows
   scenes/enrichment/descriptions. Debug dashboard shows vision stats.
+**v0.8.2** — Unknown & unrecognized file cataloging. Bulk scanner records every
+  file it encounters, even without a handler. MIME detection via python-magic with
+  extension fallback classifies files into categories (disk_image, raster_image,
+  video, audio, archive, executable, database, font, code, unknown). New columns
+  mime_type and file_category on bulk_files. Unrecognized files get
+  status='unrecognized' (distinct from failed/skipped). API: GET /api/unrecognized
+  (list, filter, paginate), /stats, /export (CSV). UI: /unrecognized.html with
+  category cards, filters, table. Bulk progress shows unrecognized count pill.
+  MCP tool: list_unrecognized (8th tool).
 
 ---
 
@@ -80,6 +89,7 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 | 6 | Full UI, batch progress, history page, settings, polish | ✅ Done |
 | 7 | Bulk conversion, Adobe indexing, Meilisearch search, Cowork integration | ✅ Done |
 | 8b | Visual enrichment: scene detection, keyframe extraction, AI frame descriptions | ✅ Done |
+| 8c | Unknown & unrecognized file cataloging with MIME detection | ✅ Done |
 
 ---
 
@@ -217,6 +227,9 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 | `api/routes/mcp_info.py` | GET /api/mcp/connection-info for settings UI |
 | `static/providers.html` | LLM provider management: add/edit/delete/verify/activate |
 | `core/path_utils.py` | Path safety: length check, collision detection, resolution strategies |
+| `core/mime_classifier.py` | MIME detection (python-magic) + extension fallback file classification |
+| `api/routes/unrecognized.py` | Unrecognized files: list, stats, CSV export |
+| `static/unrecognized.html` | Unrecognized files UI: category cards, filters, table, CSV export |
 | `core/vision_adapter.py` | VisionAdapter: wraps active LLM provider for image/vision calls |
 | `core/scene_detector.py` | PySceneDetect wrapper: scene boundary detection in video files |
 | `core/keyframe_extractor.py` | ffmpeg keyframe extraction at scene midpoints |
@@ -473,6 +486,23 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 - **Auto-OCR gap-fill candidates**: A PDF is a gap-fill candidate if
   source_format='pdf', ocr_page_count IS NULL, and status='success'. The gap-fill
   pass updates ocr_page_count so the file won't be a candidate again.
+
+- **Unrecognized files are database-only**: No stub .md files, no Meilisearch
+  entries for unrecognized files. Only bulk_files gets a record with
+  status='unrecognized'. Keeps the knowledge base signal clean.
+
+- **python-magic requires libmagic1**: The `python-magic` package wraps
+  libmagic. Without `libmagic1` installed in the container, `import magic`
+  succeeds but `magic.from_file()` fails at runtime. Always install both.
+
+- **`get_unprocessed_bulk_files()` excludes unrecognized**: Files with
+  `status='unrecognized'` are cataloged but never enter the worker conversion
+  queue. They become processable only when a handler is added and their status
+  is explicitly reset to `pending`.
+
+- **MIME detection fallback chain**: python-magic (libmagic) first, then
+  extension heuristic. If both fail, returns `("application/octet-stream", "unknown")`.
+  MIME detection failure never crashes the scanner.
 
 - **worker_id in SSE events**: `file_start` events include `worker_id` (int 1..N)
   for the active file display. `file_converted`, `file_failed`, and

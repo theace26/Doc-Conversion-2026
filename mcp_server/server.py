@@ -177,6 +177,33 @@ async def get_document_summary(
     return await _summary(path)
 
 
+@mcp.tool()
+async def list_unrecognized(
+    category: str | None = None,
+    job_id: str | None = None,
+    page: int = 1,
+    per_page: int = 20,
+) -> str:
+    """
+    List files found during bulk scans that MarkFlow could not convert,
+    grouped by category. Use this to understand what unrecognized file types
+    exist in the repository, how many there are, and their total size.
+
+    Supports filtering by category (disk_image, raster_image, vector_image,
+    video, audio, archive, executable, database, font, code, unknown) and
+    by bulk job ID. Returns paginated results with stats. Call without
+    filters first for a high-level summary.
+
+    Args:
+        category: Optional filter by file category
+        job_id: Optional filter by bulk job ID
+        page: Page number (default 1)
+        per_page: Results per page (default 20, max 50)
+    """
+    from mcp_server.tools import list_unrecognized as _list
+    return await _list(category, job_id, page, per_page)
+
+
 def main():
     """Run the MCP server."""
     port = int(os.getenv("MCP_PORT", "8001"))
@@ -186,7 +213,7 @@ def main():
     from core.database import init_db
     asyncio.run(init_db())
 
-    log.info("mcp_server_start", port=port, tools=7)
+    log.info("mcp_server_start", port=port, tools=8)
     mcp.run(transport="sse")
 
 

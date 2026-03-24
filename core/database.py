@@ -289,6 +289,9 @@ async def init_db() -> None:
         # Migrate: add LLM correction columns to ocr_flags
         await _add_column_if_missing(conn, "ocr_flags", "llm_corrected_text", "TEXT")
         await _add_column_if_missing(conn, "ocr_flags", "llm_correction_model", "TEXT")
+        # Migrate: add MIME/category columns to bulk_files
+        await _add_column_if_missing(conn, "bulk_files", "mime_type", "TEXT")
+        await _add_column_if_missing(conn, "bulk_files", "file_category", "TEXT DEFAULT 'unknown'")
         # Migrate: add visual enrichment columns to conversion_history
         await _add_column_if_missing(conn, "conversion_history", "vision_provider", "TEXT")
         await _add_column_if_missing(conn, "conversion_history", "vision_model", "TEXT")
@@ -1235,3 +1238,89 @@ async def get_scene_keyframes(history_id: str) -> list[dict[str, Any]]:
         "SELECT * FROM scene_keyframes WHERE history_id=? ORDER BY scene_index",
         (history_id,),
     )
+
+
+# ── Unrecognized file helpers ────────────────────────────────────────────
+
+async def get_unrecognized_files(
+    job_id: str | None = None,
+    category: str | None = None,
+    source_format: str | None = None,
+    page: int = 1,
+    per_page: int = 50,
+) -> dict[str, Any]:
+    """Returns paginated unrecognized files with total count."""
+    where = ["status='unrecognized'"]
+    params: list[Any] = []
+    if job_id:
+        where.append("job_id=?")
+        params.append(job_id)
+    if category:
+        where.append("file_category=?")
+        params.append(category)
+    if source_format:
+        where.append("file_ext=?")
+        params.append(source_format if source_format.startswith(".") else f".{source_format}")
+
+    where_sql = " AND ".join(where)
+
+    count_row = await db_fetch_one(
+        f"SELECT COUNT(*) as cnt FROM bulk_files WHERE {where_sql}", tuple(params)
+    )
+    total = count_row["cnt"] if count_row else 0
+
+    offset = (page - 1) * per_page
+    rows = await db_fetch_all(
+        f"SELECT * FROM bulk_files WHERE {where_sql} ORDER BY source_path LIMIT ? OFFSET ?",
+        tuple(params) + (per_page, offset),
+    )
+
+    return {
+        "files": rows,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "pages": max(1, (total + per_page - 1) // per_page),
+    }
+
+
+async def get_unrecognized_stats(job_id: str | None = None) -> dict[str, Any]:
+    """Returns summary statistics for unrecognized files."""
+    where = "status='unrecognized'"
+    params: list[Any] = []
+    if job_id:
+        where += " AND job_id=?"
+        params.append(job_id)
+
+    total_row = await db_fetch_one(
+        f"SELECT COUNT(*) as cnt, COALESCE(SUM(file_size_bytes),0) as total_bytes FROM bulk_files WHERE {where}",
+        tuple(params),
+    )
+    total = total_row["cnt"] if total_row else 0
+    total_bytes = total_row["total_bytes"] if total_row else 0
+
+    cat_rows = await db_fetch_all(
+        f"SELECT file_category, COUNT(*) as cnt FROM bulk_files WHERE {where} GROUP BY file_category ORDER BY cnt DESC",
+        tuple(params),
+    )
+    by_category = {r["file_category"]: r["cnt"] for r in cat_rows}
+
+    fmt_rows = await db_fetch_all(
+        f"SELECT file_ext, COUNT(*) as cnt FROM bulk_files WHERE {where} GROUP BY file_ext ORDER BY cnt DESC",
+        tuple(params),
+    )
+    by_format = {r["file_ext"]: r["cnt"] for r in fmt_rows}
+
+    job_rows = await db_fetch_all(
+        f"SELECT DISTINCT job_id FROM bulk_files WHERE {where}",
+        tuple(params),
+    )
+    job_ids = [r["job_id"] for r in job_rows]
+
+    return {
+        "total": total,
+        "by_category": by_category,
+        "by_format": by_format,
+        "total_bytes": total_bytes,
+        "job_ids": job_ids,
+    }

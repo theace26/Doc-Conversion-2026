@@ -43,6 +43,9 @@ cryptography
 # Scene detection (video)
 scenedetect[opencv]
 
+# MIME detection
+python-magic>=0.4.27
+
 # Adobe indexing
 psd-tools
 pyexiftool

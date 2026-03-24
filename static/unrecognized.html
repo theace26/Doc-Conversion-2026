@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MarkFlow — Unrecognized Files</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+  <style>
+    .cat-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }
+    .cat-card { padding: 0.75rem 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); cursor: pointer; transition: border-color var(--transition); }
+    .cat-card:hover, .cat-card.active { border-color: var(--accent); }
+    .cat-card-name { font-weight: 600; font-size: 0.85rem; text-transform: capitalize; }
+    .cat-card-count { font-size: 1.2rem; font-weight: 700; margin-top: 0.25rem; }
+    .cat-card-size { font-size: 0.78rem; color: var(--text-muted); }
+  </style>
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="/" class="nav-logo">MarkFlow</a>
+    <div class="nav-links">
+      <a href="/" class="nav-link">Home</a>
+      <a href="/" class="nav-link">Convert</a>
+      <a href="/bulk.html" class="nav-link">Bulk</a>
+      <a href="/search.html" class="nav-link">Search</a>
+      <a href="/history.html" class="nav-link">History</a>
+      <a href="/unrecognized.html" class="nav-link">Unrecognized</a>
+      <a href="/settings.html" class="nav-link">Settings</a>
+    </div>
+  </nav>
+
+  <div class="container page-content">
+    <div id="error-banner" role="alert" hidden></div>
+
+    <h1>Unrecognized Files</h1>
+    <p class="text-muted mb-2">Files cataloged during bulk scans that MarkFlow cannot convert yet.</p>
+
+    <!-- Stats bar -->
+    <div id="stats-row" class="stats-row mt-1 mb-2"></div>
+
+    <!-- Category cards -->
+    <div id="cat-cards" class="cat-cards"></div>
+
+    <!-- Filters -->
+    <div class="filter-bar">
+      <select id="filter-category">
+        <option value="">All categories</option>
+        <option value="disk_image">Disk Image</option>
+        <option value="raster_image">Raster Image</option>
+        <option value="vector_image">Vector Image</option>
+        <option value="video">Video</option>
+        <option value="audio">Audio</option>
+        <option value="archive">Archive</option>
+        <option value="executable">Executable</option>
+        <option value="database">Database</option>
+        <option value="font">Font</option>
+        <option value="code">Code</option>
+        <option value="unknown">Unknown</option>
+      </select>
+      <select id="filter-format">
+        <option value="">All formats</option>
+      </select>
+      <select id="filter-job">
+        <option value="">All jobs</option>
+      </select>
+      <button class="btn btn-ghost btn-sm" onclick="exportCSV()">Export CSV</button>
+    </div>
+
+    <!-- Table -->
+    <div class="card" style="padding:0;overflow:auto" id="table-card">
+      <table class="data-table" id="file-table">
+        <thead>
+          <tr>
+            <th>File Path</th>
+            <th>Format</th>
+            <th>Category</th>
+            <th>Size</th>
+            <th>Job</th>
+          </tr>
+        </thead>
+        <tbody id="file-body">
+          <tr><td colspan="5" style="text-align:center;padding:2rem"><span class="spinner"></span> Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    <div class="pagination" id="pagination">
+      <span id="pagination-info" class="text-sm text-muted"></span>
+      <div class="pagination-pages" id="pagination-pages"></div>
+    </div>
+
+    <!-- Empty state -->
+    <div id="empty-state" class="empty-state" hidden>
+      <h3>All files recognized</h3>
+      <p>Every file in your repository has a handler. Nothing unrecognized.</p>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script>
+  let currentPage = 1;
+  let currentCategory = '';
+  let currentFormat = '';
+  let currentJob = '';
+
+  const urlParams = new URLSearchParams(location.search);
+  if (urlParams.get('category')) { currentCategory = urlParams.get('category'); document.getElementById('filter-category').value = currentCategory; }
+  if (urlParams.get('job_id')) { currentJob = urlParams.get('job_id'); }
+
+  // Load stats
+  async function loadStats() {
+    try {
+      const stats = await API.get('/api/unrecognized/stats');
+      const row = document.getElementById('stats-row');
+      const cats = Object.keys(stats.by_category || {}).length;
+      row.innerHTML =
+        `<span><strong>${(stats.total || 0).toLocaleString()}</strong> files</span>` +
+        `<span><strong>${formatBytes(stats.total_bytes || 0)}</strong> total</span>` +
+        `<span><strong>${cats}</strong> categories</span>` +
+        `<span><strong>${(stats.job_ids || []).length}</strong> jobs</span>`;
+
+      // Populate category cards
+      const cards = document.getElementById('cat-cards');
+      if (stats.total === 0) {
+        cards.innerHTML = '';
+        document.getElementById('empty-state').hidden = false;
+        document.getElementById('table-card').hidden = true;
+        document.getElementById('pagination').hidden = true;
+        return;
+      }
+      const byCategory = stats.by_category || {};
+      cards.innerHTML = Object.entries(byCategory).map(([cat, count]) => {
+        const active = currentCategory === cat ? ' active' : '';
+        return `<div class="cat-card${active}" onclick="filterByCategory('${cat}')">
+          <div class="cat-card-name">${cat.replace(/_/g, ' ')}</div>
+          <div class="cat-card-count">${count.toLocaleString()}</div>
+        </div>`;
+      }).join('');
+
+      // Populate format dropdown
+      const fmtSelect = document.getElementById('filter-format');
+      const currentFmt = fmtSelect.value;
+      fmtSelect.innerHTML = '<option value="">All formats</option>' +
+        Object.keys(stats.by_format || {}).map(f =>
+          `<option value="${f}" ${f === currentFmt ? 'selected' : ''}>${f}</option>`
+        ).join('');
+
+      // Populate job dropdown
+      const jobSelect = document.getElementById('filter-job');
+      jobSelect.innerHTML = '<option value="">All jobs</option>' +
+        (stats.job_ids || []).map(id =>
+          `<option value="${id}" ${id === currentJob ? 'selected' : ''}>${id.slice(0, 8)}...</option>`
+        ).join('');
+    } catch (e) { /* stats not critical */ }
+  }
+
+  async function loadFiles() {
+    const qs = new URLSearchParams({ page: currentPage, per_page: 50 });
+    if (currentCategory) qs.set('category', currentCategory);
+    if (currentFormat) qs.set('source_format', currentFormat);
+    if (currentJob) qs.set('job_id', currentJob);
+
+    try {
+      const data = await API.get(`/api/unrecognized?${qs}`);
+      renderTable(data);
+      renderPagination(data);
+
+      const hasFiles = data.files && data.files.length > 0;
+      document.getElementById('table-card').hidden = !hasFiles && data.total === 0;
+      document.getElementById('empty-state').hidden = hasFiles || data.total > 0;
+    } catch (e) {
+      document.getElementById('file-body').innerHTML =
+        `<tr><td colspan="5" style="color:var(--error)">${e.message}</td></tr>`;
+    }
+  }
+
+  function renderTable(data) {
+    const body = document.getElementById('file-body');
+    if (!data.files || !data.files.length) {
+      body.innerHTML = '<tr><td colspan="5" class="text-muted" style="text-align:center;padding:1.5rem">No files match filters</td></tr>';
+      return;
+    }
+    body.innerHTML = data.files.map(f => {
+      const path = f.source_path || '';
+      const shortPath = path.length > 70 ? '.../' + path.slice(-67) : path;
+      const cat = (f.file_category || 'unknown').replace(/_/g, ' ');
+      return `<tr>
+        <td class="text-mono text-sm" title="${escapeHtml(path)}">${escapeHtml(shortPath)}</td>
+        <td>${formatBadge(f.file_ext || '')}</td>
+        <td><span class="text-sm" style="text-transform:capitalize">${cat}</span></td>
+        <td class="text-sm">${formatBytes(f.file_size_bytes || 0)}</td>
+        <td class="text-mono text-sm">${(f.job_id || '').slice(0, 8)}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+  function renderPagination(data) {
+    const info = document.getElementById('pagination-info');
+    const pages = document.getElementById('pagination-pages');
+    if (!data.total) { info.textContent = ''; pages.innerHTML = ''; return; }
+    const start = (data.page - 1) * data.per_page + 1;
+    const end = Math.min(data.page * data.per_page, data.total);
+    info.textContent = `${start}-${end} of ${data.total}`;
+    if (data.pages <= 1) { pages.innerHTML = ''; return; }
+    let html = `<button ${data.page <= 1 ? 'disabled' : ''} onclick="goToPage(${data.page - 1})">&larr;</button>`;
+    html += ` <span>${data.page} / ${data.pages}</span> `;
+    html += `<button ${data.page >= data.pages ? 'disabled' : ''} onclick="goToPage(${data.page + 1})">&rarr;</button>`;
+    pages.innerHTML = html;
+  }
+
+  function goToPage(p) { currentPage = p; loadFiles(); }
+
+  function filterByCategory(cat) {
+    currentCategory = currentCategory === cat ? '' : cat;
+    document.getElementById('filter-category').value = currentCategory;
+    currentPage = 1;
+    loadFiles();
+    loadStats();
+  }
+
+  function exportCSV() {
+    const qs = new URLSearchParams();
+    if (currentCategory) qs.set('category', currentCategory);
+    if (currentFormat) qs.set('source_format', currentFormat);
+    if (currentJob) qs.set('job_id', currentJob);
+    window.location.href = `/api/unrecognized/export?${qs}`;
+  }
+
+  document.getElementById('filter-category').addEventListener('change', e => {
+    currentCategory = e.target.value; currentPage = 1; loadFiles();
+  });
+  document.getElementById('filter-format').addEventListener('change', e => {
+    currentFormat = e.target.value; currentPage = 1; loadFiles();
+  });
+  document.getElementById('filter-job').addEventListener('change', e => {
+    currentJob = e.target.value; currentPage = 1; loadFiles();
+  });
+
+  loadStats();
+  loadFiles();
+  </script>
+</body>
+</html>

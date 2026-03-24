@@ -95,7 +95,7 @@ app = FastAPI(
         "Convert documents bidirectionally between their original format "
         "and Markdown. OCR, batch processing, and style preservation."
     ),
-    version="0.8.1",
+    version="0.8.2",
     lifespan=lifespan,
 )
 
@@ -125,6 +125,10 @@ app.include_router(browse.router)
 # v0.7.4 — LLM Providers + MCP info
 app.include_router(llm_providers_routes.router)
 app.include_router(mcp_info_routes.router)
+
+# v0.8.2 — Unrecognized file catalog
+from api.routes import unrecognized as unrecognized_routes
+app.include_router(unrecognized_routes.router)
 
 log.info("markflow.all_routes_registered")
 

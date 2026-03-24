@@ -25,6 +25,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libimage-exiftool-perl \
     # ffmpeg for keyframe extraction and media processing
     ffmpeg \
+    # libmagic for MIME type detection (python-magic)
+    libmagic1 \
     # curl for healthchecks
     curl \
     # Misc build tools
