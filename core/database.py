@@ -12,7 +12,9 @@ DB path: DB_PATH env var (default: data/markflow.db inside the container,
 
 import json
 import os
+import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +38,11 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     "pdf_export_engine": "weasyprint",
     "unattended_default": "false",
     "conversion_engine": "native",
+    "llm_ocr_correction": "false",
+    "llm_summarize": "false",
+    "llm_heading_inference": "false",
+    "max_output_path_length": "240",
+    "collision_strategy": "rename",
 }
 
 # ── Schema DDL ────────────────────────────────────────────────────────────────
@@ -101,6 +108,113 @@ CREATE TABLE IF NOT EXISTS ocr_flags (
 
 CREATE INDEX IF NOT EXISTS idx_ocr_flags_batch  ON ocr_flags(batch_id);
 CREATE INDEX IF NOT EXISTS idx_ocr_flags_status ON ocr_flags(batch_id, status);
+
+CREATE TABLE IF NOT EXISTS bulk_jobs (
+    id              TEXT PRIMARY KEY,
+    source_path     TEXT NOT NULL,
+    output_path     TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    worker_count    INTEGER NOT NULL DEFAULT 4,
+    include_adobe   INTEGER NOT NULL DEFAULT 1,
+    fidelity_tier   INTEGER NOT NULL DEFAULT 2,
+    ocr_mode        TEXT NOT NULL DEFAULT 'auto',
+    total_files     INTEGER,
+    converted       INTEGER NOT NULL DEFAULT 0,
+    skipped         INTEGER NOT NULL DEFAULT 0,
+    failed          INTEGER NOT NULL DEFAULT 0,
+    adobe_indexed   INTEGER NOT NULL DEFAULT 0,
+    started_at      TEXT,
+    completed_at    TEXT,
+    paused_at       TEXT,
+    error_msg       TEXT
+);
+
+CREATE TABLE IF NOT EXISTS bulk_files (
+    id              TEXT PRIMARY KEY,
+    job_id          TEXT NOT NULL REFERENCES bulk_jobs(id),
+    source_path     TEXT NOT NULL,
+    output_path     TEXT,
+    file_ext        TEXT NOT NULL,
+    file_size_bytes INTEGER,
+    source_mtime    REAL,
+    stored_mtime    REAL,
+    content_hash    TEXT,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    error_msg       TEXT,
+    converted_at    TEXT,
+    indexed_at      TEXT,
+    UNIQUE(job_id, source_path)
+);
+CREATE INDEX IF NOT EXISTS idx_bulk_files_job_status ON bulk_files(job_id, status);
+CREATE INDEX IF NOT EXISTS idx_bulk_files_source_path ON bulk_files(source_path);
+
+CREATE TABLE IF NOT EXISTS adobe_index (
+    id              TEXT PRIMARY KEY,
+    source_path     TEXT NOT NULL UNIQUE,
+    file_ext        TEXT NOT NULL,
+    file_size_bytes INTEGER,
+    metadata        TEXT,
+    text_layers     TEXT,
+    indexing_level  INTEGER NOT NULL DEFAULT 2,
+    meili_indexed   INTEGER NOT NULL DEFAULT 0,
+    indexed_at      TEXT,
+    updated_at      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_adobe_index_ext ON adobe_index(file_ext);
+
+CREATE TABLE IF NOT EXISTS locations (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL UNIQUE,
+    path        TEXT NOT NULL,
+    type        TEXT NOT NULL,
+    notes       TEXT,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS llm_providers (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL UNIQUE,
+    provider        TEXT NOT NULL,
+    model           TEXT NOT NULL,
+    api_key         TEXT,
+    api_base_url    TEXT,
+    is_active       INTEGER NOT NULL DEFAULT 0,
+    is_verified     INTEGER NOT NULL DEFAULT 0,
+    last_verified   TEXT,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS bulk_path_issues (
+    id              TEXT PRIMARY KEY,
+    job_id          TEXT NOT NULL REFERENCES bulk_jobs(id),
+    issue_type      TEXT NOT NULL,
+    source_path     TEXT NOT NULL,
+    output_path     TEXT,
+    collision_group TEXT,
+    collision_peer  TEXT,
+    resolution      TEXT,
+    resolved_path   TEXT,
+    created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_path_issues_job ON bulk_path_issues(job_id, issue_type);
+CREATE INDEX IF NOT EXISTS idx_path_issues_collision_group ON bulk_path_issues(collision_group);
+
+CREATE TABLE IF NOT EXISTS bulk_review_queue (
+    id                   TEXT PRIMARY KEY,
+    job_id               TEXT NOT NULL REFERENCES bulk_jobs(id),
+    bulk_file_id         TEXT NOT NULL REFERENCES bulk_files(id),
+    source_path          TEXT NOT NULL,
+    file_ext             TEXT NOT NULL,
+    estimated_confidence REAL,
+    skip_reason          TEXT NOT NULL DEFAULT 'below_threshold',
+    status               TEXT NOT NULL DEFAULT 'pending',
+    resolution           TEXT,
+    resolved_at          TEXT,
+    notes                TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_review_queue_job ON bulk_review_queue(job_id, status);
 """
 
 
@@ -118,10 +232,39 @@ async def get_db():
 
 
 # ── Schema init ───────────────────────────────────────────────────────────────
+async def _add_column_if_missing(
+    conn: aiosqlite.Connection, table: str, column: str, coltype: str
+) -> None:
+    """Add a column to a table if it doesn't already exist."""
+    async with conn.execute(f"PRAGMA table_info({table})") as cur:
+        rows = await cur.fetchall()
+    cols = [row[1] for row in rows]
+    if column not in cols:
+        await conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
+
+
 async def init_db() -> None:
     """Create tables and insert default preferences (idempotent)."""
     async with get_db() as conn:
         await conn.executescript(_SCHEMA_SQL)
+        await conn.commit()
+        # Migrate: add OCR confidence columns to conversion_history
+        await _add_column_if_missing(conn, "conversion_history", "ocr_confidence_mean", "REAL")
+        await _add_column_if_missing(conn, "conversion_history", "ocr_confidence_min", "REAL")
+        await _add_column_if_missing(conn, "conversion_history", "ocr_page_count", "INTEGER")
+        await _add_column_if_missing(conn, "conversion_history", "ocr_pages_below_threshold", "INTEGER")
+        # Migrate: add OCR columns to bulk_files
+        await _add_column_if_missing(conn, "bulk_files", "ocr_confidence_mean", "REAL")
+        await _add_column_if_missing(conn, "bulk_files", "ocr_skipped_reason", "TEXT")
+        # Migrate: add review_queue_count to bulk_jobs
+        await _add_column_if_missing(conn, "bulk_jobs", "review_queue_count", "INTEGER DEFAULT 0")
+        # Migrate: add path safety columns to bulk_jobs
+        await _add_column_if_missing(conn, "bulk_jobs", "path_too_long_count", "INTEGER NOT NULL DEFAULT 0")
+        await _add_column_if_missing(conn, "bulk_jobs", "collision_count", "INTEGER NOT NULL DEFAULT 0")
+        await _add_column_if_missing(conn, "bulk_jobs", "case_collision_count", "INTEGER NOT NULL DEFAULT 0")
+        # Migrate: add LLM correction columns to ocr_flags
+        await _add_column_if_missing(conn, "ocr_flags", "llm_corrected_text", "TEXT")
+        await _add_column_if_missing(conn, "ocr_flags", "llm_correction_model", "TEXT")
         await conn.commit()
         await _init_preferences(conn)
 
@@ -343,3 +486,665 @@ async def get_flag_counts(batch_id: str) -> dict[str, int]:
         counts[row["status"]] = row["cnt"]
     counts["total"] = sum(counts.values())
     return counts
+
+
+# ── Bulk job helpers ─────────────────────────────────────────────────────────
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+async def create_bulk_job(
+    source_path: str,
+    output_path: str,
+    worker_count: int = 4,
+    include_adobe: bool = True,
+    fidelity_tier: int = 2,
+    ocr_mode: str = "auto",
+) -> str:
+    """Create a bulk_jobs record. Returns job_id (UUID)."""
+    job_id = uuid.uuid4().hex
+    async with get_db() as conn:
+        await conn.execute(
+            """INSERT INTO bulk_jobs
+               (id, source_path, output_path, status, worker_count, include_adobe,
+                fidelity_tier, ocr_mode, started_at)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (
+                job_id, source_path, output_path, "pending",
+                worker_count, int(include_adobe), fidelity_tier, ocr_mode,
+                _now_iso(),
+            ),
+        )
+        await conn.commit()
+    return job_id
+
+
+async def get_bulk_job(job_id: str) -> dict[str, Any] | None:
+    return await db_fetch_one("SELECT * FROM bulk_jobs WHERE id = ?", (job_id,))
+
+
+async def list_bulk_jobs(limit: int = 20) -> list[dict[str, Any]]:
+    return await db_fetch_all(
+        "SELECT * FROM bulk_jobs ORDER BY started_at DESC LIMIT ?", (limit,)
+    )
+
+
+async def update_bulk_job_status(job_id: str, status: str, **fields) -> None:
+    """Update job status and any additional fields."""
+    sets = ["status=?"]
+    values: list[Any] = [status]
+    for k, v in fields.items():
+        sets.append(f"{k}=?")
+        values.append(v)
+    values.append(job_id)
+    async with get_db() as conn:
+        await conn.execute(
+            f"UPDATE bulk_jobs SET {', '.join(sets)} WHERE id=?", values
+        )
+        await conn.commit()
+
+
+async def increment_bulk_job_counter(job_id: str, counter: str, amount: int = 1) -> None:
+    """Atomically increment a bulk_jobs counter (converted, skipped, failed, adobe_indexed)."""
+    async with get_db() as conn:
+        await conn.execute(
+            f"UPDATE bulk_jobs SET {counter} = {counter} + ? WHERE id = ?",
+            (amount, job_id),
+        )
+        await conn.commit()
+
+
+# ── Bulk file helpers ────────────────────────────────────────────────────────
+
+async def upsert_bulk_file(
+    job_id: str,
+    source_path: str,
+    file_ext: str,
+    file_size_bytes: int,
+    source_mtime: float,
+) -> str:
+    """Insert or update a bulk_files record. Returns file_id."""
+    async with get_db() as conn:
+        # Check if this file already exists for this job
+        async with conn.execute(
+            "SELECT id, stored_mtime FROM bulk_files WHERE job_id=? AND source_path=?",
+            (job_id, source_path),
+        ) as cur:
+            row = await cur.fetchone()
+
+        if row is not None:
+            file_id = row["id"]
+            stored_mtime = row["stored_mtime"]
+            if stored_mtime is not None and stored_mtime == source_mtime:
+                # Unchanged — mark as skipped
+                await conn.execute(
+                    "UPDATE bulk_files SET status='skipped', source_mtime=?, file_size_bytes=? WHERE id=?",
+                    (source_mtime, file_size_bytes, file_id),
+                )
+            else:
+                # Changed or never successfully converted — reset to pending
+                await conn.execute(
+                    "UPDATE bulk_files SET status='pending', source_mtime=?, file_size_bytes=? WHERE id=?",
+                    (source_mtime, file_size_bytes, file_id),
+                )
+        else:
+            file_id = uuid.uuid4().hex
+            await conn.execute(
+                """INSERT INTO bulk_files
+                   (id, job_id, source_path, file_ext, file_size_bytes, source_mtime, status)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (file_id, job_id, source_path, file_ext, file_size_bytes, source_mtime, "pending"),
+            )
+
+        await conn.commit()
+    return file_id
+
+
+async def get_bulk_files(
+    job_id: str,
+    status: str | None = None,
+    file_ext: str | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    """Return bulk_files for a job, optionally filtered."""
+    sql = "SELECT * FROM bulk_files WHERE job_id=?"
+    params: list[Any] = [job_id]
+    if status:
+        sql += " AND status=?"
+        params.append(status)
+    if file_ext:
+        sql += " AND file_ext=?"
+        params.append(file_ext)
+    sql += " ORDER BY source_path"
+    if limit:
+        sql += " LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+    return await db_fetch_all(sql, tuple(params))
+
+
+async def get_bulk_file_count(job_id: str, status: str | None = None) -> int:
+    """Return count of bulk_files for a job, optionally filtered by status."""
+    sql = "SELECT COUNT(*) as cnt FROM bulk_files WHERE job_id=?"
+    params: list[Any] = [job_id]
+    if status:
+        sql += " AND status=?"
+        params.append(status)
+    row = await db_fetch_one(sql, tuple(params))
+    return row["cnt"] if row else 0
+
+
+async def update_bulk_file(file_id: str, **fields) -> None:
+    """Update any combination of bulk_files fields."""
+    if not fields:
+        return
+    sets = [f"{k}=?" for k in fields]
+    values = list(fields.values()) + [file_id]
+    async with get_db() as conn:
+        await conn.execute(
+            f"UPDATE bulk_files SET {', '.join(sets)} WHERE id=?", values
+        )
+        await conn.commit()
+
+
+async def get_unprocessed_bulk_files(job_id: str) -> list[dict[str, Any]]:
+    """Return files that need processing: pending status, excluding permanently skipped."""
+    return await db_fetch_all(
+        """SELECT * FROM bulk_files WHERE job_id=? AND status='pending'
+           AND (ocr_skipped_reason IS NULL OR ocr_skipped_reason != 'permanently_skipped')
+           ORDER BY source_path""",
+        (job_id,),
+    )
+
+
+# ── Adobe index helpers ──────────────────────────────────────────────────────
+
+async def upsert_adobe_index(
+    source_path: str,
+    file_ext: str,
+    file_size_bytes: int,
+    metadata: dict | None,
+    text_layers: list[str] | None,
+) -> str:
+    """Insert or update an adobe_index record. Returns entry id."""
+    metadata_json = json.dumps(metadata) if metadata else None
+    text_json = json.dumps(text_layers) if text_layers else None
+    now = _now_iso()
+
+    async with get_db() as conn:
+        async with conn.execute(
+            "SELECT id FROM adobe_index WHERE source_path=?", (source_path,)
+        ) as cur:
+            row = await cur.fetchone()
+
+        if row is not None:
+            entry_id = row["id"]
+            await conn.execute(
+                """UPDATE adobe_index SET file_ext=?, file_size_bytes=?,
+                   metadata=?, text_layers=?, updated_at=?, meili_indexed=0
+                   WHERE id=?""",
+                (file_ext, file_size_bytes, metadata_json, text_json, now, entry_id),
+            )
+        else:
+            entry_id = uuid.uuid4().hex
+            await conn.execute(
+                """INSERT INTO adobe_index
+                   (id, source_path, file_ext, file_size_bytes, metadata, text_layers,
+                    indexing_level, meili_indexed, indexed_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (entry_id, source_path, file_ext, file_size_bytes,
+                 metadata_json, text_json, 2, 0, now, now),
+            )
+
+        await conn.commit()
+    return entry_id
+
+
+async def get_adobe_index_entry(source_path: str) -> dict[str, Any] | None:
+    row = await db_fetch_one(
+        "SELECT * FROM adobe_index WHERE source_path=?", (source_path,)
+    )
+    if row:
+        if isinstance(row.get("metadata"), str):
+            row["metadata"] = json.loads(row["metadata"])
+        if isinstance(row.get("text_layers"), str):
+            row["text_layers"] = json.loads(row["text_layers"])
+    return row
+
+
+async def get_unindexed_adobe_entries(limit: int = 100) -> list[dict[str, Any]]:
+    """Return adobe_index entries not yet indexed in Meilisearch."""
+    rows = await db_fetch_all(
+        "SELECT * FROM adobe_index WHERE meili_indexed=0 LIMIT ?", (limit,)
+    )
+    for row in rows:
+        if isinstance(row.get("metadata"), str):
+            row["metadata"] = json.loads(row["metadata"])
+        if isinstance(row.get("text_layers"), str):
+            row["text_layers"] = json.loads(row["text_layers"])
+    return rows
+
+
+async def mark_adobe_meili_indexed(entry_id: str) -> None:
+    """Mark an adobe_index entry as indexed in Meilisearch."""
+    async with get_db() as conn:
+        await conn.execute(
+            "UPDATE adobe_index SET meili_indexed=1 WHERE id=?", (entry_id,)
+        )
+        await conn.commit()
+
+
+# ── Location helpers ────────────────────────────────────────────────────────
+
+async def create_location(
+    name: str, path: str, type_: str, notes: str | None = None
+) -> str:
+    """Insert a new location. Returns id. Raises ValueError if name exists."""
+    # Check for duplicate name
+    existing = await db_fetch_one(
+        "SELECT id FROM locations WHERE name = ?", (name,)
+    )
+    if existing:
+        raise ValueError(f"Location name already exists: {name}")
+
+    location_id = uuid.uuid4().hex
+    now = _now_iso()
+    async with get_db() as conn:
+        await conn.execute(
+            """INSERT INTO locations (id, name, path, type, notes, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?)""",
+            (location_id, name, path, type_, notes, now, now),
+        )
+        await conn.commit()
+    return location_id
+
+
+async def get_location(location_id: str) -> dict[str, Any] | None:
+    """Return a single location by id."""
+    return await db_fetch_one("SELECT * FROM locations WHERE id = ?", (location_id,))
+
+
+async def list_locations(type_filter: str | None = None) -> list[dict[str, Any]]:
+    """Return all locations, optionally filtered by type.
+
+    'both' locations appear when filtering by 'source' or 'output'.
+    """
+    if type_filter and type_filter in ("source", "output"):
+        return await db_fetch_all(
+            "SELECT * FROM locations WHERE type = ? OR type = 'both' ORDER BY name",
+            (type_filter,),
+        )
+    elif type_filter == "both":
+        return await db_fetch_all(
+            "SELECT * FROM locations WHERE type = 'both' ORDER BY name"
+        )
+    return await db_fetch_all("SELECT * FROM locations ORDER BY name")
+
+
+async def update_location(location_id: str, **fields) -> None:
+    """Update name, path, type, or notes. Raises ValueError if new name conflicts."""
+    if not fields:
+        return
+
+    if "name" in fields:
+        existing = await db_fetch_one(
+            "SELECT id FROM locations WHERE name = ? AND id != ?",
+            (fields["name"], location_id),
+        )
+        if existing:
+            raise ValueError(f"Location name already exists: {fields['name']}")
+
+    fields["updated_at"] = _now_iso()
+    sets = [f"{k}=?" for k in fields]
+    values = list(fields.values()) + [location_id]
+    async with get_db() as conn:
+        await conn.execute(
+            f"UPDATE locations SET {', '.join(sets)} WHERE id=?", values
+        )
+        await conn.commit()
+
+
+async def delete_location(location_id: str) -> None:
+    """Delete a location by id."""
+    async with get_db() as conn:
+        await conn.execute("DELETE FROM locations WHERE id = ?", (location_id,))
+        await conn.commit()
+
+
+# ── Bulk review queue helpers ───────────────────────────────────────────────
+
+async def add_to_review_queue(
+    job_id: str,
+    bulk_file_id: str,
+    source_path: str,
+    file_ext: str,
+    estimated_confidence: float | None,
+    skip_reason: str = "below_threshold",
+) -> str:
+    """Insert into bulk_review_queue. Returns id."""
+    entry_id = uuid.uuid4().hex
+    async with get_db() as conn:
+        await conn.execute(
+            """INSERT INTO bulk_review_queue
+               (id, job_id, bulk_file_id, source_path, file_ext,
+                estimated_confidence, skip_reason, status)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (entry_id, job_id, bulk_file_id, source_path, file_ext,
+             estimated_confidence, skip_reason, "pending"),
+        )
+        await conn.commit()
+    return entry_id
+
+
+async def get_review_queue(
+    job_id: str, status: str | None = None, limit: int = 50, offset: int = 0
+) -> list[dict[str, Any]]:
+    """Return review queue entries for a job, optionally filtered by status."""
+    sql = "SELECT * FROM bulk_review_queue WHERE job_id=?"
+    params: list[Any] = [job_id]
+    if status:
+        sql += " AND status=?"
+        params.append(status)
+    sql += " ORDER BY source_path LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+    return await db_fetch_all(sql, tuple(params))
+
+
+async def get_review_queue_entry(entry_id: str) -> dict[str, Any] | None:
+    """Return a single review queue entry by id."""
+    return await db_fetch_one(
+        "SELECT * FROM bulk_review_queue WHERE id = ?", (entry_id,)
+    )
+
+
+async def update_review_queue_entry(
+    entry_id: str,
+    status: str,
+    resolution: str | None = None,
+    notes: str | None = None,
+    resolved_at: str | None = None,
+) -> None:
+    """Update a review queue entry's status and resolution."""
+    async with get_db() as conn:
+        await conn.execute(
+            """UPDATE bulk_review_queue
+               SET status=?, resolution=?, notes=?, resolved_at=?
+               WHERE id=?""",
+            (status, resolution, notes, resolved_at, entry_id),
+        )
+        await conn.commit()
+
+
+async def get_review_queue_summary(job_id: str) -> dict[str, int]:
+    """Returns {pending, converted, skipped_permanently, total} for a job."""
+    rows = await db_fetch_all(
+        "SELECT status, COUNT(*) AS cnt FROM bulk_review_queue WHERE job_id=? GROUP BY status",
+        (job_id,),
+    )
+    summary = {"pending": 0, "converted": 0, "skipped_permanently": 0, "converting": 0, "review_requested": 0}
+    for row in rows:
+        summary[row["status"]] = row["cnt"]
+    summary["total"] = sum(summary.values())
+    return summary
+
+
+async def get_review_queue_count(job_id: str, status: str | None = None) -> int:
+    """Return count of review queue entries for a job."""
+    sql = "SELECT COUNT(*) as cnt FROM bulk_review_queue WHERE job_id=?"
+    params: list[Any] = [job_id]
+    if status:
+        sql += " AND status=?"
+        params.append(status)
+    row = await db_fetch_one(sql, tuple(params))
+    return row["cnt"] if row else 0
+
+
+async def get_ocr_gap_fill_candidates(job_id: str | None = None) -> list[dict[str, Any]]:
+    """Return conversion_history records for PDFs converted without OCR stats.
+
+    A PDF is a gap-fill candidate if:
+      - source_format = 'pdf'
+      - ocr_page_count IS NULL (OCR stats never recorded)
+      - status = 'success'
+    Optionally restrict to files from a specific bulk job (by batch_id prefix).
+    """
+    sql = """SELECT * FROM conversion_history
+             WHERE source_format='pdf'
+             AND ocr_page_count IS NULL
+             AND status='success'"""
+    params: list[Any] = []
+    if job_id:
+        sql += " AND batch_id LIKE ?"
+        params.append(f"{job_id}%")
+    sql += " ORDER BY created_at ASC"
+    return await db_fetch_all(sql, tuple(params))
+
+
+async def get_ocr_gap_fill_count(job_id: str | None = None) -> dict[str, Any]:
+    """Return count and oldest conversion date for gap-fill candidates."""
+    sql = """SELECT COUNT(*) as cnt, MIN(created_at) as oldest
+             FROM conversion_history
+             WHERE source_format='pdf'
+             AND ocr_page_count IS NULL
+             AND status='success'"""
+    params: list[Any] = []
+    if job_id:
+        sql += " AND batch_id LIKE ?"
+        params.append(f"{job_id}%")
+    row = await db_fetch_one(sql, tuple(params))
+    return {
+        "count": row["cnt"] if row else 0,
+        "oldest_conversion": row["oldest"] if row else None,
+    }
+
+
+async def update_bulk_file_confidence(file_id: str, ocr_confidence_mean: float) -> None:
+    """Update OCR confidence for a bulk file."""
+    await update_bulk_file(file_id, ocr_confidence_mean=ocr_confidence_mean)
+
+
+# ── Path issue helpers ──────────────────────────────────────────────────────
+
+async def record_path_issue(
+    job_id: str,
+    issue_type: str,
+    source_path: str,
+    output_path: str | None = None,
+    collision_group: str | None = None,
+    collision_peer: str | None = None,
+    resolution: str | None = None,
+    resolved_path: str | None = None,
+) -> str:
+    """Insert into bulk_path_issues. Returns id."""
+    issue_id = uuid.uuid4().hex
+    now = _now_iso()
+    async with get_db() as conn:
+        await conn.execute(
+            """INSERT INTO bulk_path_issues
+               (id, job_id, issue_type, source_path, output_path,
+                collision_group, collision_peer, resolution, resolved_path, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (issue_id, job_id, issue_type, source_path, output_path,
+             collision_group, collision_peer, resolution, resolved_path, now),
+        )
+        await conn.commit()
+    return issue_id
+
+
+async def get_path_issues(
+    job_id: str, issue_type: str | None = None,
+    limit: int = 200, offset: int = 0,
+) -> list[dict[str, Any]]:
+    """Return all path issues for a job, optionally filtered by type."""
+    sql = "SELECT * FROM bulk_path_issues WHERE job_id=?"
+    params: list[Any] = [job_id]
+    if issue_type:
+        sql += " AND issue_type=?"
+        params.append(issue_type)
+    sql += " ORDER BY issue_type, source_path LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+    return await db_fetch_all(sql, tuple(params))
+
+
+async def get_path_issue_summary(job_id: str) -> dict[str, int]:
+    """Returns {path_too_long, collision, case_collision, total}."""
+    rows = await db_fetch_all(
+        "SELECT issue_type, COUNT(*) AS cnt FROM bulk_path_issues WHERE job_id=? GROUP BY issue_type",
+        (job_id,),
+    )
+    summary: dict[str, int] = {"path_too_long": 0, "collision": 0, "case_collision": 0}
+    for row in rows:
+        summary[row["issue_type"]] = row["cnt"]
+    summary["total"] = sum(summary.values())
+    return summary
+
+
+async def get_path_issue_count(job_id: str) -> int:
+    """Return total path issue count for a job."""
+    row = await db_fetch_one(
+        "SELECT COUNT(*) as cnt FROM bulk_path_issues WHERE job_id=?", (job_id,)
+    )
+    return row["cnt"] if row else 0
+
+
+async def update_path_issue_resolution(
+    issue_id: str, resolution: str, resolved_path: str | None = None
+) -> None:
+    async with get_db() as conn:
+        await conn.execute(
+            "UPDATE bulk_path_issues SET resolution=?, resolved_path=? WHERE id=?",
+            (resolution, resolved_path, issue_id),
+        )
+        await conn.commit()
+
+
+async def get_collision_group(job_id: str, output_path: str) -> list[dict[str, Any]]:
+    """Return all path issues sharing the same collision_group."""
+    return await db_fetch_all(
+        "SELECT * FROM bulk_path_issues WHERE job_id=? AND collision_group=? ORDER BY source_path",
+        (job_id, output_path),
+    )
+
+
+# ── LLM provider helpers ────────────────────────────────────────────────────
+
+async def create_llm_provider(
+    name: str,
+    provider: str,
+    model: str,
+    api_key: str | None = None,
+    api_base_url: str | None = None,
+) -> str:
+    """Create an LLM provider record. Encrypts api_key. Returns id."""
+    from core.crypto import encrypt_value
+
+    provider_id = uuid.uuid4().hex
+    now = _now_iso()
+    encrypted_key = encrypt_value(api_key) if api_key else None
+
+    async with get_db() as conn:
+        await conn.execute(
+            """INSERT INTO llm_providers
+               (id, name, provider, model, api_key, api_base_url,
+                is_active, is_verified, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (provider_id, name, provider, model, encrypted_key,
+             api_base_url, 0, 0, now, now),
+        )
+        await conn.commit()
+    return provider_id
+
+
+async def get_llm_provider(provider_id: str) -> dict[str, Any] | None:
+    """Return provider with api_key DECRYPTED."""
+    row = await db_fetch_one(
+        "SELECT * FROM llm_providers WHERE id = ?", (provider_id,)
+    )
+    if row and row.get("api_key"):
+        from core.crypto import decrypt_value
+        try:
+            row["api_key"] = decrypt_value(row["api_key"])
+        except Exception:
+            row["api_key"] = None  # key unrecoverable
+    return row
+
+
+async def list_llm_providers() -> list[dict[str, Any]]:
+    """Return providers with api_key MASKED."""
+    from core.crypto import mask_api_key
+
+    rows = await db_fetch_all(
+        "SELECT * FROM llm_providers ORDER BY is_active DESC, name ASC"
+    )
+    for row in rows:
+        row["api_key"] = mask_api_key(row.get("api_key"))
+    return rows
+
+
+async def update_llm_provider(provider_id: str, **fields) -> None:
+    """Update provider fields. Encrypts api_key if present."""
+    if not fields:
+        return
+    if "api_key" in fields and fields["api_key"]:
+        from core.crypto import encrypt_value
+        fields["api_key"] = encrypt_value(fields["api_key"])
+    fields["updated_at"] = _now_iso()
+    sets = [f"{k}=?" for k in fields]
+    values = list(fields.values()) + [provider_id]
+    async with get_db() as conn:
+        await conn.execute(
+            f"UPDATE llm_providers SET {', '.join(sets)} WHERE id=?", values
+        )
+        await conn.commit()
+
+
+async def delete_llm_provider(provider_id: str) -> None:
+    """Delete a provider by id."""
+    async with get_db() as conn:
+        await conn.execute("DELETE FROM llm_providers WHERE id = ?", (provider_id,))
+        await conn.commit()
+
+
+async def set_active_provider(provider_id: str) -> None:
+    """Set one provider as active, deactivate all others."""
+    async with get_db() as conn:
+        await conn.execute("UPDATE llm_providers SET is_active=0")
+        await conn.execute(
+            "UPDATE llm_providers SET is_active=1, updated_at=? WHERE id=?",
+            (_now_iso(), provider_id),
+        )
+        await conn.commit()
+
+
+async def get_active_provider() -> dict[str, Any] | None:
+    """Return the currently active provider with api_key DECRYPTED, or None."""
+    row = await db_fetch_one(
+        "SELECT * FROM llm_providers WHERE is_active=1"
+    )
+    if row and row.get("api_key"):
+        from core.crypto import decrypt_value
+        try:
+            row["api_key"] = decrypt_value(row["api_key"])
+        except Exception:
+            row["api_key"] = None
+    return row
+
+
+async def update_history_ocr_stats(
+    history_id: int,
+    mean: float,
+    min_conf: float,
+    page_count: int,
+    pages_below: int,
+) -> None:
+    """Update OCR stats on a conversion_history record."""
+    async with get_db() as conn:
+        await conn.execute(
+            """UPDATE conversion_history
+               SET ocr_confidence_mean=?, ocr_confidence_min=?,
+                   ocr_page_count=?, ocr_pages_below_threshold=?
+               WHERE id=?""",
+            (mean, min_conf, page_count, pages_below, history_id),
+        )
+        await conn.commit()

@@ -5,7 +5,7 @@ Includes models for: conversion requests/responses, batch status, preview,
 history records, preferences, and error responses.
 """
 
-from typing import Any
+from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
@@ -87,6 +87,16 @@ class BatchStatus(BaseModel):
 
 # ── History ───────────────────────────────────────────────────────────────────
 
+class OCRStatsBlock(BaseModel):
+    """OCR stats for a single file — null if no OCR was run."""
+    ran: bool = True
+    confidence_mean: float | None = None
+    confidence_min: float | None = None
+    page_count: int | None = None
+    pages_below_threshold: int | None = None
+    threshold: float = 80.0
+
+
 class HistoryRecord(BaseModel):
     id: int
     batch_id: str
@@ -106,6 +116,7 @@ class HistoryRecord(BaseModel):
     duration_ms: int | None = None
     warnings: list[str] = Field(default_factory=list)
     created_at: str | None = None
+    ocr: OCRStatsBlock | None = None
 
 
 class HistoryListResponse(BaseModel):
@@ -120,6 +131,14 @@ class HistoryListResponse(BaseModel):
     records: list[HistoryRecord]
 
 
+class OCROverallStats(BaseModel):
+    """Aggregate OCR statistics across all conversions."""
+    files_with_ocr: int = 0
+    mean_confidence_overall: float | None = None
+    files_below_threshold: int = 0
+    threshold: float = 80.0
+
+
 class StatsResponse(BaseModel):
     total_conversions: int = 0
     success_count: int = 0
@@ -132,6 +151,7 @@ class StatsResponse(BaseModel):
     total_size_bytes_processed: int = 0
     formats: dict[str, int] = Field(default_factory=dict)
     by_format: dict[str, int] = Field(default_factory=dict)
+    ocr_stats: OCROverallStats | None = None
 
 
 # ── Preferences ───────────────────────────────────────────────────────────────
@@ -167,6 +187,34 @@ class OCRFlagCounts(BaseModel):
     edited: int = 0
     skipped: int = 0
     total: int = 0
+
+
+# ── Errors ────────────────────────────────────────────────────────────────────
+
+# ── Locations ────────────────────────────────────────────────────────────────
+
+class LocationCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+    path: str = Field(..., min_length=1)
+    type: Literal["source", "output", "both"]
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class LocationUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    path: str | None = Field(default=None, min_length=1)
+    type: Literal["source", "output", "both"] | None = None
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class LocationResponse(BaseModel):
+    id: str
+    name: str
+    path: str
+    type: str
+    notes: str | None
+    created_at: str
+    updated_at: str
 
 
 # ── Errors ────────────────────────────────────────────────────────────────────

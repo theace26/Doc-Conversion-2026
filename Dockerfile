@@ -21,6 +21,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgdk-pixbuf-2.0-0 \
     # ImageMagick for EMF/WMF conversion
     imagemagick \
+    # ExifTool for Adobe file metadata extraction
+    libimage-exiftool-perl \
+    # curl for healthchecks
+    curl \
     # Misc build tools
     gcc \
     && apt-get clean \
@@ -38,8 +42,8 @@ COPY . .
 # Create directories that may not exist in the repo
 RUN mkdir -p input output logs data static
 
-# Expose FastAPI port
-EXPOSE 8000
+# Expose FastAPI port + MCP server port
+EXPOSE 8000 8001
 
 # Run the application
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

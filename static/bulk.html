@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MarkFlow — Bulk Conversion</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+  <style>
+    .job-form { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem; align-items: center; }
+    .job-form label { font-weight: 500; font-size: 0.9rem; }
+    .job-form input, .job-form select { padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 0.9rem; }
+    .job-form .checkbox-row { display: flex; align-items: center; gap: 0.4rem; grid-column: 2; }
+    .job-form .form-actions { grid-column: 1 / -1; margin-top: 0.5rem; }
+    .progress-section { margin: 1.5rem 0; }
+    .progress-bar-wrap { background: var(--surface-alt); border-radius: var(--radius); height: 1.5rem; overflow: hidden; margin: 0.5rem 0; }
+    .progress-bar-fill { height: 100%; background: var(--accent); transition: width 0.3s ease; border-radius: var(--radius); display: flex; align-items: center; justify-content: center; font-size: 0.75rem; color: var(--text-on-accent); font-weight: 600; }
+    .progress-bar-fill.indeterminate { width: 100%; background: repeating-linear-gradient(90deg, var(--accent) 0%, var(--accent-hover) 50%, var(--accent) 100%); background-size: 200% 100%; animation: shimmer 1.5s ease infinite; }
+    @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+    .counters { display: flex; gap: 1.5rem; flex-wrap: wrap; font-size: 0.9rem; }
+    .counters .counter { display: flex; flex-direction: column; align-items: center; }
+    .counters .counter-value { font-weight: 700; font-size: 1.3rem; }
+    .counters .counter-label { font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; }
+    .job-history-item { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+    .job-history-item:last-child { border-bottom: none; }
+    .job-status { padding: 0.15em 0.5em; border-radius: var(--radius-sm); font-size: 0.78rem; font-weight: 600; text-transform: uppercase; }
+    .job-status.completed { background: rgba(22,163,74,0.12); color: var(--ok); }
+    .job-status.running, .job-status.scanning { background: rgba(79,91,213,0.12); color: var(--accent); }
+    .job-status.failed { background: rgba(220,38,38,0.12); color: var(--error); }
+    .job-status.cancelled { background: rgba(107,112,132,0.12); color: var(--text-muted); }
+    .job-status.paused { background: rgba(217,119,6,0.12); color: var(--warn); }
+    .control-btns { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+  </style>
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="/" class="nav-logo">MarkFlow</a>
+    <div class="nav-links">
+      <a href="/" class="nav-link">Home</a>
+      <a href="/" class="nav-link">Convert</a>
+      <a href="/bulk.html" class="nav-link">Bulk</a>
+      <a href="/search.html" class="nav-link">Search</a>
+      <a href="/history.html" class="nav-link">History</a>
+      <a href="/settings.html" class="nav-link">Settings</a>
+    </div>
+  </nav>
+
+  <div class="container page-content">
+    <div id="error-banner" role="alert" hidden></div>
+
+    <!-- OCR Gap-Fill banner (shown when un-OCR'd PDFs exist) -->
+    <div id="gap-fill-banner" class="card mb-2" style="border:2px solid var(--warn);padding:1.25rem" hidden>
+      <p style="margin:0 0 0.5rem 0"><strong>&#9888; <span id="gf-count">0</span> PDFs were converted without OCR.</strong></p>
+      <p class="text-sm text-muted" style="margin:0 0 1rem 0">Run an OCR gap-fill pass to add OCR data to these files.</p>
+      <div class="btn-group" style="display:flex;gap:0.5rem;align-items:center">
+        <button class="btn btn-primary btn-sm" id="gf-run-btn" onclick="startGapFill()">Run OCR Gap-Fill</button>
+        <span id="gf-status" class="text-sm text-muted"></span>
+      </div>
+    </div>
+
+    <!-- Setup wizard (shown when no locations exist) -->
+    <section class="card mb-2" id="setup-wizard" hidden>
+      <h2>Set Up Locations</h2>
+      <p style="margin:0.75rem 0">Before you can run a bulk job, you need to set up at least one source location and one output location.</p>
+      <p class="text-muted text-sm" style="margin-bottom:1rem">Locations are friendly names for the folder paths that MarkFlow reads from and writes to. These are paths inside the Docker container — not Windows paths.</p>
+      <a href="/locations.html?setup=true" class="btn btn-primary">Set Up Locations</a>
+    </section>
+
+    <!-- New Job Form -->
+    <section class="card mb-2" id="job-form-section">
+      <h2>New Bulk Job</h2>
+      <div id="location-warnings"></div>
+      <div class="job-form mt-1" id="job-form">
+        <label for="source-loc">Source location</label>
+        <div>
+          <div style="display:flex;gap:0.5rem;align-items:center">
+            <select id="source-loc" style="flex:1;padding:0.45rem 0.6rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:0.9rem"></select>
+            <a href="/locations.html" target="_blank" class="text-sm" style="white-space:nowrap">Manage</a>
+          </div>
+          <div id="source-path-hint" class="text-sm text-mono text-muted" style="margin-top:0.2rem;font-size:0.78rem"></div>
+        </div>
+        <label for="output-loc">Output location</label>
+        <div>
+          <div style="display:flex;gap:0.5rem;align-items:center">
+            <select id="output-loc" style="flex:1;padding:0.45rem 0.6rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:0.9rem"></select>
+            <a href="/locations.html" target="_blank" class="text-sm" style="white-space:nowrap">Manage</a>
+          </div>
+          <div id="output-path-hint" class="text-sm text-mono text-muted" style="margin-top:0.2rem;font-size:0.78rem"></div>
+        </div>
+        <label for="workers">Workers</label>
+        <input type="number" id="workers" min="1" max="16" value="4">
+        <label for="fidelity">Fidelity tier</label>
+        <select id="fidelity">
+          <option value="1">Tier 1 (structure)</option>
+          <option value="2" selected>Tier 2 (styles)</option>
+          <option value="3">Tier 3 (original patch)</option>
+        </select>
+        <label for="ocr-mode">OCR mode</label>
+        <select id="ocr-mode">
+          <option value="auto" selected>Auto</option>
+          <option value="force">Force</option>
+          <option value="skip">Skip</option>
+        </select>
+        <label>&nbsp;</label>
+        <div class="checkbox-row">
+          <input type="checkbox" id="include-adobe" checked>
+          <label for="include-adobe" style="font-weight:normal">Index Adobe files</label>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" id="start-btn">Start Job</button>
+          <span id="start-error" class="text-sm" style="color:var(--error);margin-left:0.75rem" hidden></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Active Job Progress -->
+    <section class="card mb-2" id="active-job-section" hidden>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2>Active Job</h2>
+        <span class="job-status" id="active-status">RUNNING</span>
+      </div>
+      <div class="progress-section">
+        <div id="progress-text" class="text-sm text-muted">Scanning...</div>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar-fill indeterminate" id="progress-bar">0%</div>
+        </div>
+        <div class="counters mt-1" id="counters">
+          <div class="counter"><span class="counter-value" id="c-converted">0</span><span class="counter-label">Converted</span></div>
+          <div class="counter"><span class="counter-value" id="c-failed">0</span><span class="counter-label">Failed</span></div>
+          <div class="counter"><span class="counter-value" id="c-skipped">0</span><span class="counter-label">Skipped</span></div>
+          <div class="counter"><span class="counter-value" id="c-adobe">0</span><span class="counter-label">Adobe</span></div>
+        </div>
+        <div id="review-queue-counter" class="text-sm" style="margin-top:0.5rem;color:var(--warn)" hidden>
+          ⚠ <span id="rq-count">0</span> files need attention after job completes
+        </div>
+        <div class="control-btns">
+          <button class="btn btn-ghost" id="pause-btn" onclick="pauseJob()">Pause</button>
+          <button class="btn btn-ghost" id="cancel-btn" onclick="cancelJob()">Cancel</button>
+        </div>
+        <!-- Path issues alert — shown during/after scan when issues found -->
+        <div id="path-issues-alert" style="margin-top:1rem;padding:1rem;border-radius:var(--radius-sm);border:1px solid var(--warn);background:rgba(217,119,6,0.06)" hidden>
+          <p style="margin:0 0 0.5rem"><strong>&#9888; Path issues detected during scan:</strong></p>
+          <ul id="path-issues-list" class="text-sm" style="margin:0 0 0.75rem 1.2rem;line-height:1.6"></ul>
+          <div style="display:flex;gap:0.5rem">
+            <button class="btn btn-ghost btn-sm" onclick="togglePathDetails()">View Details</button>
+            <a id="path-csv-link" href="#" class="btn btn-ghost btn-sm" hidden>Download Report (CSV)</a>
+          </div>
+        </div>
+        <!-- Path issues detail panel (expandable) -->
+        <div id="path-issues-detail" style="margin-top:0.75rem;max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.75rem;font-size:0.82rem" hidden>
+          <div id="path-issues-content">Loading...</div>
+        </div>
+
+        <!-- Review queue banner — shown after job completes with review items -->
+        <div id="review-banner" class="card" style="margin-top:1rem;border:2px solid var(--warn);padding:1.25rem" hidden>
+          <p style="margin:0 0 0.5rem 0"><strong>⚠ <span id="rb-count">0</span> files were skipped</strong> during conversion because their estimated OCR confidence was below your threshold.</p>
+          <p class="text-sm text-muted" style="margin:0 0 1rem 0">These files have not been converted yet. Review them to decide what to do with each one.</p>
+          <div class="btn-group">
+            <a id="rb-review-link" href="#" class="btn btn-primary btn-sm">Review Skipped Files</a>
+            <button class="btn btn-ghost btn-sm" onclick="resolveAllReview('convert')">Convert All Anyway</button>
+            <button class="btn btn-ghost btn-sm" onclick="resolveAllReview('skip')">Skip All Permanently</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Job History -->
+    <section class="card">
+      <h2>Job History</h2>
+      <div id="job-list">
+        <p class="text-muted text-sm" style="padding:1rem">Loading...</p>
+      </div>
+    </section>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script>
+  let activeJobId = null;
+  let eventSource = null;
+  let totalPending = 0;
+
+  // Start job
+  document.getElementById('start-btn').addEventListener('click', async () => {
+    const errEl = document.getElementById('start-error');
+    errEl.hidden = true;
+    const btn = document.getElementById('start-btn');
+    btn.disabled = true;
+
+    const sourceSel = document.getElementById('source-loc');
+    const outputSel = document.getElementById('output-loc');
+
+    if (!sourceSel.value || !outputSel.value) {
+      errEl.textContent = 'Select both a source and output location.';
+      errEl.hidden = false;
+      btn.disabled = false;
+      return;
+    }
+
+    try {
+      const data = await API.post('/api/bulk/jobs', {
+        source_location_id: sourceSel.value,
+        output_location_id: outputSel.value,
+        worker_count: parseInt(document.getElementById('workers').value) || 4,
+        fidelity_tier: parseInt(document.getElementById('fidelity').value) || 2,
+        ocr_mode: document.getElementById('ocr-mode').value,
+        include_adobe: document.getElementById('include-adobe').checked,
+      });
+      activeJobId = data.job_id;
+      connectSSE(data.job_id);
+      document.getElementById('active-job-section').hidden = false;
+      resetCounters();
+    } catch (e) {
+      errEl.textContent = e.message;
+      errEl.hidden = false;
+      btn.disabled = false;
+    }
+  });
+
+  function resetCounters() {
+    ['c-converted', 'c-failed', 'c-skipped', 'c-adobe'].forEach(id => {
+      document.getElementById(id).textContent = '0';
+    });
+    const bar = document.getElementById('progress-bar');
+    bar.className = 'progress-bar-fill indeterminate';
+    bar.textContent = '';
+    document.getElementById('progress-text').textContent = 'Scanning...';
+    document.getElementById('active-status').textContent = 'SCANNING';
+    document.getElementById('active-status').className = 'job-status scanning';
+    document.getElementById('pause-btn').textContent = 'Pause';
+    document.getElementById('pause-btn').disabled = false;
+    document.getElementById('cancel-btn').disabled = false;
+    document.getElementById('start-btn').disabled = true;
+  }
+
+  function connectSSE(jobId) {
+    if (eventSource) eventSource.close();
+    eventSource = new EventSource(`/api/bulk/jobs/${jobId}/stream`);
+
+    eventSource.addEventListener('scan_complete', e => {
+      const d = JSON.parse(e.data);
+      totalPending = d.new || 0;
+      document.getElementById('c-skipped').textContent = (d.skipped || 0).toLocaleString();
+      document.getElementById('progress-text').textContent =
+        `${d.total.toLocaleString()} files found | ${(d.new || 0).toLocaleString()} to process`;
+      const bar = document.getElementById('progress-bar');
+      bar.className = 'progress-bar-fill';
+      bar.style.width = '0%';
+      bar.textContent = '0%';
+      document.getElementById('active-status').textContent = 'RUNNING';
+      document.getElementById('active-status').className = 'job-status running';
+    });
+
+    eventSource.addEventListener('file_converted', e => {
+      const d = JSON.parse(e.data);
+      document.getElementById('c-converted').textContent = (d.converted || 0).toLocaleString();
+      updateProgressBar(d.converted, d.total || totalPending);
+    });
+
+    eventSource.addEventListener('file_failed', e => {
+      const d = JSON.parse(e.data);
+      document.getElementById('c-failed').textContent = (d.failed || 0).toLocaleString();
+    });
+
+    eventSource.addEventListener('adobe_indexed', e => {
+      const d = JSON.parse(e.data);
+      document.getElementById('c-adobe').textContent = (d.adobe_indexed || 0).toLocaleString();
+    });
+
+    eventSource.addEventListener('job_paused', e => {
+      document.getElementById('active-status').textContent = 'PAUSED';
+      document.getElementById('active-status').className = 'job-status paused';
+      document.getElementById('pause-btn').textContent = 'Resume';
+    });
+
+    eventSource.addEventListener('job_resumed', () => {
+      document.getElementById('active-status').textContent = 'RUNNING';
+      document.getElementById('active-status').className = 'job-status running';
+      document.getElementById('pause-btn').textContent = 'Pause';
+    });
+
+    eventSource.addEventListener('path_issues_found', e => {
+      const d = JSON.parse(e.data);
+      showPathIssuesAlert(d);
+    });
+
+    eventSource.addEventListener('file_skipped_for_review', e => {
+      const d = JSON.parse(e.data);
+      const rqEl = document.getElementById('review-queue-counter');
+      const rqCount = document.getElementById('rq-count');
+      rqEl.hidden = false;
+      rqCount.textContent = (d.review_queue_total || 0).toLocaleString();
+    });
+
+    eventSource.addEventListener('job_complete', e => {
+      const d = JSON.parse(e.data);
+      document.getElementById('c-converted').textContent = (d.converted || 0).toLocaleString();
+      document.getElementById('c-failed').textContent = (d.failed || 0).toLocaleString();
+      document.getElementById('c-skipped').textContent = (d.skipped || 0).toLocaleString();
+      document.getElementById('c-adobe').textContent = (d.adobe_indexed || 0).toLocaleString();
+      document.getElementById('active-status').textContent = 'COMPLETED';
+      document.getElementById('active-status').className = 'job-status completed';
+      document.getElementById('progress-bar').style.width = '100%';
+      document.getElementById('progress-bar').textContent = '100%';
+      document.getElementById('pause-btn').disabled = true;
+      document.getElementById('cancel-btn').disabled = true;
+      document.getElementById('start-btn').disabled = false;
+
+      // Show review banner if there are review queue items
+      const rqCount = d.review_queue_count || 0;
+      if (rqCount > 0) {
+        const banner = document.getElementById('review-banner');
+        banner.hidden = false;
+        document.getElementById('rb-count').textContent = rqCount.toLocaleString();
+        document.getElementById('rb-review-link').href = `/bulk-review.html?job_id=${activeJobId}`;
+      }
+    });
+
+    eventSource.addEventListener('done', () => {
+      if (eventSource) eventSource.close();
+      eventSource = null;
+      loadJobHistory();
+    });
+  }
+
+  function updateProgressBar(done, total) {
+    if (!total) return;
+    const pct = Math.min(100, Math.round((done / total) * 100));
+    const bar = document.getElementById('progress-bar');
+    bar.style.width = pct + '%';
+    bar.textContent = pct + '%';
+    document.getElementById('progress-text').textContent =
+      `${done.toLocaleString()} / ${total.toLocaleString()} files`;
+  }
+
+  async function pauseJob() {
+    if (!activeJobId) return;
+    const btn = document.getElementById('pause-btn');
+    const isPaused = btn.textContent === 'Resume';
+    try {
+      if (isPaused) {
+        await API.post(`/api/bulk/jobs/${activeJobId}/resume`);
+      } else {
+        await API.post(`/api/bulk/jobs/${activeJobId}/pause`);
+      }
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  async function cancelJob() {
+    if (!activeJobId) return;
+    if (!confirm('Cancel the running bulk job?')) return;
+    try {
+      await API.post(`/api/bulk/jobs/${activeJobId}/cancel`);
+      document.getElementById('active-status').textContent = 'CANCELLED';
+      document.getElementById('active-status').className = 'job-status cancelled';
+      document.getElementById('pause-btn').disabled = true;
+      document.getElementById('cancel-btn').disabled = true;
+      document.getElementById('start-btn').disabled = false;
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  async function loadJobHistory() {
+    try {
+      const data = await API.get('/api/bulk/jobs');
+      const list = document.getElementById('job-list');
+
+      if (!data.jobs || !data.jobs.length) {
+        list.innerHTML = '<p class="text-muted text-sm" style="padding:1rem">No bulk jobs yet.</p>';
+        return;
+      }
+
+      list.innerHTML = data.jobs.map(j => {
+        const statusClass = j.status || 'pending';
+        const errors = j.failed || 0;
+        const errorsLink = errors > 0
+          ? `<a href="/api/bulk/jobs/${j.id}/errors" class="text-sm" style="color:var(--error)">${errors} errors</a>`
+          : '';
+        const rqCount = j.review_queue_count || 0;
+        const reviewLink = (rqCount > 0 && j.status === 'completed')
+          ? `<a href="/bulk-review.html?job_id=${j.id}" class="text-sm" style="color:var(--warn)">⚠ ${rqCount} need review</a>`
+          : '';
+        return `<div class="job-history-item">
+          <div>
+            <span class="job-status ${statusClass}">${j.status}</span>
+            <span class="text-sm text-muted" style="margin-left:0.5rem">${j.started_at || ''}</span>
+          </div>
+          <div class="text-sm">
+            ${(j.converted || 0).toLocaleString()} converted
+            ${errorsLink}
+            ${reviewLink}
+          </div>
+        </div>`;
+      }).join('');
+
+      // Check if any job is running and we should connect SSE
+      const running = data.jobs.find(j => j.status === 'running' || j.status === 'scanning' || j.status === 'paused');
+      if (running && !eventSource) {
+        activeJobId = running.id;
+        document.getElementById('active-job-section').hidden = false;
+        document.getElementById('start-btn').disabled = true;
+        document.getElementById('active-status').textContent = running.status.toUpperCase();
+        document.getElementById('active-status').className = `job-status ${running.status}`;
+        document.getElementById('c-converted').textContent = (running.converted || 0).toLocaleString();
+        document.getElementById('c-failed').textContent = (running.failed || 0).toLocaleString();
+        document.getElementById('c-skipped').textContent = (running.skipped || 0).toLocaleString();
+        document.getElementById('c-adobe').textContent = (running.adobe_indexed || 0).toLocaleString();
+        if (running.total_files) {
+          totalPending = running.total_files - (running.skipped || 0);
+          updateProgressBar(running.converted || 0, totalPending);
+          const bar = document.getElementById('progress-bar');
+          bar.className = 'progress-bar-fill';
+        }
+        if (running.status === 'paused') {
+          document.getElementById('pause-btn').textContent = 'Resume';
+        }
+        connectSSE(running.id);
+      }
+    } catch (e) {
+      document.getElementById('job-list').innerHTML =
+        '<p class="text-sm" style="padding:1rem;color:var(--error)">Failed to load job history.</p>';
+    }
+  }
+
+  // ── Location loading ─────────────────────────────────────────────────────
+
+  async function loadLocationDropdowns() {
+    const sourceSel = document.getElementById('source-loc');
+    const outputSel = document.getElementById('output-loc');
+    const sourceList = await populateLocationSelect(sourceSel, 'source');
+    const outputList = await populateLocationSelect(outputSel, 'output');
+
+    const warnEl = document.getElementById('location-warnings');
+    warnEl.innerHTML = '';
+
+    const hasSource = sourceList.length > 0;
+    const hasOutput = outputList.length > 0;
+
+    if (!hasSource && !hasOutput) {
+      // No locations at all — show wizard, hide form
+      document.getElementById('setup-wizard').hidden = false;
+      document.getElementById('job-form-section').hidden = true;
+      return;
+    }
+
+    document.getElementById('setup-wizard').hidden = true;
+    document.getElementById('job-form-section').hidden = false;
+
+    if (!hasSource) {
+      warnEl.innerHTML = '<p class="text-sm" style="color:var(--warn);margin-bottom:0.75rem">No source locations defined yet. <a href="/locations.html">Add one</a></p>';
+    }
+    if (!hasOutput) {
+      warnEl.innerHTML += '<p class="text-sm" style="color:var(--warn);margin-bottom:0.75rem">No output locations defined yet. <a href="/locations.html">Add one</a></p>';
+    }
+
+    // Disable start if either dropdown is empty
+    const startBtn = document.getElementById('start-btn');
+    if (!hasSource || !hasOutput) {
+      startBtn.disabled = true;
+    }
+  }
+
+  // Show resolved path below each dropdown
+  function updatePathHint(selectId, hintId) {
+    const sel = document.getElementById(selectId);
+    const hint = document.getElementById(hintId);
+    const opt = sel.options[sel.selectedIndex];
+    hint.textContent = opt && opt.dataset.path ? opt.dataset.path : '';
+  }
+
+  document.getElementById('source-loc').addEventListener('change', () => updatePathHint('source-loc', 'source-path-hint'));
+  document.getElementById('output-loc').addEventListener('change', () => updatePathHint('output-loc', 'output-path-hint'));
+
+  // Update hints after dropdown population
+  const _origLoadDropdowns = loadLocationDropdowns;
+  loadLocationDropdowns = async function() {
+    await _origLoadDropdowns();
+    updatePathHint('source-loc', 'source-path-hint');
+    updatePathHint('output-loc', 'output-path-hint');
+  };
+
+  // Refresh dropdowns when user returns from locations page
+  window.addEventListener('focus', () => loadLocationDropdowns());
+
+  async function resolveAllReview(action) {
+    if (!activeJobId) return;
+    const msg = action === 'convert'
+      ? 'Convert all skipped files regardless of confidence?'
+      : 'Mark all skipped files as permanently skipped? They won\'t be converted in future runs either.';
+    if (!confirm(msg)) return;
+    try {
+      const data = await API.post(`/api/bulk/jobs/${activeJobId}/review-queue/resolve-all`, { action });
+      showToast(`${data.queued} files queued for ${action}`, 'success');
+      document.getElementById('review-banner').hidden = true;
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  // ── Path Issues ─────────────────────────────────────────────────────────
+  function showPathIssuesAlert(d) {
+    const alert = document.getElementById('path-issues-alert');
+    const list = document.getElementById('path-issues-list');
+    const items = [];
+    if (d.too_long > 0) items.push(`<li>${d.too_long} file${d.too_long > 1 ? 's have' : ' has'} paths that are too long and will be skipped</li>`);
+    if (d.collisions > 0) {
+      const action = d.strategy_applied === 'rename' ? 'renamed automatically' :
+                     d.strategy_applied === 'skip' ? 'first file kept, rest skipped' : 'will NOT be converted';
+      items.push(`<li>${d.collisions} file${d.collisions > 1 ? 's have' : ' has'} output name collisions &mdash; ${action}</li>`);
+    }
+    if (d.case_collisions > 0) items.push(`<li>${d.case_collisions} file${d.case_collisions > 1 ? 's have' : ' has'} case-sensitivity collisions &mdash; renamed automatically</li>`);
+
+    if (items.length > 0) {
+      list.innerHTML = items.join('');
+      alert.hidden = false;
+      if (d.strategy_applied === 'error' && d.collisions > 0) {
+        alert.style.borderColor = 'var(--error)';
+      }
+      if (activeJobId) {
+        const csvLink = document.getElementById('path-csv-link');
+        csvLink.href = `/api/bulk/jobs/${activeJobId}/path-issues/export`;
+        csvLink.hidden = false;
+      }
+    }
+  }
+
+  let pathDetailsLoaded = false;
+  async function togglePathDetails() {
+    const detail = document.getElementById('path-issues-detail');
+    if (!detail.hidden) { detail.hidden = true; return; }
+    detail.hidden = false;
+    if (pathDetailsLoaded || !activeJobId) return;
+    try {
+      const data = await API.get(`/api/bulk/jobs/${activeJobId}/path-issues?per_page=100`);
+      const content = document.getElementById('path-issues-content');
+      if (!data.issues || !data.issues.length) {
+        content.innerHTML = '<p class="text-muted">No issues found.</p>';
+        return;
+      }
+      content.innerHTML = data.issues.map(i => {
+        const icon = i.issue_type === 'path_too_long' ? '&#10007;' : '&#9888;';
+        const typeLabel = i.issue_type.replace(/_/g, ' ').toUpperCase();
+        const res = i.resolution ? `(${i.resolution})` : '';
+        let detail = '';
+        if (i.collision_peer) detail += `<br>Collided with: ${i.collision_peer}`;
+        if (i.resolved_path) detail += `<br>Output: ${i.resolved_path}`;
+        if (i.issue_type === 'path_too_long') detail += `<br>Path: ${i.output_path}`;
+        return `<div style="padding:0.4rem 0;border-bottom:1px solid var(--border)">
+          <strong>${icon} ${typeLabel}</strong> ${res}<br>
+          <span class="text-muted">${i.source_path}</span>${detail}
+        </div>`;
+      }).join('');
+      pathDetailsLoaded = true;
+    } catch (e) {
+      document.getElementById('path-issues-content').innerHTML = `<p style="color:var(--error)">${e.message}</p>`;
+    }
+  }
+
+  // ── OCR Gap-Fill ─────────────────────────────────────────────────────────
+  async function loadGapFillCount() {
+    try {
+      const data = await API.get('/api/bulk/ocr-gap-fill/pending-count');
+      const banner = document.getElementById('gap-fill-banner');
+      if (data.count > 0) {
+        document.getElementById('gf-count').textContent = data.count.toLocaleString();
+        banner.hidden = false;
+      } else {
+        banner.hidden = true;
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  async function startGapFill() {
+    const btn = document.getElementById('gf-run-btn');
+    const statusEl = document.getElementById('gf-status');
+    btn.disabled = true;
+    statusEl.textContent = 'Starting...';
+
+    try {
+      const data = await API.post('/api/bulk/ocr-gap-fill', { worker_count: 2 });
+      statusEl.textContent = `Processing ${data.files_found} files...`;
+
+      // Connect SSE
+      const es = new EventSource(`/api/bulk/ocr-gap-fill/${data.gap_fill_id}/stream`);
+      es.addEventListener('ocr_gap_filled', e => {
+        const d = JSON.parse(e.data);
+        statusEl.textContent = `${d.processed} / ${d.total} files processed`;
+      });
+      es.addEventListener('gap_fill_complete', e => {
+        const d = JSON.parse(e.data);
+        statusEl.textContent = `Done! ${d.processed} files processed, ${d.failed} failed.`;
+        btn.disabled = false;
+        btn.textContent = 'Run Again';
+      });
+      es.addEventListener('done', () => {
+        es.close();
+        loadGapFillCount();
+      });
+    } catch (e) {
+      statusEl.textContent = e.message;
+      btn.disabled = false;
+    }
+  }
+
+  // Initial load
+  loadLocationDropdowns();
+  loadJobHistory();
+  loadGapFillCount();
+  </script>
+</body>
+</html>

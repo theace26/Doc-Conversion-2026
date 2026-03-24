@@ -27,6 +27,9 @@ from core.database import init_db
 from core.health import HealthChecker, run_health_check
 from core.logging_config import configure_logging
 from api.routes import convert, batch, history, preferences, review, debug as debug_routes
+from api.routes import bulk, search as search_routes, cowork, locations, browse
+from api.routes import llm_providers as llm_providers_routes
+from api.routes import mcp_info as mcp_info_routes
 from api.middleware import add_middleware
 
 # ── Logging ──────────────────────────────────────────────────────────────────
@@ -55,6 +58,31 @@ async def lifespan(app: FastAPI):
         level = "info" if status.get("ok") else "warning"
         getattr(log, level)("markflow.dependency", dependency=dep, **status)
 
+    # Seed default locations from env vars on first run
+    try:
+        from core.database import list_locations, create_location
+        existing = await list_locations()
+        if not existing:
+            bulk_source = os.getenv("BULK_SOURCE_PATH")
+            bulk_output = os.getenv("BULK_OUTPUT_PATH")
+            if bulk_source:
+                await create_location("Default Source", bulk_source, "source")
+                log.info("markflow.seed_location", name="Default Source", path=bulk_source)
+            if bulk_output:
+                await create_location("Default Output", bulk_output, "output")
+                log.info("markflow.seed_location", name="Default Output", path=bulk_output)
+    except Exception as exc:
+        log.warning("markflow.seed_locations_error", error=str(exc))
+
+    # Initialize Meilisearch indexes (best-effort — app starts without it)
+    try:
+        from core.search_indexer import get_search_indexer
+        indexer = get_search_indexer()
+        if indexer:
+            await indexer.ensure_indexes()
+    except Exception as exc:
+        log.warning("markflow.meilisearch_init_skip", error=str(exc))
+
     yield
 
     log.info("markflow.shutdown")
@@ -67,7 +95,7 @@ app = FastAPI(
         "Convert documents bidirectionally between their original format "
         "and Markdown. OCR, batch processing, and style preservation."
     ),
-    version="0.6.0",
+    version="0.7.4",
     lifespan=lifespan,
 )
 
@@ -82,7 +110,23 @@ app.include_router(review.router)
 
 # Debug dashboard — always available (developer/operator tool)
 app.include_router(debug_routes.router)
-log.info("markflow.debug_routes_registered")
+
+# Phase 7 — Bulk, Search, Cowork
+app.include_router(bulk.router)
+app.include_router(search_routes.router)
+app.include_router(cowork.router)
+
+# v0.7.1 — Named Locations
+app.include_router(locations.router)
+
+# v0.7.2 — Directory Browser
+app.include_router(browse.router)
+
+# v0.7.4 — LLM Providers + MCP info
+app.include_router(llm_providers_routes.router)
+app.include_router(mcp_info_routes.router)
+
+log.info("markflow.all_routes_registered")
 
 # ── Static files ──────────────────────────────────────────────────────────────
 app.mount("/static", StaticFiles(directory="static"), name="static")

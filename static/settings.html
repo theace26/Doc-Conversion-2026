@@ -13,7 +13,10 @@
   <nav class="nav-bar">
     <a href="/" class="nav-logo">MarkFlow</a>
     <div class="nav-links">
+      <a href="/" class="nav-link">Home</a>
       <a href="/" class="nav-link">Convert</a>
+      <a href="/bulk.html" class="nav-link">Bulk</a>
+      <a href="/search.html" class="nav-link">Search</a>
       <a href="/history.html" class="nav-link">History</a>
       <a href="/settings.html" class="nav-link">Settings</a>
     </div>
@@ -28,6 +31,16 @@
     <div id="loading" style="text-align:center;padding:2rem"><span class="spinner"></span> Loading settings...</div>
 
     <form id="settings-form" hidden>
+      <!-- Locations section -->
+      <div class="section-title">Locations</div>
+      <div class="card">
+        <p style="margin:0 0 0.5rem">Define source and output paths for bulk conversion jobs.</p>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <a href="/locations.html" class="btn btn-ghost">Manage Locations</a>
+          <span class="text-sm text-muted" id="location-count">Loading...</span>
+        </div>
+      </div>
+
       <!-- Conversion section -->
       <div class="section-title">Conversion</div>
       <div class="card">
@@ -59,6 +72,27 @@
         </div>
       </div>
 
+      <!-- Path Safety section -->
+      <div class="section-title" id="collision-strategy">Path Safety</div>
+      <div class="card">
+        <div class="form-group">
+          <label for="pref-max_output_path_length">Max output path length (chars)</label>
+          <input type="number" id="pref-max_output_path_length" data-key="max_output_path_length" min="100" max="400">
+          <p class="hint">Paths longer than this are skipped during bulk jobs. Linux limit: 255 &middot; Windows limit: 260</p>
+          <div class="inline-error" id="err-max_output_path_length"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-collision_strategy">Duplicate filename strategy</label>
+          <select id="pref-collision_strategy" data-key="collision_strategy">
+            <option value="rename">Rename (add extension) &mdash; report.docx.md + report.pdf.md</option>
+            <option value="skip">Skip second file &mdash; keep first, skip duplicates</option>
+            <option value="error">Error (skip all) &mdash; flag all colliding files</option>
+          </select>
+          <div class="inline-error" id="err-collision_strategy"></div>
+        </div>
+      </div>
+
       <!-- OCR section -->
       <div class="section-title">OCR</div>
       <div class="card">
@@ -80,6 +114,87 @@
           </label>
           <p class="hint">Skip review and auto-accept all OCR flags.</p>
           <div class="inline-error" id="err-unattended_default"></div>
+        </div>
+      </div>
+
+      <!-- AI Enhancement section -->
+      <div class="section-title">AI Enhancement</div>
+      <div class="card">
+        <p class="text-sm text-muted" style="margin:0 0 1rem">Configure an AI provider to enhance conversion quality. AI is optional — conversions work without it.</p>
+
+        <div class="form-group">
+          <label>Active Provider</label>
+          <div style="display:flex;gap:0.5rem;align-items:center">
+            <select id="active-provider-select" style="flex:1">
+              <option value="">None (AI disabled)</option>
+            </select>
+            <span id="provider-status" class="text-sm"></span>
+          </div>
+        </div>
+
+        <div style="margin-bottom:1rem">
+          <a href="/providers.html" class="btn btn-ghost btn-sm">Manage Providers</a>
+        </div>
+
+        <div class="form-group">
+          <label>OCR text correction</label>
+          <label class="toggle">
+            <input type="checkbox" id="pref-llm_ocr_correction" data-key="llm_ocr_correction">
+            <span class="toggle-track"></span>
+            <span class="toggle-label" id="toggle-label-ocr-llm">OFF</span>
+          </label>
+          <p class="hint">Fix garbled OCR words using AI.</p>
+          <div class="inline-error" id="err-llm_ocr_correction"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Document summaries</label>
+          <label class="toggle">
+            <input type="checkbox" id="pref-llm_summarize" data-key="llm_summarize">
+            <span class="toggle-track"></span>
+            <span class="toggle-label" id="toggle-label-summarize">OFF</span>
+          </label>
+          <p class="hint">Add 2-3 sentence summary to each converted file.</p>
+          <div class="inline-error" id="err-llm_summarize"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Heading inference</label>
+          <label class="toggle">
+            <input type="checkbox" id="pref-llm_heading_inference" data-key="llm_heading_inference">
+            <span class="toggle-track"></span>
+            <span class="toggle-label" id="toggle-label-headings">OFF</span>
+          </label>
+          <p class="hint">Infer PDF headings when font data is missing.</p>
+          <div class="inline-error" id="err-llm_heading_inference"></div>
+        </div>
+      </div>
+
+      <!-- MCP Integration section -->
+      <div class="section-title">Claude Integration (MCP)</div>
+      <div class="card" id="mcp-section">
+        <p class="text-sm text-muted" style="margin:0 0 1rem">Connect MarkFlow to Claude.ai so Claude can search and read your documents directly.</p>
+        <div id="mcp-info">
+          <div class="form-group">
+            <label>MCP Server URL</label>
+            <div style="display:flex;gap:0.5rem;align-items:center">
+              <input type="text" id="mcp-url" readonly style="flex:1;font-family:var(--font-mono);font-size:0.85rem">
+              <button type="button" class="btn btn-ghost btn-sm" onclick="copyMcpUrl()">Copy</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Status</label>
+            <span id="mcp-status" class="text-sm">Checking...</span>
+          </div>
+          <details style="margin-top:0.75rem">
+            <summary class="text-sm" style="cursor:pointer;color:var(--accent)">Setup Instructions</summary>
+            <ol class="text-sm" style="margin:0.5rem 0 0 1.2rem;line-height:1.6">
+              <li>Open Claude.ai &rarr; Settings &rarr; Integrations</li>
+              <li>Click "Add Integration"</li>
+              <li>Paste the MCP Server URL above</li>
+              <li>Click Connect</li>
+            </ol>
+          </details>
         </div>
       </div>
 
@@ -149,6 +264,19 @@
     } catch (e) {
       document.getElementById('loading').innerHTML = `<span class="status-error">Failed to load settings: ${e.message}</span>`;
     }
+
+    // Load location count
+    try {
+      const locs = await API.get('/api/locations');
+      const sourceCount = locs.filter(l => l.type === 'source' || l.type === 'both').length;
+      const outputCount = locs.filter(l => l.type === 'output' || l.type === 'both').length;
+      const el = document.getElementById('location-count');
+      if (locs.length === 0) {
+        el.textContent = 'No locations configured';
+      } else {
+        el.textContent = `${locs.length} location${locs.length !== 1 ? 's' : ''} configured: ${sourceCount} source · ${outputCount} output`;
+      }
+    } catch { document.getElementById('location-count').textContent = ''; }
   })();
 
   function populateForm(prefs) {
@@ -283,6 +411,93 @@
   document.getElementById('reset-dialog').addEventListener('click', (e) => {
     if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
   });
+
+  // ── AI Enhancement toggle labels ──────────────────────────────────────────
+  ['llm_ocr_correction', 'llm_summarize', 'llm_heading_inference'].forEach(key => {
+    const el = document.getElementById(`pref-${key}`);
+    if (el) {
+      el.addEventListener('change', () => {
+        const labelId = {
+          llm_ocr_correction: 'toggle-label-ocr-llm',
+          llm_summarize: 'toggle-label-summarize',
+          llm_heading_inference: 'toggle-label-headings',
+        }[key];
+        if (labelId) document.getElementById(labelId).textContent = el.checked ? 'ON' : 'OFF';
+      });
+    }
+  });
+
+  // ── AI Provider dropdown ──────────────────────────────────────────────────
+  (async () => {
+    try {
+      const data = await API.get('/api/llm-providers');
+      const select = document.getElementById('active-provider-select');
+      const statusEl = document.getElementById('provider-status');
+      const providers = data.providers || [];
+
+      providers.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = `${p.name} (${p.model})`;
+        if (p.is_active) opt.selected = true;
+        select.appendChild(opt);
+      });
+
+      // Show status for active provider
+      const active = providers.find(p => p.is_active);
+      if (active) {
+        const verified = active.is_verified;
+        const ago = active.last_verified ? formatTimeAgo(active.last_verified) : 'never';
+        statusEl.innerHTML = verified
+          ? `<span style="color:var(--ok)">&#10003; Connected</span> <span class="text-muted">&middot; ${ago}</span>`
+          : `<span style="color:var(--warn)">&mdash; Not verified</span>`;
+      }
+
+      // Change handler
+      select.addEventListener('change', async () => {
+        const id = select.value;
+        if (!id) return;
+        try {
+          await API.post(`/api/llm-providers/${id}/activate`);
+          showToast('Active provider updated.', 'success');
+          // Refresh status
+          location.reload();
+        } catch (e) { showToast(e.message, 'error'); }
+      });
+    } catch (e) { /* providers not loaded — that's OK */ }
+  })();
+
+  function formatTimeAgo(isoStr) {
+    const d = new Date(isoStr);
+    const now = new Date();
+    const diff = Math.floor((now - d) / 1000);
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return Math.floor(diff / 60) + ' min ago';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+    return Math.floor(diff / 86400) + 'd ago';
+  }
+
+  // ── MCP Integration ───────────────────────────────────────────────────────
+  (async () => {
+    try {
+      const data = await API.get('/api/mcp/connection-info');
+      document.getElementById('mcp-url').value = data.mcp_url || 'http://localhost:8001/mcp';
+      const statusEl = document.getElementById('mcp-status');
+      if (data.mcp_running) {
+        statusEl.innerHTML = `<span style="color:var(--ok)">&#10003; MCP server running</span> &middot; ${data.tool_count || 0} tools`;
+      } else {
+        statusEl.innerHTML = '<span style="color:var(--text-muted)">&mdash; MCP server not detected</span>';
+      }
+    } catch {
+      document.getElementById('mcp-url').value = 'http://localhost:8001/mcp';
+      document.getElementById('mcp-status').innerHTML = '<span class="text-muted">&mdash; Could not check MCP status</span>';
+    }
+  })();
+
+  function copyMcpUrl() {
+    const url = document.getElementById('mcp-url').value;
+    navigator.clipboard.writeText(url).then(() => showToast('URL copied!', 'success'));
+  }
   </script>
 </body>
 </html>

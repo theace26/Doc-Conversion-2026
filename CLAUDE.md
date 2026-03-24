@@ -25,7 +25,35 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 **Phase 6 complete** — Full UI: live SSE batch progress, history page (filter/sort/search/
   redownload), settings page (preferences with validation), shared CSS design system,
   dark mode, comprehensive error UX. 378 tests passing. Tagged v0.6.0.
-**Next: Phase 7** — Bulk conversion, Adobe indexing, Meilisearch search, Cowork integration.
+**Phase 7 complete** — Bulk conversion pipeline (scanner, worker pool, pause/resume/cancel),
+  Adobe Level 2 indexing (.ai/.psd text + .indd/.aep/.prproj/.xd metadata), Meilisearch
+  full-text search (documents + adobe-files indexes), search UI, bulk job UI,
+  Cowork search API. 467 tests. Tagged v0.7.0.
+**v0.7.1** — Named Locations system: friendly aliases for container paths used in bulk jobs.
+  First-run wizard guides setup. Bulk form uses dropdowns instead of raw path inputs.
+  Backwards compatible with BULK_SOURCE_PATH / BULK_OUTPUT_PATH env vars. 496 tests.
+**v0.7.2** — Directory browser: Windows drives mounted at /host/c, /host/d etc.
+  Browse endpoint (GET /api/browse) with path traversal protection.
+  FolderPicker widget on Locations page — no need to type container paths manually.
+  Unmounted drives show setup instructions inline.
+**v0.7.3** — OCR confidence visibility and bulk skip-and-review. Confidence scores
+  (mean, min, pages below threshold) recorded per file and shown in history with
+  color-coded badges. Bulk mode skips PDFs below confidence threshold into a review
+  queue instead of failing them. Post-job review UI (bulk-review.html) lets user
+  convert anyway, skip permanently, or open per-page OCR review per file.
+**v0.7.4** — LLM providers (Anthropic, OpenAI, Gemini, Ollama, custom), API key
+  encryption, connection verification, opt-in OCR correction + summarization +
+  heading inference. Auto-OCR gap-fill for PDFs converted without OCR.
+  MCP server (port 8001) exposes 7 tools to Claude.ai: search, read, list,
+  convert, adobe search, get summary, conversion status. 543 tests.
+**v0.7.4b** — Path safety and collision handling. Deeply nested paths checked
+  against configurable max length (default 240 chars). Output path collisions
+  (same stem, different extension) detected at scan time and resolved per
+  strategy: rename (default, no data loss), skip, or error. Case-sensitivity
+  collisions detected separately. All issues recorded in bulk_path_issues table,
+  reported in manifest, downloadable as CSV.
+**Project complete at v0.7.4b.** Future work: Phase 8 (authentication, multi-user, cloud storage),
+  Level 3 Adobe enrichment pass, UnionCore integration.
 
 ---
 
@@ -40,7 +68,7 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 | 4 | Remaining formats: PDF, PPTX, XLSX/CSV (both directions) | ✅ Done |
 | 5 | Testing & debug infrastructure (full test suite, structlog, debug dashboard) | ✅ Done |
 | 6 | Full UI, batch progress, history page, settings, polish | ✅ Done |
-| 7 | Bulk conversion, Adobe indexing, Meilisearch search, Cowork integration | ⬜ |
+| 7 | Bulk conversion, Adobe indexing, Meilisearch search, Cowork integration | ✅ Done |
 
 ---
 
@@ -154,8 +182,34 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 | `static/review.html` | Interactive OCR review page (side-by-side image + editable text) |
 | `static/debug.html` | Developer debug dashboard — health pills, activity, OCR distribution, log viewer |
 | `static/app.js` | Shared JS: API helpers, formatters, toast, nav link highlighter |
-| `pytest.ini` | Test configuration: asyncio_mode, custom markers (slow, ocr, integration) |
-| `docker-compose.yml` | Port 8000, volumes: input/output/logs + named volume for DB |
+| `core/bulk_scanner.py` | File discovery: walks source dir, upserts to bulk_files, mtime tracking |
+| `core/bulk_worker.py` | Worker pool: BulkJob class, pause/resume/cancel, SSE events, job registry |
+| `core/adobe_indexer.py` | Adobe Level 2 indexing: exiftool metadata + text extraction (.ai/.psd) |
+| `core/search_client.py` | Thin async Meilisearch HTTP client via httpx, graceful degradation |
+| `core/search_indexer.py` | Manages Meilisearch indexes, document/adobe indexing, rebuild |
+| `api/routes/bulk.py` | Bulk job API: create, list, status, pause/resume/cancel, files, errors, SSE |
+| `api/routes/search.py` | Full-text search API: search, index status, rebuild |
+| `api/routes/cowork.py` | AI assistant search: full .md content inline, token-budget-aware |
+| `static/search.html` | Search UI: debounced search, highlights, format/index filters, pagination |
+| `static/bulk.html` | Bulk job UI: location dropdowns, SSE progress, pause/cancel, job history |
+| `static/locations.html` | Locations management: add/edit/delete, path validation, setup wizard |
+| `api/routes/locations.py` | Locations CRUD API + path validation endpoint |
+| `api/routes/browse.py` | Directory browser API: GET /api/browse with path traversal protection |
+| `static/js/folder-picker.js` | FolderPicker widget: modal directory browser for locations page |
+| `static/bulk-review.html` | Post-job OCR review queue: per-file convert/skip/review actions |
+| `docs/drive-setup.md` | Setup instructions for mounting Windows drives into Docker |
+| `core/crypto.py` | Fernet encryption/decryption for API keys stored at rest |
+| `core/llm_providers.py` | PROVIDER_REGISTRY: known providers (Anthropic, OpenAI, Gemini, Ollama, custom) |
+| `core/llm_client.py` | Unified async LLM client — routes to provider-specific API implementations |
+| `core/llm_enhancer.py` | Enhancement tasks: OCR correction, summarization, heading inference |
+| `api/routes/llm_providers.py` | LLM provider CRUD, verify, activate, Ollama model fetch |
+| `api/routes/mcp_info.py` | GET /api/mcp/connection-info for settings UI |
+| `static/providers.html` | LLM provider management: add/edit/delete/verify/activate |
+| `core/path_utils.py` | Path safety: length check, collision detection, resolution strategies |
+| `mcp_server/server.py` | MCP server entry point — 7 tools exposed via SSE transport |
+| `mcp_server/tools.py` | MCP tool implementations: search, read, list, convert, adobe, summary, status |
+| `pytest.ini` | Test configuration: asyncio_mode, custom markers (slow, ocr, integration, bulk) |
+| `docker-compose.yml` | Port 8000, MCP 8001, Meilisearch 7700, volumes: input/output/logs/source/output-repo |
 
 ---
 
@@ -278,6 +332,132 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 - **`review.html` and `debug.html` excluded from nav**: These pages have their own headers.
   `review.html` uses `markflow.css` for shared component styles but has a contextual
   "OCR Review" header instead of the main nav bar.
+
+- **Meilisearch primary key IDs**: Document IDs for Meilisearch must be strings without
+  slashes. Use `sha256(source_path)[:16]` hex digest as the primary key. If you use raw
+  file paths, Meilisearch rejects them (slashes are not allowed in document IDs).
+
+- **Meilisearch graceful degradation**: All `MeilisearchClient` methods catch connection
+  errors and return safe defaults. `health_check() -> False`, `search() -> {"hits": []}`.
+  If Meilisearch is down, bulk conversion continues — indexing failures are logged, not
+  treated as conversion failures. The search API returns 503 explicitly.
+
+- **`psd-tools` layer traversal**: PSD files have nested layer groups. Must recurse into
+  groups to find type layers. `layer.kind == "type"` identifies text layers. Accessing
+  `layer.text` on non-type layers raises `AttributeError` — wrap in try/except.
+
+- **exiftool subprocess timeout**: `subprocess.run` with `timeout=30` for exiftool.
+  Large files (multi-GB InDesign) can take a long time. The indexer catches
+  `TimeoutExpired` and returns `{"_error": "exiftool timeout"}` instead of raising.
+
+- **asyncio.Queue sentinel pattern**: Workers use `None` sentinel in the queue to signal
+  shutdown. After enqueueing all files, enqueue N `None` values (one per worker). Each
+  worker breaks its loop when it receives `None`. Cancel sets an event and also unblocks
+  pause so workers can drain and exit.
+
+- **Bulk SSE separate from single-file SSE**: `_bulk_progress_queues` in `bulk_worker.py`
+  is separate from `_progress_queues` in `converter.py` to avoid key collisions between
+  batch IDs and bulk job IDs.
+
+- **Source share is read-only**: `/mnt/source` is mounted `:ro` in docker-compose.
+  MarkFlow must never write to it. The output repo at `/mnt/output-repo` mirrors the
+  source directory structure. Sidecar files go in `_markflow/` subdirectories.
+
+- **httpx is now a runtime dependency**: Phase 7 uses httpx for the Meilisearch client.
+  It was previously test-only. Moved from testing section to utilities in requirements.txt.
+
+- **Locations validate endpoint timeout**: `file_count_estimate` walks the directory tree
+  capped at 10 seconds via asyncio.wait_for. If it times out, returns null — not an error.
+  Don't treat null file_count_estimate as a failure in tests.
+
+- **Locations type filter includes 'both'**: GET /api/locations?type=source returns locations
+  with type='source' AND type='both'. The filter is "show me what I can use as a source",
+  not "show me locations where type exactly equals source".
+
+- **Locations nav decision**: Locations page is NOT in the main nav bar. It is linked from
+  Settings page and the bulk job wizard only — keeps the main nav clean for end users.
+
+- **Browse API allowed roots**: Only /host/* and /mnt/output-repo are browsable.
+  Any path outside these roots returns 403. This is enforced in _validate_browse_path()
+  before any filesystem access. Do not relax this without security review.
+
+- **Drive detection via env var**: MOUNTED_DRIVES env var (e.g. "c,d,e") tells the
+  browse API which drive letters to show in the drives list. A drive showing as
+  "unmounted" means /host/{letter} doesn't exist or isn't readable — not that the
+  Windows drive doesn't exist.
+
+- **item_count can be null**: Directory entry item_count is best-effort. Permission
+  errors or slow directories return null. Never treat null as 0 in the UI.
+
+- **FolderPicker uses <dialog> element**: showModal() / close() API. Backdrop via
+  ::backdrop pseudo-element. No polyfill — requires Chrome 98+ / Firefox 98+.
+  Docker Desktop's bundled browser meets this requirement.
+
+- **Confidence pre-scan is an estimate**: `_estimate_ocr_confidence()` uses pdfplumber
+  text density and Tesseract OSD — not a full OCR pass. The actual post-conversion
+  confidence may differ. The pre-scan is a cheap filter, not a guarantee.
+
+- **OSD vs full OCR confidence scales differ**: Tesseract OSD confidence is 0–100 but
+  measures script/orientation detection confidence, not text recognition quality.
+  It's used as a rough proxy only. The review queue UI shows "estimated" not "measured".
+
+- **review_queue_count in bulk_jobs**: Incremented by bulk_worker when files are
+  skipped for review. Not decremented when resolved — it's a total count, not a
+  pending count. Use `get_review_queue_summary(job_id)` for current pending count.
+
+- **SSE done event deferred until review queue resolved**: The bulk job SSE stream
+  does not send the done event until both the main job and review queue are fully
+  resolved. Clients that close the EventSource on `job_complete` will miss review
+  queue events. `bulk-review.html` opens its own EventSource connection.
+
+- **Permanently skipped files**: `bulk_files.ocr_skipped_reason = 'permanently_skipped'`
+  causes `get_unprocessed_bulk_files()` to exclude the file on future runs. This is
+  intentional — permanently skipped files never re-enter the conversion queue.
+
+- **SECRET_KEY required for LLM providers**: If any LLM provider is configured,
+  SECRET_KEY env var must be set or the app raises ValueError on startup.
+  Generate with: python -c "import secrets; print(secrets.token_hex(32))"
+
+- **MCP server is a separate process**: markflow-mcp runs independently of the
+  main app. It shares the database and filesystem but has its own port (8001).
+  If the main app is down, MCP tools that need live conversion will fail gracefully.
+
+- **Ollama OpenAI-compat endpoint**: _complete_ollama() tries /v1/chat/completions
+  first (available in Ollama 0.1.24+). Falls back to /api/generate if 404.
+  The fallback uses a different request/response shape — both are handled.
+
+- **LLM enhancement is always opt-in**: All three preference toggles default to
+  false. An active provider with all toggles off does nothing to conversions.
+  The verify/ping still works regardless of toggle state.
+
+- **MCP tool docstrings are functional**: Claude.ai uses tool docstrings to decide
+  when to call each tool. Do not simplify or shorten them without considering
+  how that affects Claude's tool selection behavior.
+
+- **Path safety pass runs during scan, not during conversion**: All path length
+  and collision checks happen in BulkScanner._run_path_safety_pass() before any
+  file is queued for conversion. The worker trusts resolved_paths — it does not
+  re-check. If a file appears in the worker without a resolved_paths entry, that
+  is a bug, not a handled edge case.
+
+- **resolve_collision() is deterministic**: Sort order is by str(source_path)
+  ascending. For strategy='skip', the alphabetically-first source path always
+  wins. This is intentional — predictable behavior matters more than any
+  particular ordering preference.
+
+- **Case collision detection only flags same-output-path pairs**: Two files
+  that differ only by case in the directory portion (DEPT vs dept) AND produce
+  the same lowercased output path are flagged. Files that differ by case but
+  produce different output paths are NOT flagged (the Linux container handles
+  them correctly as separate files).
+
+- **Renamed output paths use source extension**: report.pdf.md not
+  report_pdf.md or report(1).md. The double extension is intentional —
+  it makes the source format visible in the filename and is unambiguous.
+
+- **Auto-OCR gap-fill candidates**: A PDF is a gap-fill candidate if
+  source_format='pdf', ocr_page_count IS NULL, and status='success'. The gap-fill
+  pass updates ocr_page_count so the file won't be a candidate again.
 
 ---
 

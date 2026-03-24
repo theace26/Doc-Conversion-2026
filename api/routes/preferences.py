@@ -84,6 +84,29 @@ _PREFERENCE_SCHEMA: dict[str, dict] = {
         "label": "Last source directory",
         "readonly": True,
     },
+    "llm_ocr_correction": {
+        "type": "toggle",
+        "label": "Use LLM to correct low-confidence OCR text",
+    },
+    "llm_summarize": {
+        "type": "toggle",
+        "label": "Generate document summaries",
+    },
+    "llm_heading_inference": {
+        "type": "toggle",
+        "label": "Use LLM to infer headings in PDFs",
+    },
+    "max_output_path_length": {
+        "type": "number",
+        "min": 100,
+        "max": 400,
+        "label": "Max output path length (chars)",
+    },
+    "collision_strategy": {
+        "type": "select",
+        "options": ["rename", "skip", "error"],
+        "label": "Duplicate filename strategy",
+    },
 }
 
 # Validation rules per key

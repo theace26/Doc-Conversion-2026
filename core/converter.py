@@ -21,7 +21,14 @@ from typing import Any
 
 import structlog
 
-from core.database import record_conversion, upsert_batch_state
+from core.database import (
+    db_execute,
+    get_flags_for_batch,
+    get_preference,
+    record_conversion,
+    update_history_ocr_stats,
+    upsert_batch_state,
+)
 from core.logging_config import bind_batch_context, bind_file_context
 from core.metadata import generate_manifest, generate_sidecar
 import formats  # noqa: F401 — triggers handler self-registration
@@ -573,7 +580,7 @@ class ConversionOrchestrator:
             )
 
         # Record in DB (always — success or failure)
-        await record_conversion({
+        history_id = await record_conversion({
             "batch_id": result.batch_id,
             "source_filename": result.source_filename,
             "source_format": result.source_format,
@@ -590,6 +597,36 @@ class ConversionOrchestrator:
             "duration_ms": result.duration_ms,
             "warnings": result.warnings,
         })
+
+        # Record OCR confidence stats if OCR flags exist
+        if result.ocr_flags_total > 0 and history_id:
+            try:
+                flags = await get_flags_for_batch(result.batch_id)
+                if flags:
+                    confs = [f["confidence"] for f in flags if f.get("confidence") is not None]
+                    if confs:
+                        threshold_str = await get_preference("ocr_confidence_threshold") or "80"
+                        threshold = float(threshold_str)
+                        # Group by page for page-level stats
+                        pages = set(f["page_num"] for f in flags)
+                        await update_history_ocr_stats(
+                            history_id=history_id,
+                            mean=round(sum(confs) / len(confs), 1),
+                            min_conf=round(min(confs), 1),
+                            page_count=len(pages),
+                            pages_below=sum(1 for c in confs if c < threshold),
+                        )
+            except Exception as exc:
+                log.warning("ocr_stats_record_failed", error=str(exc))
+
+        # Deferred OCR for PDFs that were converted without OCR
+        if result.source_format == "pdf" and result.status == "success" and result.ocr_flags_total == 0:
+            try:
+                await self._check_and_run_deferred_ocr(
+                    history_id, result, file_path,
+                )
+            except Exception as exc:
+                log.warning("ocr_deferred_check_failed", error=str(exc))
 
         # Emit file_complete or file_error
         if result.status == "success":
@@ -619,6 +656,80 @@ class ConversionOrchestrator:
             })
 
         return result
+
+    async def _check_and_run_deferred_ocr(
+        self,
+        history_id: int,
+        result: "ConvertResult",
+        source_path: Path,
+    ) -> None:
+        """
+        Called after a PDF conversion completes. If OCR was not run during
+        conversion (ocr_page_count is null) and the PDF likely needs OCR
+        and ocr_mode preference is not 'skip', run OCR now and update
+        the history record's OCR stats.
+        """
+        if result.source_format != "pdf" or result.status != "success":
+            return
+        if result.ocr_flags_total > 0:
+            return  # OCR already ran
+
+        # Check user preference
+        ocr_mode = await get_preference("unattended_default") or "false"
+        ocr_skip = (await get_preference("default_direction")) == "skip"  # Not a real pref but check ocr_mode
+        # Actually, check if OCR was needed via the pdf handler
+        try:
+            from formats.pdf_handler import PdfHandler
+            handler = PdfHandler()
+            model = await asyncio.to_thread(handler.ingest_with_ocr, source_path, None, result.batch_id)
+
+            scanned_pages = getattr(model, "_scanned_pages", [])
+            if not scanned_pages:
+                return  # No scanned pages — no OCR needed
+
+            log.info(
+                "ocr_deferred_run",
+                filename=result.source_filename,
+                reason="was_skipped",
+                scanned_pages=len(scanned_pages),
+            )
+
+            from core.ocr import run_ocr, OCRConfig
+            threshold_str = await get_preference("ocr_confidence_threshold") or "80"
+            unattended_str = await get_preference("unattended_default") or "false"
+
+            config = OCRConfig(
+                confidence_threshold=float(threshold_str),
+                unattended=(unattended_str == "true"),
+            )
+            ocr_result = await run_ocr(
+                scanned_pages, config, result.batch_id, result.source_filename
+            )
+
+            # Update history OCR stats
+            if ocr_result.pages:
+                valid_confs = [
+                    w.confidence for p in ocr_result.pages for w in p.words if w.confidence >= 0
+                ]
+                if valid_confs:
+                    await update_history_ocr_stats(
+                        history_id=history_id,
+                        mean=round(sum(valid_confs) / len(valid_confs), 1),
+                        min_conf=round(min(valid_confs), 1),
+                        page_count=len(ocr_result.pages),
+                        pages_below=sum(
+                            1 for c in valid_confs if c < config.confidence_threshold
+                        ),
+                    )
+                    log.info(
+                        "ocr_deferred_complete",
+                        filename=result.source_filename,
+                        pages=len(ocr_result.pages),
+                        avg_confidence=round(sum(valid_confs) / len(valid_confs), 1),
+                        flags=len(ocr_result.flags),
+                    )
+        except Exception as exc:
+            log.warning("ocr_deferred_failed", filename=result.source_filename, error=str(exc))
 
     async def preview_file(self, file_path: Path, direction: str = "to_md") -> PreviewResult:
         """Quick analysis without converting."""

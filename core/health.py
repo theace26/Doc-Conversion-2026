@@ -46,9 +46,11 @@ class HealthChecker:
             self._check_weasyprint(),
             self._check_disk_space(),
             self._check_database(),
+            self._check_meilisearch(),
+            self._check_drives(),
             return_exceptions=True,
         )
-        keys = ["tesseract", "libreoffice", "poppler", "weasyprint", "disk", "database"]
+        keys = ["tesseract", "libreoffice", "poppler", "weasyprint", "disk", "database", "meilisearch", "drives"]
         out = {}
         for key, result in zip(keys, results):
             if isinstance(result, Exception):
@@ -166,6 +168,55 @@ class HealthChecker:
             }
         except Exception as e:
             return {"ok": False, "error": str(e)}
+
+
+    async def _check_drives(self) -> dict:
+        return await asyncio.to_thread(self._sync_check_drives)
+
+    def _sync_check_drives(self) -> dict:
+        raw = os.getenv("MOUNTED_DRIVES", "")
+        letters = [l.strip().lower() for l in raw.split(",") if l.strip()] if raw else []
+        mounted = []
+        unmounted = []
+        for letter in letters:
+            host_path = Path(f"/host/{letter}")
+            accessible = False
+            try:
+                if host_path.is_dir():
+                    os.listdir(host_path)
+                    accessible = True
+            except (PermissionError, OSError):
+                pass
+            if accessible:
+                mounted.append({"letter": letter.upper(), "path": f"/host/{letter}", "accessible": True})
+            else:
+                unmounted.append(letter.upper())
+        all_ok = len(mounted) > 0 or len(letters) == 0
+        return {
+            "ok": all_ok,
+            "status": "ok" if all_ok else "no_drives",
+            "mounted": mounted,
+            "unmounted": unmounted,
+        }
+
+    async def _check_meilisearch(self) -> dict:
+        try:
+            from core.search_client import get_meili_client, MEILI_HOST
+            client = get_meili_client()
+            available = await client.health_check()
+            if not available:
+                return {"ok": False, "status": "not_available", "host": MEILI_HOST}
+            docs_stats = await client.get_index_stats("documents")
+            adobe_stats = await client.get_index_stats("adobe-files")
+            return {
+                "ok": True,
+                "status": "ok",
+                "host": MEILI_HOST,
+                "documents_index_count": docs_stats.get("numberOfDocuments", 0),
+                "adobe_index_count": adobe_stats.get("numberOfDocuments", 0),
+            }
+        except Exception as e:
+            return {"ok": False, "status": "not_available", "error": str(e)}
 
 
 async def run_health_check() -> dict:

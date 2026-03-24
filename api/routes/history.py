@@ -17,9 +17,15 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
 
-from api.models import HistoryListResponse, HistoryRecord, StatsResponse
+from api.models import (
+    HistoryListResponse,
+    HistoryRecord,
+    OCROverallStats,
+    OCRStatsBlock,
+    StatsResponse,
+)
 from core.converter import OUTPUT_BASE
-from core.database import db_fetch_all, db_fetch_one
+from core.database import db_fetch_all, db_fetch_one, get_preference
 
 router = APIRouter(prefix="/api/history", tags=["history"])
 
@@ -35,7 +41,21 @@ def _parse_warnings(raw) -> list[str]:
         return []
 
 
-def _row_to_record(row: dict) -> HistoryRecord:
+def _row_to_record(row: dict, threshold: float = 80.0) -> HistoryRecord:
+    ocr_block = None
+    if row.get("ocr_confidence_mean") is not None:
+        ocr_block = OCRStatsBlock(
+            ran=True,
+            confidence_mean=row.get("ocr_confidence_mean"),
+            confidence_min=row.get("ocr_confidence_min"),
+            page_count=row.get("ocr_page_count"),
+            pages_below_threshold=row.get("ocr_pages_below_threshold"),
+            threshold=threshold,
+        )
+    elif bool(row.get("ocr_applied", False)):
+        # OCR was detected as needed but no confidence was recorded
+        ocr_block = OCRStatsBlock(ran=True, threshold=threshold)
+
     return HistoryRecord(
         id=row["id"],
         batch_id=row["batch_id"],
@@ -55,6 +75,7 @@ def _row_to_record(row: dict) -> HistoryRecord:
         duration_ms=row.get("duration_ms"),
         warnings=_parse_warnings(row.get("warnings")),
         created_at=str(row.get("created_at") or ""),
+        ocr=ocr_block,
     )
 
 
@@ -64,7 +85,8 @@ def _row_to_record(row: dict) -> HistoryRecord:
 async def history_stats():
     """Aggregate conversion statistics."""
     rows = await db_fetch_all(
-        "SELECT status, source_format, duration_ms, ocr_flags_total, file_size_bytes "
+        "SELECT status, source_format, duration_ms, ocr_flags_total, file_size_bytes, "
+        "ocr_confidence_mean "
         "FROM conversion_history"
     )
 
@@ -77,15 +99,30 @@ async def history_stats():
     total_ocr = 0
     total_duration = 0
     total_size = 0
+    ocr_confs: list[float] = []
     for r in rows:
         fmt = r.get("source_format") or "unknown"
         format_counts[fmt] = format_counts.get(fmt, 0) + 1
         total_ocr += r.get("ocr_flags_total") or 0
         total_duration += r.get("duration_ms") or 0
         total_size += r.get("file_size_bytes") or 0
+        if r.get("ocr_confidence_mean") is not None:
+            ocr_confs.append(r["ocr_confidence_mean"])
 
     most_used = max(format_counts, key=format_counts.get) if format_counts else None
     avg_duration = total_duration // total if total else 0
+
+    # OCR aggregate stats
+    threshold_str = await get_preference("ocr_confidence_threshold") or "80"
+    threshold = float(threshold_str)
+    ocr_overall = None
+    if ocr_confs:
+        ocr_overall = OCROverallStats(
+            files_with_ocr=len(ocr_confs),
+            mean_confidence_overall=round(sum(ocr_confs) / len(ocr_confs), 1),
+            files_below_threshold=sum(1 for c in ocr_confs if c < threshold),
+            threshold=threshold,
+        )
 
     return StatsResponse(
         total_conversions=total,
@@ -99,6 +136,7 @@ async def history_stats():
         total_size_bytes_processed=total_size,
         formats=format_counts,
         by_format=format_counts,
+        ocr_stats=ocr_overall,
     )
 
 
@@ -180,6 +218,9 @@ async def list_history(
     )
     has_errors = (err_row["n"] if err_row else 0) > 0
 
+    threshold_str = await get_preference("ocr_confidence_threshold") or "80"
+    threshold = float(threshold_str)
+
     return HistoryListResponse(
         total=total,
         limit=effective_limit,
@@ -189,7 +230,7 @@ async def list_history(
         total_pages=total_pages,
         formats_available=formats_available,
         has_errors=has_errors,
-        records=[_row_to_record(r) for r in rows],
+        records=[_row_to_record(r, threshold) for r in rows],
     )
 
 
@@ -256,4 +297,5 @@ async def get_history_record(record_id: int):
     )
     if row is None:
         raise HTTPException(status_code=404, detail=f"Record {record_id} not found.")
-    return _row_to_record(row)
+    threshold_str = await get_preference("ocr_confidence_threshold") or "80"
+    return _row_to_record(row, float(threshold_str))

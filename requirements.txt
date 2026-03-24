@@ -37,8 +37,16 @@ pyyaml
 aiofiles
 aiosqlite
 structlog
+httpx
+cryptography
+
+# Adobe indexing
+psd-tools
+pyexiftool
+
+# MCP server
+mcp
 
 # Testing
 pytest
 pytest-asyncio
-httpx

@@ -41,6 +41,19 @@ const API = {
         }
         return res.json();
     },
+    async del(url) {
+        const res = await fetch(url, { method: 'DELETE' });
+        if (!res.ok && res.status !== 204) {
+            const data = await res.json().catch(() => ({}));
+            const msg = data.detail || `DELETE ${url} failed (${res.status})`;
+            const err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+            err.status = res.status;
+            err.data = data;
+            throw err;
+        }
+        if (res.status === 204) return null;
+        return res.json();
+    },
     async put(url, body) {
         const res = await fetch(url, {
             method: 'PUT',
@@ -126,15 +139,41 @@ function showToast(message, type = 'success') {
     setTimeout(() => { toast.classList.remove('visible'); }, 3000);
 }
 
+// ── Location picker helper ──────────────────────────────────────────────────
+
+async function populateLocationSelect(selectEl, type, selectedId = null) {
+    const locations = await API.get(`/api/locations?type=${type}`);
+    selectEl.innerHTML = '';
+    if (locations.length === 0) {
+        selectEl.innerHTML = '<option value="" disabled selected>(none available)</option>';
+        selectEl.disabled = true;
+        return locations;
+    }
+    locations.forEach(loc => {
+        const opt = document.createElement('option');
+        opt.value = loc.id;
+        opt.textContent = loc.name;
+        opt.dataset.path = loc.path;
+        if (loc.id === selectedId) opt.selected = true;
+        selectEl.appendChild(opt);
+    });
+    selectEl.disabled = false;
+    if (locations.length === 1) selectEl.value = locations[0].id;
+    return locations;
+}
+
 // Set active nav link
 document.addEventListener('DOMContentLoaded', () => {
     const path = location.pathname;
+    const isIndexPage = path === '/' || path === '/index.html';
     document.querySelectorAll('.nav-link').forEach(link => {
         const href = link.getAttribute('href');
-        if (href === '/' && (path === '/' || path === '/index.html')) {
-            link.classList.add('nav-link--active');
-        } else if (href !== '/' && path.startsWith(href.replace('.html', ''))) {
-            link.classList.add('nav-link--active');
+        let active = false;
+        if (isIndexPage) {
+            active = href === '/';
+        } else {
+            active = href !== '/' && path.startsWith(href.replace('.html', ''));
         }
+        link.classList.toggle('nav-link--active', active);
     });
 });

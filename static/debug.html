@@ -384,12 +384,24 @@ async function refreshHealth() {
   let html = '';
 
   for (const [name, info] of Object.entries(data.components || {})) {
+    if (name === 'drives') continue; // render drives separately
     let cls = 'muted';
     let icon = '\u2014';
     if (info.ok === true) { cls = 'ok'; icon = '\u2713'; }
     else if (info.ok === false) { cls = 'error'; icon = '\u2717'; }
     if (info.status === 'not_configured') { cls = 'muted'; icon = '\u2014'; }
     html += `<span class="pill ${cls}"><span class="pill-dot"></span>${name} ${icon}</span>`;
+  }
+
+  // Drive mount pills
+  const driveInfo = (data.components || {}).drives;
+  if (driveInfo) {
+    (driveInfo.mounted || []).forEach(d => {
+      html += `<span class="pill ok"><span class="pill-dot"></span>${d.letter}: \u2713</span>`;
+    });
+    (driveInfo.unmounted || []).forEach(letter => {
+      html += `<span class="pill muted"><span class="pill-dot"></span>${letter}: \u2014</span>`;
+    });
   }
   pills.innerHTML = html;
 
