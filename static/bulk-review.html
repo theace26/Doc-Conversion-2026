@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MarkFlow — Review Queue</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+  <style>
+    .summary-bar { display: flex; gap: 1.5rem; flex-wrap: wrap; font-size: 0.9rem; margin-bottom: 1rem; }
+    .summary-bar .count { font-weight: 700; }
+    .review-entry { padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
+    .review-entry:last-child { border-bottom: none; }
+    .review-entry.resolved { opacity: 0.5; }
+    .entry-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+    .entry-filename { font-family: var(--font-mono); font-size: 0.9rem; font-weight: 500; }
+    .conf-bar-track { position: relative; height: 0.5rem; background: var(--surface-alt); border-radius: 0.25rem; margin: 0.5rem 0; max-width: 300px; }
+    .conf-bar-fill { height: 100%; border-radius: 0.25rem; }
+    .conf-bar-track::after { content: ""; position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--text-muted); opacity: 0.6; }
+    .conf-label { font-size: 0.8rem; color: var(--text-muted); }
+    .entry-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+    .entry-status { font-size: 0.8rem; font-weight: 600; padding: 0.1em 0.4em; border-radius: var(--radius-sm); }
+    .entry-status.converted { background: rgba(22,163,74,0.12); color: var(--ok); }
+    .entry-status.skipped { background: rgba(107,112,132,0.12); color: var(--text-muted); }
+    .entry-status.converting { background: rgba(79,91,213,0.12); color: var(--accent); }
+    .filter-row { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1rem; }
+    .bulk-actions { display: flex; gap: 0.75rem; margin-bottom: 1rem; }
+    .empty-review { text-align: center; padding: 3rem 1rem; color: var(--text-muted); }
+  </style>
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="/" class="nav-logo">MarkFlow</a>
+    <div class="nav-links">
+      <a href="/" class="nav-link">Home</a>
+      <a href="/" class="nav-link">Convert</a>
+      <a href="/bulk.html" class="nav-link">Bulk</a>
+      <a href="/search.html" class="nav-link">Search</a>
+      <a href="/history.html" class="nav-link">History</a>
+      <a href="/settings.html" class="nav-link">Settings</a>
+    </div>
+  </nav>
+
+  <div class="container page-content">
+    <div id="error-banner" role="alert" hidden></div>
+
+    <a href="/bulk.html" class="text-sm" style="display:inline-block;margin-bottom:0.75rem">&larr; Back to Bulk Jobs</a>
+
+    <h1>Review Queue</h1>
+    <p id="job-date" class="text-sm text-muted"></p>
+
+    <div class="summary-bar" id="summary-bar"></div>
+
+    <div class="bulk-actions" id="bulk-actions">
+      <button class="btn btn-ghost btn-sm" onclick="resolveAll('convert')">Convert All Anyway</button>
+      <button class="btn btn-ghost btn-sm" onclick="resolveAll('skip')">Skip All Permanently</button>
+    </div>
+
+    <div class="filter-row">
+      <select id="filter-status" style="padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text)">
+        <option value="pending">Pending</option>
+        <option value="">All</option>
+        <option value="converted">Converted</option>
+        <option value="skipped_permanently">Skipped</option>
+      </select>
+      <span class="text-sm text-muted">Sort: lowest confidence first</span>
+    </div>
+
+    <div class="card" style="padding:0" id="entries-card">
+      <div id="entries-list">
+        <p class="text-muted text-sm" style="padding:2rem;text-align:center"><span class="spinner"></span> Loading...</p>
+      </div>
+    </div>
+
+    <!-- Pagination -->
+    <div class="pagination" id="pagination" style="margin-top:1rem">
+      <span id="pagination-info" class="text-sm text-muted"></span>
+      <div class="pagination-pages" id="pagination-pages"></div>
+    </div>
+
+    <!-- Empty state -->
+    <div id="empty-state" class="empty-review" hidden>
+      <h3>All files reviewed</h3>
+      <p id="empty-summary"></p>
+      <a href="/bulk.html" class="btn btn-primary" style="margin-top:1rem">Back to Bulk Jobs</a>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script>
+  const jobId = new URLSearchParams(location.search).get('job_id');
+  let currentPage = 1;
+  let currentStatus = 'pending';
+  let threshold = 80;
+  let eventSource = null;
+
+  if (!jobId) {
+    showError('No job_id specified.');
+  }
+
+  function confClass(conf) {
+    if (conf == null) return 'ok';
+    if (conf >= threshold) return 'ok';
+    if (conf >= 60) return 'warn';
+    return 'error';
+  }
+
+  async function loadQueue() {
+    if (!jobId) return;
+    try {
+      const qs = new URLSearchParams({
+        status: currentStatus,
+        page: currentPage,
+        per_page: 50,
+      });
+      const data = await API.get(`/api/bulk/jobs/${jobId}/review-queue?${qs}`);
+      renderSummary(data.summary);
+      renderEntries(data.entries);
+      renderPagination(data);
+
+      const allResolved = data.summary.pending === 0;
+      document.getElementById('entries-card').hidden = allResolved && currentStatus === 'pending';
+      document.getElementById('empty-state').hidden = !allResolved || currentStatus !== 'pending';
+      document.getElementById('bulk-actions').hidden = allResolved;
+      if (allResolved) {
+        document.getElementById('empty-summary').textContent =
+          `${data.summary.converted || 0} converted · ${data.summary.skipped_permanently || 0} skipped permanently`;
+      }
+    } catch (e) {
+      showError('Failed to load review queue: ' + e.message);
+    }
+  }
+
+  function renderSummary(s) {
+    document.getElementById('summary-bar').innerHTML =
+      `<span><span class="count">${s.pending || 0}</span> pending</span>` +
+      `<span><span class="count">${s.converted || 0}</span> converted</span>` +
+      `<span><span class="count">${s.skipped_permanently || 0}</span> skipped permanently</span>`;
+  }
+
+  function renderEntries(entries) {
+    const list = document.getElementById('entries-list');
+    if (!entries.length) {
+      list.innerHTML = '<p class="text-muted text-sm" style="padding:2rem;text-align:center">No entries match this filter.</p>';
+      return;
+    }
+    list.innerHTML = entries.map(e => {
+      const cls = confClass(e.estimated_confidence);
+      const pct = e.estimated_confidence != null ? Math.round(e.estimated_confidence) : '?';
+      const pctWidth = e.estimated_confidence != null ? Math.min(100, Math.max(0, e.estimated_confidence)) : 0;
+      const isResolved = e.status !== 'pending';
+      const statusBadge = isResolved
+        ? `<span class="entry-status ${e.status === 'converted' ? 'converted' : e.status === 'converting' ? 'converting' : 'skipped'}">${e.status.replace('_', ' ')}</span>`
+        : '';
+
+      return `<div class="review-entry ${isResolved ? 'resolved' : ''}" id="entry-${e.id}">
+        <div class="entry-header">
+          <span class="entry-filename">${e.relative_path || e.source_path}</span>
+          ${statusBadge}
+        </div>
+        <div style="display:flex;align-items:center;gap:0.75rem">
+          <span class="conf-label">Estimated confidence: ${pct}%</span>
+          <div class="conf-bar-track" style="flex:1;max-width:200px;--threshold:${threshold}">
+            <div class="conf-bar-fill" style="width:${pctWidth}%;background:var(--${cls})"></div>
+          </div>
+        </div>
+        ${!isResolved ? `<div class="entry-actions">
+          <button class="btn btn-ghost btn-sm" onclick="resolveEntry('${e.id}', 'convert', this)">Convert Anyway</button>
+          <button class="btn btn-ghost btn-sm" onclick="resolveEntry('${e.id}', 'skip', this)">Skip</button>
+          <button class="btn btn-ghost btn-sm" onclick="resolveEntry('${e.id}', 'review', this)">Open in OCR Review</button>
+        </div>` : ''}
+      </div>`;
+    }).join('');
+  }
+
+  function renderPagination(data) {
+    const info = document.getElementById('pagination-info');
+    const pages = document.getElementById('pagination-pages');
+    const start = (data.page - 1) * data.per_page + 1;
+    const end = Math.min(data.page * data.per_page, data.total);
+    info.textContent = data.total > 0 ? `Showing ${start}-${end} of ${data.total}` : '';
+
+    if (data.total_pages <= 1) { pages.innerHTML = ''; return; }
+
+    let html = `<button ${data.page <= 1 ? 'disabled' : ''} onclick="goToPage(${data.page - 1})">&larr;</button>`;
+    for (let i = 1; i <= Math.min(data.total_pages, 10); i++) {
+      html += `<button class="${i === data.page ? 'active' : ''}" onclick="goToPage(${i})">${i}</button>`;
+    }
+    if (data.total_pages > 10) html += `<span>... ${data.total_pages}</span>`;
+    html += `<button ${data.page >= data.total_pages ? 'disabled' : ''} onclick="goToPage(${data.page + 1})">&rarr;</button>`;
+    pages.innerHTML = html;
+  }
+
+  function goToPage(p) { currentPage = p; loadQueue(); }
+
+  async function resolveEntry(entryId, action, btn) {
+    if (action === 'skip' && !confirm('Skip permanently? This file won\'t be processed in future runs.')) return;
+    btn.disabled = true;
+    btn.textContent = action === 'convert' ? 'Converting...' : action === 'skip' ? 'Skipping...' : 'Opening...';
+    try {
+      const data = await API.post(`/api/bulk/jobs/${jobId}/review-queue/${entryId}/resolve`, { action });
+      if (action === 'review' && data.review_url) {
+        window.open(data.review_url, '_blank');
+      }
+      // Refresh the entry visually
+      loadQueue();
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = action === 'convert' ? 'Convert Anyway' : action === 'skip' ? 'Skip' : 'Open in OCR Review';
+      showToast('Failed: ' + e.message, 'error');
+    }
+  }
+
+  async function resolveAll(action) {
+    const msg = action === 'convert'
+      ? 'Convert all pending files regardless of confidence?'
+      : 'Mark all pending files as permanently skipped? They won\'t be converted in future runs.';
+    if (!confirm(msg)) return;
+    try {
+      const data = await API.post(`/api/bulk/jobs/${jobId}/review-queue/resolve-all`, { action });
+      showToast(`${data.queued} files queued for ${action}`, 'success');
+      if (action === 'skip') {
+        loadQueue();
+      } else {
+        // For convert, show progress indicator
+        document.getElementById('bulk-actions').innerHTML =
+          `<span class="text-sm">Converting... 0 / ${data.queued}</span>`;
+        connectSSE();
+      }
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  function connectSSE() {
+    if (eventSource) eventSource.close();
+    eventSource = new EventSource(`/api/bulk/jobs/${jobId}/stream`);
+
+    let convertedCount = 0;
+
+    eventSource.addEventListener('review_item_converted', e => {
+      convertedCount++;
+      document.getElementById('bulk-actions').innerHTML =
+        `<span class="text-sm">Converting... ${convertedCount} done</span>`;
+    });
+
+    eventSource.addEventListener('review_queue_complete', () => {
+      if (eventSource) eventSource.close();
+      eventSource = null;
+      loadQueue();
+    });
+
+    eventSource.addEventListener('done', () => {
+      if (eventSource) eventSource.close();
+      eventSource = null;
+      loadQueue();
+    });
+  }
+
+  // Filter
+  document.getElementById('filter-status').addEventListener('change', e => {
+    currentStatus = e.target.value;
+    currentPage = 1;
+    loadQueue();
+  });
+
+  // Load job info
+  (async () => {
+    if (!jobId) return;
+    try {
+      const job = await API.get(`/api/bulk/jobs/${jobId}`);
+      document.getElementById('job-date').textContent = `Job started ${job.started_at || ''}`;
+    } catch (e) { /* not critical */ }
+  })();
+
+  // Initial load
+  loadQueue();
+  </script>
+</body>
+</html>
