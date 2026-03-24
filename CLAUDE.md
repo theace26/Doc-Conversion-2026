@@ -15,7 +15,8 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 ## Current Status
 
 **Phase 0 complete** — Docker scaffold running. All system deps verified.
-**Next: Phase 1** — DOCX → Markdown pipeline (heaviest phase, ~120–150K tokens).
+**Phase 1 complete** — DOCX → Markdown pipeline fully implemented. 60 tests passing. Tagged v0.1.0.
+**Next: Phase 2** — Round-trip Markdown → DOCX with fidelity tiers.
 
 ---
 
@@ -24,7 +25,7 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 0 | Docker scaffold, project structure, DB schema, health check | ✅ Done |
-| 1 | Foundation: DOCX → Markdown (DocumentModel, DocxHandler, metadata, upload UI) | ⬜ Next |
+| 1 | Foundation: DOCX → Markdown (DocumentModel, DocxHandler, metadata, upload UI) | ✅ Done |
 | 2 | Round-trip: Markdown → DOCX with fidelity tiers | ⬜ |
 | 3 | OCR pipeline (multi-signal detection, review UI, unattended mode) | ⬜ |
 | 4 | Remaining formats: PDF, PPTX, XLSX/CSV (both directions) | ⬜ |
