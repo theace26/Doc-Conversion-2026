@@ -16,7 +16,9 @@ from datetime import datetime, timezone
 
 import httpx
 import structlog
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from core.auth import AuthenticatedUser, UserRole, require_role
 from pydantic import BaseModel, Field
 
 from core.database import (
@@ -62,7 +64,9 @@ class VerifyDraftRequest(BaseModel):
 # ── GET /api/llm-providers ──────────────────────────────────────────────────
 
 @router.get("")
-async def get_providers():
+async def get_providers(
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
     """List all providers (API keys masked)."""
     providers = await list_llm_providers()
     return {"providers": providers}
@@ -71,7 +75,9 @@ async def get_providers():
 # ── GET /api/llm-providers/registry ─────────────────────────────────────────
 
 @router.get("/registry")
-async def get_registry():
+async def get_registry(
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
     """Return the provider registry for frontend dropdowns."""
     return {"registry": PROVIDER_REGISTRY}
 
@@ -79,7 +85,10 @@ async def get_registry():
 # ── GET /api/llm-providers/ollama-models ────────────────────────────────────
 
 @router.get("/ollama-models")
-async def get_ollama_models(base_url: str = "http://localhost:11434"):
+async def get_ollama_models(
+    base_url: str = "http://localhost:11434",
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
     """Fetch available models from an Ollama server."""
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -100,7 +109,10 @@ async def get_ollama_models(base_url: str = "http://localhost:11434"):
 # ── POST /api/llm-providers ──────────────────────────────────────────────────
 
 @router.post("")
-async def create_provider(req: CreateProviderRequest):
+async def create_provider(
+    req: CreateProviderRequest,
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
     """Create a new LLM provider."""
     try:
         provider_id = await create_llm_provider(
@@ -122,7 +134,11 @@ async def create_provider(req: CreateProviderRequest):
 # ── PUT /api/llm-providers/{id} ────────────────────────────────────────────
 
 @router.put("/{provider_id}")
-async def update_provider(provider_id: str, req: UpdateProviderRequest):
+async def update_provider(
+    provider_id: str,
+    req: UpdateProviderRequest,
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
     """Update a provider."""
     existing = await get_llm_provider(provider_id)
     if not existing:
@@ -147,7 +163,11 @@ async def update_provider(provider_id: str, req: UpdateProviderRequest):
 # ── DELETE /api/llm-providers/{id} ──────────────────────────────────────────
 
 @router.delete("/{provider_id}")
-async def remove_provider(provider_id: str, force: bool = False):
+async def remove_provider(
+    provider_id: str,
+    force: bool = False,
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
     """Delete a provider. Returns 409 if active and force=false."""
     existing = await get_llm_provider(provider_id)
     if not existing:
@@ -166,7 +186,10 @@ async def remove_provider(provider_id: str, force: bool = False):
 # ── POST /api/llm-providers/{id}/verify ─────────────────────────────────────
 
 @router.post("/{provider_id}/verify")
-async def verify_provider(provider_id: str):
+async def verify_provider(
+    provider_id: str,
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
     """Verify a saved provider's connectivity."""
     config = await get_llm_provider(provider_id)
     if not config:
@@ -194,7 +217,10 @@ async def verify_provider(provider_id: str):
 # ── POST /api/llm-providers/verify-draft ───────────────────────────────────
 
 @router.post("/verify-draft")
-async def verify_draft(req: VerifyDraftRequest):
+async def verify_draft(
+    req: VerifyDraftRequest,
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
     """Verify an unsaved provider config."""
     config = {
         "provider": req.provider,
@@ -216,7 +242,10 @@ async def verify_draft(req: VerifyDraftRequest):
 # ── POST /api/llm-providers/{id}/activate ──────────────────────────────────
 
 @router.post("/{provider_id}/activate")
-async def activate_provider(provider_id: str):
+async def activate_provider(
+    provider_id: str,
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
     """Set a provider as the active one (deactivates all others)."""
     existing = await get_llm_provider(provider_id)
     if not existing:

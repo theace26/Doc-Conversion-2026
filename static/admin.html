@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — MarkFlow</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="/" class="nav-logo">MarkFlow</a>
+    <div id="main-nav" class="nav-links"></div>
+  </nav>
+
+  <main class="container">
+    <h1>Admin Panel</h1>
+
+    <!-- Dev bypass warning banner -->
+    <div id="dev-bypass-banner" class="banner banner-warning" hidden>
+      Warning: Auth bypass is enabled. All requests are treated as Admin. Do not use in production.
+    </div>
+
+    <div id="error-banner" class="error-banner" hidden></div>
+
+    <!-- System Info Section -->
+    <section class="card" id="system-section">
+      <h2>System Info</h2>
+      <div class="info-grid" id="system-info">
+        <div class="info-item"><span class="info-label">Version</span><span id="sys-version">—</span></div>
+        <div class="info-item"><span class="info-label">Auth Mode</span><span id="sys-auth-mode">—</span></div>
+        <div class="info-item"><span class="info-label">Meilisearch</span><span id="sys-meili">—</span></div>
+        <div class="info-item"><span class="info-label">DB Size</span><span id="sys-db-size">—</span></div>
+        <div class="info-item"><span class="info-label">UnionCore Origin</span><span id="sys-origin">—</span></div>
+      </div>
+    </section>
+
+    <!-- API Keys Section -->
+    <section class="card" id="keys-section">
+      <h2>API Keys</h2>
+      <p class="text-muted">Service account keys for UnionCore integration. Keys grant <code>search_user</code> access only.</p>
+
+      <div id="new-key-alert" class="banner banner-success" hidden>
+        <strong>New key generated.</strong> Copy this key now — it will not be shown again.
+        <div class="key-display">
+          <code id="new-key-value"></code>
+          <button class="btn btn-sm" onclick="copyKey()">Copy</button>
+        </div>
+      </div>
+
+      <div class="form-row" style="margin-bottom: 1rem;">
+        <input type="text" id="key-label" placeholder="Key label (e.g. unioncore-prod)" class="input" style="flex:1;">
+        <button class="btn btn-primary" onclick="generateKey()">Generate New Key</button>
+      </div>
+
+      <table class="table" id="keys-table">
+        <thead>
+          <tr>
+            <th>Label</th>
+            <th>Key ID</th>
+            <th>Created</th>
+            <th>Last Used</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="keys-body">
+          <tr><td colspan="6" class="text-muted">Loading...</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <style>
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 0.75rem;
+    }
+    .info-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .info-label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .key-display {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+      background: var(--bg-secondary);
+      padding: 0.5rem 0.75rem;
+      border-radius: 4px;
+      word-break: break-all;
+    }
+    .key-display code { flex: 1; font-size: 0.85rem; }
+    .banner {
+      padding: 0.75rem 1rem;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+    }
+    .banner-warning {
+      background: var(--warning-bg, #fff3cd);
+      color: var(--warning-text, #856404);
+      border: 1px solid var(--warning-border, #ffc107);
+    }
+    .banner-success {
+      background: var(--success-bg, #d4edda);
+      color: var(--success-text, #155724);
+      border: 1px solid var(--success-border, #28a745);
+    }
+    .form-row {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+    .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.8rem; }
+    .status-active { color: var(--success, #28a745); }
+    .status-revoked { color: var(--danger, #dc3545); text-decoration: line-through; }
+  </style>
+  <script>
+    let _newKeyValue = '';
+
+    async function loadSystemInfo() {
+      try {
+        const info = await API.get('/api/admin/system');
+        document.getElementById('sys-version').textContent = info.version || '—';
+        document.getElementById('sys-auth-mode').textContent = info.auth_mode || '—';
+        document.getElementById('sys-meili').textContent = info.meilisearch_status || '—';
+        document.getElementById('sys-db-size').textContent = info.db_size_bytes != null ? formatBytes(info.db_size_bytes) : '—';
+        document.getElementById('sys-origin').textContent = info.unioncore_origin || '(not set)';
+
+        if (info.dev_bypass_active) {
+          document.getElementById('dev-bypass-banner').hidden = false;
+        }
+      } catch (err) {
+        showError('Failed to load system info: ' + err.message);
+      }
+    }
+
+    async function loadKeys() {
+      try {
+        const keys = await API.get('/api/admin/api-keys');
+        const tbody = document.getElementById('keys-body');
+        if (keys.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" class="text-muted">No API keys yet.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = keys.map(k => `
+          <tr>
+            <td>${escapeHtml(k.label)}</td>
+            <td><code style="font-size:0.8rem">${k.key_id.substring(0, 12)}...</code></td>
+            <td>${formatDate(k.created_at)}</td>
+            <td>${k.last_used_at ? formatDate(k.last_used_at) : 'Never'}</td>
+            <td><span class="${k.is_active ? 'status-active' : 'status-revoked'}">${k.is_active ? 'Active' : 'Revoked'}</span></td>
+            <td>${k.is_active ? `<button class="btn btn-sm" onclick="revokeKey('${k.key_id}')">Revoke</button>` : ''}</td>
+          </tr>
+        `).join('');
+      } catch (err) {
+        showError('Failed to load API keys: ' + err.message);
+      }
+    }
+
+    async function generateKey() {
+      const labelInput = document.getElementById('key-label');
+      const label = labelInput.value.trim();
+      if (!label) {
+        showError('Enter a label for the API key.');
+        return;
+      }
+      try {
+        hideError();
+        const result = await API.post('/api/admin/api-keys', { label });
+        _newKeyValue = result.raw_key;
+        document.getElementById('new-key-value').textContent = result.raw_key;
+        document.getElementById('new-key-alert').hidden = false;
+        labelInput.value = '';
+        await loadKeys();
+      } catch (err) {
+        showError('Failed to generate key: ' + err.message);
+      }
+    }
+
+    function copyKey() {
+      navigator.clipboard.writeText(_newKeyValue).then(() => {
+        showToast('Key copied to clipboard');
+      }).catch(() => {
+        showToast('Copy failed — select and copy manually', 'error');
+      });
+    }
+
+    async function revokeKey(keyId) {
+      if (!confirm('Revoke this API key? This cannot be undone.')) return;
+      try {
+        await API.del(`/api/admin/api-keys/${keyId}`);
+        showToast('Key revoked');
+        await loadKeys();
+      } catch (err) {
+        showError('Failed to revoke key: ' + err.message);
+      }
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    // Init
+    loadSystemInfo();
+    loadKeys();
+  </script>
+</body>
+</html>

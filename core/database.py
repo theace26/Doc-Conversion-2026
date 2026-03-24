@@ -52,6 +52,12 @@ DEFAULT_PREFERENCES: dict[str, str] = {
         "diagrams, charts, people, or on-screen graphics. Be concise and "
         "factual. Do not describe what you cannot see clearly."
     ),
+    "scanner_enabled": "true",
+    "scanner_interval_minutes": "15",
+    "scanner_business_hours_start": "06:00",
+    "scanner_business_hours_end": "18:00",
+    "lifecycle_grace_period_hours": "36",
+    "lifecycle_trash_retention_days": "60",
 }
 
 # ── Schema DDL ────────────────────────────────────────────────────────────────
@@ -239,6 +245,63 @@ CREATE TABLE IF NOT EXISTS scene_keyframes (
     FOREIGN KEY(history_id) REFERENCES conversion_history(id)
 );
 CREATE INDEX IF NOT EXISTS idx_keyframes_history ON scene_keyframes(history_id, scene_index);
+
+-- Phase 9: File version history
+CREATE TABLE IF NOT EXISTS file_versions (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    bulk_file_id        TEXT NOT NULL,
+    version_number      INTEGER NOT NULL,
+    recorded_at         DATETIME NOT NULL DEFAULT (datetime('now')),
+    change_type         TEXT NOT NULL,
+    path_at_version     TEXT NOT NULL,
+    mtime_at_version    REAL,
+    size_at_version     INTEGER,
+    content_hash        TEXT,
+    md_content_hash     TEXT,
+    diff_summary        TEXT,
+    diff_patch          TEXT,
+    diff_truncated      INTEGER NOT NULL DEFAULT 0,
+    scan_run_id         TEXT,
+    notes               TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_file_versions_bulk_file_id ON file_versions(bulk_file_id);
+CREATE INDEX IF NOT EXISTS idx_file_versions_recorded_at ON file_versions(recorded_at);
+
+-- Phase 9: Scan run tracking
+CREATE TABLE IF NOT EXISTS scan_runs (
+    id              TEXT PRIMARY KEY,
+    started_at      DATETIME NOT NULL DEFAULT (datetime('now')),
+    finished_at     DATETIME,
+    status          TEXT NOT NULL DEFAULT 'running',
+    files_scanned   INTEGER DEFAULT 0,
+    files_new       INTEGER DEFAULT 0,
+    files_modified  INTEGER DEFAULT 0,
+    files_moved     INTEGER DEFAULT 0,
+    files_deleted   INTEGER DEFAULT 0,
+    files_restored  INTEGER DEFAULT 0,
+    errors          INTEGER DEFAULT 0,
+    error_log       TEXT
+);
+
+-- Phase 9: Database maintenance log
+CREATE TABLE IF NOT EXISTS db_maintenance_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_at      DATETIME NOT NULL DEFAULT (datetime('now')),
+    operation   TEXT NOT NULL,
+    result      TEXT NOT NULL,
+    details     TEXT,
+    duration_ms INTEGER
+);
+
+-- Phase 10: API keys for service accounts
+CREATE TABLE IF NOT EXISTS api_keys (
+    key_id      TEXT PRIMARY KEY,
+    label       TEXT NOT NULL,
+    key_hash    TEXT NOT NULL UNIQUE,
+    is_active   INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL,
+    last_used_at TEXT
+);
 """
 
 
@@ -299,7 +362,17 @@ async def init_db() -> None:
         await _add_column_if_missing(conn, "conversion_history", "keyframe_count", "INTEGER")
         await _add_column_if_missing(conn, "conversion_history", "frame_desc_count", "INTEGER")
         await _add_column_if_missing(conn, "conversion_history", "enrichment_level", "INTEGER")
+        # Phase 9: lifecycle columns on bulk_files
+        await _add_column_if_missing(conn, "bulk_files", "lifecycle_status", "TEXT NOT NULL DEFAULT 'active'")
+        await _add_column_if_missing(conn, "bulk_files", "marked_for_deletion_at", "DATETIME")
+        await _add_column_if_missing(conn, "bulk_files", "moved_to_trash_at", "DATETIME")
+        await _add_column_if_missing(conn, "bulk_files", "purged_at", "DATETIME")
+        await _add_column_if_missing(conn, "bulk_files", "previous_path", "TEXT")
         await conn.commit()
+        # Phase 9: WAL mode and pragmas
+        await conn.execute("PRAGMA journal_mode = WAL")
+        await conn.execute("PRAGMA wal_autocheckpoint = 1000")
+        await conn.execute("PRAGMA foreign_keys = ON")
         await _init_preferences(conn)
 
 
@@ -1282,6 +1355,218 @@ async def get_unrecognized_files(
         "per_page": per_page,
         "pages": max(1, (total + per_page - 1) // per_page),
     }
+
+
+# ── Phase 9: Lifecycle helpers ──────────────────────────────────────────────
+
+async def get_bulk_file_by_path(source_path: str) -> dict[str, Any] | None:
+    """Return a bulk_file by its source_path (across all jobs, latest first)."""
+    return await db_fetch_one(
+        "SELECT * FROM bulk_files WHERE source_path=? ORDER BY ROWID DESC LIMIT 1",
+        (source_path,),
+    )
+
+
+async def get_bulk_file_by_content_hash(content_hash: str) -> dict[str, Any] | None:
+    """Return a bulk_file by content_hash (most recent)."""
+    return await db_fetch_one(
+        "SELECT * FROM bulk_files WHERE content_hash=? ORDER BY ROWID DESC LIMIT 1",
+        (content_hash,),
+    )
+
+
+async def get_bulk_files_by_lifecycle_status(
+    status: str, job_id: str | None = None
+) -> list[dict[str, Any]]:
+    """Return bulk_files in the given lifecycle_status."""
+    sql = "SELECT * FROM bulk_files WHERE lifecycle_status=?"
+    params: list[Any] = [status]
+    if job_id:
+        sql += " AND job_id=?"
+        params.append(job_id)
+    sql += " ORDER BY source_path"
+    return await db_fetch_all(sql, tuple(params))
+
+
+async def get_bulk_files_pending_trash(grace_period_hours: int = 36) -> list[dict[str, Any]]:
+    """Return files marked_for_deletion whose grace period has expired."""
+    return await db_fetch_all(
+        """SELECT * FROM bulk_files
+           WHERE lifecycle_status='marked_for_deletion'
+           AND marked_for_deletion_at IS NOT NULL
+           AND datetime(marked_for_deletion_at, '+' || ? || ' hours') < datetime('now')""",
+        (grace_period_hours,),
+    )
+
+
+async def get_bulk_files_pending_purge(trash_retention_days: int = 60) -> list[dict[str, Any]]:
+    """Return files in_trash whose retention period has expired."""
+    return await db_fetch_all(
+        """SELECT * FROM bulk_files
+           WHERE lifecycle_status='in_trash'
+           AND moved_to_trash_at IS NOT NULL
+           AND datetime(moved_to_trash_at, '+' || ? || ' days') < datetime('now')""",
+        (trash_retention_days,),
+    )
+
+
+async def create_version_snapshot(bulk_file_id: str, version_data: dict) -> int:
+    """Insert a file_versions record. Returns the new row id."""
+    return await db_execute(
+        """INSERT INTO file_versions
+           (bulk_file_id, version_number, change_type, path_at_version,
+            mtime_at_version, size_at_version, content_hash, md_content_hash,
+            diff_summary, diff_patch, diff_truncated, scan_run_id, notes)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            bulk_file_id,
+            version_data.get("version_number", 1),
+            version_data.get("change_type", "initial"),
+            version_data.get("path_at_version", ""),
+            version_data.get("mtime_at_version"),
+            version_data.get("size_at_version"),
+            version_data.get("content_hash"),
+            version_data.get("md_content_hash"),
+            version_data.get("diff_summary"),
+            version_data.get("diff_patch"),
+            version_data.get("diff_truncated", 0),
+            version_data.get("scan_run_id"),
+            version_data.get("notes"),
+        ),
+    )
+
+
+async def get_version_history(bulk_file_id: str) -> list[dict[str, Any]]:
+    """Return all versions for a file, newest first."""
+    return await db_fetch_all(
+        "SELECT * FROM file_versions WHERE bulk_file_id=? ORDER BY version_number DESC",
+        (bulk_file_id,),
+    )
+
+
+async def get_version(bulk_file_id: str, version_number: int) -> dict[str, Any] | None:
+    """Return a single version record."""
+    return await db_fetch_one(
+        "SELECT * FROM file_versions WHERE bulk_file_id=? AND version_number=?",
+        (bulk_file_id, version_number),
+    )
+
+
+async def get_next_version_number(bulk_file_id: str) -> int:
+    """Return the next version number for a file (max + 1, or 1 if none)."""
+    row = await db_fetch_one(
+        "SELECT MAX(version_number) as max_v FROM file_versions WHERE bulk_file_id=?",
+        (bulk_file_id,),
+    )
+    return (row["max_v"] or 0) + 1 if row else 1
+
+
+async def create_scan_run(run_id: str) -> None:
+    """Create a scan_runs record with status='running'."""
+    await db_execute(
+        "INSERT INTO scan_runs (id, status) VALUES (?, 'running')",
+        (run_id,),
+    )
+
+
+async def update_scan_run(run_id: str, updates: dict) -> None:
+    """Update a scan_runs record."""
+    if not updates:
+        return
+    sets = [f"{k}=?" for k in updates]
+    values = list(updates.values()) + [run_id]
+    async with get_db() as conn:
+        await conn.execute(
+            f"UPDATE scan_runs SET {', '.join(sets)} WHERE id=?", values
+        )
+        await conn.commit()
+
+
+async def get_scan_run(run_id: str) -> dict[str, Any] | None:
+    return await db_fetch_one("SELECT * FROM scan_runs WHERE id=?", (run_id,))
+
+
+async def get_latest_scan_run() -> dict[str, Any] | None:
+    return await db_fetch_one(
+        "SELECT * FROM scan_runs ORDER BY started_at DESC LIMIT 1"
+    )
+
+
+async def log_maintenance(
+    operation: str, result: str, details: dict | None, duration_ms: int
+) -> None:
+    """Insert a db_maintenance_log record."""
+    details_json = json.dumps(details) if details else None
+    await db_execute(
+        "INSERT INTO db_maintenance_log (operation, result, details, duration_ms) VALUES (?,?,?,?)",
+        (operation, result, details_json, duration_ms),
+    )
+
+
+async def get_maintenance_log(limit: int = 50) -> list[dict[str, Any]]:
+    """Return recent maintenance log entries."""
+    rows = await db_fetch_all(
+        "SELECT * FROM db_maintenance_log ORDER BY run_at DESC LIMIT ?", (limit,)
+    )
+    for row in rows:
+        if isinstance(row.get("details"), str):
+            try:
+                row["details"] = json.loads(row["details"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+    return rows
+
+
+# ── API key helpers ──────────────────────────────────────────────────────
+
+async def create_api_key(key_id: str, label: str, key_hash: str) -> str:
+    """Insert an API key record. Returns key_id."""
+    now = _now_iso()
+    async with get_db() as conn:
+        await conn.execute(
+            """INSERT INTO api_keys (key_id, label, key_hash, is_active, created_at)
+               VALUES (?,?,?,?,?)""",
+            (key_id, label, key_hash, 1, now),
+        )
+        await conn.commit()
+    return key_id
+
+
+async def get_api_key_by_hash(key_hash: str) -> dict[str, Any] | None:
+    """Look up an API key by its hash."""
+    return await db_fetch_one(
+        "SELECT * FROM api_keys WHERE key_hash = ?", (key_hash,)
+    )
+
+
+async def revoke_api_key(key_id: str) -> bool:
+    """Soft-revoke an API key. Returns True if found."""
+    async with get_db() as conn:
+        async with conn.execute(
+            "UPDATE api_keys SET is_active=0 WHERE key_id=?", (key_id,)
+        ) as cur:
+            updated = cur.rowcount
+        await conn.commit()
+    return updated > 0
+
+
+async def list_api_keys() -> list[dict[str, Any]]:
+    """Return all API keys (id, label, dates, active status — never the hash)."""
+    rows = await db_fetch_all(
+        "SELECT key_id, label, is_active, created_at, last_used_at "
+        "FROM api_keys ORDER BY created_at DESC"
+    )
+    return rows
+
+
+async def touch_api_key(key_id: str) -> None:
+    """Update last_used_at to now."""
+    async with get_db() as conn:
+        await conn.execute(
+            "UPDATE api_keys SET last_used_at=? WHERE key_id=?",
+            (_now_iso(), key_id),
+        )
+        await conn.commit()
 
 
 async def get_unrecognized_stats(job_id: str | None = None) -> dict[str, Any]:

@@ -9,8 +9,9 @@ POST /api/search/index/rebuild — Trigger full index rebuild
 import asyncio
 
 import structlog
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from core.auth import AuthenticatedUser, UserRole, require_role
 from core.search_client import get_meili_client
 from core.search_indexer import get_search_indexer
 
@@ -29,6 +30,7 @@ async def search(
     page: int = Query(1, ge=1),
     per_page: int = Query(10, ge=5, le=25),
     highlight: bool = True,
+    user: AuthenticatedUser = Depends(require_role(UserRole.SEARCH_USER)),
 ):
     """Full-text search across documents or Adobe index."""
     client = get_meili_client()
@@ -90,7 +92,9 @@ async def search(
 # ── GET /api/search/index/status ─────────────────────────────────────────────
 
 @router.get("/index/status")
-async def index_status():
+async def index_status(
+    user: AuthenticatedUser = Depends(require_role(UserRole.SEARCH_USER)),
+):
     """Index health and document counts."""
     client = get_meili_client()
     available = await client.health_check()
@@ -119,7 +123,10 @@ async def index_status():
 # ── POST /api/search/index/rebuild ───────────────────────────────────────────
 
 @router.post("/index/rebuild")
-async def rebuild_index(body: dict | None = None):
+async def rebuild_index(
+    body: dict | None = None,
+    user: AuthenticatedUser = Depends(require_role(UserRole.SEARCH_USER)),
+):
     """Trigger a full index rebuild."""
     client = get_meili_client()
     if not await client.health_check():

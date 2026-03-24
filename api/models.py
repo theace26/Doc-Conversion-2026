@@ -222,3 +222,60 @@ class LocationResponse(BaseModel):
 class ErrorResponse(BaseModel):
     detail: str
     field: str | None = None
+
+
+# ── Phase 9: Lifecycle & Version models ────────────────────────────────────
+
+class VersionRecord(BaseModel):
+    id: int
+    bulk_file_id: str
+    version_number: int
+    recorded_at: str
+    change_type: str
+    path_at_version: str
+    size_at_version: int | None = None
+    content_hash: str | None = None
+    diff_summary: list[str] | None = None
+    diff_truncated: bool = False
+    scan_run_id: str | None = None
+    notes: str | None = None
+
+
+class VersionListResponse(BaseModel):
+    file_id: str
+    versions: list[VersionRecord]
+    total: int
+
+
+class DiffResponse(BaseModel):
+    summary: list[str]
+    patch: str | None = None
+    patch_truncated: bool = False
+    lines_added: int = 0
+    lines_removed: int = 0
+    v1: VersionRecord
+    v2: VersionRecord
+
+
+class TrashRecord(BaseModel):
+    id: str
+    source_path: str
+    moved_to_trash_at: str | None = None
+    purge_at: str | None = None
+    days_remaining: int = 0
+    file_format: str | None = None
+    size_at_version: int | None = None
+
+
+class ScanRunRecord(BaseModel):
+    id: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    status: str
+    files_scanned: int = 0
+    files_new: int = 0
+    files_modified: int = 0
+    files_moved: int = 0
+    files_deleted: int = 0
+    files_restored: int = 0
+    errors: int = 0

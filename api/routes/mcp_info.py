@@ -9,14 +9,18 @@ import socket
 
 import httpx
 import structlog
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from core.auth import AuthenticatedUser, UserRole, require_role
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/mcp", tags=["mcp"])
 
 
 @router.get("/connection-info")
-async def mcp_connection_info():
+async def mcp_connection_info(
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
     """Return MCP server connection details for the settings UI."""
     mcp_port = int(os.getenv("MCP_PORT", "8001"))
     auth_token = os.getenv("MCP_AUTH_TOKEN", "")

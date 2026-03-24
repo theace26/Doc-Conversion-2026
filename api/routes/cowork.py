@@ -8,8 +8,9 @@ GET /api/cowork/status  — Health check for Cowork polling
 from pathlib import Path
 
 import structlog
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from core.auth import AuthenticatedUser, UserRole, require_role
 from core.search_client import get_meili_client
 from core.search_indexer import get_search_indexer
 
@@ -45,6 +46,7 @@ async def cowork_search(
     max_tokens_per_doc: int = Query(5000, ge=1000, le=10000),
     format: str | None = None,
     path_prefix: str | None = None,
+    user: AuthenticatedUser = Depends(require_role(UserRole.SEARCH_USER)),
 ):
     """Search with full .md content inline for AI assistant consumption."""
     client = get_meili_client()
@@ -123,7 +125,9 @@ async def cowork_search(
 # ── GET /api/cowork/status ───────────────────────────────────────────────────
 
 @router.get("/status")
-async def cowork_status():
+async def cowork_status(
+    user: AuthenticatedUser = Depends(require_role(UserRole.SEARCH_USER)),
+):
     """Health check for Cowork to poll."""
     client = get_meili_client()
     available = await client.health_check()

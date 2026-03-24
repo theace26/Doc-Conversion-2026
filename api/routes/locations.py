@@ -15,7 +15,9 @@ import re
 from pathlib import Path
 
 import structlog
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from core.auth import AuthenticatedUser, UserRole, require_role
 
 from api.models import LocationCreate, LocationResponse, LocationUpdate
 from core.database import (
@@ -55,7 +57,10 @@ def _validate_path(path: str) -> None:
 # ── GET /api/locations ───────────────────────────────────────────────────────
 
 @router.get("")
-async def list_all(type: str | None = Query(default=None)):
+async def list_all(
+    type: str | None = Query(default=None),
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
     """List locations, optionally filtered by type (source, output, both)."""
     locations = await list_locations(type_filter=type)
     return locations
@@ -64,7 +69,10 @@ async def list_all(type: str | None = Query(default=None)):
 # ── POST /api/locations ──────────────────────────────────────────────────────
 
 @router.post("", status_code=201)
-async def create(body: LocationCreate):
+async def create(
+    body: LocationCreate,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
     """Create a new named location."""
     _validate_path(body.path)
 
@@ -85,7 +93,10 @@ async def create(body: LocationCreate):
 # ── GET /api/locations/validate — must be before /{id} ───────────────────────
 
 @router.get("/validate")
-async def validate_path(path: str = Query(...)):
+async def validate_path(
+    path: str = Query(...),
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
     """Check if a container path is accessible."""
     if _is_windows_path(path) or not path.startswith("/"):
         return {"path": path, "accessible": False, "error": "not_a_container_path"}
@@ -143,7 +154,10 @@ async def validate_path(path: str = Query(...)):
 # ── GET /api/locations/{id} ─────────────────────────────────────────────────
 
 @router.get("/{location_id}")
-async def get_single(location_id: str):
+async def get_single(
+    location_id: str,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
     """Get a single location by ID."""
     loc = await get_location(location_id)
     if not loc:
@@ -154,7 +168,11 @@ async def get_single(location_id: str):
 # ── PUT /api/locations/{id} ─────────────────────────────────────────────────
 
 @router.put("/{location_id}")
-async def update(location_id: str, body: LocationUpdate):
+async def update(
+    location_id: str,
+    body: LocationUpdate,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
     """Update a location."""
     loc = await get_location(location_id)
     if not loc:
@@ -185,7 +203,11 @@ async def update(location_id: str, body: LocationUpdate):
 # ── DELETE /api/locations/{id} ──────────────────────────────────────────────
 
 @router.delete("/{location_id}", status_code=204)
-async def delete(location_id: str, force: bool = Query(default=False)):
+async def delete(
+    location_id: str,
+    force: bool = Query(default=False),
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
     """Delete a location. Returns 409 if in use by bulk jobs (unless force=true)."""
     loc = await get_location(location_id)
     if not loc:

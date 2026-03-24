@@ -14,8 +14,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse, JSONResponse
+
+from core.auth import AuthenticatedUser, UserRole, require_role
 
 from core.database import db_fetch_all, db_fetch_one
 from core.health import run_health_check
@@ -40,7 +42,9 @@ async def debug_dashboard():
 # ── GET /debug/api/health ────────────────────────────────────────────────────
 
 @router.get("/debug/api/health")
-async def debug_health():
+async def debug_health(
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
     """System health snapshot — reuses core health check logic."""
     return await run_health_check()
 
@@ -48,7 +52,9 @@ async def debug_health():
 # ── GET /debug/api/activity ──────────────────────────────────────────────────
 
 @router.get("/debug/api/activity")
-async def debug_activity():
+async def debug_activity(
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
     """Recent conversion activity, active batches, OCR flag counts, stats."""
     # Active batches (not yet done)
     active_rows = await db_fetch_all(
@@ -150,7 +156,10 @@ async def debug_activity():
 # ── GET /debug/api/logs ──────────────────────────────────────────────────────
 
 @router.get("/debug/api/logs")
-async def debug_logs(lines: int = Query(default=100, ge=1, le=500)):
+async def debug_logs(
+    lines: int = Query(default=100, ge=1, le=500),
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
     """Return last N lines from logs/markflow.json as parsed JSON objects."""
     if not LOG_FILE.exists():
         return {"events": [], "lines": 0, "log_file": str(LOG_FILE)}
@@ -183,7 +192,9 @@ async def debug_logs(lines: int = Query(default=100, ge=1, le=500)):
 # ── GET /debug/api/ocr_distribution ──────────────────────────────────────────
 
 @router.get("/debug/api/ocr_distribution")
-async def debug_ocr_distribution():
+async def debug_ocr_distribution(
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
     """Confidence score distribution for OCR'd files."""
     buckets = []
     total_pages = 0

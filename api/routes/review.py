@@ -9,7 +9,9 @@ POST /api/batch/{batch_id}/review/accept-all      — Accept all remaining flags
 """
 
 import structlog
-from fastapi import APIRouter, HTTPException, Path as FPath, Query
+from fastapi import APIRouter, Depends, HTTPException, Path as FPath, Query
+
+from core.auth import AuthenticatedUser, UserRole, require_role
 
 from api.models import OCRFlagCounts, OCRFlagResponse, OCRReviewAction
 from core.database import (
@@ -63,6 +65,7 @@ def _flag_row_to_response(row: dict) -> OCRFlagResponse:
 async def list_flags(
     batch_id: str = FPath(..., description="Batch identifier"),
     status: str | None = Query(None, description="Filter by status (pending/accepted/edited/skipped)"),
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
 ):
     """Return OCR flags for a batch, optionally filtered by status."""
     rows = await get_flags_for_batch(batch_id, status=status)
@@ -72,7 +75,10 @@ async def list_flags(
 # ── Counts ────────────────────────────────────────────────────────────────────
 
 @router.get("/{batch_id}/review/counts", response_model=OCRFlagCounts)
-async def flag_counts(batch_id: str = FPath(...)):
+async def flag_counts(
+    batch_id: str = FPath(...),
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+):
     """Return {pending, accepted, edited, skipped, total} counts for a batch."""
     counts = await get_flag_counts(batch_id)
     return OCRFlagCounts(**counts)
@@ -81,7 +87,11 @@ async def flag_counts(batch_id: str = FPath(...)):
 # ── Single flag detail ────────────────────────────────────────────────────────
 
 @router.get("/{batch_id}/review/{flag_id}", response_model=OCRFlagResponse)
-async def get_flag(batch_id: str, flag_id: str):
+async def get_flag(
+    batch_id: str,
+    flag_id: str,
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+):
     """Return a single OCR flag by flag_id."""
     row = await db_fetch_one(
         "SELECT * FROM ocr_flags WHERE flag_id=? AND batch_id=?",
@@ -101,7 +111,10 @@ async def get_flag(batch_id: str, flag_id: str):
 # that FastAPI does not capture the literal "accept-all" as a flag_id parameter.
 
 @router.post("/{batch_id}/review/accept-all")
-async def accept_all_flags(batch_id: str = FPath(...)):
+async def accept_all_flags(
+    batch_id: str = FPath(...),
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+):
     """Accept all remaining pending OCR flags for a batch."""
     count = await resolve_all_pending(batch_id)
     if count > 0:
@@ -116,6 +129,7 @@ async def resolve_one_flag(
     action: OCRReviewAction,
     batch_id: str = FPath(...),
     flag_id: str = FPath(...),
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
 ):
     """
     Resolve a single OCR flag.

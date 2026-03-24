@@ -13,11 +13,14 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-# ── Set DB_PATH before any app module is imported ─────────────────────────────
+# ── Set env vars before any app module is imported ───────────────────────────
 # aiosqlite :memory: creates a new DB per connection and won't persist across
 # requests. Use a real temp file for the test session instead.
 _TEST_DB = Path(tempfile.mktemp(suffix="_markflow_test.db"))
 os.environ["DB_PATH"] = str(_TEST_DB)
+
+# Enable auth bypass so all existing tests work without credentials
+os.environ["DEV_BYPASS_AUTH"] = "true"
 
 # Generate test DOCX fixtures before anything runs
 from tests.generate_fixtures import generate_all  # noqa: E402

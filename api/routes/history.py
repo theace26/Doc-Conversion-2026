@@ -14,8 +14,10 @@ import zipfile
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
+
+from core.auth import AuthenticatedUser, UserRole, require_role
 
 from api.models import (
     HistoryListResponse,
@@ -82,7 +84,9 @@ def _row_to_record(row: dict, threshold: float = 80.0) -> HistoryRecord:
 # ── GET /api/history/stats  (must come before /{id} to avoid shadowing) ───────
 
 @router.get("/stats", response_model=StatsResponse)
-async def history_stats():
+async def history_stats(
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+):
     """Aggregate conversion statistics."""
     rows = await db_fetch_all(
         "SELECT status, source_format, duration_ms, ocr_flags_total, file_size_bytes, "
@@ -155,6 +159,7 @@ async def list_history(
     sort: str | None = Query(default=None),
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
 ):
     """Paginated, filterable, sortable conversion history."""
     conditions = []
@@ -237,7 +242,10 @@ async def list_history(
 # ── GET /api/history/{id}/redownload ──────────────────────────────────────────
 
 @router.get("/{record_id}/redownload")
-async def redownload(record_id: int):
+async def redownload(
+    record_id: int,
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+):
     """
     Re-download the output file for a past conversion.
 
@@ -290,7 +298,10 @@ async def redownload(record_id: int):
 # ── GET /api/history/{id} ─────────────────────────────────────────────────────
 
 @router.get("/{record_id}", response_model=HistoryRecord)
-async def get_history_record(record_id: int):
+async def get_history_record(
+    record_id: int,
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+):
     """Return a single conversion history record."""
     row = await db_fetch_one(
         "SELECT * FROM conversion_history WHERE id = ?", (record_id,)

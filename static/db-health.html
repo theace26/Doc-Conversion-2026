@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MarkFlow — Database Health</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+  <style>
+    .health-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+    .health-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; }
+    .health-card .label { font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+    .health-card .value { font-size: 1.2rem; font-weight: 600; margin-top: 0.25rem; }
+    .action-bar { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+    .result-badge { display: inline-block; padding: 0.15em 0.45em; border-radius: var(--radius-sm); font-size: 0.78rem; font-weight: 600; }
+    .result-badge.ok { background: rgba(22,163,74,0.12); color: var(--ok); }
+    .result-badge.warning { background: rgba(217,119,6,0.12); color: var(--warn); }
+    .result-badge.error { background: rgba(220,38,38,0.12); color: var(--error); }
+  </style>
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="/" class="nav-logo">MarkFlow</a>
+    <div id="main-nav" class="nav-links"></div>
+  </nav>
+
+  <div class="container page-content">
+    <div id="error-banner" role="alert" hidden></div>
+
+    <h1>Database Health</h1>
+    <p class="text-muted text-sm mb-2">Admin dashboard for SQLite database monitoring and maintenance.</p>
+
+    <!-- Overview cards -->
+    <div id="health-grid" class="health-grid">
+      <div class="health-card"><div class="label">Loading...</div></div>
+    </div>
+
+    <!-- Action buttons -->
+    <h2>Maintenance Actions</h2>
+    <div class="action-bar">
+      <button class="btn btn-primary btn-sm" id="btn-compact" onclick="runCompact()">Run Compaction</button>
+      <button class="btn btn-primary btn-sm" id="btn-integrity" onclick="runIntegrity()">Run Integrity Check</button>
+      <button class="btn btn-primary btn-sm" id="btn-stale" onclick="runStaleCheck()">Run Stale Data Check</button>
+    </div>
+
+    <!-- Stale check results (hidden until run) -->
+    <div id="stale-results" hidden>
+      <h3>Stale Data Results</h3>
+      <div id="stale-body" class="card" style="padding:1rem"></div>
+    </div>
+
+    <!-- Maintenance log -->
+    <h2 class="mt-2">Recent Maintenance Log</h2>
+    <div class="card" style="padding:0;overflow:auto">
+      <table class="data-table" id="log-table">
+        <thead>
+          <tr><th>Date</th><th>Operation</th><th>Result</th><th>Duration</th><th>Details</th></tr>
+        </thead>
+        <tbody id="log-body">
+          <tr><td colspan="5" style="text-align:center;padding:2rem"><span class="spinner"></span> Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script>
+  async function loadHealth() {
+    try {
+      const health = await API.get('/api/db/health');
+      const grid = document.getElementById('health-grid');
+      grid.innerHTML = `
+        <div class="health-card"><div class="label">Database Size</div><div class="value">${formatBytes(health.db_size_bytes || 0)}</div></div>
+        <div class="health-card"><div class="label">Journal Mode</div><div class="value">${health.journal_mode || 'unknown'}</div></div>
+        <div class="health-card"><div class="label">Page Count</div><div class="value">${health.page_count || 0}</div></div>
+        <div class="health-card"><div class="label">Freelist Pages</div><div class="value">${health.freelist_count || 0}</div></div>
+        <div class="health-card"><div class="label">Last Compaction</div><div class="value text-sm">${health.last_compaction ? new Date(health.last_compaction).toLocaleDateString() : 'Never'}</div></div>
+        <div class="health-card"><div class="label">Last Integrity Check</div><div class="value text-sm">${health.last_integrity_check ? new Date(health.last_integrity_check).toLocaleDateString() : 'Never'} <span class="result-badge ${health.last_integrity_result || 'ok'}">${health.last_integrity_result || 'N/A'}</span></div></div>
+      `;
+    } catch (err) {
+      showError(err.message);
+    }
+  }
+
+  async function loadLog() {
+    try {
+      const data = await API.get('/api/db/maintenance-log?limit=20');
+      const tbody = document.getElementById('log-body');
+      if (!data.entries || data.entries.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No maintenance history</td></tr>';
+        return;
+      }
+      tbody.innerHTML = data.entries.map(e => `<tr>
+        <td class="text-sm">${e.run_at ? new Date(e.run_at).toLocaleString() : ''}</td>
+        <td>${e.operation}</td>
+        <td><span class="result-badge ${e.result}">${e.result}</span></td>
+        <td class="text-sm">${e.duration_ms != null ? e.duration_ms + 'ms' : ''}</td>
+        <td class="text-sm text-muted">${e.details ? (typeof e.details === 'string' ? e.details : JSON.stringify(e.details)).slice(0, 100) : ''}</td>
+      </tr>`).join('');
+    } catch (err) { /* not critical */ }
+  }
+
+  async function runCompact() {
+    const btn = document.getElementById('btn-compact');
+    btn.disabled = true; btn.textContent = 'Running...';
+    try {
+      const result = await API.post('/api/db/compact');
+      showToast(result.message);
+    } catch (err) { showError(err.message); }
+    btn.disabled = false; btn.textContent = 'Run Compaction';
+    setTimeout(() => { loadHealth(); loadLog(); }, 2000);
+  }
+
+  async function runIntegrity() {
+    const btn = document.getElementById('btn-integrity');
+    btn.disabled = true; btn.textContent = 'Running...';
+    try {
+      const result = await API.post('/api/db/integrity-check');
+      showToast(`Integrity: ${result.result}`);
+    } catch (err) { showError(err.message); }
+    btn.disabled = false; btn.textContent = 'Run Integrity Check';
+    setTimeout(() => { loadHealth(); loadLog(); }, 1000);
+  }
+
+  async function runStaleCheck() {
+    const btn = document.getElementById('btn-stale');
+    btn.disabled = true; btn.textContent = 'Running...';
+    try {
+      const result = await API.post('/api/db/stale-check');
+      const checks = result.checks || {};
+      const body = document.getElementById('stale-body');
+      let html = '<div style="display:grid;grid-template-columns:1fr auto auto;gap:0.5rem 1rem;align-items:center">';
+      for (const [key, val] of Object.entries(checks)) {
+        const label = key.replace(/_/g, ' ');
+        html += `<div>${label}</div>`;
+        html += `<div><strong>${val.count || 0}</strong></div>`;
+        html += `<div><span class="result-badge ${val.severity}">${val.severity}</span></div>`;
+      }
+      html += '</div>';
+      body.innerHTML = html;
+      document.getElementById('stale-results').hidden = false;
+    } catch (err) { showError(err.message); }
+    btn.disabled = false; btn.textContent = 'Run Stale Data Check';
+    setTimeout(loadLog, 1000);
+  }
+
+  loadHealth();
+  loadLog();
+  </script>
+</body>
+</html>

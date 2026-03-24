@@ -17,8 +17,10 @@ import json
 from pathlib import Path
 
 import structlog
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+
+from core.auth import AuthenticatedUser, UserRole, require_role
 from pydantic import BaseModel, Field
 
 from core.bulk_worker import (
@@ -69,7 +71,10 @@ class CreateBulkJobRequest(BaseModel):
 # ── POST /api/bulk/jobs ──────────────────────────────────────────────────────
 
 @router.post("/jobs")
-async def create_job(req: CreateBulkJobRequest):
+async def create_job(
+    req: CreateBulkJobRequest,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
     """Create and start a new bulk conversion job."""
     # Resolve source path from location ID or raw path
     source_path = req.source_path
@@ -146,7 +151,9 @@ async def create_job(req: CreateBulkJobRequest):
 # ── GET /api/bulk/jobs ───────────────────────────────────────────────────────
 
 @router.get("/jobs")
-async def list_jobs():
+async def list_jobs(
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
     """List recent bulk jobs."""
     jobs = await list_bulk_jobs(limit=20)
     return {"jobs": jobs}
@@ -155,7 +162,10 @@ async def list_jobs():
 # ── GET /api/bulk/jobs/{job_id} ──────────────────────────────────────────────
 
 @router.get("/jobs/{job_id}")
-async def job_status(job_id: str):
+async def job_status(
+    job_id: str,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
     """Get bulk job status and counters."""
     job = await get_bulk_job(job_id)
     if not job:
@@ -166,7 +176,11 @@ async def job_status(job_id: str):
 # ── GET /api/bulk/jobs/{job_id}/stream ───────────────────────────────────────
 
 @router.get("/jobs/{job_id}/stream")
-async def job_stream(job_id: str, request: Request):
+async def job_stream(
+    job_id: str,
+    request: Request,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
     """SSE stream for live bulk job progress."""
     job = await get_bulk_job(job_id)
     if not job:
@@ -255,7 +269,10 @@ def _format_sse(event: str, data: dict, event_id: int = 0) -> str:
 # ── POST /api/bulk/jobs/{job_id}/pause ───────────────────────────────────────
 
 @router.post("/jobs/{job_id}/pause")
-async def pause_job(job_id: str):
+async def pause_job(
+    job_id: str,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
     """Pause a running bulk job."""
     active = get_active_job(job_id)
     if not active:
@@ -267,7 +284,10 @@ async def pause_job(job_id: str):
 # ── POST /api/bulk/jobs/{job_id}/resume ──────────────────────────────────────
 
 @router.post("/jobs/{job_id}/resume")
-async def resume_job(job_id: str):
+async def resume_job(
+    job_id: str,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
     """Resume a paused bulk job."""
     active = get_active_job(job_id)
     if not active:
@@ -279,7 +299,10 @@ async def resume_job(job_id: str):
 # ── POST /api/bulk/jobs/{job_id}/cancel ──────────────────────────────────────
 
 @router.post("/jobs/{job_id}/cancel")
-async def cancel_job(job_id: str):
+async def cancel_job(
+    job_id: str,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
     """Cancel a running or paused bulk job."""
     active = get_active_job(job_id)
     if not active:
@@ -297,6 +320,7 @@ async def job_files(
     ext: str | None = None,
     page: int = 1,
     per_page: int = 50,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
 ):
     """Paginated file list for a bulk job."""
     job = await get_bulk_job(job_id)
@@ -322,7 +346,10 @@ async def job_files(
 # ── GET /api/bulk/jobs/{job_id}/errors ───────────────────────────────────────
 
 @router.get("/jobs/{job_id}/errors")
-async def job_errors(job_id: str):
+async def job_errors(
+    job_id: str,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
     """All failed files for a bulk job (max 1000)."""
     job = await get_bulk_job(job_id)
     if not job:
@@ -348,14 +375,20 @@ class OcrGapFillRequest(BaseModel):
 
 
 @router.get("/ocr-gap-fill/pending-count")
-async def gap_fill_pending_count(job_id: str | None = None):
+async def gap_fill_pending_count(
+    job_id: str | None = None,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
     """How many PDFs need OCR (converted without OCR stats)."""
     result = await get_ocr_gap_fill_count(job_id)
     return result
 
 
 @router.post("/ocr-gap-fill")
-async def start_gap_fill(req: OcrGapFillRequest):
+async def start_gap_fill(
+    req: OcrGapFillRequest,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
     """Start an OCR gap-fill pass."""
     import uuid
     gap_fill_id = uuid.uuid4().hex
@@ -386,7 +419,11 @@ async def start_gap_fill(req: OcrGapFillRequest):
 
 
 @router.get("/ocr-gap-fill/{gap_fill_id}/stream")
-async def gap_fill_stream(gap_fill_id: str, request: Request):
+async def gap_fill_stream(
+    gap_fill_id: str,
+    request: Request,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
     """SSE stream for live gap-fill progress."""
 
     async def event_generator():
@@ -439,6 +476,7 @@ async def job_path_issues(
     type: str | None = None,
     page: int = 1,
     per_page: int = 50,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
 ):
     """Return path issues for a bulk job."""
     job = await get_bulk_job(job_id)
@@ -460,7 +498,10 @@ async def job_path_issues(
 
 
 @router.get("/jobs/{job_id}/path-issues/export")
-async def export_path_issues(job_id: str):
+async def export_path_issues(
+    job_id: str,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
     """Export path issues as downloadable CSV."""
     job = await get_bulk_job(job_id)
     if not job:
@@ -511,6 +552,7 @@ async def get_job_review_queue(
     status: str | None = "pending",
     page: int = 1,
     per_page: int = 50,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
 ):
     """Return review queue entries for a bulk job."""
     job = await get_bulk_job(job_id)
@@ -546,7 +588,11 @@ async def get_job_review_queue(
 # NOTE: must come before the parametric /{entry_id}/resolve route
 
 @router.post("/jobs/{job_id}/review-queue/resolve-all")
-async def resolve_all_review(job_id: str, req: ReviewResolveAllRequest):
+async def resolve_all_review(
+    job_id: str,
+    req: ReviewResolveAllRequest,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
     """Bulk resolve all pending review queue entries."""
     job = await get_bulk_job(job_id)
     if not job:
@@ -583,7 +629,12 @@ async def resolve_all_review(job_id: str, req: ReviewResolveAllRequest):
 # ── POST /api/bulk/jobs/{job_id}/review-queue/{entry_id}/resolve ──────────
 
 @router.post("/jobs/{job_id}/review-queue/{entry_id}/resolve")
-async def resolve_review_entry(job_id: str, entry_id: str, req: ReviewResolveRequest):
+async def resolve_review_entry(
+    job_id: str,
+    entry_id: str,
+    req: ReviewResolveRequest,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
     """Resolve a single review queue entry."""
     entry = await get_review_queue_entry(entry_id)
     if not entry or entry["job_id"] != job_id:

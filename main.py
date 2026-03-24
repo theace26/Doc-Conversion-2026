@@ -7,20 +7,23 @@ Lifespan:
   - Shuts down ProcessPoolExecutor cleanly.
 
 Routes mounted:
+  /api/auth         — Auth info (GET /api/auth/me)
+  /api/admin        — API key management (admin only)
   /api/convert      — Upload and conversion endpoints
   /api/batch        — Batch status and download endpoints
   /api/history      — Conversion history endpoints
   /api/preferences  — User preferences endpoints
-  /api/debug        — Debug dashboard (only when DEBUG=true)
+  /api/debug        — Debug dashboard
   /static           — Static HTML/CSS/JS files
-  /                 — Serves static/index.html
+  /                 — Redirects to /search.html
 """
 
 import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from core.database import init_db
@@ -30,6 +33,8 @@ from api.routes import convert, batch, history, preferences, review, debug as de
 from api.routes import bulk, search as search_routes, cowork, locations, browse
 from api.routes import llm_providers as llm_providers_routes
 from api.routes import mcp_info as mcp_info_routes
+from api.routes import auth as auth_routes
+from api.routes import admin as admin_routes
 from api.middleware import add_middleware
 
 # ── Logging ──────────────────────────────────────────────────────────────────
@@ -39,13 +44,22 @@ import structlog
 log = structlog.get_logger(__name__)
 
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+DEV_BYPASS_AUTH = os.getenv("DEV_BYPASS_AUTH", "false").lower() == "true"
+UNIONCORE_ORIGIN = os.getenv("UNIONCORE_ORIGIN", "")
 
 
 # ── Lifespan ─────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown logic."""
-    log.info("markflow.startup", debug=DEBUG)
+    log.info("markflow.startup", debug=DEBUG, dev_bypass_auth=DEV_BYPASS_AUTH)
+
+    # Validate required env vars in production mode
+    if not DEV_BYPASS_AUTH:
+        if not os.getenv("UNIONCORE_JWT_SECRET"):
+            raise ValueError("UNIONCORE_JWT_SECRET must be set when DEV_BYPASS_AUTH=false")
+        if not os.getenv("API_KEY_SALT"):
+            raise ValueError("API_KEY_SALT must be set when DEV_BYPASS_AUTH=false")
 
     # Initialize SQLite schema + default preferences
     await init_db()
@@ -83,8 +97,22 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         log.warning("markflow.meilisearch_init_skip", error=str(exc))
 
+    # Phase 9: Start scheduler and run initial lifecycle scan
+    from core.scheduler import start_scheduler, stop_scheduler, run_lifecycle_scan
+    try:
+        start_scheduler()
+        # Run one immediate scan on startup (regardless of business hours)
+        import asyncio
+        asyncio.create_task(run_lifecycle_scan(force=True))
+    except Exception as exc:
+        log.warning("markflow.scheduler_start_error", error=str(exc))
+
     yield
 
+    try:
+        stop_scheduler()
+    except Exception as exc:
+        log.warning("markflow.scheduler_stop_error", error=str(exc))
     log.info("markflow.shutdown")
 
 
@@ -95,13 +123,27 @@ app = FastAPI(
         "Convert documents bidirectionally between their original format "
         "and Markdown. OCR, batch processing, and style preservation."
     ),
-    version="0.8.2",
+    version="0.9.0",
     lifespan=lifespan,
+)
+
+# ── CORS middleware ──────────────────────────────────────────────────────────
+_allowed_origins = ["*"] if DEV_BYPASS_AUTH else (
+    [UNIONCORE_ORIGIN] if UNIONCORE_ORIGIN else []
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allowed_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Authorization", "X-API-Key", "Content-Type", "X-Request-ID"],
 )
 
 add_middleware(app)
 
 # ── API Routes ────────────────────────────────────────────────────────────────
+app.include_router(auth_routes.router)
+app.include_router(admin_routes.router)
 app.include_router(convert.router)
 app.include_router(batch.router)
 app.include_router(history.router)
@@ -130,6 +172,16 @@ app.include_router(mcp_info_routes.router)
 from api.routes import unrecognized as unrecognized_routes
 app.include_router(unrecognized_routes.router)
 
+# v0.8.5 — Phase 9: Lifecycle, Trash, Scanner, DB Health
+from api.routes import lifecycle as lifecycle_routes
+from api.routes import trash as trash_routes
+from api.routes import scanner as scanner_routes
+from api.routes import db_health as db_health_routes
+app.include_router(lifecycle_routes.router)
+app.include_router(trash_routes.router)
+app.include_router(scanner_routes.router)
+app.include_router(db_health_routes.router)
+
 log.info("markflow.all_routes_registered")
 
 # ── Static files ──────────────────────────────────────────────────────────────
@@ -149,10 +201,10 @@ async def health_check():
     return await run_health_check()
 
 
-# ── Root — serve index.html ───────────────────────────────────────────────────
+# ── Root — redirect to search page ────────────────────────────────────────────
 @app.get("/", include_in_schema=False)
 async def root():
-    return FileResponse("static/index.html")
+    return RedirectResponse(url="/search.html")
 
 
 # ── Catch-all for SPA-style page navigation ───────────────────────────────────

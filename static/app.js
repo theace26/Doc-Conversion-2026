@@ -162,18 +162,55 @@ async function populateLocationSelect(selectEl, type, selectedId = null) {
     return locations;
 }
 
-// Set active nav link
-document.addEventListener('DOMContentLoaded', () => {
-    const path = location.pathname;
-    const isIndexPage = path === '/' || path === '/index.html';
-    document.querySelectorAll('.nav-link').forEach(link => {
-        const href = link.getAttribute('href');
-        let active = false;
-        if (isIndexPage) {
-            active = href === '/';
-        } else {
-            active = href !== '/' && path.startsWith(href.replace('.html', ''));
+// ── Role-aware navigation ────────────────────────────────────────────────────
+
+const NAV_ITEMS = [
+    { href: "/search.html",   label: "Search",   minRole: "search_user" },
+    { href: "/index.html",    label: "Convert",   minRole: "operator"    },
+    { href: "/history.html",  label: "History",   minRole: "operator"    },
+    { href: "/bulk.html",     label: "Bulk Jobs",  minRole: "manager"     },
+    { href: "/trash.html",    label: "Trash",     minRole: "manager"     },
+    { href: "/settings.html", label: "Settings",  minRole: "manager"     },
+    { href: "/admin.html",    label: "Admin",     minRole: "admin"       },
+];
+
+const ROLE_HIERARCHY = ["search_user", "operator", "manager", "admin"];
+
+function roleGte(userRole, minRole) {
+    return ROLE_HIERARCHY.indexOf(userRole) >= ROLE_HIERARCHY.indexOf(minRole);
+}
+
+async function buildNav() {
+    const nav = document.getElementById('main-nav');
+    if (!nav) return;
+
+    let role = "search_user";
+    try {
+        const res = await fetch("/api/auth/me");
+        if (res.ok) {
+            const data = await res.json();
+            role = data.role || "search_user";
         }
-        link.classList.toggle('nav-link--active', active);
-    });
-});
+    } catch { /* default to search_user */ }
+
+    const currentPath = window.location.pathname;
+    nav.innerHTML = '';
+
+    NAV_ITEMS
+        .filter(item => roleGte(role, item.minRole))
+        .forEach(item => {
+            const a = document.createElement('a');
+            a.href = item.href;
+            a.textContent = item.label;
+            a.className = 'nav-link';
+            const hrefBase = item.href.replace('.html', '');
+            const isActive = currentPath === item.href
+                || currentPath.startsWith(hrefBase)
+                || (item.href === '/index.html' && currentPath === '/');
+            if (isActive) a.classList.add('nav-link--active');
+            nav.appendChild(a);
+        });
+}
+
+// Build nav on page load
+document.addEventListener('DOMContentLoaded', buildNav);

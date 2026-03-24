@@ -12,14 +12,7 @@
 <body>
   <nav class="nav-bar">
     <a href="/" class="nav-logo">MarkFlow</a>
-    <div class="nav-links">
-      <a href="/" class="nav-link">Home</a>
-      <a href="/" class="nav-link">Convert</a>
-      <a href="/bulk.html" class="nav-link">Bulk</a>
-      <a href="/search.html" class="nav-link">Search</a>
-      <a href="/history.html" class="nav-link">History</a>
-      <a href="/settings.html" class="nav-link">Settings</a>
-    </div>
+    <div id="main-nav" class="nav-links"></div>
   </nav>
 
   <div class="container page-content">
@@ -259,6 +252,68 @@
               <li>Click Connect</li>
             </ol>
           </details>
+        </div>
+      </div>
+
+      <!-- File Lifecycle section -->
+      <div class="section-title">File Lifecycle</div>
+      <div class="card">
+        <p class="text-sm text-muted" style="margin:0 0 1rem">Control how MarkFlow tracks file changes, deletions, and trash retention.</p>
+
+        <div class="form-group">
+          <label>Periodic file scanner</label>
+          <label class="toggle">
+            <input type="checkbox" id="pref-scanner_enabled" data-key="scanner_enabled">
+            <span class="toggle-track"></span>
+            <span class="toggle-label" id="toggle-label-scanner">OFF</span>
+          </label>
+          <p class="hint">Scan source repository on a schedule during business hours.</p>
+          <div class="inline-error" id="err-scanner_enabled"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-scanner_interval_minutes">Scan interval (minutes, 5&ndash;120)</label>
+          <input type="number" id="pref-scanner_interval_minutes" data-key="scanner_interval_minutes" min="5" max="120">
+          <div class="inline-error" id="err-scanner_interval_minutes"></div>
+        </div>
+
+        <div class="form-group" style="display:flex;gap:1rem">
+          <div style="flex:1">
+            <label for="pref-scanner_business_hours_start">Business hours start</label>
+            <input type="time" id="pref-scanner_business_hours_start" data-key="scanner_business_hours_start">
+            <div class="inline-error" id="err-scanner_business_hours_start"></div>
+          </div>
+          <div style="flex:1">
+            <label for="pref-scanner_business_hours_end">Business hours end</label>
+            <input type="time" id="pref-scanner_business_hours_end" data-key="scanner_business_hours_end">
+            <div class="inline-error" id="err-scanner_business_hours_end"></div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-lifecycle_grace_period_hours">Deletion grace period (hours, 1&ndash;168)</label>
+          <input type="number" id="pref-lifecycle_grace_period_hours" data-key="lifecycle_grace_period_hours" min="1" max="168">
+          <p class="hint">How long a missing file waits before moving to trash.</p>
+          <div class="inline-error" id="err-lifecycle_grace_period_hours"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-lifecycle_trash_retention_days">Trash retention (days, 1&ndash;365)</label>
+          <input type="number" id="pref-lifecycle_trash_retention_days" data-key="lifecycle_trash_retention_days" min="1" max="365">
+          <p class="hint">How long files stay in trash before permanent deletion.</p>
+          <div class="inline-error" id="err-lifecycle_trash_retention_days"></div>
+        </div>
+      </div>
+
+      <!-- Advanced section -->
+      <div class="section-title">Advanced</div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <p style="margin:0;font-weight:500">Database Health</p>
+            <p class="text-sm text-muted" style="margin:0.25rem 0 0">Monitor database size, run compaction, and check integrity.</p>
+          </div>
+          <a href="/db-health.html" class="btn btn-ghost">Open Dashboard</a>
         </div>
       </div>
 

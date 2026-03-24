@@ -29,14 +29,7 @@
 <body>
   <nav class="nav-bar">
     <a href="/" class="nav-logo">MarkFlow</a>
-    <div class="nav-links">
-      <a href="/" class="nav-link">Home</a>
-      <a href="/" class="nav-link">Convert</a>
-      <a href="/bulk.html" class="nav-link">Bulk</a>
-      <a href="/search.html" class="nav-link">Search</a>
-      <a href="/history.html" class="nav-link">History</a>
-      <a href="/settings.html" class="nav-link">Settings</a>
-    </div>
+    <div id="main-nav" class="nav-links"></div>
   </nav>
 
   <div class="container page-content">
@@ -65,6 +58,7 @@
       </div>
     </div>
 
+    <div id="deletion-banner" hidden></div>
     <div id="search-meta" class="search-meta" hidden></div>
 
     <div class="card" id="results-card" style="padding:0" hidden>
@@ -83,6 +77,8 @@
   </div>
 
   <script src="/static/app.js"></script>
+  <script src="/static/js/lifecycle-badge.js"></script>
+  <script src="/static/js/deletion-banner.js"></script>
   <script>
   let debounceTimer = null;
   let currentPage = 1;

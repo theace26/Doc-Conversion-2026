@@ -1,0 +1,300 @@
+"""
+Lifecycle state machine for tracked files.
+
+Transitions: active -> marked_for_deletion -> in_trash -> purged
+
+Called by the lifecycle scanner (Sub-phase D) and maintenance jobs (Sub-phase F).
+Does not run scans — only applies decisions the scanner has made.
+"""
+
+import json
+import os
+import shutil
+from datetime import datetime, timezone
+from pathlib import Path
+
+import structlog
+
+from core.database import (
+    create_version_snapshot,
+    get_next_version_number,
+    update_bulk_file,
+    db_fetch_one,
+)
+
+log = structlog.get_logger(__name__)
+
+GRACE_PERIOD_HOURS = 36
+TRASH_RETENTION_DAYS = 60
+TRASH_DIR_NAME = ".trash"
+
+OUTPUT_REPO_ROOT = Path(os.getenv("BULK_OUTPUT_PATH", os.getenv("OUTPUT_DIR", "output")))
+
+
+def get_trash_path(output_repo_root: Path, md_path: Path) -> Path:
+    """Return .trash/ mirror of md_path relative to output_repo_root."""
+    try:
+        relative = md_path.relative_to(output_repo_root)
+    except ValueError:
+        relative = Path(md_path.name)
+    trash_dir = output_repo_root / TRASH_DIR_NAME
+    trash_file = trash_dir / relative
+
+    # Create trash README on first use
+    readme = trash_dir / "README.txt"
+    if not readme.exists():
+        trash_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            readme.write_text(
+                "MarkFlow Trash Directory\n"
+                "========================\n\n"
+                "Files here were removed from the source repository and moved to trash\n"
+                "by the MarkFlow lifecycle scanner.\n\n"
+                f"Retention policy: files are permanently deleted {TRASH_RETENTION_DAYS} days\n"
+                "after being moved to trash (based on moved_to_trash_at timestamp).\n\n"
+                "Do not manually modify files in this directory.\n"
+            )
+        except OSError:
+            pass
+
+    return trash_file
+
+
+async def _get_bulk_file(bulk_file_id: str) -> dict | None:
+    """Fetch a bulk_file row."""
+    return await db_fetch_one(
+        "SELECT * FROM bulk_files WHERE id=?", (bulk_file_id,)
+    )
+
+
+async def mark_file_for_deletion(bulk_file_id: str, scan_run_id: str) -> None:
+    """Mark an active file for deletion (grace period begins)."""
+    now = datetime.now(timezone.utc).isoformat()
+    file_rec = await _get_bulk_file(bulk_file_id)
+
+    await update_bulk_file(
+        bulk_file_id,
+        lifecycle_status="marked_for_deletion",
+        marked_for_deletion_at=now,
+    )
+
+    version_num = await get_next_version_number(bulk_file_id)
+    await create_version_snapshot(bulk_file_id, {
+        "version_number": version_num,
+        "change_type": "marked_deleted",
+        "path_at_version": file_rec["source_path"] if file_rec else "",
+        "mtime_at_version": file_rec.get("source_mtime") if file_rec else None,
+        "size_at_version": file_rec.get("file_size_bytes") if file_rec else None,
+        "content_hash": file_rec.get("content_hash") if file_rec else None,
+        "scan_run_id": scan_run_id,
+        "notes": "File no longer found in source share",
+    })
+
+    log.info("lifecycle.marked_for_deletion", bulk_file_id=bulk_file_id)
+
+
+async def restore_file(bulk_file_id: str, scan_run_id: str) -> None:
+    """Restore a marked_for_deletion or in_trash file back to active."""
+    file_rec = await _get_bulk_file(bulk_file_id)
+    was_in_trash = file_rec and file_rec.get("lifecycle_status") == "in_trash"
+
+    await update_bulk_file(
+        bulk_file_id,
+        lifecycle_status="active",
+        marked_for_deletion_at=None,
+    )
+
+    # If was in trash, move .md back from .trash/ to original output path
+    if was_in_trash and file_rec:
+        output_path = file_rec.get("output_path")
+        if output_path:
+            trash_file = get_trash_path(OUTPUT_REPO_ROOT, Path(output_path))
+            original = Path(output_path)
+            if trash_file.exists() and not original.exists():
+                try:
+                    original.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(trash_file), str(original))
+                    log.info("lifecycle.restored_from_trash", path=str(original))
+                except OSError as exc:
+                    log.warning("lifecycle.restore_move_failed", error=str(exc))
+
+            # Re-index in Meilisearch
+            try:
+                from core.search_indexer import get_search_indexer
+                indexer = get_search_indexer()
+                if indexer and original.exists():
+                    await indexer.index_document(original)
+            except Exception as exc:
+                log.warning("lifecycle.restore_reindex_failed", error=str(exc))
+
+    version_num = await get_next_version_number(bulk_file_id)
+    await create_version_snapshot(bulk_file_id, {
+        "version_number": version_num,
+        "change_type": "restored",
+        "path_at_version": file_rec["source_path"] if file_rec else "",
+        "mtime_at_version": file_rec.get("source_mtime") if file_rec else None,
+        "size_at_version": file_rec.get("file_size_bytes") if file_rec else None,
+        "content_hash": file_rec.get("content_hash") if file_rec else None,
+        "scan_run_id": scan_run_id,
+        "notes": "File reappeared in source share" + (" (restored from trash)" if was_in_trash else ""),
+    })
+
+    log.info("lifecycle.restored", bulk_file_id=bulk_file_id, was_in_trash=was_in_trash)
+
+
+async def move_to_trash(bulk_file_id: str) -> None:
+    """Move a marked_for_deletion file to .trash/ (grace period expired)."""
+    now = datetime.now(timezone.utc).isoformat()
+    file_rec = await _get_bulk_file(bulk_file_id)
+
+    # Move .md to .trash/ if it exists
+    if file_rec:
+        output_path = file_rec.get("output_path")
+        if output_path:
+            original = Path(output_path)
+            trash_dest = get_trash_path(OUTPUT_REPO_ROOT, original)
+            if original.exists():
+                try:
+                    trash_dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(original), str(trash_dest))
+                    log.info("lifecycle.moved_to_trash", path=str(original), trash=str(trash_dest))
+                except OSError as exc:
+                    log.warning("lifecycle.trash_move_failed", error=str(exc))
+
+            # Remove from Meilisearch
+            try:
+                from core.search_indexer import get_search_indexer
+                indexer = get_search_indexer()
+                if indexer:
+                    source_path = file_rec.get("source_path", "")
+                    await indexer.remove_document(source_path)
+            except Exception as exc:
+                log.warning("lifecycle.trash_deindex_failed", error=str(exc))
+
+    await update_bulk_file(
+        bulk_file_id,
+        lifecycle_status="in_trash",
+        moved_to_trash_at=now,
+    )
+
+    version_num = await get_next_version_number(bulk_file_id)
+    await create_version_snapshot(bulk_file_id, {
+        "version_number": version_num,
+        "change_type": "trashed",
+        "path_at_version": file_rec["source_path"] if file_rec else "",
+        "size_at_version": file_rec.get("file_size_bytes") if file_rec else None,
+        "content_hash": file_rec.get("content_hash") if file_rec else None,
+        "notes": "Grace period expired, moved to trash",
+    })
+
+    log.info("lifecycle.trashed", bulk_file_id=bulk_file_id)
+
+
+async def purge_file(bulk_file_id: str) -> None:
+    """Permanently delete a trashed file (retention expired)."""
+    now = datetime.now(timezone.utc).isoformat()
+    file_rec = await _get_bulk_file(bulk_file_id)
+
+    # Delete .md from .trash/ if it exists
+    if file_rec:
+        output_path = file_rec.get("output_path")
+        if output_path:
+            trash_file = get_trash_path(OUTPUT_REPO_ROOT, Path(output_path))
+            if trash_file.exists():
+                try:
+                    trash_file.unlink()
+                    log.info("lifecycle.purged_file", path=str(trash_file))
+                except OSError as exc:
+                    log.warning("lifecycle.purge_delete_failed", error=str(exc))
+
+    await update_bulk_file(
+        bulk_file_id,
+        lifecycle_status="purged",
+        purged_at=now,
+    )
+
+    version_num = await get_next_version_number(bulk_file_id)
+    await create_version_snapshot(bulk_file_id, {
+        "version_number": version_num,
+        "change_type": "purged",
+        "path_at_version": file_rec["source_path"] if file_rec else "",
+        "notes": "Trash retention expired, permanently deleted",
+    })
+
+    log.info("lifecycle.purged", bulk_file_id=bulk_file_id)
+
+
+async def record_file_move(
+    bulk_file_id: str, old_path: str, new_path: str, scan_run_id: str
+) -> None:
+    """Record that a file was moved (detected via content hash match)."""
+    await update_bulk_file(
+        bulk_file_id,
+        source_path=new_path,
+        previous_path=old_path,
+        lifecycle_status="active",
+    )
+
+    file_rec = await _get_bulk_file(bulk_file_id)
+    version_num = await get_next_version_number(bulk_file_id)
+    await create_version_snapshot(bulk_file_id, {
+        "version_number": version_num,
+        "change_type": "moved",
+        "path_at_version": new_path,
+        "mtime_at_version": file_rec.get("source_mtime") if file_rec else None,
+        "size_at_version": file_rec.get("file_size_bytes") if file_rec else None,
+        "content_hash": file_rec.get("content_hash") if file_rec else None,
+        "scan_run_id": scan_run_id,
+        "notes": f"Moved from {old_path}",
+    })
+
+    log.info("lifecycle.moved", bulk_file_id=bulk_file_id, old=old_path, new=new_path)
+
+
+async def record_content_change(
+    bulk_file_id: str,
+    old_md_path: Path | None,
+    new_md_path: Path | None,
+    scan_run_id: str,
+) -> None:
+    """Record a content change with diff summary and patch."""
+    from core.differ import compute_diff
+
+    old_text = ""
+    new_text = ""
+
+    if old_md_path and old_md_path.exists():
+        try:
+            old_text = old_md_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            pass
+
+    if new_md_path and new_md_path.exists():
+        try:
+            new_text = new_md_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            pass
+
+    diff = compute_diff(old_text, new_text)
+
+    file_rec = await _get_bulk_file(bulk_file_id)
+    version_num = await get_next_version_number(bulk_file_id)
+    await create_version_snapshot(bulk_file_id, {
+        "version_number": version_num,
+        "change_type": "content_change",
+        "path_at_version": file_rec["source_path"] if file_rec else "",
+        "mtime_at_version": file_rec.get("source_mtime") if file_rec else None,
+        "size_at_version": file_rec.get("file_size_bytes") if file_rec else None,
+        "content_hash": file_rec.get("content_hash") if file_rec else None,
+        "diff_summary": json.dumps(diff.summary),
+        "diff_patch": diff.patch,
+        "diff_truncated": 1 if diff.patch_truncated else 0,
+        "scan_run_id": scan_run_id,
+    })
+
+    log.info(
+        "lifecycle.content_change",
+        bulk_file_id=bulk_file_id,
+        lines_added=diff.lines_added,
+        lines_removed=diff.lines_removed,
+    )

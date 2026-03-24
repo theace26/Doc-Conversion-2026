@@ -10,8 +10,10 @@ import csv
 import io
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
+
+from core.auth import AuthenticatedUser, UserRole, require_role
 
 from core.database import get_unrecognized_files, get_unrecognized_stats
 
@@ -25,6 +27,7 @@ async def list_unrecognized(
     source_format: str | None = None,
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=50, ge=1, le=200),
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
 ) -> dict:
     """Return paginated unrecognized files with filter support."""
     return await get_unrecognized_files(
@@ -37,7 +40,10 @@ async def list_unrecognized(
 
 
 @router.get("/stats")
-async def unrecognized_stats(job_id: str | None = None) -> dict:
+async def unrecognized_stats(
+    job_id: str | None = None,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+) -> dict:
     """Return summary statistics for unrecognized files."""
     return await get_unrecognized_stats(job_id=job_id)
 
@@ -47,6 +53,7 @@ async def export_csv(
     job_id: str | None = None,
     category: str | None = None,
     source_format: str | None = None,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
 ):
     """Export unrecognized files as CSV download."""
     data = await get_unrecognized_files(

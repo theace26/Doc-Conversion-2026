@@ -44,7 +44,7 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 **v0.7.4** — LLM providers (Anthropic, OpenAI, Gemini, Ollama, custom), API key
   encryption, connection verification, opt-in OCR correction + summarization +
   heading inference. Auto-OCR gap-fill for PDFs converted without OCR.
-  MCP server (port 8001) exposes 7 tools to Claude.ai: search, read, list,
+  MCP server (port 8001) exposes 7 tools to Claude.ai (later expanded to 10): search, read, list,
   convert, adobe search, get summary, conversion status. 543 tests.
 **v0.7.4b** — Path safety and collision handling. Deeply nested paths checked
   against configurable max length (default 240 chars). Output path collisions
@@ -73,6 +73,25 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
   (list, filter, paginate), /stats, /export (CSV). UI: /unrecognized.html with
   category cards, filters, table. Bulk progress shows unrecognized count pill.
   MCP tool: list_unrecognized (8th tool).
+**v0.8.5** — File lifecycle management, version tracking & database health.
+  APScheduler runs lifecycle scans every 15 min during business hours. Detects
+  new/modified/moved/deleted files in source share. Soft-delete pipeline:
+  active → marked_for_deletion (36h grace) → in_trash (60d retention) → purged.
+  Full version history with unified diff patches and bullet summaries per file.
+  Trash management page, DB health dashboard, lifecycle badges on all file views.
+  6 new preference keys for scanner and lifecycle config. DB maintenance: weekly
+  compaction, integrity checks, stale data detection. WAL mode enabled.
+  MCP tools 9-10: list_deleted_files, get_file_history.
+**v0.9.0** — Auth layer & UnionCore integration contract. JWT-based auth
+  middleware with HS256 validation (UnionCore as identity provider). Role-based
+  route guards: search_user < operator < manager < admin. API key service
+  accounts for UnionCore backend (BLAKE2b hashed, `mf_` prefixed). Admin panel
+  for key management. CORS configured for UnionCore origin. DEV_BYPASS_AUTH=true
+  for local dev (all requests treated as admin). `/` redirects to search page.
+  Role-aware dynamic navigation (nav items filtered by user role). Preferences
+  split: system-level keys require manager role. Integration contract at
+  `docs/unioncore-integration-contract.md`. New env vars: UNIONCORE_JWT_SECRET,
+  UNIONCORE_ORIGIN, DEV_BYPASS_AUTH, API_KEY_SALT.
 
 ---
 
@@ -90,6 +109,8 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 | 7 | Bulk conversion, Adobe indexing, Meilisearch search, Cowork integration | ✅ Done |
 | 8b | Visual enrichment: scene detection, keyframe extraction, AI frame descriptions | ✅ Done |
 | 8c | Unknown & unrecognized file cataloging with MIME detection | ✅ Done |
+| 9 | File lifecycle management, version tracking, DB health | ✅ Done |
+| 10 | Auth layer, role guards, API keys, UnionCore integration contract | ✅ Done |
 
 ---
 
@@ -235,7 +256,26 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 | `core/keyframe_extractor.py` | ffmpeg keyframe extraction at scene midpoints |
 | `core/visual_enrichment_engine.py` | Orchestrates scene detection + keyframe + frame description |
 | `mcp_server/server.py` | MCP server entry point — 7 tools exposed via SSE transport |
-| `mcp_server/tools.py` | MCP tool implementations: search, read, list, convert, adobe, summary, status |
+| `mcp_server/tools.py` | MCP tool implementations: search, read, list, convert, adobe, summary, status, deleted, history |
+| `core/differ.py` | Unified diff engine + bullet summary generator |
+| `core/lifecycle_manager.py` | Lifecycle state transitions: mark, restore, trash, purge, move, content change |
+| `core/lifecycle_scanner.py` | Source share walker, change detection, move detection via content hash |
+| `core/scheduler.py` | APScheduler setup: lifecycle scan, trash expiry, DB maintenance jobs |
+| `core/db_maintenance.py` | VACUUM, integrity checks, stale data detection, health summary |
+| `api/routes/lifecycle.py` | Version history and diff API endpoints |
+| `api/routes/trash.py` | Trash management API: list, restore, purge, empty |
+| `api/routes/scanner.py` | Scanner status, trigger, run history API |
+| `api/routes/db_health.py` | Database health and maintenance API |
+| `static/js/lifecycle-badge.js` | Reusable lifecycle status badge component |
+| `static/js/version-panel.js` | Version history timeline + compare modal |
+| `static/js/deletion-banner.js` | Dismissible banner for search results with deleted files |
+| `static/trash.html` | Trash management page with restore/delete controls |
+| `static/db-health.html` | Admin database health dashboard |
+| `core/auth.py` | JWT validation, role hierarchy, API key verification, FastAPI dependencies |
+| `api/routes/auth.py` | GET /api/auth/me — current user identity and role |
+| `api/routes/admin.py` | API key CRUD, system info — admin only |
+| `static/admin.html` | Admin panel: API key management, system info, dev bypass banner |
+| `docs/unioncore-integration-contract.md` | Standalone spec for UnionCore team |
 | `pytest.ini` | Test configuration: asyncio_mode, custom markers (slow, ocr, integration, bulk) |
 | `docker-compose.yml` | Port 8000, MCP 8001, Meilisearch 7700, volumes: input/output/logs/source/output-repo |
 
@@ -542,6 +582,83 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 - **scenedetect[opencv] pulls opencv-python-headless**: The headless variant
   (no GUI) is correct for Docker. If opencv-python (full) is already installed,
   there may be a conflict. Do not install both.
+
+- **APScheduler lifespan pattern**: Scheduler starts in `lifespan()` via
+  `start_scheduler()` and stops in yield cleanup via `stop_scheduler()`.
+  Do not use `@app.on_event("startup")` — it's deprecated. One immediate
+  lifecycle scan fires on startup via `asyncio.create_task()`, regardless
+  of business hours.
+
+- **WAL mode set in `_ensure_schema()`**: After all table creation and
+  column additions, `init_db()` runs `PRAGMA journal_mode = WAL` and
+  `PRAGMA wal_autocheckpoint = 1000`. This is safe to run every startup —
+  SQLite ignores if already in WAL mode.
+
+- **Trash path mirrors output-repo structure**: `.trash/` is a subdirectory
+  of the output-repo root. Files in `.trash/` keep their relative path from
+  output-repo. Example: `/mnt/output-repo/dept/doc.md` → `/mnt/output-repo/.trash/dept/doc.md`.
+  A README.txt is auto-created in `.trash/` on first use.
+
+- **Lifecycle status column default**: New `lifecycle_status` column defaults to
+  `'active'` so existing rows are automatically active. No data migration needed.
+
+- **Version numbers are per-file monotonic**: `get_next_version_number()` returns
+  `MAX(version_number) + 1` for that `bulk_file_id`. Version numbers never reset.
+
+- **Scan run isolation**: Each lifecycle scan gets a UUID `scan_run_id` recorded
+  in `scan_runs`. Errors are caught per-file and appended to `error_log` (JSON
+  array). The scan continues after single-file errors.
+
+- **VACUUM defers if scan running**: `run_db_compaction()` checks `scan_runs`
+  for any `status='running'` row. If found, it reschedules itself +30 minutes.
+
+- **Scheduler business hours check is sync**: `_is_business_hours()` is
+  intentionally synchronous — it uses default hours (06:00-18:00 Mon-Fri)
+  without async DB lookups to avoid blocking the scheduler thread.
+
+- **`python-jose` not `PyJWT`**: Auth uses `python-jose[cryptography]` for JWT
+  validation. Do not install both — they conflict. `python-jose` provides better
+  HS256 + claims validation ergonomics.
+
+- **`DEV_BYPASS_AUTH=true` is the default**: docker-compose.yml defaults to
+  `DEV_BYPASS_AUTH=true` so existing local dev setups work without credentials.
+  Production must explicitly set it to `false`. When true, `get_current_user()`
+  returns an admin user immediately — no JWT or API key required.
+
+- **`/api/health` stays unauthenticated**: Health endpoint has no auth dependency.
+  Docker healthchecks, load balancers, and monitoring probe it without credentials.
+
+- **MCP server auth is separate**: The MCP server on port 8001 does NOT use JWT
+  auth. It's a separate process used by Claude.ai. MCP auth via `MCP_AUTH_TOKEN`
+  env var is an independent concern. Do not add `require_role()` to MCP tools.
+
+- **CORS + SSE limitation**: `EventSource` does not send custom headers, so SSE
+  endpoints cannot use Bearer token auth via headers. SSE endpoints currently
+  require `search_user` role minimum. In dev bypass mode, this works without
+  credentials. In production, SSE auth via query-param token is a follow-up.
+
+- **API key salt never rotates**: `API_KEY_SALT` is set once on initial setup.
+  Rotating it invalidates ALL existing API key hashes stored in the `api_keys`
+  table. There is no migration path — all keys would need to be regenerated.
+  Use `hashlib.blake2b(raw_key + salt, digest_size=32).hexdigest()`.
+
+- **API key raw value shown once**: `POST /api/admin/api-keys` returns the raw
+  key exactly once. It is never stored — only the BLAKE2b hash is persisted.
+  If the raw key is lost, generate a new one and revoke the old one.
+
+- **Preferences role split**: `PUT /api/preferences/{key}` requires `OPERATOR`
+  base role. System-level keys (worker_count, scanner_*, lifecycle_*, etc.) in
+  `_SYSTEM_PREF_KEYS` additionally require `MANAGER`. The check happens AFTER
+  the base `OPERATOR` gate, inline in the endpoint function body.
+
+- **Root redirect changed**: `/` now returns `RedirectResponse(url="/search.html")`
+  instead of serving `index.html`. This makes search the default landing page
+  for all users (including `search_user` who cannot access Convert).
+
+- **Nav is dynamic**: All HTML pages use `<div id="main-nav" class="nav-links"></div>`
+  instead of hardcoded links. `app.js::buildNav()` fetches `/api/auth/me` on page load
+  and renders only the nav items the user's role permits. If `/api/auth/me` fails,
+  nav falls back to `search_user` level (only Search visible).
 
 ---
 

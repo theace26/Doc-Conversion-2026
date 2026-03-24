@@ -9,7 +9,9 @@ import tempfile
 from pathlib import Path
 
 import structlog
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+
+from core.auth import AuthenticatedUser, UserRole, require_role
 
 from api.models import ConvertResponse, PreviewResponse
 from core.converter import (
@@ -38,6 +40,7 @@ async def convert_files(
     output_dir: str = Form(default=""),
     target_format: str = Form(default="docx"),
     unattended: bool = Form(default=False),
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
 ):
     """
     Upload one or more files and start conversion.
@@ -158,6 +161,7 @@ async def _run_batch_and_cleanup(
 async def preview_file(
     file: UploadFile = File(...),
     direction: str = Form(default="to_md"),
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
 ):
     """
     Analyze a file without converting it.

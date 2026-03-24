@@ -771,3 +771,38 @@ small, .text-sm { font-size: 0.85rem; }
   text-align: center;
   color: var(--text-muted);
 }
+
+/* ── Phase 9: Lifecycle badges ──────────────────────────────────────────── */
+.lifecycle-badge {
+  display: inline-block;
+  padding: 0.1em 0.4em;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.lifecycle-ok     { background: rgba(22,163,74,0.12); color: var(--ok); }
+.lifecycle-warn   { background: rgba(217,119,6,0.12); color: var(--warn); }
+.lifecycle-error  { background: rgba(220,38,38,0.12); color: var(--error); }
+.lifecycle-muted  { background: rgba(107,112,132,0.12); color: var(--text-muted); }
+
+/* Version timeline */
+.version-timeline { border-left: 2px solid var(--border); margin-left: 0.5rem; padding-left: 1rem; }
+.version-entry { margin-bottom: 0.75rem; }
+.version-header { display: flex; gap: 0.75rem; align-items: baseline; flex-wrap: wrap; }
+.version-num { font-weight: 700; font-size: 0.85rem; color: var(--accent); }
+.version-type { font-size: 0.82rem; color: var(--text-muted); }
+.version-date { font-size: 0.78rem; }
+.version-bullets { margin: 0.25rem 0 0 0; padding-left: 1.25rem; font-size: 0.85rem; line-height: 1.5; }
+.version-bullets li { margin-bottom: 0.15rem; }
+
+/* Diff modal */
+.modal-dialog::backdrop { background: rgba(0,0,0,0.5); }
+.modal-dialog { border: none; border-radius: var(--radius); box-shadow: var(--shadow-lg); padding: 0; background: var(--surface); }
+.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem; border-bottom: 1px solid var(--border); }
+.modal-content { min-width: 300px; }
+.diff-patch { background: var(--surface-alt); padding: 0.75rem; border-radius: var(--radius-sm); overflow-x: auto; font-size: 0.8rem; line-height: 1.4; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+
+/* Deletion warning banner */
+.deletion-banner { background: rgba(217,119,6,0.08); border: 1px solid rgba(217,119,6,0.25); border-radius: var(--radius); padding: 0.6rem 1rem; display: flex; align-items: center; gap: 1rem; font-size: 0.85rem; margin-bottom: 1rem; }
+.deletion-banner a { color: var(--accent); font-weight: 500; }

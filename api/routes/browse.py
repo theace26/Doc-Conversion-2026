@@ -13,7 +13,9 @@ import stat as stat_module
 from pathlib import Path, PurePosixPath
 
 import structlog
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from core.auth import AuthenticatedUser, UserRole, require_role
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/browse", tags=["browse"])
@@ -188,6 +190,7 @@ def _list_directory(path: Path, show_files: bool) -> list[dict]:
 async def browse_directory(
     path: str = Query(default="/host", description="Container-side path to list"),
     show_files: bool = Query(default=False, description="Include files in listing"),
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
 ):
     """Browse directories under allowed roots (/host/*, /mnt/output-repo)."""
     resolved = _validate_browse_path(path)

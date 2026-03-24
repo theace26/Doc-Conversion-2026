@@ -32,6 +32,9 @@ mistune
 # Alternative conversion engine
 markitdown[all]
 
+# Auth
+python-jose[cryptography]>=3.3.0
+
 # Utilities
 pyyaml
 aiofiles
@@ -49,6 +52,9 @@ python-magic>=0.4.27
 # Adobe indexing
 psd-tools
 pyexiftool
+
+# Scheduler
+apscheduler>=3.10.0
 
 # MCP server
 mcp

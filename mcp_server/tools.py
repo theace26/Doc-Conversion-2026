@@ -369,3 +369,123 @@ def _fmt_bytes(b: int) -> str:
     if b < 1024 * 1024 * 1024:
         return f"{b / (1024 * 1024):.1f} MB"
     return f"{b / (1024 * 1024 * 1024):.1f} GB"
+
+
+async def list_deleted_files(
+    status: str = "marked_for_deletion",
+    limit: int = 20,
+) -> str:
+    """List files in a given lifecycle state (marked_for_deletion, in_trash, or purged).
+
+    - marked_for_deletion: files no longer found in the source share, waiting for
+      the grace period to expire before moving to trash (default 36 hours)
+    - in_trash: files moved to the .trash/ directory, awaiting permanent deletion
+      after the retention period (default 60 days)
+    - purged: permanently deleted files (DB record retained for audit)
+
+    Use this to check what files are scheduled for deletion, what's in the trash,
+    or to review the purge history before it's too late to restore.
+    """
+    try:
+        from core.database import get_bulk_files_by_lifecycle_status
+
+        if status not in ("marked_for_deletion", "in_trash", "purged"):
+            return f"Invalid status '{status}'. Use: marked_for_deletion, in_trash, or purged."
+
+        files = await get_bulk_files_by_lifecycle_status(status)
+        if not files:
+            status_labels = {
+                "marked_for_deletion": "marked for deletion",
+                "in_trash": "in trash",
+                "purged": "purged",
+            }
+            return f"No files are currently {status_labels.get(status, status)}."
+
+        files = files[:limit]
+        lines = [f"**{len(files)} files with status '{status}':**\n"]
+
+        for f in files:
+            path = f.get("source_path", "unknown")
+            name = Path(path).name
+            size = _fmt_bytes(f.get("file_size_bytes", 0))
+
+            timestamps = []
+            if status == "marked_for_deletion" and f.get("marked_for_deletion_at"):
+                timestamps.append(f"marked: {f['marked_for_deletion_at']}")
+            elif status == "in_trash" and f.get("moved_to_trash_at"):
+                timestamps.append(f"trashed: {f['moved_to_trash_at']}")
+            elif status == "purged" and f.get("purged_at"):
+                timestamps.append(f"purged: {f['purged_at']}")
+
+            ts_str = f" ({', '.join(timestamps)})" if timestamps else ""
+            lines.append(f"  {name} — {size}{ts_str}")
+            lines.append(f"    Path: {path}")
+            lines.append("")
+
+        return "\n".join(lines)
+    except Exception as exc:
+        log.warning("mcp_list_deleted_error", error=str(exc))
+        return f"Error listing deleted files: {exc}"
+
+
+async def get_file_history(source_path: str) -> str:
+    """Get the complete version history for a file identified by its source path.
+
+    Returns all recorded changes including: initial indexing, content modifications
+    (with diff summaries), file moves, deletion marks, trash/purge events, and
+    restorations. Each version includes a timestamp, change type, and human-readable
+    summary bullets where available.
+
+    Use this when you need to understand what happened to a specific file over time,
+    when it was last modified, or why it might have been deleted.
+    """
+    try:
+        from core.database import get_bulk_file_by_path, get_version_history
+        import json
+
+        file_rec = await get_bulk_file_by_path(source_path)
+        if not file_rec:
+            return f"File not found: {source_path}"
+
+        file_id = file_rec["id"]
+        versions = await get_version_history(file_id)
+
+        if not versions:
+            return (
+                f"**{Path(source_path).name}**\n"
+                f"Status: {file_rec.get('lifecycle_status', 'active')}\n"
+                f"No version history recorded yet (newly indexed)."
+            )
+
+        lines = [
+            f"**{Path(source_path).name}** — {len(versions)} version(s)\n"
+            f"Current status: {file_rec.get('lifecycle_status', 'active')}\n"
+        ]
+
+        for v in versions:
+            date = v.get("recorded_at", "")
+            change_type = v.get("change_type", "unknown")
+            vnum = v.get("version_number", "?")
+
+            lines.append(f"**v{vnum}** — {change_type} — {date}")
+
+            # Summary bullets
+            summary = v.get("diff_summary")
+            if summary:
+                try:
+                    bullets = json.loads(summary) if isinstance(summary, str) else summary
+                    for bullet in bullets[:10]:
+                        lines.append(f"  - {bullet}")
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            notes = v.get("notes")
+            if notes:
+                lines.append(f"  Note: {notes}")
+
+            lines.append("")
+
+        return "\n".join(lines)
+    except Exception as exc:
+        log.warning("mcp_file_history_error", error=str(exc))
+        return f"Error getting file history: {exc}"

@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MarkFlow — Trash</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+  <style>
+    .trash-stats { display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+    .trash-stat { font-size: 0.9rem; }
+    .trash-stat strong { font-size: 1.1rem; }
+    .bulk-actions { display: flex; gap: 0.75rem; margin-bottom: 1rem; }
+    .days-pill { display: inline-block; padding: 0.1em 0.4em; border-radius: var(--radius-sm); font-size: 0.78rem; font-weight: 600; }
+    .days-pill.urgent { background: rgba(220,38,38,0.12); color: var(--error); }
+    .days-pill.warn { background: rgba(217,119,6,0.12); color: var(--warn); }
+    .days-pill.ok { background: rgba(22,163,74,0.12); color: var(--ok); }
+  </style>
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="/" class="nav-logo">MarkFlow</a>
+    <div id="main-nav" class="nav-links"></div>
+  </nav>
+
+  <div class="container page-content">
+    <div id="error-banner" role="alert" hidden></div>
+
+    <h1>Trash</h1>
+    <p class="text-muted text-sm">Files are permanently deleted 60 days after being trashed.</p>
+
+    <div id="trash-stats" class="trash-stats mt-1"></div>
+
+    <div class="bulk-actions" id="bulk-actions" hidden>
+      <button class="btn btn-ghost btn-sm" id="btn-empty-trash">Empty Trash</button>
+    </div>
+
+    <div class="card" style="padding:0;overflow:auto">
+      <table class="data-table" id="trash-table">
+        <thead>
+          <tr>
+            <th>Filename</th>
+            <th>Original Path</th>
+            <th>Trashed</th>
+            <th>Auto-Delete</th>
+            <th>Days Left</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="trash-body">
+          <tr><td colspan="6" style="text-align:center;padding:2rem"><span class="spinner"></span> Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div id="empty-state" class="empty-state" hidden>
+      <h3>Trash is empty</h3>
+      <p>No files are in the trash. <a href="/search.html">Search documents</a></p>
+    </div>
+
+    <!-- Confirm dialog -->
+    <dialog id="confirm-dialog">
+      <div class="modal-content">
+        <h3 id="confirm-title">Confirm</h3>
+        <p id="confirm-message"></p>
+        <div style="display:flex;gap:0.75rem;justify-content:flex-end;margin-top:1rem">
+          <button class="btn btn-ghost" onclick="document.getElementById('confirm-dialog').close()">Cancel</button>
+          <button class="btn btn-danger" id="confirm-ok">Confirm</button>
+        </div>
+      </div>
+    </dialog>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script>
+  let trashFiles = [];
+
+  async function loadTrash() {
+    try {
+      const data = await API.get('/api/trash');
+      trashFiles = data.files || [];
+      renderTrash(data);
+    } catch (err) {
+      showError(err.message);
+    }
+  }
+
+  function renderTrash(data) {
+    const files = data.files || [];
+    const tbody = document.getElementById('trash-body');
+    const table = document.getElementById('trash-table');
+    const empty = document.getElementById('empty-state');
+    const actions = document.getElementById('bulk-actions');
+    const stats = document.getElementById('trash-stats');
+
+    if (files.length === 0) {
+      table.closest('.card').hidden = true;
+      empty.hidden = false;
+      actions.hidden = true;
+      stats.innerHTML = '';
+      return;
+    }
+
+    table.closest('.card').hidden = false;
+    empty.hidden = true;
+    actions.hidden = false;
+
+    // Stats
+    const totalSize = files.reduce((s, f) => s + (f.size_at_version || 0), 0);
+    const earliest = files.reduce((min, f) => {
+      const d = f.purge_at;
+      return d && (!min || d < min) ? d : min;
+    }, null);
+    stats.innerHTML =
+      `<span class="trash-stat"><strong>${data.total}</strong> files in trash</span>` +
+      `<span class="trash-stat"><strong>${formatBytes(totalSize)}</strong> total</span>` +
+      (earliest ? `<span class="trash-stat">Earliest auto-delete: <strong>${new Date(earliest).toLocaleDateString()}</strong></span>` : '');
+
+    tbody.innerHTML = files.map(f => {
+      const name = f.source_path.split('/').pop();
+      const daysCls = f.days_remaining <= 7 ? 'urgent' : f.days_remaining <= 14 ? 'warn' : 'ok';
+      return `<tr>
+        <td>${esc(name)}</td>
+        <td class="text-sm text-muted">${esc(f.source_path)}</td>
+        <td class="text-sm">${f.moved_to_trash_at ? new Date(f.moved_to_trash_at).toLocaleDateString() : ''}</td>
+        <td class="text-sm">${f.purge_at ? new Date(f.purge_at).toLocaleDateString() : ''}</td>
+        <td><span class="days-pill ${daysCls}">${f.days_remaining}d</span></td>
+        <td>
+          <button class="btn btn-ghost btn-sm" onclick="restoreFile('${f.id}')">Restore</button>
+          <button class="btn btn-ghost btn-sm" onclick="deleteFile('${f.id}')">Delete</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  function esc(text) {
+    const d = document.createElement('div');
+    d.textContent = text || '';
+    return d.innerHTML;
+  }
+
+  async function restoreFile(id) {
+    try {
+      await API.post(`/api/trash/${id}/restore`);
+      showToast('File restored');
+      loadTrash();
+    } catch (err) {
+      showError(err.message);
+    }
+  }
+
+  async function deleteFile(id) {
+    showConfirm('Delete permanently?', 'This file will be permanently deleted and cannot be recovered.', async () => {
+      try {
+        await API.del(`/api/trash/${id}`);
+        showToast('File purged');
+        loadTrash();
+      } catch (err) {
+        showError(err.message);
+      }
+    });
+  }
+
+  document.getElementById('btn-empty-trash').addEventListener('click', () => {
+    showConfirm('Empty Trash?', `This will permanently delete all ${trashFiles.length} files in trash.`, async () => {
+      try {
+        const result = await API.post('/api/trash/empty');
+        showToast(`Purged ${result.purged_count} files`);
+        loadTrash();
+      } catch (err) {
+        showError(err.message);
+      }
+    });
+  });
+
+  function showConfirm(title, message, onOk) {
+    document.getElementById('confirm-title').textContent = title;
+    document.getElementById('confirm-message').textContent = message;
+    const dialog = document.getElementById('confirm-dialog');
+    const btn = document.getElementById('confirm-ok');
+    const handler = async () => {
+      btn.removeEventListener('click', handler);
+      dialog.close();
+      await onOk();
+    };
+    btn.addEventListener('click', handler);
+    dialog.showModal();
+  }
+
+  loadTrash();
+  </script>
+</body>
+</html>

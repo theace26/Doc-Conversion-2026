@@ -14,8 +14,10 @@ import zipfile
 from pathlib import Path
 
 import structlog
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+
+from core.auth import AuthenticatedUser, UserRole, require_role
 
 from api.models import BatchStatus, FileStatus
 from core.converter import OUTPUT_BASE, get_progress_queue, _progress_queues
@@ -39,7 +41,10 @@ def _validate_batch_id(batch_id: str) -> None:
 # ── GET /api/batch/{batch_id}/status ─────────────────────────────────────────
 
 @router.get("/{batch_id}/status", response_model=BatchStatus)
-async def batch_status(batch_id: str):
+async def batch_status(
+    batch_id: str,
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+):
     """Return current batch status and per-file details."""
     _validate_batch_id(batch_id)
     log.info("batch_status_request", batch_id=batch_id)
@@ -91,7 +96,11 @@ async def batch_status(batch_id: str):
 # ── GET /api/batch/{batch_id}/stream (SSE) ────────────────────────────────────
 
 @router.get("/{batch_id}/stream")
-async def batch_stream(batch_id: str, request: Request):
+async def batch_stream(
+    batch_id: str,
+    request: Request,
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+):
     """
     Server-Sent Events stream for live batch progress.
 
@@ -207,7 +216,10 @@ def _format_sse(event: str, data: dict, event_id: int = 0) -> str:
 # ── GET /api/batch/{batch_id}/download ────────────────────────────────────────
 
 @router.get("/{batch_id}/download")
-async def download_batch(batch_id: str):
+async def download_batch(
+    batch_id: str,
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+):
     """Download all converted files as a zip archive."""
     _validate_batch_id(batch_id)
 
@@ -232,7 +244,11 @@ async def download_batch(batch_id: str):
 # ── GET /api/batch/{batch_id}/download/{filename} ─────────────────────────────
 
 @router.get("/{batch_id}/download/{filename}")
-async def download_file(batch_id: str, filename: str):
+async def download_file(
+    batch_id: str,
+    filename: str,
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+):
     """Download a single converted file from a batch."""
     _validate_batch_id(batch_id)
 
@@ -252,7 +268,10 @@ async def download_file(batch_id: str, filename: str):
 # ── GET /api/batch/{batch_id}/manifest ────────────────────────────────────────
 
 @router.get("/{batch_id}/manifest")
-async def batch_manifest(batch_id: str):
+async def batch_manifest(
+    batch_id: str,
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+):
     """Return the batch manifest JSON."""
     _validate_batch_id(batch_id)
 

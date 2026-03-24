@@ -40,6 +40,10 @@ services:
       - MOUNTED_DRIVES=${MOUNTED_DRIVES:-c,d}
       - SECRET_KEY=${SECRET_KEY:-}
       - MCP_PORT=${MCP_PORT:-8001}
+      - UNIONCORE_JWT_SECRET=${UNIONCORE_JWT_SECRET:-}
+      - UNIONCORE_ORIGIN=${UNIONCORE_ORIGIN:-}
+      - DEV_BYPASS_AUTH=${DEV_BYPASS_AUTH:-true}
+      - API_KEY_SALT=${API_KEY_SALT:-}
     depends_on:
       meilisearch:
         condition: service_healthy

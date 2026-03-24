@@ -204,6 +204,53 @@ async def list_unrecognized(
     return await _list(category, job_id, page, per_page)
 
 
+@mcp.tool()
+async def list_deleted_files(
+    status: str = "marked_for_deletion",
+    limit: int = 20,
+) -> str:
+    """
+    List files that have been deleted, trashed, or purged from the repository.
+
+    Shows files in lifecycle states beyond 'active'. Use this to check what
+    files are scheduled for deletion before they are permanently removed, to
+    review the trash contents, or to see the purge history.
+
+    Three statuses available:
+    - marked_for_deletion: source file disappeared, waiting for grace period (36h default)
+    - in_trash: moved to .trash/, will be purged after retention period (60 days default)
+    - purged: permanently deleted (DB record retained for audit trail)
+
+    Args:
+        status: Lifecycle status to filter by (default: marked_for_deletion)
+        limit: Number of results to return (1-50, default 20)
+    """
+    from mcp_server.tools import list_deleted_files as _list
+    return await _list(status, limit)
+
+
+@mcp.tool()
+async def get_file_history(
+    source_path: str,
+) -> str:
+    """
+    Get the complete version history for a file identified by its source path.
+
+    Returns a timeline of all changes: initial indexing, content modifications
+    (with diff summaries showing what changed), file moves, deletion marks,
+    trash events, purge events, and restorations.
+
+    Use this when you need to understand what happened to a specific file,
+    when it was last modified, why it might have been deleted, or to compare
+    versions over time.
+
+    Args:
+        source_path: Full source path of the file (e.g. '/mnt/source/dept/file.docx')
+    """
+    from mcp_server.tools import get_file_history as _history
+    return await _history(source_path)
+
+
 def main():
     """Run the MCP server."""
     port = int(os.getenv("MCP_PORT", "8001"))
@@ -213,7 +260,7 @@ def main():
     from core.database import init_db
     asyncio.run(init_db())
 
-    log.info("mcp_server_start", port=port, tools=8)
+    log.info("mcp_server_start", port=port, tools=10)
     mcp.run(transport="sse")
 
 
