@@ -1,18 +1,147 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MarkFlow — Results</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-<link rel="stylesheet" href="/static/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MarkFlow — Results</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<main class="container">
-<h1>MarkFlow — Results</h1>
-<p>This page is implemented in a later phase.</p>
-<a href="/">← Back to Home</a>
-</main>
-<script src="/static/app.js"></script>
+  <header class="container">
+    <nav>
+      <ul><li><strong>MarkFlow</strong> <small>Document Conversion</small></li></ul>
+      <ul>
+        <li><a href="/history.html">History</a></li>
+        <li><a href="/settings.html">Settings</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main class="container">
+    <div id="error-banner" role="alert" class="pico-background-red-100"
+         style="padding:1rem;border-radius:4px;margin-bottom:1rem;" hidden></div>
+
+    <hgroup>
+      <h1>Conversion Results</h1>
+      <p id="batch-subtitle">Loading…</p>
+    </hgroup>
+
+    <!-- Summary card -->
+    <article id="summary-card">
+      <header>Summary</header>
+      <div id="summary-content" aria-busy="true"></div>
+    </article>
+
+    <!-- Downloads card -->
+    <article id="files-card" hidden>
+      <header>
+        Converted Files
+        <a id="download-all-btn" href="#" role="button" class="outline secondary"
+           style="float:right;font-size:.85rem;padding:.3rem .8rem">
+          Download All (.zip)
+        </a>
+      </header>
+      <table>
+        <thead>
+          <tr>
+            <th>Source File</th>
+            <th>Output</th>
+            <th>Status</th>
+            <th>Duration</th>
+            <th>Download</th>
+          </tr>
+        </thead>
+        <tbody id="file-rows"></tbody>
+      </table>
+    </article>
+
+    <!-- Warnings card -->
+    <article id="warnings-card" hidden>
+      <header>Warnings</header>
+      <ul id="warnings-list"></ul>
+    </article>
+
+    <!-- Manifest link -->
+    <p>
+      <a id="manifest-link" href="#" target="_blank">View batch manifest (JSON)</a>
+    </p>
+
+    <div class="grid">
+      <a href="/" role="button" class="outline secondary">← Convert More Files</a>
+      <a href="/history.html" role="button" class="outline">View History</a>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+  const params = new URLSearchParams(location.search);
+  const batchId = params.get('batch_id');
+
+  if (!batchId) {
+    showError('No batch_id in URL.');
+  } else {
+    document.getElementById('download-all-btn').href = `/api/batch/${batchId}/download`;
+    document.getElementById('manifest-link').href = `/api/batch/${batchId}/manifest`;
+    loadResults();
+  }
+
+  async function loadResults() {
+    try {
+      const status = await API.get(`/api/batch/${batchId}/status`);
+      renderSummary(status);
+      renderFiles(status.files || []);
+      renderWarnings(status.files || []);
+    } catch (e) {
+      showError(`Failed to load results: ${e.message}`);
+    }
+  }
+
+  function renderSummary(s) {
+    document.getElementById('batch-subtitle').textContent = `Batch ID: ${batchId}`;
+    const total = s.total_files || 0;
+    const ok = s.completed_files || 0;
+    const fail = s.failed_files || 0;
+    const ocr = s.ocr_flags_pending || 0;
+    document.getElementById('summary-content').innerHTML = `
+      <div class="grid">
+        <div><strong>${ok}</strong><br><small>Converted</small></div>
+        <div><strong style="color:${fail>0?'red':'inherit'}">${fail}</strong><br><small>Errors</small></div>
+        <div><strong>${total}</strong><br><small>Total</small></div>
+        <div><strong>${ocr}</strong><br><small>OCR flags</small></div>
+      </div>
+    `;
+    document.getElementById('summary-content').removeAttribute('aria-busy');
+  }
+
+  function renderFiles(files) {
+    if (!files.length) return;
+    document.getElementById('files-card').hidden = false;
+    document.getElementById('file-rows').innerHTML = files.map(f => {
+      const statusBadge = f.status === 'success'
+        ? '<span style="color:green">✓</span>'
+        : `<span style="color:red" title="${f.error||''}">✗</span>`;
+      const dur = f.duration_ms ? formatDuration(f.duration_ms) : '—';
+      const dl = f.output
+        ? `<a href="/api/batch/${batchId}/download/${encodeURIComponent(f.output)}">Download</a>`
+        : '—';
+      return `<tr>
+        <td>${f.source}</td>
+        <td><code>${f.output||'—'}</code></td>
+        <td>${statusBadge} ${f.status}</td>
+        <td>${dur}</td>
+        <td>${dl}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function renderWarnings(files) {
+    const all = files.flatMap(f => (f.warnings||[]).map(w => `${f.source}: ${w}`));
+    if (!all.length) return;
+    document.getElementById('warnings-card').hidden = false;
+    document.getElementById('warnings-list').innerHTML =
+      all.map(w => `<li>${w}</li>`).join('');
+  }
+  </script>
 </body>
 </html>

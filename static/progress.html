@@ -1,18 +1,119 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MarkFlow — Progress</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-<link rel="stylesheet" href="/static/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MarkFlow — Converting…</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<main class="container">
-<h1>MarkFlow — Progress</h1>
-<p>This page is implemented in a later phase.</p>
-<a href="/">← Back to Home</a>
-</main>
-<script src="/static/app.js"></script>
+  <header class="container">
+    <nav>
+      <ul><li><strong>MarkFlow</strong> <small>Document Conversion</small></li></ul>
+      <ul>
+        <li><a href="/history.html">History</a></li>
+        <li><a href="/settings.html">Settings</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main class="container">
+    <hgroup>
+      <h1>Converting…</h1>
+      <p id="subtitle">Processing your documents.</p>
+    </hgroup>
+
+    <article>
+      <header>Batch Status</header>
+      <div id="progress-area">
+        <progress id="progress-bar"></progress>
+        <p id="progress-text" aria-live="polite">Starting…</p>
+      </div>
+
+      <div id="file-table-wrap" hidden>
+        <table>
+          <thead><tr><th>File</th><th>Status</th><th>Duration</th><th>Warnings</th></tr></thead>
+          <tbody id="file-rows"></tbody>
+        </table>
+      </div>
+    </article>
+
+    <div id="done-actions" hidden>
+      <div class="grid">
+        <a href="#" id="btn-download-all" role="button">Download All (.zip)</a>
+        <a href="#" id="btn-view-results" role="button" class="secondary">View Results</a>
+      </div>
+    </div>
+
+    <a href="/">← Convert More Files</a>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+  const params = new URLSearchParams(location.search);
+  const batchId = params.get('batch_id');
+
+  if (!batchId) {
+    document.getElementById('subtitle').textContent = 'No batch ID in URL.';
+  } else {
+    document.getElementById('btn-download-all').href = `/api/batch/${batchId}/download`;
+    document.getElementById('btn-view-results').href = `/results.html?batch_id=${batchId}`;
+    poll();
+  }
+
+  let pollInterval;
+
+  async function poll() {
+    try {
+      const status = await API.get(`/api/batch/${batchId}/status`);
+      render(status);
+
+      const done = ['done', 'partial', 'failed'].includes(status.status);
+      if (done) {
+        clearInterval(pollInterval);
+      }
+    } catch (e) {
+      document.getElementById('progress-text').textContent = `Error: ${e.message}`;
+    }
+  }
+
+  function render(s) {
+    const total = s.total_files || 1;
+    const done = (s.completed_files || 0) + (s.failed_files || 0);
+    const pct = Math.round(done / total * 100);
+
+    const bar = document.getElementById('progress-bar');
+    bar.value = pct;
+    bar.max = 100;
+
+    const isDone = ['done', 'partial', 'failed'].includes(s.status);
+    document.getElementById('progress-text').textContent =
+      isDone
+        ? `Done — ${s.completed_files} converted, ${s.failed_files} failed.`
+        : `Processing… ${done} / ${total} files (${pct}%)`;
+
+    document.getElementById('subtitle').textContent =
+      `Batch: ${batchId} · Status: ${s.status}`;
+
+    if (s.files && s.files.length) {
+      document.getElementById('file-table-wrap').hidden = false;
+      document.getElementById('file-rows').innerHTML = s.files.map(f => {
+        const badge = f.status === 'success'
+          ? '<span style="color:green">✓ success</span>'
+          : `<span style="color:red">✗ ${f.status}</span>`;
+        const warn = (f.warnings || []).join(', ') || '';
+        const dur = f.duration_ms ? formatDuration(f.duration_ms) : '…';
+        return `<tr><td>${f.source}</td><td>${badge}</td><td>${dur}</td><td><small>${warn}</small></td></tr>`;
+      }).join('');
+    }
+
+    if (isDone) {
+      document.getElementById('done-actions').hidden = false;
+    }
+  }
+
+  pollInterval = setInterval(poll, 1500);
+  </script>
 </body>
 </html>

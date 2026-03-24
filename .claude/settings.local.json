@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(py --version)",
+      "Bash(docker-compose build:*)",
+      "Bash(docker-compose up:*)",
+      "Bash(curl -s http://localhost:8000/api/health)",
+      "Bash(docker-compose logs:*)",
+      "Bash(docker-compose down:*)",
+      "Bash(curl -s http://localhost:8000/api/preferences)"
+    ]
+  }
+}
