@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MarkFlow — AI Providers</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+  <style>
+    .provider-card { padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
+    .provider-card:last-child { border-bottom: none; }
+    .provider-card .provider-header { display: flex; justify-content: space-between; align-items: center; }
+    .provider-card .provider-name { font-weight: 600; font-size: 1rem; }
+    .provider-card .provider-meta { font-size: 0.82rem; color: var(--text-muted); }
+    .provider-card .provider-actions { display: flex; gap: 0.4rem; }
+    .active-badge { display: inline-block; padding: 0.1em 0.5em; border-radius: var(--radius-sm); font-size: 0.72rem; font-weight: 700; text-transform: uppercase; background: rgba(22,163,74,0.12); color: var(--ok); margin-left: 0.5rem; }
+    .verified-badge { color: var(--ok); font-size: 0.82rem; }
+    .unverified-badge { color: var(--text-muted); font-size: 0.82rem; }
+    .add-form { display: none; padding: 1.25rem; border-top: 1px solid var(--border); }
+    .add-form.open { display: block; }
+    .add-form .form-group { margin-bottom: 0.75rem; }
+    .add-form label { display: block; font-weight: 500; font-size: 0.88rem; margin-bottom: 0.25rem; }
+    .add-form input, .add-form select { width: 100%; padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 0.9rem; }
+    .verify-result { margin-top: 0.5rem; padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); font-size: 0.85rem; }
+    .verify-result.success { background: rgba(22,163,74,0.08); color: var(--ok); }
+    .verify-result.failure { background: rgba(220,38,38,0.08); color: var(--error); }
+    .key-toggle { cursor: pointer; font-size: 0.8rem; color: var(--accent); margin-left: 0.5rem; }
+  </style>
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="/" class="nav-logo">MarkFlow</a>
+    <div class="nav-links">
+      <a href="/" class="nav-link">Home</a>
+      <a href="/" class="nav-link">Convert</a>
+      <a href="/bulk.html" class="nav-link">Bulk</a>
+      <a href="/search.html" class="nav-link">Search</a>
+      <a href="/history.html" class="nav-link">History</a>
+      <a href="/settings.html" class="nav-link">Settings</a>
+    </div>
+  </nav>
+
+  <div class="container page-content">
+    <div id="error-banner" role="alert" hidden></div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h1>AI Providers</h1>
+      <button class="btn btn-primary btn-sm" id="add-btn" onclick="toggleAddForm()">+ Add Provider</button>
+    </div>
+    <p class="text-muted mb-2">Configure AI providers for OCR correction, summarization, and heading inference.</p>
+
+    <!-- Add/Edit form -->
+    <div class="card mb-2">
+      <div class="add-form" id="add-form">
+        <div class="form-group">
+          <label for="f-provider">Provider</label>
+          <select id="f-provider" onchange="onProviderChange()">
+            <option value="">Select...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="f-name">Display Name</label>
+          <input type="text" id="f-name" placeholder="My Claude">
+        </div>
+        <div class="form-group">
+          <label for="f-model">Model</label>
+          <select id="f-model"><option value="">Select a provider first</option></select>
+          <input type="text" id="f-model-custom" placeholder="Model name" style="display:none;margin-top:0.35rem">
+        </div>
+        <div class="form-group" id="f-key-group">
+          <label for="f-api-key">API Key</label>
+          <input type="password" id="f-api-key" placeholder="sk-...">
+          <span class="key-toggle" onclick="toggleKeyVisibility()">show</span>
+          <p class="hint" id="f-key-docs"></p>
+        </div>
+        <div class="form-group" id="f-url-group" style="display:none">
+          <label for="f-base-url">Base URL</label>
+          <input type="text" id="f-base-url" placeholder="http://localhost:11434">
+        </div>
+        <div class="form-group" id="f-ollama-fetch" style="display:none">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="fetchOllamaModels()">Fetch Available Models</button>
+        </div>
+        <div style="display:flex;gap:0.5rem;align-items:center;margin-top:1rem">
+          <button class="btn btn-ghost btn-sm" onclick="verifyDraft()">Verify Connection</button>
+          <span id="verify-spinner" hidden><span class="spinner spinner-sm"></span></span>
+        </div>
+        <div id="verify-result" class="verify-result" hidden></div>
+        <div style="margin-top:1rem;display:flex;gap:0.5rem">
+          <button class="btn btn-primary btn-sm" onclick="saveProvider()">Save</button>
+          <button class="btn btn-ghost btn-sm" onclick="cancelForm()">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Provider list -->
+    <div class="card" id="provider-list">
+      <p class="text-muted text-sm" style="padding:1rem">Loading...</p>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script>
+  let registry = {};
+  let editingId = null;
+
+  // Load registry and providers
+  (async () => {
+    try {
+      const regData = await API.get('/api/llm-providers/registry');
+      registry = regData.registry || {};
+      populateProviderDropdown();
+    } catch (e) { console.error('Registry load failed:', e); }
+    loadProviders();
+  })();
+
+  function populateProviderDropdown() {
+    const sel = document.getElementById('f-provider');
+    for (const [key, val] of Object.entries(registry)) {
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = val.display_name;
+      sel.appendChild(opt);
+    }
+  }
+
+  function onProviderChange() {
+    const key = document.getElementById('f-provider').value;
+    const info = registry[key];
+    if (!info) return;
+
+    // Model dropdown
+    const modelSel = document.getElementById('f-model');
+    const modelCustom = document.getElementById('f-model-custom');
+    modelSel.innerHTML = '';
+
+    if (info.models.length > 0) {
+      info.models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;
+        if (m === info.default_model) opt.selected = true;
+        modelSel.appendChild(opt);
+      });
+      modelSel.style.display = '';
+      modelCustom.style.display = 'none';
+    } else {
+      modelSel.style.display = 'none';
+      modelCustom.style.display = '';
+    }
+
+    // Key visibility
+    const keyGroup = document.getElementById('f-key-group');
+    keyGroup.style.display = info.requires_api_key ? '' : 'none';
+
+    // Docs URL
+    const docsEl = document.getElementById('f-key-docs');
+    if (info.docs_url) {
+      docsEl.innerHTML = `Get your key at <a href="${info.docs_url}" target="_blank" rel="noopener">${new URL(info.docs_url).hostname}</a>`;
+    } else {
+      docsEl.innerHTML = '';
+    }
+
+    // URL field
+    const urlGroup = document.getElementById('f-url-group');
+    urlGroup.style.display = (key === 'ollama' || key === 'custom') ? '' : 'none';
+    if (info.api_base_url) {
+      document.getElementById('f-base-url').value = info.api_base_url;
+    }
+
+    // Ollama model fetch
+    document.getElementById('f-ollama-fetch').style.display = key === 'ollama' ? '' : 'none';
+
+    // Auto-name
+    if (!document.getElementById('f-name').value || editingId === null) {
+      document.getElementById('f-name').value = `My ${info.display_name.split(' ')[0]}`;
+    }
+  }
+
+  function toggleKeyVisibility() {
+    const input = document.getElementById('f-api-key');
+    const toggle = input.nextElementSibling;
+    if (input.type === 'password') {
+      input.type = 'text';
+      toggle.textContent = 'hide';
+    } else {
+      input.type = 'password';
+      toggle.textContent = 'show';
+    }
+  }
+
+  async function fetchOllamaModels() {
+    const baseUrl = document.getElementById('f-base-url').value || 'http://localhost:11434';
+    try {
+      const data = await API.get(`/api/llm-providers/ollama-models?base_url=${encodeURIComponent(baseUrl)}`);
+      if (data.error) {
+        showToast(data.error, 'error');
+        return;
+      }
+      const modelSel = document.getElementById('f-model');
+      modelSel.innerHTML = '';
+      modelSel.style.display = '';
+      document.getElementById('f-model-custom').style.display = 'none';
+      data.models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;
+        modelSel.appendChild(opt);
+      });
+      showToast(`Found ${data.models.length} models`, 'success');
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  async function verifyDraft() {
+    const spinner = document.getElementById('verify-spinner');
+    const resultEl = document.getElementById('verify-result');
+    spinner.hidden = false;
+    resultEl.hidden = true;
+
+    const provider = document.getElementById('f-provider').value;
+    const modelSel = document.getElementById('f-model');
+    const modelCustom = document.getElementById('f-model-custom');
+    const model = modelSel.style.display !== 'none' ? modelSel.value : modelCustom.value;
+
+    try {
+      const data = await API.post('/api/llm-providers/verify-draft', {
+        provider,
+        model,
+        api_key: document.getElementById('f-api-key').value || null,
+        api_base_url: document.getElementById('f-base-url').value || null,
+      });
+      spinner.hidden = true;
+      resultEl.hidden = false;
+      if (data.success) {
+        resultEl.className = 'verify-result success';
+        resultEl.textContent = `Connected — ${data.message}`;
+      } else {
+        resultEl.className = 'verify-result failure';
+        resultEl.textContent = `Failed — ${data.message}`;
+      }
+    } catch (e) {
+      spinner.hidden = true;
+      resultEl.hidden = false;
+      resultEl.className = 'verify-result failure';
+      resultEl.textContent = e.message;
+    }
+  }
+
+  async function saveProvider() {
+    const provider = document.getElementById('f-provider').value;
+    const name = document.getElementById('f-name').value.trim();
+    const modelSel = document.getElementById('f-model');
+    const modelCustom = document.getElementById('f-model-custom');
+    const model = modelSel.style.display !== 'none' ? modelSel.value : modelCustom.value;
+    const apiKey = document.getElementById('f-api-key').value || null;
+    const baseUrl = document.getElementById('f-base-url').value || null;
+
+    if (!provider || !name || !model) {
+      showToast('Fill in all required fields.', 'error');
+      return;
+    }
+
+    try {
+      if (editingId) {
+        await API.put(`/api/llm-providers/${editingId}`, { name, model, api_key: apiKey, api_base_url: baseUrl });
+        showToast('Provider updated.', 'success');
+      } else {
+        await API.post('/api/llm-providers', { name, provider, model, api_key: apiKey, api_base_url: baseUrl });
+        showToast('Provider created.', 'success');
+      }
+      cancelForm();
+      loadProviders();
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  function toggleAddForm() {
+    editingId = null;
+    const form = document.getElementById('add-form');
+    form.classList.toggle('open');
+    clearForm();
+  }
+
+  function cancelForm() {
+    document.getElementById('add-form').classList.remove('open');
+    editingId = null;
+    clearForm();
+  }
+
+  function clearForm() {
+    document.getElementById('f-provider').value = '';
+    document.getElementById('f-name').value = '';
+    document.getElementById('f-model').innerHTML = '<option value="">Select a provider first</option>';
+    document.getElementById('f-model-custom').value = '';
+    document.getElementById('f-api-key').value = '';
+    document.getElementById('f-base-url').value = '';
+    document.getElementById('verify-result').hidden = true;
+  }
+
+  async function loadProviders() {
+    try {
+      const data = await API.get('/api/llm-providers');
+      const list = document.getElementById('provider-list');
+      const providers = data.providers || [];
+
+      if (!providers.length) {
+        list.innerHTML = '<p class="text-muted text-sm" style="padding:1.25rem">No AI providers configured yet. Click "+ Add Provider" to get started.</p>';
+        return;
+      }
+
+      list.innerHTML = providers.map(p => {
+        const isActive = p.is_active;
+        const activeBadge = isActive ? '<span class="active-badge">Active</span>' : '';
+        const verifiedIcon = p.is_verified
+          ? `<span class="verified-badge">&#10003; Verified</span>`
+          : `<span class="unverified-badge">&mdash; Not verified</span>`;
+        const verifiedAgo = p.last_verified ? ` &middot; ${formatTimeAgo(p.last_verified)}` : '';
+
+        const activateBtn = isActive
+          ? ''
+          : `<button class="btn btn-ghost btn-sm" onclick="activateProvider('${p.id}')">Activate</button>`;
+        const deleteConfirm = isActive ? `deleteProvider('${p.id}', true)` : `deleteProvider('${p.id}', false)`;
+
+        return `<div class="provider-card">
+          <div class="provider-header">
+            <div>
+              <span class="provider-name">${p.name}</span>${activeBadge}
+              <div class="provider-meta">${p.provider} &middot; ${p.model} &middot; ${verifiedIcon}${verifiedAgo}</div>
+            </div>
+            <div class="provider-actions">
+              <button class="btn btn-ghost btn-sm" onclick="verifyProvider('${p.id}')">Verify</button>
+              ${activateBtn}
+              <button class="btn btn-ghost btn-sm" onclick="${deleteConfirm}" style="color:var(--error)">Delete</button>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+    } catch (e) {
+      document.getElementById('provider-list').innerHTML =
+        '<p class="text-sm" style="padding:1rem;color:var(--error)">Failed to load providers.</p>';
+    }
+  }
+
+  async function verifyProvider(id) {
+    try {
+      const data = await API.post(`/api/llm-providers/${id}/verify`);
+      if (data.success) {
+        showToast(`Connected: ${data.message}`, 'success');
+      } else {
+        showToast(`Verification failed: ${data.message}`, 'error');
+      }
+      loadProviders();
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  async function activateProvider(id) {
+    try {
+      await API.post(`/api/llm-providers/${id}/activate`);
+      showToast('Provider activated.', 'success');
+      loadProviders();
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  async function deleteProvider(id, isActive) {
+    const msg = isActive
+      ? 'This is the active provider. Deleting it will disable AI enhancement. Delete anyway?'
+      : 'Delete this provider?';
+    if (!confirm(msg)) return;
+    try {
+      await API.delete(`/api/llm-providers/${id}?force=true`);
+      showToast('Provider deleted.', 'success');
+      loadProviders();
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  function formatTimeAgo(isoStr) {
+    const d = new Date(isoStr);
+    const now = new Date();
+    const diff = Math.floor((now - d) / 1000);
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return Math.floor(diff / 60) + ' min ago';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+    return Math.floor(diff / 86400) + 'd ago';
+  }
+  </script>
+</body>
+</html>
