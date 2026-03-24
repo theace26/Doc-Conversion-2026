@@ -63,6 +63,7 @@ class ConvertResult:
     file_size_bytes: int = 0
     ocr_applied: bool = False
     ocr_flags_total: int = 0
+    fidelity_tier: int = 1
     warnings: list[str] = field(default_factory=list)
     duration_ms: int = 0
 
@@ -251,14 +252,52 @@ def _convert_file_sync(
             if target_handler is None:
                 raise ValueError(f"No handler for target format: {target_fmt}")
 
-            # Look for sidecar next to source
+            # ── Look for sidecar next to source (Tier 2) ──────────────────
             sidecar: dict | None = None
             possible_sidecar = file_path.parent / (file_path.stem + ".styles.json")
             if possible_sidecar.exists():
                 from core.metadata import load_sidecar
                 sidecar = load_sidecar(possible_sidecar)
 
-            target_handler.export(model, output_path, sidecar=sidecar)
+            # ── Look for original next to source (Tier 3) ─────────────────
+            # User can upload the original .docx alongside the .md file.
+            original_path: Path | None = None
+            if sidecar:
+                orig_filename = sidecar.get("source_file", "")
+                if orig_filename:
+                    candidate = file_path.parent / orig_filename
+                    if not candidate.exists():
+                        # Try same stem as .md with .docx extension
+                        candidate = file_path.parent / (file_path.stem + ".docx")
+                else:
+                    candidate = file_path.parent / (file_path.stem + ".docx")
+                if candidate.exists() and candidate.suffix.lower() in (".docx", ".doc"):
+                    original_path = candidate
+
+            # ── Determine fidelity tier ────────────────────────────────────
+            if original_path:
+                fidelity_tier = 3
+            elif sidecar:
+                fidelity_tier = 2
+            else:
+                fidelity_tier = 1
+
+            model.metadata.fidelity_tier = fidelity_tier
+            log.info(
+                "converter.fidelity_tier",
+                stage="export",
+                file_name=source_filename,
+                tier=fidelity_tier,
+                has_sidecar=sidecar is not None,
+                has_original=original_path is not None,
+            )
+
+            target_handler.export(
+                model,
+                output_path,
+                sidecar=sidecar,
+                original_path=original_path,
+            )
         else:
             raise ValueError(f"Unknown direction: {direction}")
 
@@ -284,6 +323,7 @@ def _convert_file_sync(
             output_path=str(output_path),
             source_path=str(file_path),
             file_size_bytes=file_path.stat().st_size,
+            fidelity_tier=model.metadata.fidelity_tier,
             warnings=warnings,
             duration_ms=duration_ms,
         )
@@ -408,6 +448,7 @@ class ConversionOrchestrator:
                 "format": r.source_format,
                 "ocr_applied": r.ocr_applied,
                 "ocr_flags": r.ocr_flags_total,
+                "fidelity_tier": r.fidelity_tier,
                 "status": r.status,
                 "error": r.error_message,
                 "warnings": r.warnings,

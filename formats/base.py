@@ -65,6 +65,7 @@ class FormatHandler(ABC):
         model: DocumentModel,
         output_path: Path,
         sidecar: dict[str, Any] | None = None,
+        original_path: Path | None = None,
     ) -> None:
         """Write a DocumentModel to output_path."""
         ...

@@ -143,6 +143,32 @@ def _extract_text(node: dict) -> str:
     return "".join(_extract_text(c) for c in children)
 
 
+def _extract_formatted_text(node: dict) -> str:
+    """
+    Extract text from a mistune AST node, preserving inline markdown markers.
+
+    bold → **text**, italic → *text*, code span → `text`
+    Used for PARAGRAPH elements so inline formatting survives the round-trip
+    DOCX → Markdown → DOCX.
+    """
+    ntype = node.get("type", "")
+    if ntype == "text":
+        return node.get("raw", "")
+    if ntype in ("softline_break", "linebreak"):
+        return " "
+    if ntype == "codespan":
+        return f"`{node.get('raw', '')}`"
+    if ntype == "strong":
+        inner = "".join(_extract_formatted_text(c) for c in (node.get("children") or []))
+        return f"**{inner}**"
+    if ntype == "emphasis":
+        inner = "".join(_extract_formatted_text(c) for c in (node.get("children") or []))
+        return f"*{inner}*"
+    # All other node types: recurse
+    children = node.get("children") or []
+    return "".join(_extract_formatted_text(c) for c in children)
+
+
 def _ast_to_elements(nodes: list[dict]) -> list[Element]:
     """Convert a mistune v3 AST node list to Element objects."""
     elements: list[Element] = []
@@ -176,7 +202,8 @@ def _ast_to_elements(nodes: list[dict]) -> list[Element]:
                     },
                 ))
             else:
-                text = _extract_text(node)
+                # Use formatted extraction to preserve **bold**, *italic*, `code`
+                text = _extract_formatted_text(node)
                 if text.strip():
                     elements.append(Element(
                         type=ElementType.PARAGRAPH,
@@ -285,6 +312,7 @@ class MarkdownHandler(FormatHandler):
         model: DocumentModel,
         output_path: Path | None = None,
         sidecar: dict[str, Any] | None = None,
+        original_path: Path | None = None,  # ignored; accepted for interface compat
     ) -> str:  # type: ignore[override]
         """
         Convert a DocumentModel to a Markdown string.
@@ -361,8 +389,11 @@ class MarkdownHandler(FormatHandler):
 
         # Parse Markdown body with mistune AST renderer
         try:
-            # mistune v3 API
-            md_parser = mistune.create_markdown(renderer=None)
+            # mistune v3: tables and strikethrough require explicit plugins
+            md_parser = mistune.create_markdown(
+                renderer=None,
+                plugins=["table", "strikethrough", "footnotes"],
+            )
             ast = md_parser(body) or []
         except Exception:
             # Minimal fallback: treat entire body as a single paragraph

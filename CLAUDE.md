@@ -16,7 +16,8 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 **Phase 0 complete** — Docker scaffold running. All system deps verified.
 **Phase 1 complete** — DOCX → Markdown pipeline fully implemented. 60 tests passing. Tagged v0.1.0.
-**Next: Phase 2** — Round-trip Markdown → DOCX with fidelity tiers.
+**Phase 2 complete** — Markdown → DOCX round-trip with fidelity tiers. 96 tests passing. Tagged v0.2.0.
+**Next: Phase 3** — OCR pipeline (multi-signal detection, review UI, unattended mode).
 
 ---
 
@@ -26,7 +27,7 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 |-------|-------------|--------|
 | 0 | Docker scaffold, project structure, DB schema, health check | ✅ Done |
 | 1 | Foundation: DOCX → Markdown (DocumentModel, DocxHandler, metadata, upload UI) | ✅ Done |
-| 2 | Round-trip: Markdown → DOCX with fidelity tiers | ⬜ |
+| 2 | Round-trip: Markdown → DOCX with fidelity tiers | ✅ Done |
 | 3 | OCR pipeline (multi-signal detection, review UI, unattended mode) | ⬜ |
 | 4 | Remaining formats: PDF, PPTX, XLSX/CSV (both directions) | ⬜ |
 | 5 | Testing & debug infrastructure (full test suite, structlog, debug dashboard) | ⬜ |
@@ -120,6 +121,9 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 | `core/database.py` | SQLite connection, schema, preference + history helpers |
 | `core/health.py` | Startup checks for Tesseract, LibreOffice, Poppler, WeasyPrint, disk, DB |
 | `core/logging_config.py` | structlog JSON logging, rotating file handler |
+| `core/converter.py` | Pipeline orchestrator; `from_md` path detects sidecar + original → tier 1/2/3 |
+| `formats/docx_handler.py` | DOCX ingest + export; `_add_inline_runs`, `_plain_text_hash`, `_patch_from_original` |
+| `formats/markdown_handler.py` | MD ingest + export; `_extract_formatted_text` for inline bold/italic/code |
 | `api/middleware.py` | Request ID injection, timing, debug headers |
 | `docker-compose.yml` | Port 8000, volumes: input/output/logs + named volume for DB |
 
@@ -138,6 +142,21 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 
 - **DB path**: `DB_PATH` env var (default `markflow.db` locally, `/app/data/markflow.db` in container).
   The Docker volume `markflow-db` mounts to `/app/data`.
+
+- **mistune v3 table plugin**: `create_markdown(renderer=None)` does NOT parse tables by default.
+  Must pass `plugins=["table", "strikethrough", "footnotes"]` or tables silently become paragraphs.
+  Discovered in Phase 2 round-trip testing.
+
+- **Sidecar hash mismatch**: `extract_styles()` keys sidecar by `para.text` (plain text), but
+  `_process_paragraph` stores element content with markdown markers (`**bold**`). Use `_plain_text_hash()`
+  (strips markers before hashing) when looking up sidecar entries during export.
+
+- **Tier 3 detection**: In `from_md` direction, converter looks for original `.docx` in the same
+  directory as the `.md` file. If user uploads `report.md` + `report.styles.json` + `report.docx`
+  together, all land in the same `tmp_dir` and tier is automatically promoted to 3.
+
+- **`FormatHandler.export()` signature**: `original_path: Path | None = None` was added in Phase 2.
+  All handlers must accept it (they can ignore it). `MarkdownHandler.export()` accepts but ignores it.
 
 ---
 

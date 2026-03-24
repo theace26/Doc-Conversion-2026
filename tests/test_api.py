@@ -166,3 +166,55 @@ async def test_history_pagination(client):
     assert body["limit"] == 5
     assert body["offset"] == 0
     assert len(body["records"]) <= 5
+
+
+# ── from_md direction ─────────────────────────────────────────────────────────
+
+async def test_convert_accepts_md_file(client):
+    """Upload a .md file with direction=from_md → batch_id returned."""
+    md_content = b"# Hello\n\nA simple paragraph.\n"
+    resp = await client.post(
+        "/api/convert",
+        files={"files": ("hello.md", io.BytesIO(md_content), "text/markdown")},
+        data={"direction": "from_md", "target_format": "docx"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "batch_id" in body
+    assert body["total_files"] == 1
+
+
+async def test_convert_md_invalid_direction_rejected(client):
+    """direction must be 'to_md' or 'from_md'."""
+    resp = await client.post(
+        "/api/convert",
+        files={"files": ("doc.md", io.BytesIO(b"# Hi"), "text/markdown")},
+        data={"direction": "sideways"},
+    )
+    assert resp.status_code == 422
+
+
+async def test_preview_md_file(client):
+    """Preview a .md file — format is detected as 'md'."""
+    md_content = b"# Heading\n\nParagraph text.\n\n- item 1\n- item 2\n"
+    resp = await client.post(
+        "/api/convert/preview",
+        files={"file": ("doc.md", io.BytesIO(md_content), "text/markdown")},
+        data={"direction": "from_md"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["format"] == "md"
+    assert "element_counts" in body
+
+
+async def test_convert_md_no_frontmatter_still_succeeds(client):
+    """A .md file without YAML frontmatter converts without errors (Tier 1)."""
+    md_content = b"# Plain heading\n\nNo frontmatter here.\n"
+    resp = await client.post(
+        "/api/convert",
+        files={"files": ("nofm.md", io.BytesIO(md_content), "text/markdown")},
+        data={"direction": "from_md", "target_format": "docx"},
+    )
+    assert resp.status_code == 200
+    assert "batch_id" in resp.json()

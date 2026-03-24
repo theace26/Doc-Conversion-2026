@@ -13,6 +13,7 @@ DocxHandler.export(model, output_path, sidecar=None):
 """
 
 import logging
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -116,6 +117,53 @@ def _emu_to_pt(emu: int | None) -> float | None:
 
 def _pt_to_emu(pt: float) -> int:
     return int(pt * 12700)
+
+
+def _plain_text_hash(text: str) -> str:
+    """
+    Strip inline markdown markers (**bold**, *italic*, `code`) and return a
+    content hash for sidecar lookup.
+
+    Sidecar keys are generated from para.text (plain) during DOCX ingest, but
+    element content may include markdown markers after re-ingest of Markdown.
+    Using plain text ensures the hashes match.
+    """
+    plain = re.sub(r"\*{1,3}(.+?)\*{1,3}", r"\1", str(text), flags=re.DOTALL)
+    plain = re.sub(r"`(.+?)`", r"\1", plain, flags=re.DOTALL)
+    return compute_content_hash(plain)
+
+
+def _add_inline_runs(para, text: str) -> None:
+    """
+    Parse inline markdown markers in *text* and append properly formatted
+    Word runs to *para*.
+
+    Handles:  ***bold+italic***  **bold**  *italic*  `code`  and plain text.
+    """
+    # Split on formatting tokens; keep delimiters via the capture group
+    parts = re.split(
+        r"(\*\*\*.+?\*\*\*|\*\*.+?\*\*|\*.+?\*|`.+?`)",
+        text,
+        flags=re.DOTALL,
+    )
+    for part in parts:
+        if not part:
+            continue
+        if part.startswith("***") and part.endswith("***") and len(part) > 6:
+            run = para.add_run(part[3:-3])
+            run.bold = True
+            run.italic = True
+        elif part.startswith("**") and part.endswith("**") and len(part) > 4:
+            run = para.add_run(part[2:-2])
+            run.bold = True
+        elif part.startswith("*") and part.endswith("*") and len(part) > 2:
+            run = para.add_run(part[1:-1])
+            run.italic = True
+        elif part.startswith("`") and part.endswith("`") and len(part) > 2:
+            run = para.add_run(part[1:-1])
+            run.font.name = "Courier New"
+        else:
+            para.add_run(part)
 
 
 # ── Image extraction ──────────────────────────────────────────────────────────
@@ -559,20 +607,29 @@ class DocxHandler(FormatHandler):
         model: DocumentModel,
         output_path: Path,
         sidecar: dict[str, Any] | None = None,
+        original_path: Path | None = None,
     ) -> None:
         """
         Write a DocumentModel to a .docx file.
 
         Tier 1 (always): headings, paragraphs, tables, images, lists.
-        Tier 2 (if sidecar): apply font/spacing from sidecar by content hash.
+        Tier 2 (if sidecar): apply font/spacing/alignment from sidecar.
+        Tier 3 (if original_path): use original as template base, then rebuild.
         """
         import docx
-        from docx.shared import Pt, RGBColor
-        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.shared import Pt
 
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # ── Tier 3: try original template ─────────────────────────────────
+        if original_path and Path(original_path).exists():
+            doc = self._patch_from_original(model, Path(original_path), sidecar, output_path)
+            if doc is not None:
+                doc.save(str(output_path))
+                return
+
+        # ── Tier 1/2: build from scratch ──────────────────────────────────
         doc = docx.Document()
 
         # Apply document-level settings from sidecar (Tier 2)
@@ -614,8 +671,9 @@ class DocxHandler(FormatHandler):
             doc.add_heading(str(elem.content), level=level)
 
         elif t == ElementType.PARAGRAPH:
-            p = doc.add_paragraph(str(elem.content))
-            self._apply_sidecar_style(p, elem.content_hash, sidecar)
+            p = doc.add_paragraph()
+            _add_inline_runs(p, str(elem.content))
+            self._apply_sidecar_style(p, str(elem.content), sidecar)
 
         elif t == ElementType.CODE_BLOCK:
             p = doc.add_paragraph(str(elem.content), style="Normal")
@@ -660,6 +718,21 @@ class DocxHandler(FormatHandler):
                     if c_idx < cols:
                         table.cell(r_idx, c_idx).text = str(cell_text)
 
+            # Apply column widths from sidecar (Tier 2)
+            if sidecar:
+                elements_map = sidecar.get("elements", {})
+                entry = elements_map.get(elem.content_hash)
+                if entry and entry.get("type") == "table":
+                    col_widths = entry.get("column_widths_pt", [])
+                    for c_idx, col_pt in enumerate(col_widths):
+                        if c_idx < cols and col_pt:
+                            try:
+                                from docx.shared import Pt as _Pt
+                                for trow in table.rows:
+                                    trow.cells[c_idx].width = _Pt(col_pt)
+                            except Exception:
+                                pass
+
         elif t == ElementType.IMAGE:
             src = elem.attributes.get("src", "")
             # Try to find the image in the model or relative to output_path
@@ -698,18 +771,30 @@ class DocxHandler(FormatHandler):
             if text.strip():
                 doc.add_paragraph(text)
 
-    def _apply_sidecar_style(self, para, content_hash: str, sidecar: dict | None) -> None:
-        """Apply Tier 2 style from sidecar to a paragraph (best-effort)."""
+    def _apply_sidecar_style(self, para, content: str, sidecar: dict | None) -> None:
+        """
+        Apply Tier 2 style from sidecar to a paragraph (best-effort).
+
+        Looks up the sidecar by plain-text hash (markdown markers stripped) so
+        that the lookup works regardless of whether inline formatting markers
+        are present in the element content.
+        """
         if not sidecar:
             return
-        elements = sidecar.get("elements", {})
-        entry = elements.get(content_hash)
+        elements_map = sidecar.get("elements", {})
+        # Strip markdown markers before hashing (sidecar keys use plain text)
+        entry = elements_map.get(_plain_text_hash(content))
+        if not entry:
+            # Fallback: try direct hash (content without markers)
+            entry = elements_map.get(compute_content_hash(content))
         if not entry:
             return
         try:
             from docx.shared import Pt, RGBColor
-            run = para.runs[0] if para.runs else None
-            if run:
+            from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+            # Apply run-level formatting to ALL runs
+            for run in para.runs:
                 if entry.get("font_family"):
                     run.font.name = entry["font_family"]
                 if entry.get("font_size_pt"):
@@ -721,7 +806,117 @@ class DocxHandler(FormatHandler):
                 if entry.get("color"):
                     hex_color = str(entry["color"]).lstrip("#")
                     if len(hex_color) == 6:
-                        r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
+                        r, g, b = (
+                            int(hex_color[0:2], 16),
+                            int(hex_color[2:4], 16),
+                            int(hex_color[4:6], 16),
+                        )
                         run.font.color.rgb = RGBColor(r, g, b)
+
+            # Apply paragraph-level formatting
+            fmt = para.paragraph_format
+            if entry.get("space_before_pt") is not None:
+                fmt.space_before = Pt(entry["space_before_pt"])
+            if entry.get("space_after_pt") is not None:
+                fmt.space_after = Pt(entry["space_after_pt"])
+            if entry.get("line_spacing") is not None:
+                try:
+                    fmt.line_spacing = float(entry["line_spacing"])
+                except (TypeError, ValueError):
+                    pass
+
+            align_str = str(entry.get("alignment") or "")
+            _align_map = {
+                "WD_ALIGN_PARAGRAPH.LEFT": WD_ALIGN_PARAGRAPH.LEFT,
+                "WD_ALIGN_PARAGRAPH.CENTER": WD_ALIGN_PARAGRAPH.CENTER,
+                "WD_ALIGN_PARAGRAPH.RIGHT": WD_ALIGN_PARAGRAPH.RIGHT,
+                "WD_ALIGN_PARAGRAPH.JUSTIFY": WD_ALIGN_PARAGRAPH.JUSTIFY,
+                "left": WD_ALIGN_PARAGRAPH.LEFT,
+                "center": WD_ALIGN_PARAGRAPH.CENTER,
+                "right": WD_ALIGN_PARAGRAPH.RIGHT,
+                "justify": WD_ALIGN_PARAGRAPH.JUSTIFY,
+            }
+            if align_str in _align_map:
+                fmt.alignment = _align_map[align_str]
+
         except Exception as exc:
-            log.debug("docx.apply_sidecar_style_failed", hash=content_hash, reason=str(exc))
+            log.debug("docx.apply_sidecar_style_failed", content=content[:40], reason=str(exc))
+
+    # ── Tier 3: patch from original ───────────────────────────────────────────
+
+    def _patch_from_original(
+        self,
+        model: DocumentModel,
+        original_path: Path,
+        sidecar: dict[str, Any] | None,
+        output_path: Path,
+    ):
+        """
+        Tier 3: Use the original DOCX as a template base.
+
+        Computes match ratio between original and model content hashes.
+        If ≥ 80% of model elements match the original, opens the original,
+        clears its body, and rebuilds content from the model using Tier 2
+        styling — this preserves the original's registered styles, themes,
+        and document settings.
+
+        Returns a Document on success, or None to fall back to Tier 2.
+        """
+        import docx as _docx
+
+        try:
+            orig_doc = _docx.Document(str(original_path))
+        except Exception as exc:
+            log.warning("docx.tier3_open_failed", error=str(exc))
+            return None
+
+        # Build set of content hashes from original paragraphs
+        orig_hashes: set[str] = set()
+        for child in orig_doc.element.body:
+            tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+            if tag == "p":
+                from docx.text.paragraph import Paragraph as _Para
+                para = _Para(child, orig_doc)
+                text = para.text.strip()
+                if text:
+                    orig_hashes.add(compute_content_hash(text))
+
+        # Build list of plain-text hashes from model elements
+        model_hashes: list[str] = []
+        for elem in model.elements:
+            if isinstance(elem.content, str) and elem.content.strip():
+                plain = re.sub(r"\*{1,3}(.+?)\*{1,3}", r"\1", elem.content, flags=re.DOTALL)
+                plain = re.sub(r"`(.+?)`", r"\1", plain, flags=re.DOTALL)
+                model_hashes.append(compute_content_hash(plain))
+
+        if not model_hashes:
+            return None
+
+        matching = sum(1 for h in model_hashes if h in orig_hashes)
+        match_ratio = matching / len(model_hashes)
+
+        log.info(
+            "docx.tier3_match_ratio",
+            matching=matching,
+            total=len(model_hashes),
+            ratio=round(match_ratio, 2),
+        )
+
+        if match_ratio < 0.8:
+            log.info("docx.tier3_fallback", reason="match_ratio_below_0.8", ratio=round(match_ratio, 2))
+            return None
+
+        # Clear body (keep sectPr to preserve page layout)
+        from docx.oxml.ns import qn as _qn
+        body = orig_doc.element.body
+        sect_pr = body.find(_qn("w:sectPr"))
+        for child in list(body):
+            if child is not sect_pr:
+                body.remove(child)
+
+        # Rebuild body from model using Tier 2 styling
+        for elem in model.elements:
+            self._export_element(orig_doc, elem, model, sidecar, output_path)
+
+        log.info("docx.tier3_complete", file=str(output_path))
+        return orig_doc

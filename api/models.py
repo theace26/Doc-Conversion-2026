@@ -53,6 +53,7 @@ class FileStatus(BaseModel):
     duration_ms: int = Field(default=0)
     ocr_applied: bool = False
     ocr_flags: int = 0
+    fidelity_tier: int = Field(default=1, examples=[1, 2, 3])
 
 
 class BatchStatus(BaseModel):
