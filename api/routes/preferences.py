@@ -107,6 +107,10 @@ _PREFERENCE_SCHEMA: dict[str, dict] = {
         "options": ["rename", "skip", "error"],
         "label": "Duplicate filename strategy",
     },
+    "bulk_active_files_visible": {
+        "type": "toggle",
+        "label": "Show active files during bulk conversion",
+    },
     "vision_enrichment_level": {
         "type": "select",
         "options": ["1", "2", "3"],

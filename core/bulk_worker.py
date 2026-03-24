@@ -347,6 +347,18 @@ class BulkJob:
             file_id = file_dict["id"]
             source_path = Path(file_dict["source_path"])
 
+            # Track current worker_id for use in sub-methods
+            self._current_worker_id = worker_id + 1
+
+            # Emit file_start event so the UI can show what each worker is doing
+            _emit_bulk_event(self.job_id, "file_start", {
+                "job_id": self.job_id,
+                "file_id": file_id,
+                "filename": source_path.name,
+                "relative_path": str(source_path),
+                "worker_id": worker_id + 1,
+            })
+
             try:
                 # Pre-scan confidence check for PDFs in bulk mode
                 if ext == ".pdf" and self.ocr_mode != "force":
@@ -355,7 +367,7 @@ class BulkJob:
                         continue
 
                 if ext in ADOBE_EXTENSIONS:
-                    await self._process_adobe(file_dict)
+                    await self._process_adobe(file_dict, worker_id)
                 elif ext in CONVERTIBLE_EXTENSIONS:
                     # Check resolved_paths — skip files flagged by path safety
                     resolved = self._resolved_paths.get(str(source_path))
@@ -364,7 +376,7 @@ class BulkJob:
                         log.debug("bulk_worker_path_skip", file_id=file_id,
                                   reason=resolved[1])
                         continue
-                    await self._process_convertible(file_dict)
+                    await self._process_convertible(file_dict, worker_id)
             except Exception as exc:
                 log.error(
                     "bulk_worker_unhandled",
@@ -386,6 +398,7 @@ class BulkJob:
                     "source_path": str(source_path),
                     "error": str(exc),
                     "failed": self._failed,
+                    "worker_id": worker_id + 1,
                 })
 
         log.debug("bulk_worker_stop", job_id=self.job_id, worker_id=worker_id)
@@ -436,6 +449,7 @@ class BulkJob:
             "estimated_confidence": estimated_conf,
             "threshold": threshold,
             "review_queue_total": pending_review,
+            "worker_id": self._current_worker_id,
         })
 
         log.info(
@@ -445,7 +459,7 @@ class BulkJob:
         )
         return True
 
-    async def _process_convertible(self, file_dict: dict) -> None:
+    async def _process_convertible(self, file_dict: dict, worker_id: int = 0) -> None:
         """Convert a single file using ConversionOrchestrator internals."""
         from core.converter import _convert_file_sync
 
@@ -503,6 +517,7 @@ class BulkJob:
                 "tier": result.fidelity_tier,
                 "converted": self._converted,
                 "total": self._total_pending,
+                "worker_id": worker_id + 1,
             })
 
             # Index in Meilisearch (best-effort)
@@ -529,9 +544,10 @@ class BulkJob:
                 "source_path": str(source_path),
                 "error": result.error_message or "Unknown error",
                 "failed": self._failed,
+                "worker_id": worker_id + 1,
             })
 
-    async def _process_adobe(self, file_dict: dict) -> None:
+    async def _process_adobe(self, file_dict: dict, worker_id: int = 0) -> None:
         """Index an Adobe file."""
         from core.adobe_indexer import AdobeIndexer
 
@@ -581,6 +597,7 @@ class BulkJob:
                 "source_path": str(source_path),
                 "error": result.error_msg or "Adobe indexing failed",
                 "failed": self._failed,
+                "worker_id": worker_id + 1,
             })
 
     async def pause(self) -> None:

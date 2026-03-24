@@ -132,6 +132,16 @@
         <div id="review-queue-counter" class="text-sm" style="margin-top:0.5rem;color:var(--warn)" hidden>
           ⚠ <span id="rq-count">0</span> files need attention after job completes
         </div>
+        <!-- Active workers panel -->
+        <div id="active-workers-panel" class="active-workers-panel" style="display:none">
+          <button class="active-workers-toggle" id="active-workers-toggle"
+                  aria-expanded="true" aria-controls="active-workers-list">
+            <span class="active-workers-toggle-icon">&#9660;</span>
+            Currently converting
+          </button>
+          <div id="active-workers-list" class="active-workers-list"></div>
+        </div>
+
         <div class="control-btns">
           <button class="btn btn-ghost" id="pause-btn" onclick="pauseJob()">Pause</button>
           <button class="btn btn-ghost" id="cancel-btn" onclick="cancelJob()">Cancel</button>
@@ -178,6 +188,92 @@
   let eventSource = null;
   let totalPending = 0;
 
+  // Active workers state
+  const activeWorkers = {};
+  let workerCount = 4;
+  let activeFilesPref = true;
+
+  function truncatePath(path, maxChars) {
+    if (!path || path.length <= maxChars) return path || '';
+    const truncated = path.slice(-(maxChars - 2));
+    const slashIdx = truncated.indexOf('/');
+    return '.../' + (slashIdx >= 0 ? truncated.slice(slashIdx + 1) : truncated);
+  }
+
+  function escapeHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+  }
+
+  function renderActiveWorkers() {
+    const container = document.getElementById('active-workers-list');
+    const panel = document.getElementById('active-workers-panel');
+    if (!container || !panel) return;
+    if (!activeFilesPref) { panel.style.display = 'none'; return; }
+
+    const rows = [];
+    for (let i = 1; i <= workerCount; i++) {
+      const w = activeWorkers[i];
+      if (w) {
+        rows.push(`<div class="active-worker-row active-worker-row--busy">
+          <span class="spinner spinner-sm" aria-hidden="true"></span>
+          <span class="active-worker-path" title="${escapeHtml(w.relativePath)}">${escapeHtml(truncatePath(w.relativePath, 60))}</span>
+          <span class="active-worker-label">worker ${i}</span>
+        </div>`);
+      } else {
+        rows.push(`<div class="active-worker-row active-worker-row--idle">
+          <span class="active-worker-idle-dot" aria-hidden="true">&middot;</span>
+          <span class="active-worker-path active-worker-path--idle">idle</span>
+          <span class="active-worker-label">worker ${i}</span>
+        </div>`);
+      }
+    }
+    container.innerHTML = rows.join('');
+  }
+
+  // Collapse toggle
+  (function() {
+    const toggle = document.getElementById('active-workers-toggle');
+    const list = document.getElementById('active-workers-list');
+    if (!toggle || !list) return;
+    const collapsed = localStorage.getItem('bulk-workers-collapsed') === 'true';
+    if (collapsed) {
+      list.style.display = 'none';
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.querySelector('.active-workers-toggle-icon').innerHTML = '&#9654;';
+    }
+    toggle.addEventListener('click', () => {
+      const isExpanded = toggle.getAttribute('aria-expanded') === 'true';
+      const nowExpanded = !isExpanded;
+      list.style.display = nowExpanded ? 'block' : 'none';
+      toggle.setAttribute('aria-expanded', String(nowExpanded));
+      toggle.querySelector('.active-workers-toggle-icon').innerHTML = nowExpanded ? '&#9660;' : '&#9654;';
+      localStorage.setItem('bulk-workers-collapsed', String(!nowExpanded));
+    });
+  })();
+
+  async function loadJobAndSetWorkerCount(jobId) {
+    try {
+      const data = await API.get(`/api/bulk/jobs/${jobId}`);
+      const job = data.job || data;
+      workerCount = job.worker_count || 4;
+      for (let i = 1; i <= workerCount; i++) {
+        activeWorkers[i] = activeWorkers[i] ?? null;
+      }
+      renderActiveWorkers();
+    } catch (e) { /* ignore */ }
+  }
+
+  // Load active files preference
+  (async () => {
+    try {
+      const data = await API.get('/api/preferences');
+      const prefs = data.preferences || data;
+      activeFilesPref = prefs.bulk_active_files_visible !== 'false';
+    } catch (e) { /* default true */ }
+  })();
+
   // Start job
   document.getElementById('start-btn').addEventListener('click', async () => {
     const errEl = document.getElementById('start-error');
@@ -205,6 +301,8 @@
         include_adobe: document.getElementById('include-adobe').checked,
       });
       activeJobId = data.job_id;
+      workerCount = parseInt(document.getElementById('workers').value) || 4;
+      for (let i = 1; i <= workerCount; i++) activeWorkers[i] = null;
       connectSSE(data.job_id);
       document.getElementById('active-job-section').hidden = false;
       resetCounters();
@@ -249,15 +347,32 @@
       document.getElementById('active-status').className = 'job-status running';
     });
 
+    eventSource.addEventListener('file_start', e => {
+      const d = JSON.parse(e.data);
+      if (d.worker_id !== undefined) {
+        activeWorkers[d.worker_id] = {
+          filename: d.filename,
+          relativePath: d.relative_path,
+          startedAt: Date.now()
+        };
+      }
+      // Show the panel on first file_start
+      const panel = document.getElementById('active-workers-panel');
+      if (panel && activeFilesPref) panel.style.display = 'block';
+      renderActiveWorkers();
+    });
+
     eventSource.addEventListener('file_converted', e => {
       const d = JSON.parse(e.data);
       document.getElementById('c-converted').textContent = (d.converted || 0).toLocaleString();
       updateProgressBar(d.converted, d.total || totalPending);
+      if (d.worker_id !== undefined) { activeWorkers[d.worker_id] = null; renderActiveWorkers(); }
     });
 
     eventSource.addEventListener('file_failed', e => {
       const d = JSON.parse(e.data);
       document.getElementById('c-failed').textContent = (d.failed || 0).toLocaleString();
+      if (d.worker_id !== undefined) { activeWorkers[d.worker_id] = null; renderActiveWorkers(); }
     });
 
     eventSource.addEventListener('adobe_indexed', e => {
@@ -288,6 +403,7 @@
       const rqCount = document.getElementById('rq-count');
       rqEl.hidden = false;
       rqCount.textContent = (d.review_queue_total || 0).toLocaleString();
+      if (d.worker_id !== undefined) { activeWorkers[d.worker_id] = null; renderActiveWorkers(); }
     });
 
     eventSource.addEventListener('job_complete', e => {
@@ -303,6 +419,18 @@
       document.getElementById('pause-btn').disabled = true;
       document.getElementById('cancel-btn').disabled = true;
       document.getElementById('start-btn').disabled = false;
+
+      // Clear active workers and fade out panel
+      Object.keys(activeWorkers).forEach(k => activeWorkers[k] = null);
+      renderActiveWorkers();
+      setTimeout(() => {
+        const panel = document.getElementById('active-workers-panel');
+        if (panel) {
+          panel.style.transition = 'opacity 0.5s';
+          panel.style.opacity = '0';
+          setTimeout(() => { panel.style.display = 'none'; panel.style.opacity = '1'; }, 500);
+        }
+      }, 2000);
 
       // Show review banner if there are review queue items
       const rqCount = d.review_queue_count || 0;
@@ -412,6 +540,7 @@
           document.getElementById('pause-btn').textContent = 'Resume';
         }
         connectSSE(running.id);
+        loadJobAndSetWorkerCount(running.id);
       }
     } catch (e) {
       document.getElementById('job-list').innerHTML =

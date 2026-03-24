@@ -52,6 +52,10 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
   strategy: rename (default, no data loss), skip, or error. Case-sensitivity
   collisions detected separately. All issues recorded in bulk_path_issues table,
   reported in manifest, downloadable as CSV.
+**v0.7.4c** — Active file display in bulk progress. Collapsible panel shows
+  one row per worker with current filename. Worker count matches Settings value.
+  Collapse state persists in localStorage. Hidden when preference is off.
+  `file_start` SSE event added; `worker_id` added to all worker SSE events.
 **v0.8.1** — Visual enrichment pipeline. Scene detection (PySceneDetect), keyframe
   extraction (ffmpeg), and AI frame descriptions via the existing LLM provider system.
   VisionAdapter wraps the active provider for image input (Anthropic, OpenAI, Gemini,
@@ -469,6 +473,20 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 - **Auto-OCR gap-fill candidates**: A PDF is a gap-fill candidate if
   source_format='pdf', ocr_page_count IS NULL, and status='success'. The gap-fill
   pass updates ocr_page_count so the file won't be a candidate again.
+
+- **worker_id in SSE events**: `file_start` events include `worker_id` (int 1..N)
+  for the active file display. `file_converted`, `file_failed`, and
+  `file_skipped_for_review` events also include `worker_id` so the UI can clear
+  the correct worker slot when a file finishes. Worker IDs are 1-based in SSE
+  events (internal code uses 0-based, +1 applied at emission).
+
+- **truncatePath() trims from left**: Long paths in the active workers panel are
+  trimmed from the directory portion, not the filename. The filename is always
+  fully visible. The prefix ".../" indicates truncation occurred.
+
+- **active-workers-panel display:none by default**: The panel starts hidden in
+  HTML and is shown by JS after the first `file_start` event. This prevents a
+  flash of empty worker rows during page load and during the scan phase.
 
 - **VisionAdapter uses active LLM provider**: Vision does NOT have its own
   separate provider system. It uses `get_active_provider()` from database.py

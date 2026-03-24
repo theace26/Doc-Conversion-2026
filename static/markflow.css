@@ -701,3 +701,73 @@ small, .text-sm { font-size: 0.85rem; }
 .file-status-error { color: var(--error); }
 .file-status-pending { color: var(--text-muted); }
 .file-status-active { color: var(--accent); }
+
+/* ── Active Workers Panel (Bulk Progress) ──────────────────────────────────── */
+.active-workers-panel {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.active-workers-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-align: left;
+}
+
+.active-workers-toggle:hover { background: var(--surface-alt); }
+
+.active-workers-toggle-icon {
+  font-size: 0.7rem;
+  transition: transform var(--transition);
+}
+
+.active-workers-list { padding: 4px 0 8px 0; }
+
+.active-worker-row {
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.active-worker-row--busy { color: var(--text); }
+
+.active-worker-row--idle {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.active-worker-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.active-worker-path--idle { font-style: italic; }
+
+.active-worker-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.active-worker-idle-dot {
+  text-align: center;
+  color: var(--text-muted);
+}

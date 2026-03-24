@@ -91,6 +91,17 @@
           </select>
           <div class="inline-error" id="err-collision_strategy"></div>
         </div>
+
+        <div class="form-group">
+          <label>Show active files during conversion</label>
+          <label class="toggle">
+            <input type="checkbox" id="pref-bulk_active_files_visible" data-key="bulk_active_files_visible">
+            <span class="toggle-track"></span>
+            <span class="toggle-label" id="toggle-label-active-files">OFF</span>
+          </label>
+          <p class="hint">Display which files each worker is currently processing.</p>
+          <div class="inline-error" id="err-bulk_active_files_visible"></div>
+        </div>
       </div>
 
       <!-- OCR section -->
@@ -464,6 +475,14 @@
   document.getElementById('reset-dialog').addEventListener('click', (e) => {
     if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
   });
+
+  // ── Bulk active files toggle ─────────────────────────────────────────────
+  const activeFilesToggle = document.getElementById('pref-bulk_active_files_visible');
+  if (activeFilesToggle) {
+    activeFilesToggle.addEventListener('change', () => {
+      document.getElementById('toggle-label-active-files').textContent = activeFilesToggle.checked ? 'ON' : 'OFF';
+    });
+  }
 
   // ── Vision toggle labels ────────────────────────────────────────────────
   const saveFramesToggle = document.getElementById('pref-vision_save_keyframes');

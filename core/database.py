@@ -43,6 +43,7 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     "llm_heading_inference": "false",
     "max_output_path_length": "240",
     "collision_strategy": "rename",
+    "bulk_active_files_visible": "true",
     "vision_enrichment_level": "2",
     "vision_frame_limit": "50",
     "vision_save_keyframes": "false",
