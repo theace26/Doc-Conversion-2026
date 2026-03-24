@@ -107,6 +107,25 @@ _PREFERENCE_SCHEMA: dict[str, dict] = {
         "options": ["rename", "skip", "error"],
         "label": "Duplicate filename strategy",
     },
+    "vision_enrichment_level": {
+        "type": "select",
+        "options": ["1", "2", "3"],
+        "label": "Visual enrichment level",
+    },
+    "vision_frame_limit": {
+        "type": "number",
+        "min": 1,
+        "max": 200,
+        "label": "Max keyframes per video",
+    },
+    "vision_save_keyframes": {
+        "type": "toggle",
+        "label": "Save keyframe images to _markflow/frames/",
+    },
+    "vision_frame_prompt": {
+        "type": "text",
+        "label": "Frame description prompt",
+    },
 }
 
 # Validation rules per key

@@ -170,6 +170,59 @@
         </div>
       </div>
 
+      <!-- Vision & Frame Description section -->
+      <div class="section-title">Vision &amp; Frame Description</div>
+      <div class="card">
+        <p class="text-sm text-muted" style="margin:0 0 1rem">Add visual context to video conversions. Scene detection extracts keyframes; Level 3 adds AI frame descriptions.</p>
+
+        <div class="form-group">
+          <label for="pref-vision_enrichment_level">Enrichment level</label>
+          <select id="pref-vision_enrichment_level" data-key="vision_enrichment_level">
+            <option value="1">1 &mdash; Metadata only (fastest)</option>
+            <option value="2">2 &mdash; + Transcription only (recommended)</option>
+            <option value="3">3 &mdash; + Visual frame descriptions</option>
+          </select>
+          <p class="hint">Level 3 requires an active AI provider with vision support.</p>
+          <div class="inline-error" id="err-vision_enrichment_level"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-vision_frame_limit">Max keyframes per video (1&ndash;200)</label>
+          <input type="number" id="pref-vision_frame_limit" data-key="vision_frame_limit" min="1" max="200">
+          <p class="hint">Higher = more detail, more cost/time for Level 3.</p>
+          <div class="inline-error" id="err-vision_frame_limit"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Save keyframe images</label>
+          <label class="toggle">
+            <input type="checkbox" id="pref-vision_save_keyframes" data-key="vision_save_keyframes">
+            <span class="toggle-track"></span>
+            <span class="toggle-label" id="toggle-label-save-frames">OFF</span>
+          </label>
+          <p class="hint">Stores extracted JPEG frames alongside transcript in _markflow/frames/.</p>
+          <div class="inline-error" id="err-vision_save_keyframes"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-vision_frame_prompt">Frame description prompt</label>
+          <textarea id="pref-vision_frame_prompt" data-key="vision_frame_prompt" rows="3" style="width:100%;font-family:var(--font-mono);font-size:0.85rem;resize:vertical"></textarea>
+          <button type="button" class="btn btn-ghost btn-sm" style="margin-top:0.25rem" onclick="resetFramePrompt()">Reset to default prompt</button>
+          <div class="inline-error" id="err-vision_frame_prompt"></div>
+        </div>
+
+        <div class="form-group" style="margin-top:1rem;padding-top:0.75rem;border-top:1px solid var(--border)">
+          <label>Active vision provider</label>
+          <div style="display:flex;gap:0.5rem;align-items:center">
+            <span id="vision-provider-display" class="text-sm">Loading...</span>
+          </div>
+          <div style="margin-top:0.5rem">
+            <a href="/providers.html" class="btn btn-ghost btn-sm">Manage Providers &rarr;</a>
+          </div>
+          <p class="hint">Vision uses the same provider configured in AI Enhancement above. Level 3 requires a provider that supports image input (all except custom).</p>
+        </div>
+      </div>
+
       <!-- MCP Integration section -->
       <div class="section-title">Claude Integration (MCP)</div>
       <div class="card" id="mcp-section">
@@ -411,6 +464,41 @@
   document.getElementById('reset-dialog').addEventListener('click', (e) => {
     if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
   });
+
+  // ── Vision toggle labels ────────────────────────────────────────────────
+  const saveFramesToggle = document.getElementById('pref-vision_save_keyframes');
+  if (saveFramesToggle) {
+    saveFramesToggle.addEventListener('change', () => {
+      document.getElementById('toggle-label-save-frames').textContent = saveFramesToggle.checked ? 'ON' : 'OFF';
+    });
+  }
+
+  function resetFramePrompt() {
+    const el = document.getElementById('pref-vision_frame_prompt');
+    if (el) {
+      el.value = 'Describe this frame from a video. Note any visible text, slides, diagrams, charts, people, or on-screen graphics. Be concise and factual. Do not describe what you cannot see clearly.';
+      showToast('Prompt reset to default.', 'info');
+    }
+  }
+
+  // ── Vision provider display ────────────────────────────────────────────
+  (async () => {
+    try {
+      const data = await API.get('/api/llm-providers');
+      const providers = data.providers || [];
+      const active = providers.find(p => p.is_active);
+      const el = document.getElementById('vision-provider-display');
+      if (active) {
+        const verified = active.is_verified;
+        const badge = verified
+          ? '<span style="color:var(--ok)">&#10003;</span>'
+          : '<span style="color:var(--warn)">&mdash;</span>';
+        el.innerHTML = `${badge} ${active.name} (${active.model})`;
+      } else {
+        el.innerHTML = '<span class="text-muted">None configured &mdash; Level 3 will skip frame descriptions</span>';
+      }
+    } catch { document.getElementById('vision-provider-display').textContent = 'Could not load provider info'; }
+  })();
 
   // ── AI Enhancement toggle labels ──────────────────────────────────────────
   ['llm_ocr_correction', 'llm_summarize', 'llm_heading_inference'].forEach(key => {

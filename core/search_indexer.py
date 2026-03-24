@@ -26,6 +26,7 @@ DOCUMENTS_INDEX_SETTINGS = {
         "title",
         "content",
         "headings",
+        "frame_descriptions",
         "source_filename",
     ],
     "filterableAttributes": [
@@ -34,6 +35,8 @@ DOCUMENTS_INDEX_SETTINGS = {
         "has_ocr",
         "job_id",
         "relative_path_prefix",
+        "enrichment_level",
+        "vision_provider",
     ],
     "sortableAttributes": [
         "converted_at",
@@ -42,7 +45,9 @@ DOCUMENTS_INDEX_SETTINGS = {
     "displayedAttributes": [
         "id", "title", "source_filename", "source_format", "relative_path",
         "output_path", "source_path", "content_preview", "headings",
-        "fidelity_tier", "has_ocr", "converted_at", "file_size_bytes", "job_id",
+        "frame_descriptions", "fidelity_tier", "has_ocr", "converted_at",
+        "file_size_bytes", "job_id", "enrichment_level", "vision_provider",
+        "scene_count",
     ],
     "rankingRules": [
         "words", "typo", "proximity", "attribute", "sort", "exactness",
@@ -137,6 +142,23 @@ class SearchIndexer:
 
         title = metadata.get("title", "") or (headings[0] if headings else md_path.stem)
 
+        # Extract frame descriptions from frontmatter if present
+        frame_descs = ""
+        scene_count = markflow_meta.get("scene_count", 0)
+        enrichment_level = markflow_meta.get("enrichment_level")
+        vision_provider = markflow_meta.get("vision_provider")
+
+        # Also try to pull frame descriptions from the body (## Scene N blocks)
+        frame_lines = []
+        for line in body.split("\n"):
+            if line.startswith("*Visual:") and "[frame description unavailable" not in line:
+                # Strip the *Visual: ...* markers
+                text = line.strip("* ").removeprefix("Visual:").strip()
+                if text:
+                    frame_lines.append(text)
+        if frame_lines:
+            frame_descs = "\n".join(frame_lines)
+
         doc = {
             "id": _doc_id(str(md_path)),
             "title": title,
@@ -149,11 +171,15 @@ class SearchIndexer:
             "content": indexable_content,
             "content_preview": indexable_content[:500],
             "headings": headings,
+            "frame_descriptions": frame_descs,
             "fidelity_tier": markflow_meta.get("fidelity_tier", 1),
             "has_ocr": markflow_meta.get("ocr_applied", False),
             "converted_at": markflow_meta.get("converted_at", ""),
             "file_size_bytes": md_path.stat().st_size,
             "job_id": job_id,
+            "scene_count": scene_count,
+            "enrichment_level": enrichment_level,
+            "vision_provider": vision_provider,
         }
 
         task_uid = await self.client.add_documents("documents", [doc])

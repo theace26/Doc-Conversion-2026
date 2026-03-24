@@ -23,6 +23,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     imagemagick \
     # ExifTool for Adobe file metadata extraction
     libimage-exiftool-perl \
+    # ffmpeg for keyframe extraction and media processing
+    ffmpeg \
     # curl for healthchecks
     curl \
     # Misc build tools

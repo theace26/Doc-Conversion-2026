@@ -40,6 +40,9 @@ structlog
 httpx
 cryptography
 
+# Scene detection (video)
+scenedetect[opencv]
+
 # Adobe indexing
 psd-tools
 pyexiftool

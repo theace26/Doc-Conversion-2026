@@ -233,6 +233,9 @@
             <dt>Batch</dt><dd class="text-mono text-sm">${r.batch_id}</dd>
             <dt>OCR flags</dt><dd>${r.ocr_flags_total || 0} total, ${r.ocr_flags_resolved || 0} resolved</dd>
             ${ocrDetail}
+            ${r.scene_count ? `<dt>Scenes</dt><dd>${r.scene_count} detected</dd>` : ''}
+            ${r.enrichment_level ? `<dt>Enrichment</dt><dd>Level ${r.enrichment_level}${r.vision_provider ? ' &middot; ' + r.vision_provider + (r.vision_model ? ' (' + r.vision_model + ')' : '') : ''}</dd>` : ''}
+            ${r.frame_desc_count != null && r.keyframe_count ? `<dt>Descriptions</dt><dd>${r.frame_desc_count}/${r.keyframe_count} successful${r.frame_desc_count < r.keyframe_count ? ' (' + (r.keyframe_count - r.frame_desc_count) + ' failed)' : ''}</dd>` : ''}
             ${r.error_message ? `<dt>Error</dt><dd class="status-error">${r.error_message}</dd>` : ''}
             ${r.warnings && r.warnings.length ? `<dt>Warnings</dt><dd>${r.warnings.join(', ')}</dd>` : ''}
           </dl>

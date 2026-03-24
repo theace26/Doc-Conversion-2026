@@ -330,6 +330,12 @@ tbody tr:hover { background: var(--surface-hover); }
       <div class="stat-item"><span class="stat-value" id="stat-rate">0%</span><span class="stat-label">Success Rate</span></div>
       <div class="stat-item"><span class="stat-value" id="stat-avg">0ms</span><span class="stat-label">Avg Duration</span></div>
     </div>
+    <div class="stats-bar" id="vision-stats-bar" style="margin-top:8px;display:none">
+      <div class="stat-item"><span class="stat-value" id="vstat-scenes">0</span><span class="stat-label">Scenes</span></div>
+      <div class="stat-item"><span class="stat-value" id="vstat-descs">0</span><span class="stat-label">Described</span></div>
+      <div class="stat-item"><span class="stat-value" id="vstat-failed">0</span><span class="stat-label">Failed</span></div>
+      <div class="stat-item"><span class="stat-value" id="vstat-provider">—</span><span class="stat-label">Provider</span></div>
+    </div>
   </section>
 
   <!-- Section 3: OCR Confidence Distribution -->
@@ -444,6 +450,17 @@ async function refreshActivity() {
   document.getElementById('stat-total').textContent = s.total_conversions || 0;
   document.getElementById('stat-rate').textContent = (s.success_rate_pct || 0) + '%';
   document.getElementById('stat-avg').textContent = (s.avg_duration_ms || 0) + 'ms';
+
+  // Vision stats
+  const vs = data.vision_stats || {};
+  if (vs.scenes_detected_total) {
+    document.getElementById('vision-stats-bar').style.display = '';
+    document.getElementById('vstat-scenes').textContent = vs.scenes_detected_total || 0;
+    document.getElementById('vstat-descs').textContent = vs.frames_described_total || 0;
+    document.getElementById('vstat-failed').textContent = vs.frames_failed_total || 0;
+    document.getElementById('vstat-provider').textContent =
+      vs.active_provider ? vs.active_provider + (vs.active_model ? ' (' + vs.active_model + ')' : '') : '\u2014';
+  }
 }
 
 // ── OCR Distribution ──────────────────────────────────────

@@ -43,6 +43,14 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     "llm_heading_inference": "false",
     "max_output_path_length": "240",
     "collision_strategy": "rename",
+    "vision_enrichment_level": "2",
+    "vision_frame_limit": "50",
+    "vision_save_keyframes": "false",
+    "vision_frame_prompt": (
+        "Describe this frame from a video. Note any visible text, slides, "
+        "diagrams, charts, people, or on-screen graphics. Be concise and "
+        "factual. Do not describe what you cannot see clearly."
+    ),
 }
 
 # ── Schema DDL ────────────────────────────────────────────────────────────────
@@ -215,6 +223,21 @@ CREATE TABLE IF NOT EXISTS bulk_review_queue (
     notes                TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_review_queue_job ON bulk_review_queue(job_id, status);
+
+CREATE TABLE IF NOT EXISTS scene_keyframes (
+    id                TEXT PRIMARY KEY,
+    history_id        TEXT NOT NULL,
+    scene_index       INTEGER NOT NULL,
+    start_seconds     REAL NOT NULL,
+    end_seconds       REAL NOT NULL,
+    midpoint_seconds  REAL NOT NULL,
+    keyframe_path     TEXT,
+    description       TEXT,
+    description_error TEXT,
+    provider          TEXT,
+    FOREIGN KEY(history_id) REFERENCES conversion_history(id)
+);
+CREATE INDEX IF NOT EXISTS idx_keyframes_history ON scene_keyframes(history_id, scene_index);
 """
 
 
@@ -265,6 +288,13 @@ async def init_db() -> None:
         # Migrate: add LLM correction columns to ocr_flags
         await _add_column_if_missing(conn, "ocr_flags", "llm_corrected_text", "TEXT")
         await _add_column_if_missing(conn, "ocr_flags", "llm_correction_model", "TEXT")
+        # Migrate: add visual enrichment columns to conversion_history
+        await _add_column_if_missing(conn, "conversion_history", "vision_provider", "TEXT")
+        await _add_column_if_missing(conn, "conversion_history", "vision_model", "TEXT")
+        await _add_column_if_missing(conn, "conversion_history", "scene_count", "INTEGER")
+        await _add_column_if_missing(conn, "conversion_history", "keyframe_count", "INTEGER")
+        await _add_column_if_missing(conn, "conversion_history", "frame_desc_count", "INTEGER")
+        await _add_column_if_missing(conn, "conversion_history", "enrichment_level", "INTEGER")
         await conn.commit()
         await _init_preferences(conn)
 
@@ -1148,3 +1178,59 @@ async def update_history_ocr_stats(
             (mean, min_conf, page_count, pages_below, history_id),
         )
         await conn.commit()
+
+
+async def update_history_vision_stats(
+    history_id: int,
+    vision_provider: str | None,
+    vision_model: str | None,
+    scene_count: int,
+    keyframe_count: int,
+    frame_desc_count: int,
+    enrichment_level: int,
+) -> None:
+    """Update visual enrichment stats on a conversion_history record."""
+    async with get_db() as conn:
+        await conn.execute(
+            """UPDATE conversion_history
+               SET vision_provider=?, vision_model=?, scene_count=?,
+                   keyframe_count=?, frame_desc_count=?, enrichment_level=?
+               WHERE id=?""",
+            (vision_provider, vision_model, scene_count,
+             keyframe_count, frame_desc_count, enrichment_level, history_id),
+        )
+        await conn.commit()
+
+
+async def record_scene_keyframes(history_id: str, scenes: list[dict]) -> None:
+    """Bulk insert scene keyframe records."""
+    async with get_db() as conn:
+        for scene in scenes:
+            scene_id = uuid.uuid4().hex
+            await conn.execute(
+                """INSERT INTO scene_keyframes
+                   (id, history_id, scene_index, start_seconds, end_seconds,
+                    midpoint_seconds, keyframe_path, description, description_error, provider)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    scene_id,
+                    history_id,
+                    scene.get("scene_index", 0),
+                    scene.get("start_seconds", 0.0),
+                    scene.get("end_seconds", 0.0),
+                    scene.get("midpoint_seconds", 0.0),
+                    scene.get("keyframe_path"),
+                    scene.get("description"),
+                    scene.get("description_error"),
+                    scene.get("provider"),
+                ),
+            )
+        await conn.commit()
+
+
+async def get_scene_keyframes(history_id: str) -> list[dict[str, Any]]:
+    """Return all scene records for a history entry, ordered by scene_index."""
+    return await db_fetch_all(
+        "SELECT * FROM scene_keyframes WHERE history_id=? ORDER BY scene_index",
+        (history_id,),
+    )

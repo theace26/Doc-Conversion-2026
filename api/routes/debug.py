@@ -107,6 +107,33 @@ async def debug_activity():
     successes = stats_row["successes"] if stats_row else 0
     avg_dur = stats_row["avg_dur"] if stats_row else 0
 
+    # Vision stats
+    vision_stats = {}
+    try:
+        v_row = await db_fetch_one(
+            "SELECT SUM(scene_count) as scenes, SUM(frame_desc_count) as descs, "
+            "SUM(keyframe_count) as kf, "
+            "SUM(CASE WHEN frame_desc_count IS NOT NULL AND keyframe_count IS NOT NULL "
+            "  THEN keyframe_count - frame_desc_count ELSE 0 END) as failed "
+            "FROM conversion_history WHERE scene_count IS NOT NULL"
+        )
+        if v_row and v_row["scenes"]:
+            vision_stats = {
+                "scenes_detected_total": v_row["scenes"] or 0,
+                "frames_described_total": v_row["descs"] or 0,
+                "frames_failed_total": v_row["failed"] or 0,
+            }
+        # Get active vision provider info
+        vp_row = await db_fetch_one(
+            "SELECT vision_provider, vision_model FROM conversion_history "
+            "WHERE vision_provider IS NOT NULL ORDER BY created_at DESC LIMIT 1"
+        )
+        if vp_row:
+            vision_stats["active_provider"] = vp_row["vision_provider"]
+            vision_stats["active_model"] = vp_row["vision_model"]
+    except Exception:
+        pass
+
     return {
         "active_batches": active_batches,
         "recent_history": recent_history,
@@ -116,6 +143,7 @@ async def debug_activity():
             "success_rate_pct": round(successes / total * 100, 1) if total else 0.0,
             "avg_duration_ms": round(avg_dur) if avg_dur else 0,
         },
+        "vision_stats": vision_stats,
     }
 
 

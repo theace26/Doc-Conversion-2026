@@ -52,8 +52,14 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
   strategy: rename (default, no data loss), skip, or error. Case-sensitivity
   collisions detected separately. All issues recorded in bulk_path_issues table,
   reported in manifest, downloadable as CSV.
-**Project complete at v0.7.4b.** Future work: Phase 8 (authentication, multi-user, cloud storage),
-  Level 3 Adobe enrichment pass, UnionCore integration.
+**v0.8.1** — Visual enrichment pipeline. Scene detection (PySceneDetect), keyframe
+  extraction (ffmpeg), and AI frame descriptions via the existing LLM provider system.
+  VisionAdapter wraps the active provider for image input (Anthropic, OpenAI, Gemini,
+  Ollama). Vision preferences stored in existing preferences table (not a separate
+  settings system). DB: scene_keyframes table, vision columns on conversion_history.
+  Meilisearch index extended with frame_descriptions field. Settings UI Vision section
+  with provider display linking to existing providers.html. History detail panel shows
+  scenes/enrichment/descriptions. Debug dashboard shows vision stats.
 
 ---
 
@@ -69,6 +75,7 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 | 5 | Testing & debug infrastructure (full test suite, structlog, debug dashboard) | ✅ Done |
 | 6 | Full UI, batch progress, history page, settings, polish | ✅ Done |
 | 7 | Bulk conversion, Adobe indexing, Meilisearch search, Cowork integration | ✅ Done |
+| 8b | Visual enrichment: scene detection, keyframe extraction, AI frame descriptions | ✅ Done |
 
 ---
 
@@ -206,6 +213,10 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 | `api/routes/mcp_info.py` | GET /api/mcp/connection-info for settings UI |
 | `static/providers.html` | LLM provider management: add/edit/delete/verify/activate |
 | `core/path_utils.py` | Path safety: length check, collision detection, resolution strategies |
+| `core/vision_adapter.py` | VisionAdapter: wraps active LLM provider for image/vision calls |
+| `core/scene_detector.py` | PySceneDetect wrapper: scene boundary detection in video files |
+| `core/keyframe_extractor.py` | ffmpeg keyframe extraction at scene midpoints |
+| `core/visual_enrichment_engine.py` | Orchestrates scene detection + keyframe + frame description |
 | `mcp_server/server.py` | MCP server entry point — 7 tools exposed via SSE transport |
 | `mcp_server/tools.py` | MCP tool implementations: search, read, list, convert, adobe, summary, status |
 | `pytest.ini` | Test configuration: asyncio_mode, custom markers (slow, ocr, integration, bulk) |
@@ -458,6 +469,31 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 - **Auto-OCR gap-fill candidates**: A PDF is a gap-fill candidate if
   source_format='pdf', ocr_page_count IS NULL, and status='success'. The gap-fill
   pass updates ocr_page_count so the file won't be a candidate again.
+
+- **VisionAdapter uses active LLM provider**: Vision does NOT have its own
+  separate provider system. It uses `get_active_provider()` from database.py
+  (the same provider configured in the LLM providers system). One provider
+  config, two uses (text + vision). Do not build a separate vision_providers
+  package or settings_manager — this was the Conflict Analysis correction.
+
+- **Vision preferences in existing system**: Vision settings (enrichment_level,
+  frame_limit, save_keyframes, frame_prompt) are stored in the `user_preferences`
+  table via `_PREFERENCE_SCHEMA`, not in a separate `settings` table. There is
+  no `core/settings_manager.py` and no `MARKFLOW_SECRET_KEY` env var — use the
+  existing `SECRET_KEY` and `core/crypto.py` for encryption.
+
+- **SceneDetector always returns at least 1 scene**: If PySceneDetect finds
+  zero scenes (static video, animation) or crashes, the detector returns a
+  single SceneBoundary covering the full video. This ensures at least one
+  keyframe is always extracted.
+
+- **KeyframeExtractor concurrency**: Up to 4 concurrent ffmpeg processes via
+  `asyncio.Semaphore(4)`. VisionAdapter API calls use `Semaphore(3)` — lower
+  because API calls are expensive and rate-limited.
+
+- **scenedetect[opencv] pulls opencv-python-headless**: The headless variant
+  (no GUI) is correct for Docker. If opencv-python (full) is already installed,
+  there may be a conflict. Do not install both.
 
 ---
 

@@ -95,7 +95,7 @@ app = FastAPI(
         "Convert documents bidirectionally between their original format "
         "and Markdown. OCR, batch processing, and style preservation."
     ),
-    version="0.7.4",
+    version="0.8.1",
     lifespan=lifespan,
 )
 
