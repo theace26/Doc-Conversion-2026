@@ -29,7 +29,7 @@ from formats.base import get_handler_for_path
 log = structlog.get_logger(__name__)
 
 # Allowed extensions for upload
-ALLOWED_EXTENSIONS = {".docx", ".doc", ".pdf", ".pptx", ".xlsx", ".csv", ".md"}
+ALLOWED_EXTENSIONS = {".docx", ".doc", ".pdf", ".pptx", ".xlsx", ".csv", ".tsv", ".md"}
 
 # Max file sizes (in bytes)
 DEFAULT_MAX_FILE_MB = int(os.getenv("MAX_UPLOAD_MB", "100"))

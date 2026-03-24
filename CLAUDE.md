@@ -17,7 +17,10 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 **Phase 0 complete** — Docker scaffold running. All system deps verified.
 **Phase 1 complete** — DOCX → Markdown pipeline fully implemented. 60 tests passing. Tagged v0.1.0.
 **Phase 2 complete** — Markdown → DOCX round-trip with fidelity tiers. 96 tests passing. Tagged v0.2.0.
-**Next: Phase 3** — OCR pipeline (multi-signal detection, review UI, unattended mode).
+**Phase 3 complete** — OCR pipeline: multi-signal detection, preprocessing, Tesseract extraction,
+  confidence flagging, review API + UI, unattended mode, SQLite persistence. Tagged v0.3.0.
+**Phase 4 complete** — PDF, PPTX, XLSX/CSV format handlers (both directions). 231 tests passing. Tagged v0.4.0.
+**Next: Phase 5** — Testing & debug infrastructure (full test suite, structlog, debug dashboard).
 
 ---
 
@@ -28,8 +31,8 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 | 0 | Docker scaffold, project structure, DB schema, health check | ✅ Done |
 | 1 | Foundation: DOCX → Markdown (DocumentModel, DocxHandler, metadata, upload UI) | ✅ Done |
 | 2 | Round-trip: Markdown → DOCX with fidelity tiers | ✅ Done |
-| 3 | OCR pipeline (multi-signal detection, review UI, unattended mode) | ⬜ |
-| 4 | Remaining formats: PDF, PPTX, XLSX/CSV (both directions) | ⬜ |
+| 3 | OCR pipeline (multi-signal detection, review UI, unattended mode) | ✅ Done |
+| 4 | Remaining formats: PDF, PPTX, XLSX/CSV (both directions) | ✅ Done |
 | 5 | Testing & debug infrastructure (full test suite, structlog, debug dashboard) | ⬜ |
 | 6 | Full UI, batch progress, history page, settings, polish | ⬜ |
 
@@ -117,14 +120,22 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 
 | File | Purpose |
 |------|---------|
-| `main.py` | FastAPI app, lifespan, mounts all routers |
-| `core/database.py` | SQLite connection, schema, preference + history helpers |
+| `main.py` | FastAPI app, lifespan, mounts all routers + `/ocr-images` static |
+| `core/database.py` | SQLite connection, schema, preference + history + ocr_flags helpers |
 | `core/health.py` | Startup checks for Tesseract, LibreOffice, Poppler, WeasyPrint, disk, DB |
 | `core/logging_config.py` | structlog JSON logging, rotating file handler |
 | `core/converter.py` | Pipeline orchestrator; `from_md` path detects sidecar + original → tier 1/2/3 |
+| `core/ocr_models.py` | OCR dataclasses: OCRWord, OCRFlag, OCRPage, OCRConfig, OCRResult, OCRFlagStatus |
+| `core/ocr.py` | OCR engine: `needs_ocr`, `preprocess_image`, `ocr_page`, `flag_low_confidence`, `run_ocr` |
 | `formats/docx_handler.py` | DOCX ingest + export; `_add_inline_runs`, `_plain_text_hash`, `_patch_from_original` |
 | `formats/markdown_handler.py` | MD ingest + export; `_extract_formatted_text` for inline bold/italic/code |
+| `formats/pdf_handler.py` | PDF ingest (pdfplumber + OCR) + export (WeasyPrint); font-size heading detection |
+| `formats/pptx_handler.py` | PPTX ingest (slides→H2 sections) + export; Tier 3 text patching |
+| `formats/xlsx_handler.py` | XLSX ingest (sheets→H2+TABLE) + export; formula/merge/style restoration |
+| `formats/csv_handler.py` | CSV/TSV ingest (pandas + stdlib fallback) + export; delimiter/encoding preserved |
 | `api/middleware.py` | Request ID injection, timing, debug headers |
+| `api/routes/review.py` | OCR review endpoints: list, counts, single-flag, resolve, accept-all |
+| `static/review.html` | Interactive OCR review page (side-by-side image + editable text) |
 | `docker-compose.yml` | Port 8000, volumes: input/output/logs + named volume for DB |
 
 ---
@@ -157,6 +168,50 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 
 - **`FormatHandler.export()` signature**: `original_path: Path | None = None` was added in Phase 2.
   All handlers must accept it (they can ignore it). `MarkdownHandler.export()` accepts but ignores it.
+
+- **OCR deskew is slow**: `_detect_skew()` does 31 coarse + up to 9 fine-step rotations via Pillow.
+  On large (A4@300 DPI) page images this can take several seconds per page. Keep page images at
+  reasonable sizes for tests (< 1000 px wide) or disable preprocessing with `OCRConfig(preprocess=False)`.
+
+- **Tesseract `-1` confidence**: `pytesseract.image_to_data()` returns `conf == -1` for rows that
+  are not words (block/paragraph/line separators). These are clamped to `0.0` in `ocr_page()` and
+  should not appear as actual words (the `text` field is empty for those rows so they are skipped).
+
+- **review router route ordering**: The `accept-all` POST route (`/{batch_id}/review/accept-all`)
+  must be registered **before** `/{batch_id}/review/{flag_id}` POST route. FastAPI matches routes
+  in registration order — the parametric route would capture the literal "accept-all" string as a
+  `flag_id` and the bulk-accept endpoint would never be reached. Fixed in `review.py` by ordering
+  `accept-all` first in the file.
+
+- **`/ocr-images` static mount**: Served from `OUTPUT_DIR` (default `output/`). If `output/` does
+  not exist at startup, `os.makedirs` creates it before `StaticFiles` is mounted.
+
+- **OCR flag image paths**: Stored in DB as forward-slash paths relative to CWD
+  (e.g., `output/<batch_id>/_ocr_debug/stem_flag_<uuid>.png`). The review API strips the
+  `output/` prefix to build `/ocr-images/…` URLs.
+
+- **python-pptx `placeholder_format`**: Accessing `.placeholder_format` on non-placeholder
+  shapes (e.g., `GraphicFrame` for tables) raises `ValueError`, not returns `None`. Must wrap
+  in `try/except (ValueError, AttributeError)`. Same for `run.font.color.rgb` on `_NoneColor`.
+
+- **pdfplumber text extraction**: Returns `\n`-separated lines, not `\n\n`-separated paragraphs.
+  Heading detection uses char-level font sizes (larger than body font = heading). Without char
+  data, falls back to heuristic (title case, ALL CAPS, short lines).
+
+- **PDF export via WeasyPrint**: Always Tier 1 or Tier 2 — PDF internal structure is too complex
+  for Tier 3 patching. Export path: DocumentModel → HTML → `weasyprint.HTML().write_pdf()`.
+
+- **XLSX dual workbook open**: `openpyxl.load_workbook(data_only=True)` for computed values,
+  `load_workbook(data_only=False)` for formulas. Both needed for full fidelity extraction.
+
+- **XLSX merged cells**: Must unmerge and duplicate the top-left value into all cells of the
+  merge range before building the TABLE element, or the table will have `None` holes.
+
+- **CSV encoding detection**: Try `utf-8-sig` (handles BOM) → `utf-8` → `latin-1` → `cp1252`.
+  pandas `read_csv` with `dtype=str, keep_default_na=False` prevents type coercion surprises.
+
+- **fpdf2 `new_x`/`new_y` API**: fpdf2 v2.8+ uses `new_x="LMARGIN", new_y="NEXT"` instead of
+  the deprecated `ln=True` parameter for `cell()` calls.
 
 ---
 

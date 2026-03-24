@@ -70,3 +70,56 @@ def simple_docx(fixtures_dir) -> Path:
 @pytest.fixture
 def complex_docx(fixtures_dir) -> Path:
     return fixtures_dir / "complex.docx"
+
+
+# ── PDF fixtures ─────────────────────────────────────────────────────────────
+
+@pytest.fixture
+def simple_text_pdf(fixtures_dir) -> Path:
+    return fixtures_dir / "simple_text.pdf"
+
+
+@pytest.fixture
+def scanned_pdf(fixtures_dir) -> Path:
+    return fixtures_dir / "scanned.pdf"
+
+
+@pytest.fixture
+def mixed_pdf(fixtures_dir) -> Path:
+    return fixtures_dir / "mixed.pdf"
+
+
+# ── PPTX fixtures ────────────────────────────────────────────────────────────
+
+@pytest.fixture
+def simple_pptx(fixtures_dir) -> Path:
+    return fixtures_dir / "simple.pptx"
+
+
+# ── XLSX fixtures ────────────────────────────────────────────────────────────
+
+@pytest.fixture
+def simple_xlsx(fixtures_dir) -> Path:
+    return fixtures_dir / "simple.xlsx"
+
+
+@pytest.fixture
+def complex_xlsx(fixtures_dir) -> Path:
+    return fixtures_dir / "complex.xlsx"
+
+
+# ── CSV/TSV fixtures ─────────────────────────────────────────────────────────
+
+@pytest.fixture
+def simple_csv(fixtures_dir) -> Path:
+    return fixtures_dir / "simple.csv"
+
+
+@pytest.fixture
+def unicode_csv(fixtures_dir) -> Path:
+    return fixtures_dir / "unicode.csv"
+
+
+@pytest.fixture
+def simple_tsv(fixtures_dir) -> Path:
+    return fixtures_dir / "simple.tsv"
