@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MarkFlow — Locations</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+  <style>
+    .loc-card { padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 0.75rem; background: var(--surface); }
+    .loc-card-header { display: flex; justify-content: space-between; align-items: center; }
+    .loc-name { font-weight: 600; font-size: 1rem; }
+    .loc-path { font-family: monospace; font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem; }
+    .loc-notes { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.15rem; font-style: italic; }
+    .loc-meta { display: flex; gap: 1rem; margin-top: 0.4rem; font-size: 0.82rem; }
+    .loc-actions { display: flex; gap: 0.4rem; }
+    .loc-status { display: inline-flex; align-items: center; gap: 0.25rem; }
+    .loc-status.ok { color: var(--ok); }
+    .loc-status.err { color: var(--error); }
+    .section-label { font-weight: 600; font-size: 0.9rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin: 1.5rem 0 0.5rem; padding-bottom: 0.25rem; border-bottom: 1px solid var(--border); }
+    .add-form { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem; align-items: center; padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); margin-bottom: 1rem; }
+    .add-form label { font-weight: 500; font-size: 0.9rem; }
+    .add-form input, .add-form select, .add-form textarea { padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 0.9rem; }
+    .add-form textarea { resize: vertical; min-height: 2.5rem; font-family: inherit; }
+    .add-form .form-actions { grid-column: 1 / -1; margin-top: 0.5rem; display: flex; gap: 0.5rem; }
+    .path-row { display: flex; gap: 0.5rem; align-items: center; }
+    .path-row input { flex: 1; }
+    .validate-result { grid-column: 2; font-size: 0.82rem; margin-top: -0.25rem; }
+    .validate-result.ok { color: var(--ok); }
+    .validate-result.err { color: var(--error); }
+    .confirm-row { display: inline-flex; gap: 0.5rem; align-items: center; font-size: 0.85rem; }
+    .empty-state { text-align: center; padding: 2rem; color: var(--text-muted); }
+    .setup-banner { background: var(--surface-alt); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; text-align: center; margin-bottom: 1.5rem; }
+    .setup-banner p { margin: 0.5rem 0; font-size: 0.95rem; }
+    .spinner-sm { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="/" class="nav-logo">MarkFlow</a>
+    <div class="nav-links">
+      <a href="/" class="nav-link">Home</a>
+      <a href="/" class="nav-link">Convert</a>
+      <a href="/bulk.html" class="nav-link">Bulk</a>
+      <a href="/search.html" class="nav-link">Search</a>
+      <a href="/history.html" class="nav-link">History</a>
+      <a href="/settings.html" class="nav-link">Settings</a>
+    </div>
+  </nav>
+
+  <div class="container page-content">
+    <div id="error-banner" role="alert" hidden></div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h1>Locations</h1>
+      <button class="btn btn-primary" id="add-btn">+ Add Location</button>
+    </div>
+    <p class="text-muted mb-2">Define friendly names for container paths used in bulk conversion jobs.</p>
+
+    <!-- Setup banner for first-time users -->
+    <div id="setup-banner" class="setup-banner" hidden>
+      <p><strong>Welcome!</strong> Before you can run a bulk job, set up at least one source location and one output location.</p>
+      <p>Locations are friendly names for folder paths inside the Docker container — not Windows paths.</p>
+    </div>
+
+    <!-- Add/Edit form (hidden by default) -->
+    <div id="add-form-wrap" hidden>
+      <div class="add-form" id="add-form">
+        <label for="loc-name">Name</label>
+        <input type="text" id="loc-name" placeholder="e.g. Company Share" maxlength="80">
+        <label for="loc-path">Path</label>
+        <div class="path-row">
+          <input type="text" id="loc-path" placeholder="/host/c/Users/...">
+          <button type="button" class="btn btn-ghost btn-sm" id="browse-btn">Browse...</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="check-access-btn">Check Access</button>
+        </div>
+        <label></label>
+        <div class="validate-result" id="validate-result"></div>
+        <label for="loc-type">Type</label>
+        <select id="loc-type">
+          <option value="source">Source</option>
+          <option value="output">Output</option>
+          <option value="both">Both</option>
+        </select>
+        <label for="loc-notes">Notes</label>
+        <textarea id="loc-notes" placeholder="Optional description" maxlength="500"></textarea>
+        <div class="form-actions">
+          <button class="btn btn-primary" id="save-btn">Save</button>
+          <button class="btn btn-ghost" id="cancel-btn">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Location lists by type -->
+    <div id="source-section">
+      <div class="section-label">Source Locations</div>
+      <div id="source-list"></div>
+    </div>
+
+    <div id="output-section">
+      <div class="section-label">Output Locations</div>
+      <div id="output-list"></div>
+    </div>
+
+    <div id="both-section">
+      <div class="section-label">Both (Source &amp; Output)</div>
+      <div id="both-list"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script src="/static/js/folder-picker.js"></script>
+  <script>
+  let editingId = null;
+  let allLocations = [];
+
+  // ── Load & render ─────────────────────────────────────────────────────────
+
+  async function loadLocations() {
+    try {
+      allLocations = await API.get('/api/locations');
+      renderLocations();
+
+      // Show setup banner if ?setup=true and no locations
+      const params = new URLSearchParams(location.search);
+      if (params.get('setup') === 'true' && allLocations.length === 0) {
+        document.getElementById('setup-banner').hidden = false;
+      } else {
+        document.getElementById('setup-banner').hidden = true;
+      }
+
+      // Auto-open form if setup mode and no locations yet, then open folder picker
+      if (params.get('setup') === 'true' && allLocations.length === 0) {
+        showForm();
+        // Auto-open the folder picker for source location
+        setTimeout(() => {
+          const picker = new FolderPicker({
+            title: 'Select Source Folder',
+            mode: 'source',
+            initialPath: '/host',
+            onSelect: (path) => { validatePath(path); },
+          });
+          picker.open();
+        }, 300);
+      }
+    } catch (e) {
+      showError('Failed to load locations: ' + e.message);
+    }
+  }
+
+  function renderLocations() {
+    const groups = { source: [], output: [], both: [] };
+    allLocations.forEach(loc => {
+      if (groups[loc.type]) groups[loc.type].push(loc);
+    });
+
+    for (const [type, locs] of Object.entries(groups)) {
+      const listEl = document.getElementById(`${type}-list`);
+      if (locs.length === 0) {
+        listEl.innerHTML = '<div class="empty-state">(none)</div>';
+      } else {
+        listEl.innerHTML = locs.map(loc => renderCard(loc)).join('');
+      }
+    }
+
+    // Fetch accessibility badges asynchronously
+    allLocations.forEach(loc => validateBadge(loc.id, loc.path));
+  }
+
+  function renderCard(loc) {
+    return `<div class="loc-card" id="card-${loc.id}">
+      <div class="loc-card-header">
+        <span class="loc-name">${esc(loc.name)}</span>
+        <div class="loc-actions">
+          <button class="btn btn-ghost btn-sm" onclick="editLocation('${loc.id}')">Edit</button>
+          <button class="btn btn-ghost btn-sm" id="del-btn-${loc.id}" onclick="confirmDelete('${loc.id}', '${esc(loc.name)}')">Delete</button>
+        </div>
+      </div>
+      <div class="loc-path">${esc(loc.path)}${loc.notes ? ' &middot; ' + esc(loc.notes) : ''}</div>
+      <div class="loc-meta">
+        <span class="loc-status" id="status-${loc.id}"><span class="spinner-sm"></span></span>
+      </div>
+    </div>`;
+  }
+
+  function esc(str) {
+    const d = document.createElement('div');
+    d.textContent = str || '';
+    return d.innerHTML;
+  }
+
+  async function validateBadge(locId, path) {
+    const el = document.getElementById(`status-${locId}`);
+    if (!el) return;
+    try {
+      const r = await API.get(`/api/locations/validate?path=${encodeURIComponent(path)}`);
+      if (r.accessible) {
+        let text = 'Accessible';
+        if (r.writable) text += ' &middot; Writable';
+        else text += ' &middot; Read-only';
+        if (r.file_count_estimate != null) text += ` &middot; ~${r.file_count_estimate.toLocaleString()} files`;
+        el.innerHTML = text;
+        el.className = 'loc-status ok';
+      } else {
+        el.innerHTML = r.error === 'not_a_container_path' ? 'Not a container path' : 'Not accessible';
+        el.className = 'loc-status err';
+      }
+    } catch {
+      el.innerHTML = 'Check failed';
+      el.className = 'loc-status err';
+    }
+  }
+
+  // ── Add / Edit form ──────────────────────────────────────────────────────
+
+  function showForm(loc = null) {
+    editingId = loc ? loc.id : null;
+    document.getElementById('loc-name').value = loc ? loc.name : '';
+    document.getElementById('loc-path').value = loc ? loc.path : '';
+    document.getElementById('loc-type').value = loc ? loc.type : 'source';
+    document.getElementById('loc-notes').value = loc ? (loc.notes || '') : '';
+    document.getElementById('validate-result').textContent = '';
+    document.getElementById('add-form-wrap').hidden = false;
+    document.getElementById('save-btn').textContent = loc ? 'Update' : 'Save';
+    document.getElementById('loc-name').focus();
+  }
+
+  function hideForm() {
+    editingId = null;
+    document.getElementById('add-form-wrap').hidden = true;
+  }
+
+  document.getElementById('add-btn').addEventListener('click', () => showForm());
+  document.getElementById('cancel-btn').addEventListener('click', hideForm);
+
+  function editLocation(id) {
+    const loc = allLocations.find(l => l.id === id);
+    if (loc) showForm(loc);
+  }
+
+  // Check Access button
+  document.getElementById('check-access-btn').addEventListener('click', async () => {
+    const path = document.getElementById('loc-path').value.trim();
+    const el = document.getElementById('validate-result');
+    if (!path) { el.textContent = 'Enter a path first.'; el.className = 'validate-result err'; return; }
+
+    el.innerHTML = '<span class="spinner-sm"></span> Checking...';
+    el.className = 'validate-result';
+
+    try {
+      const r = await API.get(`/api/locations/validate?path=${encodeURIComponent(path)}`);
+      if (r.error === 'not_a_container_path') {
+        el.textContent = 'Not a container path — use /mnt/... not C:\\...';
+        el.className = 'validate-result err';
+      } else if (!r.exists) {
+        el.textContent = 'Path not found — check the container mount.';
+        el.className = 'validate-result err';
+      } else if (r.accessible) {
+        let msg = 'Accessible';
+        msg += r.writable ? ' · Writable' : ' · Read-only';
+        if (r.file_count_estimate != null) msg += ` · ~${r.file_count_estimate.toLocaleString()} files`;
+        el.textContent = msg;
+        el.className = 'validate-result ok';
+      } else {
+        el.textContent = 'Path exists but is not readable.';
+        el.className = 'validate-result err';
+      }
+    } catch {
+      el.textContent = 'Check failed.';
+      el.className = 'validate-result err';
+    }
+  });
+
+  // Save
+  document.getElementById('save-btn').addEventListener('click', async () => {
+    const name = document.getElementById('loc-name').value.trim();
+    const path = document.getElementById('loc-path').value.trim();
+    const type = document.getElementById('loc-type').value;
+    const notes = document.getElementById('loc-notes').value.trim() || null;
+
+    if (!name || !path) {
+      showToast('Name and path are required.', 'error');
+      return;
+    }
+
+    const btn = document.getElementById('save-btn');
+    btn.disabled = true;
+
+    try {
+      if (editingId) {
+        await API.put(`/api/locations/${editingId}`, { name, path, type, notes });
+        showToast('Location updated.', 'success');
+      } else {
+        await API.post('/api/locations', { name, path, type, notes });
+        showToast('Location created.', 'success');
+      }
+      hideForm();
+      await loadLocations();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // ── Delete ──────────────────────────────────────────────────────────────
+
+  function confirmDelete(id, name) {
+    const btn = document.getElementById(`del-btn-${id}`);
+    const parent = btn.parentElement;
+
+    // Replace button with confirm row
+    const row = document.createElement('span');
+    row.className = 'confirm-row';
+    row.innerHTML = `Delete '${esc(name)}'? <button class="btn btn-danger btn-sm" id="confirm-del-${id}">Confirm</button> <button class="btn btn-ghost btn-sm" id="cancel-del-${id}">Cancel</button>`;
+    btn.hidden = true;
+    parent.appendChild(row);
+
+    document.getElementById(`cancel-del-${id}`).addEventListener('click', () => {
+      row.remove();
+      btn.hidden = false;
+    });
+
+    document.getElementById(`confirm-del-${id}`).addEventListener('click', async () => {
+      try {
+        await API.del(`/api/locations/${id}`);
+        showToast('Location deleted.', 'success');
+        await loadLocations();
+      } catch (e) {
+        // Check for location_in_use
+        let detail = e.data?.detail || e.message;
+        if (typeof detail === 'object' && detail.error === 'location_in_use') {
+          row.innerHTML = `Used by ${detail.job_count} job(s). <button class="btn btn-danger btn-sm" id="force-del-${id}">Delete anyway</button> <button class="btn btn-ghost btn-sm" id="cancel-del2-${id}">Cancel</button>`;
+          document.getElementById(`force-del-${id}`).addEventListener('click', async () => {
+            try {
+              await API.del(`/api/locations/${id}?force=true`);
+              showToast('Location deleted.', 'success');
+              await loadLocations();
+            } catch (e2) { showToast(e2.message, 'error'); }
+          });
+          document.getElementById(`cancel-del2-${id}`).addEventListener('click', () => {
+            row.remove();
+            btn.hidden = false;
+          });
+        } else {
+          showToast(typeof detail === 'string' ? detail : JSON.stringify(detail), 'error');
+          row.remove();
+          btn.hidden = false;
+        }
+      }
+    });
+  }
+
+  // ── Browse button ───────────────────────────────────────────────────────
+
+  function validatePath(path) {
+    document.getElementById('loc-path').value = path;
+    document.getElementById('check-access-btn').click();
+  }
+
+  document.getElementById('browse-btn').addEventListener('click', () => {
+    const currentType = document.getElementById('loc-type').value;
+    const mode = currentType === 'output' ? 'output'
+               : currentType === 'source' ? 'source'
+               : 'any';
+
+    const picker = new FolderPicker({
+      title: 'Select Folder',
+      mode: mode,
+      initialPath: document.getElementById('loc-path').value || '/host',
+      onSelect: (path) => { validatePath(path); },
+    });
+    picker.open();
+  });
+
+  // When type changes, clear path if incompatible
+  document.getElementById('loc-type').addEventListener('change', () => {
+    const type = document.getElementById('loc-type').value;
+    const path = document.getElementById('loc-path').value;
+    if (type === 'source' && path.startsWith('/mnt/output-repo')) {
+      document.getElementById('loc-path').value = '';
+      document.getElementById('validate-result').textContent = 'Path cleared — source locations must be under /host/.';
+      document.getElementById('validate-result').className = 'validate-result err';
+    } else if (type === 'output' && path.startsWith('/host/')) {
+      document.getElementById('loc-path').value = '';
+      document.getElementById('validate-result').textContent = 'Path cleared — output locations use /mnt/output-repo/.';
+      document.getElementById('validate-result').className = 'validate-result err';
+    }
+  });
+
+  // ── Init ────────────────────────────────────────────────────────────────
+
+  loadLocations();
+  </script>
+</body>
+</html>
