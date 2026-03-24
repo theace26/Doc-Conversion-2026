@@ -4,6 +4,9 @@ System health checks — verifies all required external dependencies at startup.
 HealthChecker.check_all() returns a dict with per-dependency status.
 Called by the /api/health endpoint and during app lifespan startup.
 
+run_health_check() — reusable entry point returning a structured JSON response
+for both the startup lifespan and the /debug/api/health endpoint.
+
 Checks:
   - Tesseract OCR (version, path)
   - LibreOffice headless (available for .doc→.docx and chart export)
@@ -16,6 +19,8 @@ Checks:
 import asyncio
 import os
 import shutil
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
@@ -24,6 +29,9 @@ log = structlog.get_logger(__name__)
 
 # Disk space warning threshold: 1 GB
 DISK_WARN_BYTES = 1 * 1024 * 1024 * 1024
+
+# Track app start time for uptime calculation
+_APP_START_TIME = time.monotonic()
 
 
 class HealthChecker:
@@ -125,10 +133,12 @@ class HealthChecker:
             stat = shutil.disk_usage(".")
             free_gb = stat.free / (1024 ** 3)
             total_gb = stat.total / (1024 ** 3)
+            used_gb = (stat.total - stat.free) / (1024 ** 3)
             ok = stat.free >= DISK_WARN_BYTES
             return {
                 "ok": ok,
                 "free_gb": round(free_gb, 2),
+                "used_gb": round(used_gb, 2),
                 "total_gb": round(total_gb, 2),
                 "warning": None if ok else f"Low disk space: {free_gb:.1f} GB free",
             }
@@ -156,3 +166,25 @@ class HealthChecker:
             }
         except Exception as e:
             return {"ok": False, "error": str(e)}
+
+
+async def run_health_check() -> dict:
+    """
+    Reusable health check entry point.
+
+    Returns a JSON-serializable dict with status, uptime, timestamp,
+    and per-component health. Used by both the startup lifespan and
+    the /debug/api/health endpoint.
+    """
+    checker = HealthChecker()
+    components = await checker.check_all()
+
+    all_ok = all(c.get("ok", False) for c in components.values())
+    uptime_seconds = int(time.monotonic() - _APP_START_TIME)
+
+    return {
+        "status": "ok" if all_ok else "degraded",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "uptime_seconds": uptime_seconds,
+        "components": components,
+    }

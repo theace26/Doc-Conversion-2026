@@ -16,7 +16,9 @@ async def test_health_ok(client):
     resp = await client.get("/api/health")
     assert resp.status_code == 200
     data = resp.json()
-    assert "database" in data
+    assert "components" in data
+    assert "database" in data["components"]
+    assert "status" in data
 
 
 # ── Preferences ───────────────────────────────────────────────────────────────
@@ -218,3 +220,37 @@ async def test_convert_md_no_frontmatter_still_succeeds(client):
     )
     assert resp.status_code == 200
     assert "batch_id" in resp.json()
+
+
+# ── Phase 5 additions ───────────────────────────────────────────────────────
+
+async def test_convert_multiple_files(client, simple_docx):
+    """Upload multiple files in one request."""
+    content = simple_docx.read_bytes()
+    resp = await client.post(
+        "/api/convert",
+        files=[
+            ("files", ("file1.docx", io.BytesIO(content), "application/octet-stream")),
+            ("files", ("file2.docx", io.BytesIO(content), "application/octet-stream")),
+        ],
+        data={"direction": "to_md"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total_files"] == 2
+
+
+async def test_preview_returns_element_counts(client, simple_docx):
+    """Preview response includes element counts by type."""
+    content = simple_docx.read_bytes()
+    resp = await client.post(
+        "/api/convert/preview",
+        files={"file": ("test.docx", io.BytesIO(content), "application/octet-stream")},
+        data={"direction": "to_md"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "element_counts" in body
+    assert isinstance(body["element_counts"], dict)
+    # Should have at least heading and paragraph counts
+    assert len(body["element_counts"]) >= 1

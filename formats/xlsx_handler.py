@@ -12,9 +12,11 @@ Export:
   Tier 3: if original .xlsx exists and hash match ≥ 80%, patches cell values in-place.
 """
 
-import logging
+import time
 from pathlib import Path
 from typing import Any
+
+import structlog
 
 from formats.base import FormatHandler, register_handler
 from core.document_model import (
@@ -25,7 +27,7 @@ from core.document_model import (
     compute_content_hash,
 )
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 
 @register_handler
@@ -36,6 +38,9 @@ class XlsxHandler(FormatHandler):
 
     def ingest(self, file_path: Path) -> DocumentModel:
         import openpyxl
+
+        t_start = time.perf_counter()
+        log.info("handler_ingest_start", filename=file_path.name, format="xlsx")
 
         model = DocumentModel()
         model.metadata = DocumentMetadata(
@@ -111,6 +116,13 @@ class XlsxHandler(FormatHandler):
         if wb_formula:
             wb_formula.close()
 
+        duration_ms = int((time.perf_counter() - t_start) * 1000)
+        log.info(
+            "handler_ingest_complete",
+            filename=file_path.name,
+            element_count=len(model.elements),
+            duration_ms=duration_ms,
+        )
         return model
 
     def _build_merged_cells_map(self, ws: Any) -> dict[tuple[int, int], Any]:
@@ -177,9 +189,15 @@ class XlsxHandler(FormatHandler):
     ) -> None:
         import openpyxl
 
+        tier = 3 if (original_path and original_path.exists() and sidecar) else (2 if sidecar else 1)
+        t_start = time.perf_counter()
+        log.info("handler_export_start", filename=output_path.name, target_format="xlsx", tier=tier)
+
         # Tier 3: patch original
         if original_path and original_path.exists() and sidecar:
             if self._try_tier3_export(model, output_path, original_path, sidecar):
+                duration_ms = int((time.perf_counter() - t_start) * 1000)
+                log.info("handler_export_complete", filename=output_path.name, output_path=str(output_path), duration_ms=duration_ms)
                 return
 
         wb = openpyxl.Workbook()
@@ -202,6 +220,8 @@ class XlsxHandler(FormatHandler):
             wb.remove(default_sheet)
 
         wb.save(str(output_path))
+        duration_ms = int((time.perf_counter() - t_start) * 1000)
+        log.info("handler_export_complete", filename=output_path.name, output_path=str(output_path), duration_ms=duration_ms)
 
     def _split_into_sheet_sections(
         self, model: DocumentModel
@@ -401,10 +421,14 @@ class XlsxHandler(FormatHandler):
                     if elem.type == ElementType.TABLE and isinstance(elem.content, list):
                         for ri, row in enumerate(elem.content, start=1):
                             for ci, val in enumerate(row, start=1):
-                                cell = ws.cell(row=ri, column=ci)
-                                # Only update data cells, not formulas
-                                if not (isinstance(cell.value, str) and cell.value.startswith("=")):
-                                    cell.value = self._parse_cell_value(val)
+                                try:
+                                    cell = ws.cell(row=ri, column=ci)
+                                    # Only update data cells, not formulas
+                                    if not (isinstance(cell.value, str) and cell.value.startswith("=")):
+                                        cell.value = self._parse_cell_value(val)
+                                except AttributeError:
+                                    # MergedCell objects have read-only .value
+                                    pass
 
         wb.save(str(output_path))
         wb.close()

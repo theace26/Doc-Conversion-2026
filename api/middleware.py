@@ -14,6 +14,8 @@ import structlog
 from fastapi import FastAPI, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from core.logging_config import bind_request_context, clear_context
+
 log = structlog.get_logger(__name__)
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
@@ -25,26 +27,35 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         request_id = str(uuid.uuid4())
         start = time.perf_counter()
 
-        # Bind request_id to all log calls within this request
-        structlog.contextvars.clear_contextvars()
-        structlog.contextvars.bind_contextvars(request_id=request_id)
+        # Bind request context for all downstream log calls
+        clear_context()
+        bind_request_context(request_id, request.url.path, request.method)
 
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
 
-        duration_ms = int((time.perf_counter() - start) * 1000)
+            duration_ms = int((time.perf_counter() - start) * 1000)
 
-        if DEBUG:
-            response.headers["X-MarkFlow-Request-Id"] = request_id
-            response.headers["X-MarkFlow-Duration-Ms"] = str(duration_ms)
+            if DEBUG:
+                response.headers["X-MarkFlow-Request-Id"] = request_id
+                response.headers["X-MarkFlow-Duration-Ms"] = str(duration_ms)
 
-        log.info(
-            "http.request",
-            method=request.method,
-            path=request.url.path,
-            status_code=response.status_code,
-            duration_ms=duration_ms,
-        )
-        return response
+            log.info(
+                "request_complete",
+                status_code=response.status_code,
+                duration_ms=duration_ms,
+            )
+            return response
+        except Exception:
+            duration_ms = int((time.perf_counter() - start) * 1000)
+            log.error(
+                "request_error",
+                duration_ms=duration_ms,
+                exc_info=True,
+            )
+            raise
+        finally:
+            clear_context()
 
 
 def add_middleware(app: FastAPI) -> None:

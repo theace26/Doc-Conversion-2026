@@ -123,3 +123,172 @@ def unicode_csv(fixtures_dir) -> Path:
 @pytest.fixture
 def simple_tsv(fixtures_dir) -> Path:
     return fixtures_dir / "simple.tsv"
+
+
+# ── Additional fixtures for Phase 5 ────────────────────────────────────────
+
+@pytest.fixture
+def latin1_csv_path(tmp_path) -> Path:
+    """CSV encoded in latin-1 to test encoding detection."""
+    import csv
+
+    rows = [
+        ["id", "name", "city"],
+        ["1", "José", "São Paulo"],
+        ["2", "François", "Genève"],
+        ["3", "Günter", "Zürich"],
+    ]
+    path = tmp_path / "latin1.csv"
+    with open(path, "w", newline="", encoding="latin-1") as f:
+        writer = csv.writer(f)
+        writer.writerows(rows)
+    return path
+
+
+@pytest.fixture
+def simple_pdf_path(tmp_path) -> Path:
+    """Generates a minimal text-native PDF using fpdf2."""
+    from fpdf import FPDF
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 12, "Test PDF Title", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 12)
+    pdf.multi_cell(0, 7,
+        "This is a test paragraph for the PDF handler. "
+        "It contains enough text to pass the minimum text length threshold."
+    )
+    path = tmp_path / "test.pdf"
+    pdf.output(str(path))
+    return path
+
+
+@pytest.fixture
+def simple_pptx_path(tmp_path) -> Path:
+    """3-slide PPTX: title slide, content slide with bullet list, slide with table."""
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    prs = Presentation()
+    # Slide 1 — Title
+    slide = prs.slides.add_slide(prs.slide_layouts[0])
+    slide.shapes.title.text = "Test Title"
+    slide.placeholders[1].text = "Subtitle text"
+
+    # Slide 2 — Content with bullets
+    slide2 = prs.slides.add_slide(prs.slide_layouts[1])
+    slide2.shapes.title.text = "Content Slide"
+    body = slide2.placeholders[1]
+    body.text = "Bullet point one"
+    body.text_frame.add_paragraph().text = "Bullet point two"
+
+    # Slide 3 — Table
+    slide3 = prs.slides.add_slide(prs.slide_layouts[1])
+    slide3.shapes.title.text = "Table Slide"
+    tbl = slide3.shapes.add_table(3, 2, Inches(1), Inches(2), Inches(6), Inches(2)).table
+    tbl.cell(0, 0).text = "Name"
+    tbl.cell(0, 1).text = "Value"
+    tbl.cell(1, 0).text = "Alpha"
+    tbl.cell(1, 1).text = "100"
+    tbl.cell(2, 0).text = "Beta"
+    tbl.cell(2, 1).text = "200"
+
+    path = tmp_path / "test.pptx"
+    prs.save(str(path))
+    return path
+
+
+@pytest.fixture
+def simple_xlsx_path(tmp_path) -> Path:
+    """Workbook: Sheet1 = simple table, Sheet2 = merged cells, Sheet3 = formula cells."""
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    ws1 = wb.active
+    ws1.title = "Data"
+    ws1.append(["Name", "Value"])
+    ws1.append(["Alice", "100"])
+    ws1.append(["Bob", "200"])
+    ws1.append(["Charlie", "300"])
+
+    ws2 = wb.create_sheet("Merged")
+    ws2.append(["Category", "Count"])
+    ws2.append(["A", "5"])
+    ws2.append(["A", "3"])
+    ws2.merge_cells("A2:A3")
+
+    ws3 = wb.create_sheet("Formulas")
+    ws3.append(["X", "Y", "Sum"])
+    ws3.append([10, 20, "=A2+B2"])
+    ws3.append([30, 40, "=A3+B3"])
+
+    path = tmp_path / "test.xlsx"
+    wb.save(str(path))
+    return path
+
+
+@pytest.fixture
+def simple_csv_path(tmp_path) -> Path:
+    """UTF-8 CSV, 5 columns, 20 rows. Header row."""
+    import csv
+
+    path = tmp_path / "test.csv"
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["id", "name", "age", "city", "score"])
+        for i in range(1, 21):
+            writer.writerow([str(i), f"Person_{i}", str(20 + i), f"City_{i}", f"{50.0 + i}"])
+    return path
+
+
+@pytest.fixture
+def tsv_path(tmp_path) -> Path:
+    """Tab-separated file."""
+    import csv
+
+    path = tmp_path / "test.tsv"
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f, delimiter="\t")
+        writer.writerow(["id", "name", "value"])
+        for i in range(1, 6):
+            writer.writerow([str(i), f"Item_{i}", str(i * 100)])
+    return path
+
+
+@pytest.fixture
+def document_model_with_all_elements():
+    """DocumentModel containing every ElementType — used to test round-trip completeness."""
+    from core.document_model import DocumentModel, DocumentMetadata, Element, ElementType
+
+    model = DocumentModel()
+    model.metadata = DocumentMetadata(
+        source_file="all_elements.md",
+        source_format="md",
+        title="All Elements Test",
+    )
+    model.add_element(Element(type=ElementType.HEADING, content="Main Title", level=1))
+    model.add_element(Element(type=ElementType.HEADING, content="Section", level=2))
+    model.add_element(Element(type=ElementType.PARAGRAPH, content="A regular paragraph."))
+    model.add_element(Element(type=ElementType.CODE_BLOCK, content="print('hello')"))
+    model.add_element(Element(type=ElementType.BLOCKQUOTE, content="A wise quote."))
+    model.add_element(Element(type=ElementType.HORIZONTAL_RULE, content=""))
+    model.add_element(Element(type=ElementType.LIST_ITEM, content="First item", attributes={"ordered": False}))
+    model.add_element(Element(type=ElementType.LIST_ITEM, content="Second item", attributes={"ordered": True}))
+    model.add_element(Element(
+        type=ElementType.TABLE,
+        content=[["H1", "H2"], ["A", "B"], ["C", "D"]],
+    ))
+    model.add_element(Element(type=ElementType.PAGE_BREAK, content=""))
+    model.add_element(Element(type=ElementType.PARAGRAPH, content="After page break."))
+    model.add_element(Element(
+        type=ElementType.IMAGE,
+        content="assets/test.png",
+        attributes={"alt": "test image", "src": "assets/test.png"},
+    ))
+    model.add_element(Element(
+        type=ElementType.FOOTNOTE,
+        content="This is a footnote.",
+        attributes={"id": "1"},
+    ))
+    return model

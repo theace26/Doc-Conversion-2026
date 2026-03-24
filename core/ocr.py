@@ -48,7 +48,7 @@ def needs_ocr(image: "PILImage") -> bool:
     stat = ImageStat.Stat(gray)
     stddev = stat.stddev[0]
     if stddev < 8.0:
-        log.debug("ocr.needs_ocr", result=False, reason="blank", stddev=stddev)
+        log.debug("ocr_detection", signal="blank_page", needs_ocr=False, stddev=stddev)
         return False
 
     # Signal 2: edge density
@@ -56,7 +56,7 @@ def needs_ocr(image: "PILImage") -> bool:
     edge_stat = ImageStat.Stat(edges)
     edge_mean = edge_stat.mean[0] / 255.0
     if edge_mean < 0.005:
-        log.debug("ocr.needs_ocr", result=False, reason="no_edges", edge_mean=edge_mean)
+        log.debug("ocr_detection", signal="no_edges", needs_ocr=False, edge_mean=edge_mean)
         return False
 
     # Signal 3: high-entropy + very low structured-edge → natural photo
@@ -70,17 +70,18 @@ def needs_ocr(image: "PILImage") -> bool:
 
     if entropy > 7.5 and edge_mean < 0.04:
         log.debug(
-            "ocr.needs_ocr",
-            result=False,
-            reason="photo_heuristic",
+            "ocr_detection",
+            signal="photo_heuristic",
+            needs_ocr=False,
             entropy=round(entropy, 2),
             edge_mean=round(edge_mean, 4),
         )
         return False
 
     log.debug(
-        "ocr.needs_ocr",
-        result=True,
+        "ocr_detection",
+        signal="text_density",
+        needs_ocr=True,
         stddev=round(stddev, 1),
         edge_mean=round(edge_mean, 4),
         entropy=round(entropy, 2),
@@ -232,10 +233,16 @@ def ocr_page(
     Preprocessing is applied when config.preprocess is True.
     Debug artifacts are saved when the DEBUG env var is set.
     """
+    import time as _time
+
     import pytesseract
     from pytesseract import Output
 
     from core.ocr_models import OCRConfig, OCRPage, OCRWord
+
+    t_start = _time.perf_counter()
+    w, h = image.size
+    log.info("ocr_page_start", filename=file_name, page_num=page_num, image_size_px=f"{w}x{h}")
 
     # ── Preprocess ────────────────────────────────────────────────────────────
     processed = preprocess_image(image) if config.preprocess else image.convert("L")
@@ -289,13 +296,14 @@ def ocr_page(
         average_confidence=avg_conf,
     )
 
+    duration_ms = int((_time.perf_counter() - t_start) * 1000)
     log.info(
-        "ocr.page_done",
-        batch_id=batch_id,
-        file_name=file_name,
+        "ocr_page_complete",
+        filename=file_name,
         page_num=page_num,
         word_count=len(words),
-        avg_confidence=round(avg_conf, 1),
+        mean_confidence=round(avg_conf, 1),
+        duration_ms=duration_ms,
     )
     return page
 
@@ -356,12 +364,13 @@ def flag_low_confidence(
             )
 
     if flags:
+        min_conf = min(f.confidence for f in flags) if flags else 0.0
         log.info(
-            "ocr.flags_generated",
-            batch_id=batch_id,
-            file_name=file_name,
+            "ocr_low_confidence",
+            filename=file_name,
             page_num=page.page_num,
             flag_count=len(flags),
+            min_confidence=round(min_conf, 1),
         )
     return flags
 
@@ -482,13 +491,11 @@ async def run_ocr(
     avg_conf = sum(valid_confs) / len(valid_confs) if valid_confs else 0.0
 
     log.info(
-        "ocr.complete",
-        batch_id=batch_id,
-        file_name=file_name,
-        pages=len(all_pages),
-        total_words=total_words,
-        flagged_words=flagged_words,
-        avg_confidence=round(avg_conf, 1),
+        "ocr_complete",
+        filename=file_name,
+        page_count=len(all_pages),
+        flagged_count=len(all_flags),
+        overall_confidence=round(avg_conf, 1),
     )
 
     return OCRResult(

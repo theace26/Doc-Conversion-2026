@@ -13,9 +13,11 @@ Export:
 
 import csv
 import io
-import logging
+import time
 from pathlib import Path
 from typing import Any
+
+import structlog
 
 from formats.base import FormatHandler, register_handler
 from core.document_model import (
@@ -25,7 +27,7 @@ from core.document_model import (
     ElementType,
 )
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 # Encoding detection order
 _ENCODINGS = ["utf-8-sig", "utf-8", "latin-1", "cp1252"]
@@ -38,8 +40,11 @@ class CsvHandler(FormatHandler):
     # ── Ingest ────────────────────────────────────────────────────────────────
 
     def ingest(self, file_path: Path) -> DocumentModel:
-        model = DocumentModel()
+        t_start = time.perf_counter()
         ext = file_path.suffix.lower()
+        log.info("handler_ingest_start", filename=file_path.name, format=ext.lstrip("."))
+
+        model = DocumentModel()
         model.metadata = DocumentMetadata(
             source_file=file_path.name,
             source_format=ext.lstrip("."),
@@ -54,6 +59,8 @@ class CsvHandler(FormatHandler):
 
         if not rows:
             model.warnings.append("Empty CSV/TSV file — no data extracted.")
+            duration_ms = int((time.perf_counter() - t_start) * 1000)
+            log.info("handler_ingest_complete", filename=file_path.name, element_count=0, duration_ms=duration_ms)
             return model
 
         model.metadata.page_count = 1
@@ -63,6 +70,13 @@ class CsvHandler(FormatHandler):
         model.style_data["csv_delimiter"] = delimiter
         model.style_data["csv_encoding"] = encoding
 
+        duration_ms = int((time.perf_counter() - t_start) * 1000)
+        log.info(
+            "handler_ingest_complete",
+            filename=file_path.name,
+            element_count=len(model.elements),
+            duration_ms=duration_ms,
+        )
         return model
 
     def _detect_encoding(self, file_path: Path) -> str:
@@ -126,8 +140,11 @@ class CsvHandler(FormatHandler):
         sidecar: dict[str, Any] | None = None,
         original_path: Path | None = None,
     ) -> None:
-        # Determine delimiter and encoding from sidecar or output extension
+        t_start = time.perf_counter()
         ext = output_path.suffix.lower()
+        log.info("handler_export_start", filename=output_path.name, target_format=ext.lstrip("."), tier=1)
+
+        # Determine delimiter and encoding from sidecar or output extension
         delimiter = "\t" if ext == ".tsv" else ","
         encoding = "utf-8"
 
@@ -148,6 +165,9 @@ class CsvHandler(FormatHandler):
             return
 
         self._write_with_pandas(rows, output_path, delimiter, encoding)
+
+        duration_ms = int((time.perf_counter() - t_start) * 1000)
+        log.info("handler_export_complete", filename=output_path.name, output_path=str(output_path), duration_ms=duration_ms)
 
     def _write_with_pandas(
         self,

@@ -12,12 +12,14 @@ DocxHandler.export(model, output_path, sidecar=None):
   Tier 1: structure always. Tier 2: styles from sidecar. Tier 3: patch against original.
 """
 
-import logging
 import re
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
+
+import structlog
 
 from formats.base import FormatHandler, register_handler
 from core.document_model import (
@@ -30,7 +32,7 @@ from core.document_model import (
 )
 from core.image_handler import extract_image
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 # DOCX paragraph style name → (ElementType, level)
 _HEADING_STYLES: dict[str, tuple[ElementType, int]] = {
@@ -312,6 +314,8 @@ class DocxHandler(FormatHandler):
         import docx
 
         file_path = Path(file_path)
+        t_start = time.perf_counter()
+        log.info("handler_ingest_start", filename=file_path.name, format="docx")
         _tmp_docx: Path | None = None
 
         if file_path.suffix.lower() == ".doc":
@@ -370,6 +374,13 @@ class DocxHandler(FormatHandler):
                 attributes={"id": fn_id},
             ))
 
+        duration_ms = int((time.perf_counter() - t_start) * 1000)
+        log.info(
+            "handler_ingest_complete",
+            filename=file_path.name,
+            element_count=len(model.elements),
+            duration_ms=duration_ms,
+        )
         return model
 
     def _process_paragraph(self, para, doc, model: DocumentModel) -> None:
@@ -621,12 +632,17 @@ class DocxHandler(FormatHandler):
 
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        tier = 3 if original_path else (2 if sidecar else 1)
+        t_start = time.perf_counter()
+        log.info("handler_export_start", filename=output_path.name, target_format="docx", tier=tier)
 
         # ── Tier 3: try original template ─────────────────────────────────
         if original_path and Path(original_path).exists():
             doc = self._patch_from_original(model, Path(original_path), sidecar, output_path)
             if doc is not None:
                 doc.save(str(output_path))
+                duration_ms = int((time.perf_counter() - t_start) * 1000)
+                log.info("handler_export_complete", filename=output_path.name, output_path=str(output_path), duration_ms=duration_ms)
                 return
 
         # ── Tier 1/2: build from scratch ──────────────────────────────────
@@ -649,6 +665,8 @@ class DocxHandler(FormatHandler):
             self._export_element(doc, elem, model, sidecar, output_path)
 
         doc.save(str(output_path))
+        duration_ms = int((time.perf_counter() - t_start) * 1000)
+        log.info("handler_export_complete", filename=output_path.name, output_path=str(output_path), duration_ms=duration_ms)
 
     def _export_element(
         self,

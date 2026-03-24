@@ -197,3 +197,55 @@ def test_supports_format():
 def test_extensions_list():
     assert "docx" in DocxHandler.EXTENSIONS
     assert "doc" in DocxHandler.EXTENSIONS
+
+
+# ── Phase 5 edge cases ──────────────────────────────────────────────────────
+
+def test_long_paragraph_no_truncation(tmp_path):
+    """10,000+ char paragraph should not be truncated or crash."""
+    import docx
+
+    doc = docx.Document()
+    long_text = "Lorem ipsum dolor sit amet. " * 500  # ~14,000 chars
+    doc.add_paragraph(long_text)
+    path = tmp_path / "long.docx"
+    doc.save(str(path))
+
+    handler = DocxHandler()
+    model = handler.ingest(path)
+
+    paras = model.get_elements_by_type(ElementType.PARAGRAPH)
+    assert len(paras) >= 1
+    assert len(str(paras[0].content)) > 10000
+
+
+def test_export_all_three_tiers(simple_docx, tmp_path):
+    """Explicit Tier 1/2/3 export using fixture + sidecar + original."""
+    handler = DocxHandler()
+    model = handler.ingest(simple_docx)
+    styles = handler.extract_styles(simple_docx)
+
+    # Tier 1 — no sidecar
+    out1 = tmp_path / "tier1.docx"
+    handler.export(model, out1)
+    assert out1.exists()
+
+    # Tier 2 — with sidecar
+    out2 = tmp_path / "tier2.docx"
+    handler.export(model, out2, sidecar=styles)
+    assert out2.exists()
+
+    # Tier 3 — with sidecar + original
+    out3 = tmp_path / "tier3.docx"
+    handler.export(model, out3, sidecar=styles, original_path=simple_docx)
+    assert out3.exists()
+
+
+def test_corrupt_docx_raises(tmp_path):
+    """Corrupt DOCX should raise an error, not silently produce empty model."""
+    bad = tmp_path / "corrupt.docx"
+    bad.write_bytes(b"this is not a valid docx file")
+
+    handler = DocxHandler()
+    with pytest.raises(Exception):
+        handler.ingest(bad)

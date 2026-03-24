@@ -22,6 +22,7 @@ from typing import Any
 import structlog
 
 from core.database import record_conversion, upsert_batch_state
+from core.logging_config import bind_batch_context, bind_file_context
 from core.metadata import generate_manifest, generate_sidecar
 import formats  # noqa: F401 — triggers handler self-registration
 from formats.base import get_handler_for_path
@@ -164,11 +165,10 @@ def _convert_file_sync(
     warnings: list[str] = []
 
     log.info(
-        "converter.start",
-        stage="start",
-        batch_id=batch_id,
-        file_name=source_filename,
-        direction=direction,
+        "file_ingest_start",
+        filename=source_filename,
+        format=source_format,
+        size_bytes=file_path.stat().st_size if file_path.exists() else 0,
     )
 
     try:
@@ -178,19 +178,33 @@ def _convert_file_sync(
             raise ValueError(f"No handler registered for .{source_format}")
 
         # ── Ingest ────────────────────────────────────────────────────────
-        log.info("converter.ingest", stage="ingest", file_name=source_filename)
+        t_ingest = time.perf_counter()
         model = handler.ingest(file_path)
         model.metadata.source_file = source_filename
         model.metadata.source_format = source_format
         model.metadata.converted_at = datetime.now(timezone.utc).isoformat()
         warnings.extend(model.warnings)
 
+        ingest_duration = int((time.perf_counter() - t_ingest) * 1000)
+        image_count = len(model.images)
+        log.info(
+            "file_ingest_complete",
+            filename=source_filename,
+            element_count=len(model.elements),
+            image_count=image_count,
+            duration_ms=ingest_duration,
+        )
+
         # ── Extract styles ────────────────────────────────────────────────
-        log.info("converter.extract_styles", stage="extract_styles", file_name=source_filename)
         try:
             style_data = handler.extract_styles(file_path)
+            log.info(
+                "style_extraction_complete",
+                filename=source_filename,
+                entry_count=len(style_data) - 1,  # exclude document_level key
+            )
         except Exception as exc:
-            log.warning("converter.style_extract_failed", error=str(exc))
+            log.warning("style_extraction_failed", filename=source_filename, error=str(exc))
             style_data = {"document_level": {}}
 
         # ── Prepare output directory ──────────────────────────────────────
@@ -221,17 +235,27 @@ def _convert_file_sync(
             # Set style_ref in metadata
             sidecar_filename = Path(source_filename).stem + ".styles.json"
             model.metadata.style_ref = sidecar_filename
-            model.metadata.fidelity_tier = 2 if style_data.get("elements") else 1
+            tier = 2 if style_data.get("elements") else 1
+            model.metadata.fidelity_tier = tier
+
+            log.info(
+                "export_start",
+                filename=source_filename,
+                target_format="md",
+                tier=tier,
+            )
+            t_export = time.perf_counter()
 
             from formats.markdown_handler import MarkdownHandler
             md_handler = MarkdownHandler()
             md_handler.export(model, output_path)
 
+            export_duration = int((time.perf_counter() - t_export) * 1000)
             log.info(
-                "converter.export",
-                stage="export",
-                file_name=source_filename,
-                output=output_filename,
+                "export_complete",
+                filename=source_filename,
+                output_size_bytes=output_path.stat().st_size if output_path.exists() else 0,
+                duration_ms=export_duration,
             )
 
             # ── Write sidecar ──────────────────────────────────────────────
@@ -284,13 +308,12 @@ def _convert_file_sync(
 
             model.metadata.fidelity_tier = fidelity_tier
             log.info(
-                "converter.fidelity_tier",
-                stage="export",
-                file_name=source_filename,
+                "export_start",
+                filename=source_filename,
+                target_format=target_fmt,
                 tier=fidelity_tier,
-                has_sidecar=sidecar is not None,
-                has_original=original_path is not None,
             )
+            t_export = time.perf_counter()
 
             target_handler.export(
                 model,
@@ -298,19 +321,18 @@ def _convert_file_sync(
                 sidecar=sidecar,
                 original_path=original_path,
             )
+
+            export_duration = int((time.perf_counter() - t_export) * 1000)
+            log.info(
+                "export_complete",
+                filename=source_filename,
+                output_size_bytes=output_path.stat().st_size if output_path.exists() else 0,
+                duration_ms=export_duration,
+            )
         else:
             raise ValueError(f"Unknown direction: {direction}")
 
         duration_ms = int((time.perf_counter() - t_start) * 1000)
-
-        log.info(
-            "converter.done",
-            stage="done",
-            batch_id=batch_id,
-            file_name=source_filename,
-            output=output_filename,
-            duration_ms=duration_ms,
-        )
 
         return ConvertResult(
             source_filename=source_filename,
@@ -331,11 +353,10 @@ def _convert_file_sync(
     except Exception as exc:
         duration_ms = int((time.perf_counter() - t_start) * 1000)
         log.error(
-            "converter.error",
-            stage="error",
-            batch_id=batch_id,
-            file_name=source_filename,
-            error=str(exc),
+            "file_conversion_error",
+            filename=source_filename,
+            error_type=type(exc).__name__,
+            error_msg=str(exc),
             duration_ms=duration_ms,
         )
         return ConvertResult(
@@ -414,6 +435,15 @@ class ConversionOrchestrator:
         Records results in the DB and updates batch_state.
         """
         opts = options or {}
+        t_batch = time.perf_counter()
+
+        bind_batch_context(batch_id, len(file_paths))
+        log.info(
+            "conversion_start",
+            batch_id=batch_id,
+            file_count=len(file_paths),
+            fidelity_tier=opts.get("fidelity_tier", 1),
+        )
 
         await upsert_batch_state(
             batch_id,
@@ -432,6 +462,15 @@ class ConversionOrchestrator:
         success = sum(1 for r in results if r.status == "success")
         failed = sum(1 for r in results if r.status == "error")
         final_status = "done" if failed == 0 else ("failed" if success == 0 else "partial")
+        total_duration_ms = int((time.perf_counter() - t_batch) * 1000)
+
+        log.info(
+            "batch_complete",
+            batch_id=batch_id,
+            success_count=success,
+            error_count=failed,
+            total_duration_ms=total_duration_ms,
+        )
 
         await upsert_batch_state(
             batch_id,
@@ -473,6 +512,11 @@ class ConversionOrchestrator:
         batch_id: str,
         options: dict[str, Any],
     ) -> ConvertResult:
+        bind_file_context(
+            file_id=file_path.stem,
+            filename=file_path.name,
+            fmt=file_path.suffix.lower().lstrip("."),
+        )
         async with _semaphore:
             result = await asyncio.to_thread(
                 _convert_file_sync,

@@ -10,10 +10,11 @@ Image extraction, content-hash naming, and format conversion.
 
 import hashlib
 import io
-import logging
 from typing import Any
 
-log = logging.getLogger(__name__)
+import structlog
+
+log = structlog.get_logger(__name__)
 
 # Formats that need conversion to PNG
 _CONVERT_FORMATS = {"emf", "wmf", "tiff", "tif", "bmp", "eps", "pcx"}

@@ -8,6 +8,7 @@ POST /api/batch/{batch_id}/review/{flag_id}       — Resolve an OCR flag.
 POST /api/batch/{batch_id}/review/accept-all      — Accept all remaining flags.
 """
 
+import structlog
 from fastapi import APIRouter, HTTPException, Path as FPath, Query
 
 from api.models import OCRFlagCounts, OCRFlagResponse, OCRReviewAction
@@ -20,6 +21,7 @@ from core.database import (
     db_fetch_one,
 )
 
+log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/batch", tags=["review"])
 
 _VALID_ACTIONS = {"accept", "edit", "skip"}
@@ -140,6 +142,7 @@ async def resolve_one_flag(
         raise HTTPException(status_code=404, detail="Flag not found")
 
     new_status = _ACTION_TO_STATUS[action.action]
+    log.info("ocr_review_resolve", batch_id=batch_id, flag_id=flag_id, action=action.action)
     await resolve_flag(flag_id, new_status, action.corrected_text)
 
     # Check if all flags are now resolved — if so, finalize the batch
@@ -169,10 +172,6 @@ async def _finalize_ocr_batch(batch_id: str) -> None:
     is handled by the PDF format handler in Phase 4 — this function
     updates DB state and signals that human review is complete.
     """
-    import structlog
-
-    log = structlog.get_logger(__name__)
-
     counts = await get_flag_counts(batch_id)
     # Use total_files=0 as fallback — the row may not exist if review is
     # triggered before the batch conversion creates it.

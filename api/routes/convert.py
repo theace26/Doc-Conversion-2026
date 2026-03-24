@@ -106,8 +106,16 @@ async def convert_files(
         _run_batch_and_cleanup(saved_paths, direction, batch_id, tmp_dir, options)
     )
 
+    for sp in saved_paths:
+        log.info(
+            "convert_request",
+            filename=sp.name,
+            size_bytes=sp.stat().st_size,
+            content_type=direction,
+        )
+
     log.info(
-        "convert.batch_started",
+        "convert_batch_started",
         batch_id=batch_id,
         file_count=len(saved_paths),
         direction=direction,

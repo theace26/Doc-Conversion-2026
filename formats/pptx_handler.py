@@ -12,9 +12,11 @@ Export:
 """
 
 import io
-import logging
+import time
 from pathlib import Path
 from typing import Any
+
+import structlog
 
 from formats.base import FormatHandler, register_handler
 from core.document_model import (
@@ -25,7 +27,7 @@ from core.document_model import (
     compute_content_hash,
 )
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 
 @register_handler
@@ -37,6 +39,9 @@ class PptxHandler(FormatHandler):
     def ingest(self, file_path: Path) -> DocumentModel:
         from pptx import Presentation
         from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+        t_start = time.perf_counter()
+        log.info("handler_ingest_start", filename=file_path.name, format="pptx")
 
         model = DocumentModel()
         model.metadata = DocumentMetadata(
@@ -74,6 +79,13 @@ class PptxHandler(FormatHandler):
                         )
                     )
 
+        duration_ms = int((time.perf_counter() - t_start) * 1000)
+        log.info(
+            "handler_ingest_complete",
+            filename=file_path.name,
+            element_count=len(model.elements),
+            duration_ms=duration_ms,
+        )
         return model
 
     def _get_slide_title(self, slide: Any, slide_num: int) -> str:
@@ -222,9 +234,15 @@ class PptxHandler(FormatHandler):
         from pptx import Presentation
         from pptx.util import Inches, Pt, Emu
 
+        tier = 3 if (original_path and original_path.exists() and sidecar) else (2 if sidecar else 1)
+        t_start = time.perf_counter()
+        log.info("handler_export_start", filename=output_path.name, target_format="pptx", tier=tier)
+
         # Tier 3: patch original
         if original_path and original_path.exists() and sidecar:
             if self._try_tier3_export(model, output_path, original_path, sidecar):
+                duration_ms = int((time.perf_counter() - t_start) * 1000)
+                log.info("handler_export_complete", filename=output_path.name, output_path=str(output_path), duration_ms=duration_ms)
                 return
 
         prs = Presentation()
@@ -245,6 +263,8 @@ class PptxHandler(FormatHandler):
             self._add_slide(prs, section, model, sidecar)
 
         prs.save(str(output_path))
+        duration_ms = int((time.perf_counter() - t_start) * 1000)
+        log.info("handler_export_complete", filename=output_path.name, output_path=str(output_path), duration_ms=duration_ms)
 
     def _split_into_slide_sections(
         self, model: DocumentModel

@@ -20,7 +20,9 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 **Phase 3 complete** — OCR pipeline: multi-signal detection, preprocessing, Tesseract extraction,
   confidence flagging, review API + UI, unattended mode, SQLite persistence. Tagged v0.3.0.
 **Phase 4 complete** — PDF, PPTX, XLSX/CSV format handlers (both directions). 231 tests passing. Tagged v0.4.0.
-**Next: Phase 5** — Testing & debug infrastructure (full test suite, structlog, debug dashboard).
+**Phase 5 complete** — Full test suite (350+ tests), structured JSON logging throughout all
+  pipeline stages, debug dashboard at /debug. Tagged v0.5.0.
+**Next: Phase 6** — Full UI, batch progress, history page, settings, polish.
 
 ---
 
@@ -33,7 +35,7 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 | 2 | Round-trip: Markdown → DOCX with fidelity tiers | ✅ Done |
 | 3 | OCR pipeline (multi-signal detection, review UI, unattended mode) | ✅ Done |
 | 4 | Remaining formats: PDF, PPTX, XLSX/CSV (both directions) | ✅ Done |
-| 5 | Testing & debug infrastructure (full test suite, structlog, debug dashboard) | ⬜ |
+| 5 | Testing & debug infrastructure (full test suite, structlog, debug dashboard) | ✅ Done |
 | 6 | Full UI, batch progress, history page, settings, polish | ⬜ |
 
 ---
@@ -135,7 +137,10 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 | `formats/csv_handler.py` | CSV/TSV ingest (pandas + stdlib fallback) + export; delimiter/encoding preserved |
 | `api/middleware.py` | Request ID injection, timing, debug headers |
 | `api/routes/review.py` | OCR review endpoints: list, counts, single-flag, resolve, accept-all |
+| `api/routes/debug.py` | Debug dashboard API: /debug, /debug/api/health, /debug/api/activity, /debug/api/logs, /debug/api/ocr_distribution |
 | `static/review.html` | Interactive OCR review page (side-by-side image + editable text) |
+| `static/debug.html` | Developer debug dashboard — health pills, activity, OCR distribution, log viewer |
+| `pytest.ini` | Test configuration: asyncio_mode, custom markers (slow, ocr, integration) |
 | `docker-compose.yml` | Port 8000, volumes: input/output/logs + named volume for DB |
 
 ---
@@ -212,6 +217,28 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 
 - **fpdf2 `new_x`/`new_y` API**: fpdf2 v2.8+ uses `new_x="LMARGIN", new_y="NEXT"` instead of
   the deprecated `ln=True` parameter for `cell()` calls.
+
+- **structlog + stdlib coexistence**: All `core/` and `formats/` modules must use
+  `structlog.get_logger(__name__)`, not `logging.getLogger(__name__)`. The stdlib `logging`
+  import is only allowed in `core/logging_config.py` (for configuring the underlying handlers).
+  Format handlers were migrated from stdlib to structlog in Phase 5.
+
+- **`/api/health` response envelope**: Phase 5 wrapped the health response in
+  `{"status", "timestamp", "uptime_seconds", "components": {...}}`. Tests must check
+  `data["components"]["database"]` not `data["database"]`.
+
+- **XLSX `MergedCell.value` is read-only**: When patching values in Tier 3 export
+  (`_try_tier3_export`), cells in merged ranges raise `AttributeError` on write. Must
+  wrap in `try/except AttributeError` and skip merged cells.
+
+- **`MarkdownHandler.ingest()` takes a file Path**: Use `ingest(path)` not `ingest(text)`.
+  For string input, use `ingest_text(md_string)` or the internal `_ingest_text()`.
+
+- **Log file is `markflow.json` not `markflow.log`**: Phase 5 changed the rotating file handler
+  output to JSON format with `.json` extension for machine-parseable log tailing.
+
+- **Debug dashboard always mounted**: `/debug` routes are no longer behind `DEBUG=true`.
+  The dashboard is a developer tool and is always available at `/debug`.
 
 ---
 

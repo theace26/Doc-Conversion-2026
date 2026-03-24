@@ -12,10 +12,12 @@ Export:
   - Tier 3 not supported (PDF internal structure too complex to patch)
 """
 
-import logging
 import re
+import time
 from pathlib import Path
 from typing import Any
+
+import structlog
 
 from formats.base import FormatHandler, register_handler
 from core.document_model import (
@@ -26,7 +28,7 @@ from core.document_model import (
     compute_content_hash,
 )
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 # Minimum text length per page to consider it a "text" page (not scanned)
 _MIN_TEXT_LENGTH = 50
@@ -40,6 +42,9 @@ class PdfHandler(FormatHandler):
 
     def ingest(self, file_path: Path) -> DocumentModel:
         import pdfplumber
+
+        t_start = time.perf_counter()
+        log.info("handler_ingest_start", filename=file_path.name, format="pdf")
 
         model = DocumentModel()
         model.metadata = DocumentMetadata(
@@ -97,6 +102,13 @@ class PdfHandler(FormatHandler):
                 "Use ingest_with_ocr() for full OCR support."
             )
 
+        duration_ms = int((time.perf_counter() - t_start) * 1000)
+        log.info(
+            "handler_ingest_complete",
+            filename=file_path.name,
+            element_count=len(model.elements),
+            duration_ms=duration_ms,
+        )
         return model
 
     def ingest_with_ocr(
@@ -333,10 +345,16 @@ class PdfHandler(FormatHandler):
         sidecar: dict[str, Any] | None = None,
         original_path: Path | None = None,
     ) -> None:
+        t_start = time.perf_counter()
+        log.info("handler_export_start", filename=output_path.name, target_format="pdf", tier=1)
+
         html = self._model_to_html(model, sidecar)
         from weasyprint import HTML
 
         HTML(string=html).write_pdf(str(output_path))
+
+        duration_ms = int((time.perf_counter() - t_start) * 1000)
+        log.info("handler_export_complete", filename=output_path.name, output_path=str(output_path), duration_ms=duration_ms)
 
     def _model_to_html(self, model: DocumentModel, sidecar: dict[str, Any] | None = None) -> str:
         parts: list[str] = []

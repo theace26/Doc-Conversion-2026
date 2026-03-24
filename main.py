@@ -24,9 +24,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from core.database import init_db
-from core.health import HealthChecker
+from core.health import HealthChecker, run_health_check
 from core.logging_config import configure_logging
-from api.routes import convert, batch, history, preferences, review
+from api.routes import convert, batch, history, preferences, review, debug as debug_routes
 from api.middleware import add_middleware
 
 # ── Logging ──────────────────────────────────────────────────────────────────
@@ -80,11 +80,9 @@ app.include_router(history.router)
 app.include_router(preferences.router)
 app.include_router(review.router)
 
-# Debug routes — only in DEBUG mode
-if DEBUG:
-    from api.routes import debug as debug_routes
-    app.include_router(debug_routes.router)
-    log.info("markflow.debug_routes_registered")
+# Debug dashboard — always available (developer/operator tool)
+app.include_router(debug_routes.router)
+log.info("markflow.debug_routes_registered")
 
 # ── Static files ──────────────────────────────────────────────────────────────
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -100,8 +98,7 @@ app.mount("/ocr-images", StaticFiles(directory=_output_dir), name="ocr-images")
 @app.get("/api/health", tags=["system"])
 async def health_check():
     """System health check — Tesseract, LibreOffice, disk space, DB size."""
-    checker = HealthChecker()
-    return await checker.check_all()
+    return await run_health_check()
 
 
 # ── Root — serve index.html ───────────────────────────────────────────────────

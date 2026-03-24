@@ -12,6 +12,7 @@ import json
 import zipfile
 from pathlib import Path
 
+import structlog
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
@@ -19,6 +20,7 @@ from api.models import BatchStatus, FileStatus
 from core.converter import OUTPUT_BASE
 from core.database import db_fetch_all, get_batch_state
 
+log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/batch", tags=["batch"])
 
 
@@ -39,6 +41,7 @@ def _validate_batch_id(batch_id: str) -> None:
 async def batch_status(batch_id: str):
     """Return current batch status and per-file details."""
     _validate_batch_id(batch_id)
+    log.info("batch_status_request", batch_id=batch_id)
 
     state = await get_batch_state(batch_id)
     if state is None:
