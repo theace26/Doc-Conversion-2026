@@ -58,6 +58,9 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     "scanner_business_hours_end": "18:00",
     "lifecycle_grace_period_hours": "36",
     "lifecycle_trash_retention_days": "60",
+    "worker_count": "4",
+    "cpu_affinity_cores": "[]",
+    "process_priority": "normal",
 }
 
 # ── Schema DDL ────────────────────────────────────────────────────────────────

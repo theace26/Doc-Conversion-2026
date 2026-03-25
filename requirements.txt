@@ -53,6 +53,9 @@ python-magic>=0.4.27
 psd-tools
 pyexiftool
 
+# System metrics
+psutil>=5.9.0
+
 # Scheduler
 apscheduler>=3.10.0
 

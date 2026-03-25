@@ -201,6 +201,26 @@ def start_scheduler() -> None:
     log.info("scheduler.started", jobs=5)
 
 
+def get_scheduler_status() -> dict:
+    """Return next run times for all scheduled jobs."""
+    result = {}
+    job_names = {
+        "lifecycle_scan": "lifecycle_scan_next",
+        "trash_expiry": "trash_expiry_next",
+        "db_compaction": "db_compact_next",
+    }
+    for job_id, key in job_names.items():
+        try:
+            job = scheduler.get_job(job_id)
+            if job and job.next_run_time:
+                result[key] = job.next_run_time.isoformat()
+            else:
+                result[key] = None
+        except Exception:
+            result[key] = None
+    return result
+
+
 def stop_scheduler() -> None:
     """Gracefully shut down scheduler."""
     if scheduler.running:

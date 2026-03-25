@@ -24,6 +24,7 @@ _SYSTEM_PREF_KEYS: set[str] = {
     "scanner_enabled", "scanner_interval_minutes",
     "scanner_business_hours_start", "scanner_business_hours_end",
     "lifecycle_grace_period_hours", "lifecycle_trash_retention_days",
+    "worker_count", "cpu_affinity_cores", "process_priority",
 }
 
 # Valid preference keys (whitelist from defaults)
@@ -175,6 +176,24 @@ _PREFERENCE_SCHEMA: dict[str, dict] = {
         "max": 365,
         "label": "Trash retention (days)",
         "description": "How long files stay in trash before permanent deletion. Default: 60 days.",
+    },
+    "worker_count": {
+        "type": "number",
+        "min": 1,
+        "max": 32,
+        "label": "Worker count",
+        "description": "Parallel conversion jobs. Takes effect on next bulk run.",
+    },
+    "cpu_affinity_cores": {
+        "type": "text",
+        "label": "CPU core affinity (JSON array)",
+        "description": "Specific CPU core indices to pin the process to. [] = all cores.",
+    },
+    "process_priority": {
+        "type": "select",
+        "options": ["low", "normal", "high"],
+        "label": "Process scheduling priority",
+        "description": "'high' requires root in Docker.",
     },
 }
 

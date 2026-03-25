@@ -97,6 +97,10 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         log.warning("markflow.meilisearch_init_skip", error=str(exc))
 
+    # Prime psutil CPU cache (first call with interval=0.1, then interval=None is instant)
+    import psutil
+    psutil.cpu_percent(interval=0.1, percpu=True)
+
     # Phase 9: Start scheduler and run initial lifecycle scan
     from core.scheduler import start_scheduler, stop_scheduler, run_lifecycle_scan
     try:
@@ -123,7 +127,7 @@ app = FastAPI(
         "Convert documents bidirectionally between their original format "
         "and Markdown. OCR, batch processing, and style preservation."
     ),
-    version="0.9.0",
+    version="0.9.2",
     lifespan=lifespan,
 )
 

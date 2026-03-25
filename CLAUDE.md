@@ -101,6 +101,16 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
   `_scan_state` via `GET /api/scanner/progress` (polled every 3s by UI).
   Lifecycle scan status bar on bulk.html and db-health.html shows progress
   or last-scan timestamp. New tests in test_search.py and test_scanner.py.
+**v0.9.2** — Admin page: resource controls, task manager & stats dashboard.
+  `core/resource_manager.py` wraps psutil for CPU affinity, process priority,
+  and live metrics. Admin page gains three sections: Repository Overview
+  (KPI cards, file/lifecycle/OCR/format/Meilisearch/scheduler/error stats),
+  Task Manager (per-core CPU bars, memory, threads, 2s polling), Resource
+  Controls (worker count, priority, core pinning). New endpoints:
+  `PUT /api/admin/resources`, `GET /api/admin/system/metrics`,
+  `GET /api/admin/stats`. New preferences: worker_count, cpu_affinity_cores,
+  process_priority. `get_scheduler_status()` added to scheduler.py.
+  psutil primed at startup in lifespan. 16 new tests in test_admin.py.
 
 ---
 
@@ -282,8 +292,9 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 | `static/db-health.html` | Admin database health dashboard |
 | `core/auth.py` | JWT validation, role hierarchy, API key verification, FastAPI dependencies |
 | `api/routes/auth.py` | GET /api/auth/me — current user identity and role |
-| `api/routes/admin.py` | API key CRUD, system info — admin only |
-| `static/admin.html` | Admin panel: API key management, system info, dev bypass banner |
+| `api/routes/admin.py` | API key CRUD, system info, resource controls, stats dashboard — admin only |
+| `core/resource_manager.py` | psutil wrapper: CPU affinity, process priority, live metrics |
+| `static/admin.html` | Admin panel: stats dashboard, task manager, resource controls, API keys |
 | `docs/unioncore-integration-contract.md` | Standalone spec for UnionCore team |
 | `pytest.ini` | Test configuration: asyncio_mode, custom markers (slow, ocr, integration, bulk) |
 | `docker-compose.yml` | Port 8000, MCP 8001, Meilisearch 7700, volumes: input/output/logs/source/output-repo |
@@ -691,6 +702,17 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 - **`GET /api/scanner/progress` uses `SEARCH_USER` role**: Unlike `/api/scanner/status`
   which requires `MANAGER`, the progress endpoint is lighter-weight and available to
   any authenticated user so the bulk.html lifecycle bar works for operators too.
+
+- **`psutil.cpu_affinity()` not available on macOS Docker**: Always returns False
+  from `apply_affinity()`, log warning, continue. Linux containers work correctly.
+
+- **`psutil.cpu_percent(interval=None)` requires priming**: Call once with
+  `interval=0.1` at startup or first call returns 0.0 for all cores. Primed
+  in `main.py` lifespan before scheduler starts.
+
+- **Stats endpoint never returns 500**: All sub-queries in `GET /api/admin/stats`
+  are wrapped in `_safe()` + `asyncio.gather(return_exceptions=True)`. If a query
+  fails, its section is null in the response.
 
 ---
 

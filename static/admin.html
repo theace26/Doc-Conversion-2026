@@ -22,7 +22,203 @@
 
     <div id="error-banner" class="error-banner" hidden></div>
 
-    <!-- System Info Section -->
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <!-- Stats Dashboard                                                       -->
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <section class="admin-section" id="stats-dashboard">
+      <div class="section-header">
+        <h2>Repository Overview</h2>
+        <button id="stats-refresh-btn" class="btn btn-ghost btn-sm">&#8635; Refresh</button>
+        <span id="stats-generated-at" class="text-muted text-sm"></span>
+      </div>
+
+      <!-- Top KPI row -->
+      <div class="stats-kpi-row">
+        <div class="kpi-card">
+          <span class="kpi-value" id="kpi-total-files">--</span>
+          <span class="kpi-label">Total Files Scanned</span>
+        </div>
+        <div class="kpi-card kpi-success">
+          <span class="kpi-value" id="kpi-converted">--</span>
+          <span class="kpi-label">Successfully Converted</span>
+        </div>
+        <div class="kpi-card kpi-warn">
+          <span class="kpi-value" id="kpi-unrecognized">--</span>
+          <span class="kpi-label">Unrecognized Files</span>
+        </div>
+        <div class="kpi-card kpi-danger">
+          <span class="kpi-value" id="kpi-failed">--</span>
+          <span class="kpi-label">Failed Conversions</span>
+        </div>
+        <div class="kpi-card kpi-info">
+          <span class="kpi-value" id="kpi-ocr-pending">--</span>
+          <span class="kpi-label">OCR Needs Review</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-value" id="kpi-pending">--</span>
+          <span class="kpi-label">Pending Conversion</span>
+        </div>
+      </div>
+
+      <!-- Detail grid -->
+      <div class="stats-detail-grid">
+
+        <!-- File breakdown -->
+        <div class="stats-card">
+          <h3>File Status Breakdown</h3>
+          <table class="stats-table" id="file-status-table">
+            <thead><tr><th>Status</th><th>Count</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <!-- Lifecycle -->
+        <div class="stats-card">
+          <h3>Lifecycle Status</h3>
+          <table class="stats-table" id="lifecycle-table">
+            <thead><tr><th>State</th><th>Count</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <p class="stats-note"><a href="/trash.html">Open Trash Management &rarr;</a></p>
+        </div>
+
+        <!-- Conversion activity -->
+        <div class="stats-card">
+          <h3>Conversion Activity</h3>
+          <div class="stat-row"><span>Success Rate</span><strong id="stat-success-rate">--</strong></div>
+          <div class="stat-row"><span>Last 24 hours</span><strong id="stat-24h">--</strong></div>
+          <div class="stat-row"><span>Last 7 days</span><strong id="stat-7d">--</strong></div>
+          <hr style="border:none;border-top:1px solid var(--border);margin:8px 0"/>
+          <h4>Top Formats</h4>
+          <div id="top-formats-list" class="format-list"></div>
+        </div>
+
+        <!-- OCR Queue -->
+        <div class="stats-card">
+          <h3>OCR Review Queue</h3>
+          <table class="stats-table" id="ocr-table">
+            <thead><tr><th>Status</th><th>Count</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <p class="stats-note"><a href="/review.html">Open OCR Review &rarr;</a></p>
+        </div>
+
+        <!-- Unrecognized breakdown -->
+        <div class="stats-card">
+          <h3>Unrecognized File Types</h3>
+          <table class="stats-table" id="unrecognized-table">
+            <thead><tr><th>Category</th><th>Count</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <p class="stats-note"><a href="/unrecognized.html">Open Unrecognized Files &rarr;</a></p>
+        </div>
+
+        <!-- Search index -->
+        <div class="stats-card">
+          <h3>Search Index (Meilisearch)</h3>
+          <div class="stat-row"><span>Status</span><strong id="stat-meili-status">--</strong></div>
+          <div class="stat-row"><span>Documents indexed</span><strong id="stat-meili-docs">--</strong></div>
+          <div class="stat-row"><span>Adobe files indexed</span><strong id="stat-meili-adobe">--</strong></div>
+        </div>
+
+        <!-- LLM Provider -->
+        <div class="stats-card">
+          <h3>LLM Provider</h3>
+          <div id="llm-provider-status"></div>
+          <p class="stats-note"><a href="/providers.html">Manage Providers &rarr;</a></p>
+        </div>
+
+        <!-- Scheduler -->
+        <div class="stats-card">
+          <h3>Scheduled Jobs</h3>
+          <table class="stats-table" id="scheduler-table">
+            <thead><tr><th>Job</th><th>Next Run</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <p class="stats-note"><a href="/db-health.html">Database Health &rarr;</a></p>
+        </div>
+
+        <!-- Recent errors (full width) -->
+        <div class="stats-card stats-card-full">
+          <h3>Recent Conversion Errors <span class="text-muted text-sm">(last 10)</span></h3>
+          <table class="stats-table" id="errors-table">
+            <thead><tr><th>File</th><th>Format</th><th>Error</th><th>When</th></tr></thead>
+            <tbody id="errors-tbody"><tr><td colspan="4" class="text-muted">Loading...</td></tr></tbody>
+          </table>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <!-- Task Manager                                                          -->
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <section class="admin-section" id="task-manager">
+      <h2>Task Manager</h2>
+
+      <!-- CPU Cores Grid -->
+      <div class="tm-grid">
+        <div class="tm-cpu-panel">
+          <h3>CPU <span id="tm-cpu-total" class="tm-badge">--</span></h3>
+          <div id="tm-cores-grid" class="tm-cores-grid"></div>
+          <p class="tm-note" id="tm-affinity-note"></p>
+          <p class="tm-note" id="tm-docker-limit-note"></p>
+        </div>
+
+        <div class="tm-mem-panel">
+          <h3>Memory <span id="tm-mem-pct" class="tm-badge">--</span></h3>
+          <div class="tm-mem-bar-track">
+            <div id="tm-mem-bar" class="tm-mem-bar" style="width:0%"></div>
+          </div>
+          <p class="tm-note" id="tm-mem-detail"></p>
+        </div>
+
+        <div class="tm-threads-panel">
+          <h3>Threads</h3>
+          <span id="tm-thread-count" class="tm-big-number">--</span>
+          <p class="tm-note">active threads in this process</p>
+        </div>
+      </div>
+
+      <!-- Resource Controls -->
+      <details class="admin-subsection" id="resource-controls">
+        <summary>Resource Controls</summary>
+        <div class="resource-form">
+          <label>
+            Worker Count
+            <input type="number" id="rc-workers" min="1" max="32" step="1" />
+            <span class="field-hint">Parallel conversion jobs. Takes effect on next bulk run.</span>
+          </label>
+
+          <label>Process Priority
+            <select id="rc-priority">
+              <option value="low">Low — yields CPU to other processes</option>
+              <option value="normal" selected>Normal</option>
+              <option value="high">High — requires root in Docker</option>
+            </select>
+          </label>
+
+          <fieldset id="rc-cores-fieldset">
+            <legend>CPU Core Pinning</legend>
+            <p class="field-hint">Select which cores MarkFlow may use. All = no restriction.</p>
+            <div id="rc-cores-checkboxes" class="cores-checkbox-grid"></div>
+            <label class="cores-all-toggle">
+              <input type="checkbox" id="rc-cores-all" checked />
+              Use all available cores
+            </label>
+          </fieldset>
+
+          <div class="resource-actions">
+            <button id="rc-apply-btn" class="btn btn-primary">Apply Changes</button>
+            <span id="rc-status" class="rc-status-msg"></span>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <!-- System Info Section                                                   -->
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
     <section class="card" id="system-section">
       <h2>System Info</h2>
       <div class="info-grid" id="system-info">
@@ -34,7 +230,9 @@
       </div>
     </section>
 
-    <!-- API Keys Section -->
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <!-- API Keys Section                                                      -->
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
     <section class="card" id="keys-section">
       <h2>API Keys</h2>
       <p class="text-muted">Service account keys for UnionCore integration. Keys grant <code>search_user</code> access only.</p>
@@ -72,6 +270,29 @@
 
   <script src="/static/app.js"></script>
   <style>
+    .admin-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .admin-subsection {
+      margin-top: 1rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0;
+    }
+    .admin-subsection summary {
+      padding: 0.75rem 1rem;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+    .admin-subsection[open] summary {
+      border-bottom: 1px solid var(--border);
+    }
     .info-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -119,20 +340,359 @@
       gap: 0.5rem;
       align-items: center;
     }
-    .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.8rem; }
-    .status-active { color: var(--success, #28a745); }
-    .status-revoked { color: var(--danger, #dc3545); text-decoration: line-through; }
+    .status-active { color: var(--ok, #28a745); }
+    .status-revoked { color: var(--error, #dc3545); text-decoration: line-through; }
+    .field-hint { display: block; font-size: 0.8rem; color: var(--text-muted); margin-top: 2px; }
   </style>
+
   <script>
+    /* ════════════════════════════════════════════════════════════════════════
+     *  Helpers
+     * ════════════════════════════════════════════════════════════════════ */
+
+    function formatRelativeTime(iso, future) {
+      if (!iso) return '--';
+      try {
+        const d = new Date(iso);
+        const now = Date.now();
+        const diff = future ? d - now : now - d;
+        const secs = Math.abs(Math.floor(diff / 1000));
+        if (secs < 60) return 'just now';
+        const mins = Math.floor(secs / 60);
+        if (mins < 60) return `${mins}m ${future ? 'from now' : 'ago'}`;
+        const hrs = Math.floor(mins / 60);
+        if (hrs < 24) return `${hrs}h ${mins % 60}m ${future ? 'from now' : 'ago'}`;
+        const days = Math.floor(hrs / 24);
+        return `${days}d ${future ? 'from now' : 'ago'}`;
+      } catch { return '--'; }
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str || '';
+      return div.innerHTML;
+    }
+
+    function setText(id, val)   { const el = document.getElementById(id); if (el) el.textContent = val ?? '--'; }
+    function fmt(n)             { return n != null ? n.toLocaleString() : '--'; }
+    function capitalize(s)      { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
+
+    function pctBar(v, total) {
+      if (!total || !v) return '';
+      const pct = Math.round(v / total * 100);
+      return `<div class="mini-bar-track"><div class="mini-bar-fill" style="width:${pct}%"></div></div>`;
+    }
+
+    function statusLabel(s) {
+      return { converted: '&#10003; Converted', failed: '&#10007; Failed', pending: '&#9203; Pending',
+               unrecognized: '? Unrecognized', skipped: '&#8212; Skipped' }[s] || s;
+    }
+
+    function lifecycleLabel(s) {
+      return { active: '&#10003; Active', marked_for_deletion: '&#9888; Marked for Deletion',
+               in_trash: '&#128465; In Trash' }[s] || s;
+    }
+
+    function fillTable(tableId, rows) {
+      const tbody = document.querySelector(`#${tableId} tbody`);
+      if (!tbody) return;
+      tbody.innerHTML = rows.map(cells =>
+        `<tr>${cells.map(c => `<td>${c ?? '--'}</td>`).join('')}</tr>`
+      ).join('') || '<tr><td colspan="10" class="text-muted">No data</td></tr>';
+    }
+
+    function cpuColor(pct) {
+      if (pct < 50) return 'var(--ok, #4caf50)';
+      if (pct < 80) return 'var(--warn, #ff9800)';
+      return 'var(--error, #f44336)';
+    }
+
+    function fmtMb(mb) {
+      return mb >= 1024 ? `${(mb/1024).toFixed(1)} GB` : `${mb} MB`;
+    }
+
+    /* ════════════════════════════════════════════════════════════════════════
+     *  Stats Dashboard
+     * ════════════════════════════════════════════════════════════════════ */
+
+    async function loadStats() {
+      const btn = document.getElementById('stats-refresh-btn');
+      btn.disabled = true;
+      btn.textContent = '\u21BB Loading...';
+
+      try {
+        const d = await API.get('/api/admin/stats');
+        renderStats(d);
+        document.getElementById('stats-generated-at').textContent =
+          `Updated ${formatRelativeTime(d.generated_at)}`;
+      } catch (e) {
+        showToast('Failed to load stats', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '\u21BB Refresh';
+      }
+    }
+
+    function renderStats(d) {
+      const bf = d.bulk_files || {};
+      const ch = d.conversion_history || {};
+      const ocr = d.ocr_queue || {};
+
+      // KPI cards
+      setText('kpi-total-files',   fmt(bf.total));
+      setText('kpi-converted',     fmt(bf.by_status?.converted));
+      setText('kpi-unrecognized',  fmt(bf.by_status?.unrecognized));
+      setText('kpi-failed',        fmt(ch.by_status?.failed));
+      setText('kpi-ocr-pending',   fmt(ocr.pending));
+      setText('kpi-pending',       fmt(bf.by_status?.pending));
+
+      // File status table
+      fillTable('file-status-table', Object.entries(bf.by_status || {}).map(([k, v]) => [
+        statusLabel(k), fmt(v), pctBar(v, bf.total)
+      ]));
+
+      // Lifecycle
+      fillTable('lifecycle-table', Object.entries(bf.by_lifecycle || {}).map(([k, v]) => [
+        lifecycleLabel(k), fmt(v)
+      ]));
+
+      // Conversion stats
+      setText('stat-success-rate', ch.success_rate_pct != null ? `${ch.success_rate_pct.toFixed(1)}%` : '--');
+      setText('stat-24h', fmt(ch.last_24h));
+      setText('stat-7d',  fmt(ch.last_7d));
+
+      const fmtList = document.getElementById('top-formats-list');
+      fmtList.innerHTML = (ch.by_format || []).map(f =>
+        `<div class="format-row"><span class="format-badge">${(f.format || '').toUpperCase()}</span>
+         <span>${fmt(f.count)}</span></div>`).join('') || '<span class="text-muted">No data</span>';
+
+      // OCR queue
+      fillTable('ocr-table', Object.entries(ocr).map(([k, v]) => [capitalize(k), fmt(v)]));
+
+      // Unrecognized breakdown
+      fillTable('unrecognized-table', Object.entries(bf.unrecognized_by_category || {}).map(([k, v]) => [
+        k.replace(/_/g, ' '), fmt(v)
+      ]));
+
+      // Meilisearch
+      const ms = d.meilisearch || {};
+      setText('stat-meili-status', ms.available ? '\u2713 Online' : '\u2717 Offline');
+      setText('stat-meili-docs',   fmt(ms.documents_index?.count));
+      setText('stat-meili-adobe',  fmt(ms.adobe_files_index?.count));
+
+      // LLM provider
+      const llmDiv = document.getElementById('llm-provider-status');
+      if (d.llm_providers?.length) {
+        const active = d.llm_providers.find(p => p.active);
+        llmDiv.innerHTML = active
+          ? `<div class="stat-row"><span>${escapeHtml(active.name)}</span><strong class="tag-success">Active</strong></div>`
+          : `<div class="stat-row text-muted">No active provider</div>`;
+      } else {
+        llmDiv.innerHTML = `<div class="text-muted">No providers configured</div>`;
+      }
+
+      // Scheduler
+      const sched = d.scheduler || {};
+      fillTable('scheduler-table', [
+        ['Lifecycle Scan',  formatRelativeTime(sched.lifecycle_scan_next, true)],
+        ['Trash Expiry',    formatRelativeTime(sched.trash_expiry_next,   true)],
+        ['DB Compaction',   formatRelativeTime(sched.db_compact_next,     true)],
+      ]);
+
+      // Recent errors
+      const tbody = document.getElementById('errors-tbody');
+      tbody.innerHTML = (d.recent_errors || []).length
+        ? d.recent_errors.map(e => `
+            <tr>
+              <td class="mono text-sm">${escapeHtml(e.filename)}</td>
+              <td><span class="format-badge">${(e.format||'').toUpperCase()}</span></td>
+              <td class="text-sm text-muted">${escapeHtml(e.error || '')}</td>
+              <td class="text-sm text-muted">${formatRelativeTime(e.at)}</td>
+            </tr>`).join('')
+        : '<tr><td colspan="4" class="text-muted" style="text-align:center">No recent errors</td></tr>';
+    }
+
+    document.getElementById('stats-refresh-btn')?.addEventListener('click', loadStats);
+
+    /* ════════════════════════════════════════════════════════════════════════
+     *  Task Manager
+     * ════════════════════════════════════════════════════════════════════ */
+
+    let tmInterval = null;
+    let coreCount  = 0;
+    let affinity   = [];
+
+    async function initTaskManager() {
+      try {
+        const data = await API.get('/api/admin/system/metrics');
+        coreCount  = data.cpu_info.logical_count;
+        affinity   = data.cpu_info.current_affinity;
+
+        // Build core bars
+        const grid = document.getElementById('tm-cores-grid');
+        grid.innerHTML = '';
+        for (let i = 0; i < coreCount; i++) {
+          const pinned = affinity.includes(i);
+          grid.innerHTML += `
+            <div class="tm-core ${pinned ? '' : 'tm-core-idle'}" data-core="${i}">
+              <div class="tm-core-track">
+                <div class="tm-core-fill" id="core-bar-${i}" style="height:0%"></div>
+              </div>
+              <span class="tm-core-label">CPU${i}</span>
+              <span class="tm-core-pct" id="core-pct-${i}">0%</span>
+            </div>`;
+        }
+
+        // Docker limit note
+        if (data.docker_cpu_limit) {
+          document.getElementById('tm-docker-limit-note').textContent =
+            `Container CPU limit: ${data.docker_cpu_limit} cores`;
+        }
+
+        // Build core checkboxes in resource controls
+        buildCoreCheckboxes(coreCount, affinity);
+
+        // Load saved preferences into resource form
+        loadResourcePrefs();
+
+        // Start live polling
+        updateMetrics(data);
+        tmInterval = setInterval(pollMetrics, 2000);
+      } catch (e) {
+        console.warn('Task manager init failed:', e);
+      }
+    }
+
+    async function pollMetrics() {
+      try {
+        const data = await API.get('/api/admin/system/metrics');
+        updateMetrics(data);
+      } catch {}
+    }
+
+    function updateMetrics(data) {
+      // CPU total
+      setText('tm-cpu-total', `${data.cpu_total_pct}%`);
+
+      // Per-core bars
+      (data.cpu_per_core || []).forEach((pct, i) => {
+        const bar = document.getElementById(`core-bar-${i}`);
+        const lbl = document.getElementById(`core-pct-${i}`);
+        if (!bar) return;
+        bar.style.height = `${pct}%`;
+        bar.style.background = cpuColor(pct);
+        lbl.textContent = `${Math.round(pct)}%`;
+      });
+
+      // Affinity note
+      const pinned = data.cpu_affinity || [];
+      document.getElementById('tm-affinity-note').textContent =
+        pinned.length === coreCount
+          ? 'Using all cores'
+          : `Pinned to cores: ${pinned.join(', ')}`;
+
+      // Memory
+      setText('tm-mem-pct', `${data.mem_pct}%`);
+      const memBar = document.getElementById('tm-mem-bar');
+      memBar.style.width = `${data.mem_pct}%`;
+      memBar.style.background = cpuColor(data.mem_pct);
+      document.getElementById('tm-mem-detail').textContent =
+        `${fmtMb(data.mem_used_mb)} used / ${fmtMb(data.mem_total_mb)} total  \u2014  ${fmtMb(data.mem_available_mb)} available`;
+
+      // Threads
+      setText('tm-thread-count', data.thread_count);
+    }
+
+    /* ════════════════════════════════════════════════════════════════════════
+     *  Resource Controls
+     * ════════════════════════════════════════════════════════════════════ */
+
+    function buildCoreCheckboxes(count, currentAffinity) {
+      const grid = document.getElementById('rc-cores-checkboxes');
+      const useAll = currentAffinity.length === count;
+      grid.innerHTML = '';
+      for (let i = 0; i < count; i++) {
+        const checked = useAll || currentAffinity.includes(i);
+        grid.innerHTML += `
+          <label class="core-cb-label">
+            <input type="checkbox" class="core-cb" value="${i}" ${checked ? 'checked' : ''} />
+            CPU${i}
+          </label>`;
+      }
+
+      const allToggle = document.getElementById('rc-cores-all');
+      allToggle.addEventListener('change', (e) => {
+        document.querySelectorAll('.core-cb').forEach(cb => {
+          cb.checked = e.target.checked;
+          cb.disabled = e.target.checked;
+        });
+      });
+
+      if (useAll) {
+        allToggle.checked = true;
+        document.querySelectorAll('.core-cb').forEach(cb => cb.disabled = true);
+      }
+    }
+
+    async function loadResourcePrefs() {
+      try {
+        const data = await API.get('/api/preferences');
+        const prefs = data.preferences || data;
+
+        const wc = document.getElementById('rc-workers');
+        if (wc) wc.value = prefs.worker_count ?? 4;
+
+        const pri = document.getElementById('rc-priority');
+        if (pri) pri.value = prefs.process_priority ?? 'normal';
+      } catch {}
+    }
+
+    document.getElementById('rc-apply-btn')?.addEventListener('click', async () => {
+      const btn    = document.getElementById('rc-apply-btn');
+      const status = document.getElementById('rc-status');
+      btn.disabled = true;
+      status.textContent = 'Applying...';
+
+      const allCores   = document.getElementById('rc-cores-all')?.checked;
+      const checkedCbs = [...document.querySelectorAll('.core-cb:checked')].map(cb => +cb.value);
+      const cores      = allCores ? [] : checkedCbs;
+
+      const payload = {
+        worker_count:       +document.getElementById('rc-workers')?.value || null,
+        process_priority:   document.getElementById('rc-priority')?.value || null,
+        cpu_affinity_cores: cores,
+      };
+
+      try {
+        const data = await API.put('/api/admin/resources', payload);
+
+        const warnings = data.warnings?.join(' ') || '';
+        status.textContent = warnings
+          ? `Applied with warnings: ${warnings}`
+          : 'Applied successfully.';
+        status.className = warnings ? 'rc-status-msg rc-warn' : 'rc-status-msg rc-ok';
+      } catch (e) {
+        status.textContent = 'Failed to apply. Check logs.';
+        status.className = 'rc-status-msg rc-err';
+      } finally {
+        btn.disabled = false;
+        setTimeout(() => status.textContent = '', 5000);
+      }
+    });
+
+    /* ════════════════════════════════════════════════════════════════════════
+     *  System Info + API Keys (existing)
+     * ════════════════════════════════════════════════════════════════════ */
+
     let _newKeyValue = '';
 
     async function loadSystemInfo() {
       try {
         const info = await API.get('/api/admin/system');
-        document.getElementById('sys-version').textContent = info.version || '—';
-        document.getElementById('sys-auth-mode').textContent = info.auth_mode || '—';
-        document.getElementById('sys-meili').textContent = info.meilisearch_status || '—';
-        document.getElementById('sys-db-size').textContent = info.db_size_bytes != null ? formatBytes(info.db_size_bytes) : '—';
+        document.getElementById('sys-version').textContent = info.version || '\u2014';
+        document.getElementById('sys-auth-mode').textContent = info.auth_mode || '\u2014';
+        document.getElementById('sys-meili').textContent = info.meilisearch_status || '\u2014';
+        document.getElementById('sys-db-size').textContent = info.db_size_bytes != null ? formatBytes(info.db_size_bytes) : '\u2014';
         document.getElementById('sys-origin').textContent = info.unioncore_origin || '(not set)';
 
         if (info.dev_bypass_active) {
@@ -190,7 +750,7 @@
       navigator.clipboard.writeText(_newKeyValue).then(() => {
         showToast('Key copied to clipboard');
       }).catch(() => {
-        showToast('Copy failed — select and copy manually', 'error');
+        showToast('Copy failed \u2014 select and copy manually', 'error');
       });
     }
 
@@ -205,15 +765,21 @@
       }
     }
 
-    function escapeHtml(str) {
-      const div = document.createElement('div');
-      div.textContent = str;
-      return div.innerHTML;
-    }
+    /* ════════════════════════════════════════════════════════════════════════
+     *  Init
+     * ════════════════════════════════════════════════════════════════════ */
 
-    // Init
-    loadSystemInfo();
-    loadKeys();
+    document.addEventListener('DOMContentLoaded', () => {
+      loadStats();
+      initTaskManager();
+      loadSystemInfo();
+      loadKeys();
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      clearInterval(tmInterval);
+      if (!document.hidden) tmInterval = setInterval(pollMetrics, 2000);
+    });
   </script>
 </body>
 </html>
