@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Active Jobs — MarkFlow</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="/" class="nav-logo">MarkFlow</a>
+    <div id="main-nav" class="nav-links"></div>
+  </nav>
+
+  <main class="container">
+    <!-- Stop banner -->
+    <div id="stop-banner" class="stop-banner" hidden>
+      <span class="stop-banner__text">Stop requested — jobs are winding down.</span>
+      <button class="stop-banner__reset" id="reset-stop-btn">Reset &amp; allow new jobs</button>
+    </div>
+
+    <!-- Page header -->
+    <div class="status-header">
+      <div>
+        <h1>Active Jobs</h1>
+        <p class="status-subtitle" id="status-subtitle">Loading...</p>
+      </div>
+      <button class="btn btn-danger" id="stop-all-btn">Stop All Jobs</button>
+    </div>
+
+    <!-- Job cards container -->
+    <div id="jobs-container"></div>
+
+    <!-- Lifecycle scanner card -->
+    <div id="lifecycle-container" style="margin-top:1.5rem"></div>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+  (function () {
+    var pollTimer = null;
+    var lastData  = null;
+
+    // ── Polling ───────────────────────────────────────────────────────────
+    async function poll() {
+      try {
+        var res = await fetch('/api/admin/active-jobs');
+        if (!res.ok) return;
+        lastData = await res.json();
+        renderAll(lastData);
+      } catch (e) { /* ignore */ }
+
+      // Also poll lifecycle scanner
+      try {
+        var ls = await fetch('/api/scanner/progress');
+        if (ls.ok) renderLifecycle(await ls.json());
+      } catch (e) { /* ignore */ }
+    }
+
+    function startPolling() {
+      clearInterval(pollTimer);
+      pollTimer = setInterval(poll, document.hidden ? 30000 : 3000);
+    }
+
+    document.addEventListener('visibilitychange', function () {
+      startPolling();
+      if (!document.hidden) poll();
+    });
+
+    // ── Render ────────────────────────────────────────────────────────────
+    function renderAll(data) {
+      var container  = document.getElementById('jobs-container');
+      var subtitle   = document.getElementById('status-subtitle');
+      var stopBtn    = document.getElementById('stop-all-btn');
+      var stopBanner = document.getElementById('stop-banner');
+
+      // Stop state
+      stopBanner.hidden = !data.stop_requested;
+      stopBtn.disabled  = data.stop_requested;
+
+      // Subtitle
+      var running = data.running_count || 0;
+      subtitle.textContent = running > 0
+        ? running + ' job' + (running !== 1 ? 's' : '') + ' running'
+        : 'No active jobs';
+
+      // Job cards
+      var jobs = data.bulk_jobs || [];
+      if (!jobs.length) {
+        container.innerHTML =
+          '<div class="job-card job-card--empty">' +
+            '<p class="text-muted" style="text-align:center;padding:2rem 0">' +
+              'No active jobs. Everything is quiet.' +
+            '</p>' +
+          '</div>';
+        return;
+      }
+
+      container.innerHTML = jobs.map(renderJobCard).join('');
+      wireJobButtons(container);
+    }
+
+    function renderJobCard(job) {
+      var pct    = job.total_files ? Math.round(job.converted / job.total_files * 100) : 0;
+      var pctStr = job.total_files ? pct + '%' : '?%';
+      var isActive = job.status === 'running' || job.status === 'scanning';
+      var isPaused = job.status === 'paused';
+
+      var workers = '';
+      if ((job.current_files || []).length) {
+        workers =
+          '<div class="job-card__workers">' +
+          job.current_files.map(function (w) {
+            return '<div class="job-card__worker-row">' +
+              '<span class="job-card__worker-id">Worker ' + w.worker_id + '</span>' +
+              '<span class="mono text-sm">' + esc(w.filename) + '</span>' +
+            '</div>';
+          }).join('') +
+          '</div>';
+      }
+
+      var actions = '';
+      if (isActive) {
+        actions =
+          '<div class="job-card__actions">' +
+            '<button class="btn btn-sm btn-ghost" data-pause="' + job.job_id + '">Pause</button>' +
+            '<button class="btn btn-sm btn-danger-outline" data-cancel="' + job.job_id + '">Stop</button>' +
+          '</div>';
+      } else if (isPaused) {
+        actions =
+          '<div class="job-card__actions">' +
+            '<button class="btn btn-sm btn-primary" data-resume="' + job.job_id + '">Resume</button>' +
+            '<button class="btn btn-sm btn-danger-outline" data-cancel="' + job.job_id + '">Stop</button>' +
+          '</div>';
+      }
+
+      var dirStats = '';
+      if (job.dir_stats && Object.keys(job.dir_stats).length) {
+        dirStats =
+          '<details class="job-card__dir-details">' +
+            '<summary>Directory Progress</summary>' +
+            '<div class="job-card__dir-list">' +
+            Object.keys(job.dir_stats).map(function (dir) {
+              var s = job.dir_stats[dir];
+              return '<div class="job-card__dir-row">' +
+                '<span class="mono text-sm">' + esc(dir) + '/</span>' +
+                '<span class="job-card__dir-counts">' +
+                  '<span class="text-ok">' + (s.converted || 0) + ' done</span>' +
+                  (s.failed ? '<span class="text-err">' + s.failed + ' failed</span>' : '') +
+                '</span>' +
+              '</div>';
+            }).join('') +
+            '</div>' +
+          '</details>';
+      }
+
+      return '<div class="job-card' + (isActive ? ' job-card--active' : '') + '">' +
+        '<div class="job-card__header">' +
+          '<div>' +
+            '<div class="job-card__title">' +
+              '<span class="status-pill status-pill--' + job.status + '">' + job.status.toUpperCase() + '</span>' +
+              ' <span class="text-muted text-sm mono">' + job.job_id.slice(0, 8) + '\u2026</span>' +
+            '</div>' +
+            '<div class="job-card__path">' + esc(job.source_path) + ' \u2192 ' + esc(job.output_path) + '</div>' +
+          '</div>' +
+          actions +
+        '</div>' +
+        '<div class="job-card__progress">' +
+          '<div class="job-card__progress-fill" style="width:' + pct + '%"></div>' +
+        '</div>' +
+        '<div style="font-size:0.82rem;color:var(--text-muted)">' +
+          job.converted.toLocaleString() + ' / ' + (job.total_files || '?').toLocaleString() + ' files \u2014 ' + pctStr +
+        '</div>' +
+        '<div class="job-card__counts">' +
+          '<span class="text-ok">\u2713 ' + job.converted.toLocaleString() + ' converted</span>' +
+          '<span class="text-err">\u2717 ' + job.failed.toLocaleString() + ' failed</span>' +
+          '<span class="text-muted">\u23ed ' + job.skipped.toLocaleString() + ' skipped</span>' +
+        '</div>' +
+        workers +
+        dirStats +
+      '</div>';
+    }
+
+    function renderLifecycle(ls) {
+      var container = document.getElementById('lifecycle-container');
+      if (!ls) { container.innerHTML = ''; return; }
+
+      if (ls.running) {
+        var pct = ls.pct != null ? ls.pct : 0;
+        var pctStr = ls.pct != null ? ls.pct + '%' : '';
+        var eta = ls.eta_seconds != null ? ' \u2014 ~' + fmtDur(ls.eta_seconds) + ' remaining' : '';
+        container.innerHTML =
+          '<div class="job-card job-card--active">' +
+            '<div class="job-card__header">' +
+              '<div class="job-card__title">' +
+                '<span class="status-pill status-pill--running">LIFECYCLE SCAN</span>' +
+              '</div>' +
+            '</div>' +
+            '<div class="job-card__progress">' +
+              '<div class="job-card__progress-fill" style="width:' + pct + '%"></div>' +
+            '</div>' +
+            '<div style="font-size:0.82rem;color:var(--text-muted)">' +
+              (ls.scanned || 0).toLocaleString() + ' files scanned' +
+              (ls.total ? ' / ' + ls.total.toLocaleString() : '') +
+              (pctStr ? ' \u2014 ' + pctStr : '') + eta +
+            '</div>' +
+            (ls.current_file
+              ? '<div class="text-sm mono text-muted">Current: ' + esc(ls.current_file) + '</div>'
+              : '') +
+          '</div>';
+      } else {
+        container.innerHTML =
+          '<div class="job-card">' +
+            '<div class="job-card__header">' +
+              '<div class="job-card__title">' +
+                '<span class="status-pill status-pill--done">LIFECYCLE SCANNER</span>' +
+                ' <span class="text-muted text-sm">idle</span>' +
+              '</div>' +
+            '</div>' +
+            '<div class="text-sm text-muted">' +
+              'Last scan: ' + (ls.last_scan_at ? timeAgo(ls.last_scan_at) : 'never') +
+            '</div>' +
+          '</div>';
+      }
+    }
+
+    // ── Wire job action buttons ───────────────────────────────────────────
+    function wireJobButtons(container) {
+      container.querySelectorAll('[data-pause]').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          btn.disabled = true;
+          try {
+            await fetch('/api/bulk/jobs/' + btn.dataset.pause + '/pause', { method: 'POST' });
+            showToast('Job paused');
+            poll();
+          } catch (e) { showToast('Failed to pause', 'error'); }
+        });
+      });
+
+      container.querySelectorAll('[data-resume]').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          btn.disabled = true;
+          try {
+            await fetch('/api/bulk/jobs/' + btn.dataset.resume + '/resume', { method: 'POST' });
+            showToast('Job resumed');
+            poll();
+          } catch (e) { showToast('Failed to resume', 'error'); }
+        });
+      });
+
+      container.querySelectorAll('[data-cancel]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var jobId = btn.dataset.cancel;
+          var parent = btn.parentElement;
+          // Replace with confirm row
+          parent.innerHTML =
+            '<span class="text-sm">Stop this job? </span>' +
+            '<button class="btn btn-sm btn-danger" id="confirm-cancel-' + jobId + '">Yes, stop</button>' +
+            '<button class="btn btn-sm btn-ghost" id="undo-cancel-' + jobId + '">No</button>';
+
+          document.getElementById('confirm-cancel-' + jobId).addEventListener('click', async function () {
+            try {
+              await fetch('/api/bulk/jobs/' + jobId + '/cancel', { method: 'POST' });
+              showToast('Job stopped');
+              poll();
+            } catch (e) { showToast('Failed to stop', 'error'); }
+          });
+
+          document.getElementById('undo-cancel-' + jobId).addEventListener('click', function () {
+            poll(); // re-render restores buttons
+          });
+        });
+      });
+    }
+
+    // ── STOP ALL ──────────────────────────────────────────────────────────
+    document.getElementById('stop-all-btn').addEventListener('click', async function () {
+      if (!confirm('Hard stop ALL running jobs? Workers will finish their current file and exit.')) return;
+      var btn = this;
+      btn.disabled = true;
+      try {
+        await fetch('/api/admin/stop-all', { method: 'POST' });
+        showToast('Stop requested \u2014 jobs winding down');
+        poll();
+      } catch (e) {
+        showToast('Failed to stop', 'error');
+      }
+      setTimeout(function () { btn.disabled = false; }, 3000);
+    });
+
+    // Reset stop
+    document.getElementById('reset-stop-btn').addEventListener('click', async function () {
+      await fetch('/api/admin/reset-stop', { method: 'POST' });
+      showToast('Stop flag cleared');
+      poll();
+    });
+
+    // ── Helpers ───────────────────────────────────────────────────────────
+    function esc(s) {
+      if (!s) return '';
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function fmtDur(s) {
+      if (s < 60) return s + 's';
+      if (s < 3600) return Math.round(s / 60) + 'm';
+      var h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+      return m ? h + 'h ' + m + 'm' : h + 'h';
+    }
+
+    // ── Init ──────────────────────────────────────────────────────────────
+    poll();
+    startPolling();
+  })();
+  </script>
+</body>
+</html>

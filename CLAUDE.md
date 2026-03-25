@@ -125,6 +125,16 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
   check, dump-and-restore repair (blocked if jobs running). Locations page flagged
   for UX redesign with visible banner. New tests in test_stop_controller.py,
   test_active_jobs.py, and additions to test_admin.py.
+**v0.9.4** — Status page & nav redesign. Floating global-status-bar and
+  slide-in active-jobs-panel replaced by dedicated `/status.html` with
+  stacked per-job cards (progress bars, active workers, per-dir stats,
+  pause/resume/stop controls). STOP ALL button and lifecycle scanner card
+  live on status page. Nav gains "Status" link with active-job count
+  badge (pulses red when stop requested). `global-status-bar.js` rewritten
+  to badge-only polling; `active-jobs-panel.js` retired and deleted.
+  `app.js` dynamically loads badge script after `buildNav()`. Old `.gsb-*`
+  and `.ajp-*` CSS replaced by `.job-card`, `.status-pill`, `.nav-badge`
+  design system classes. No backend changes.
 
 ---
 
@@ -309,8 +319,8 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 | `api/routes/admin.py` | API key CRUD, system info, resource controls, stats dashboard — admin only |
 | `core/resource_manager.py` | psutil wrapper: CPU affinity, process priority, live metrics |
 | `core/stop_controller.py` | Global stop flag, task registry, should_stop() / request_stop() / reset_stop() |
-| `static/js/global-status-bar.js` | Persistent floating bar, polls active-jobs, STOP ALL button |
-| `static/js/active-jobs-panel.js` | Slide-in panel with per-job detail, per-dir progress, individual stop |
+| `static/js/global-status-bar.js` | Badge-only polling: updates nav badge with active-job count |
+| `static/status.html` | Dedicated status page: per-job cards, STOP ALL, lifecycle scanner, pause/resume/stop |
 | `static/admin.html` | Admin panel: stats dashboard, task manager, resource controls, API keys |
 | `docs/unioncore-integration-contract.md` | Standalone spec for UnionCore team |
 | `pytest.ini` | Test configuration: asyncio_mode, custom markers (slow, ocr, integration, bulk) |
@@ -754,6 +764,20 @@ Implement the full DOCX → Markdown pipeline end-to-end:
   Do NOT refactor until a redesign spec is written. A banner is shown to users.
   Core functions (add/edit/delete location, path validation, FolderPicker) work correctly.
   Tracked: LOCATIONS_UX_REDESIGN (search this token to find all related notes).
+
+- **`active-jobs-panel.js` is deleted**: The slide-in panel was replaced by
+  `/status.html` in v0.9.4. Do not recreate it. All job status UI lives on the
+  dedicated status page now.
+
+- **`global-status-bar.js` is badge-only**: v0.9.4 stripped the floating bar. The
+  file now only exports `initStatusBadge()` which polls `/api/admin/active-jobs`
+  and updates a `<span class="nav-badge">` inside the Status nav link. It is
+  loaded dynamically by `app.js` after `buildNav()` — no per-page `<script>` tag.
+
+- **Status nav link visible to all roles**: The "Status" entry in `NAV_ITEMS` uses
+  `minRole: "search_user"` so every authenticated user can see active job status.
+  The STOP ALL / pause / cancel buttons on `status.html` call admin/manager endpoints
+  that enforce their own role checks server-side.
 
 ---
 

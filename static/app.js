@@ -166,6 +166,7 @@ async function populateLocationSelect(selectEl, type, selectedId = null) {
 
 const NAV_ITEMS = [
     { href: "/search.html",   label: "Search",   minRole: "search_user" },
+    { href: "/status.html",   label: "Status",   minRole: "search_user", badge: true },
     { href: "/index.html",    label: "Convert",   minRole: "operator"    },
     { href: "/history.html",  label: "History",   minRole: "operator"    },
     { href: "/bulk.html",     label: "Bulk Jobs",  minRole: "manager"     },
@@ -203,6 +204,12 @@ async function buildNav() {
             a.href = item.href;
             a.textContent = item.label;
             a.className = 'nav-link';
+            if (item.badge) {
+                const badge = document.createElement('span');
+                badge.className = 'nav-badge';
+                badge.style.display = 'none';
+                a.appendChild(badge);
+            }
             const hrefBase = item.href.replace('.html', '');
             const isActive = currentPath === item.href
                 || currentPath.startsWith(hrefBase)
@@ -210,6 +217,22 @@ async function buildNav() {
             if (isActive) a.classList.add('nav-link--active');
             nav.appendChild(a);
         });
+
+    // Load status badge script dynamically and init after it loads
+    _loadStatusBadge();
+}
+
+function _loadStatusBadge() {
+    if (typeof initStatusBadge === 'function') {
+        initStatusBadge();
+        return;
+    }
+    var script = document.createElement('script');
+    script.src = '/static/js/global-status-bar.js';
+    script.onload = function () {
+        if (typeof initStatusBadge === 'function') initStatusBadge();
+    };
+    document.head.appendChild(script);
 }
 
 // Build nav on page load
