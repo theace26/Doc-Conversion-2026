@@ -18,6 +18,7 @@ from pathlib import Path
 
 import structlog
 
+from core.stop_controller import should_stop
 from core.bulk_scanner import ALL_SUPPORTED, CONVERTIBLE_EXTENSIONS, ADOBE_EXTENSIONS
 from core.database import (
     create_scan_run,
@@ -162,6 +163,13 @@ async def run_lifecycle_scan(
     # ── Walk source share ────────────────────────────────────────────────────
     try:
         for dirpath, dirnames, filenames in os.walk(source_root):
+            # Check global stop
+            if should_stop():
+                log.warning("lifecycle_scan_stopped", scan_run_id=scan_run_id)
+                _scan_state["running"] = False
+                _scan_state["current_file"] = None
+                break
+
             dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "_markflow"]
 
             for filename in filenames:

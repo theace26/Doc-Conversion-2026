@@ -14,6 +14,7 @@ from pathlib import Path
 
 import structlog
 
+from core.stop_controller import should_stop
 from core.database import get_preference, record_path_issue, update_bulk_file, update_bulk_job_status, upsert_bulk_file
 from core.path_utils import PathSafetyResult, run_path_safety_pass
 
@@ -115,6 +116,18 @@ class BulkScanner:
         progress_interval = 50  # emit every N files
 
         for dirpath, dirnames, filenames in os.walk(self.source_path):
+            # Check global stop before each directory
+            if should_stop():
+                log.warning("scan_stopped_early", job_id=self.job_id, scanned_so_far=file_count)
+                if on_progress:
+                    await on_progress({
+                        "event": "scan_stopped",
+                        "job_id": self.job_id,
+                        "scanned": file_count,
+                        "reason": "global_stop_requested",
+                    })
+                break
+
             # Skip hidden directories and _markflow output dirs
             dirnames[:] = [
                 d for d in dirnames

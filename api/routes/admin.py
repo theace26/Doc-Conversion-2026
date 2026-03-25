@@ -37,6 +37,11 @@ from core.resource_manager import (
     get_cpu_info_cached,
     get_live_metrics,
 )
+from core.stop_controller import (
+    get_stop_state,
+    request_stop,
+    reset_stop,
+)
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -369,6 +374,67 @@ async def _query_llm_providers() -> list | None:
         for r in rows
     ]
 
+
+# ── POST /api/admin/stop-all ───────────────────────────────────────────────
+
+@router.post("/stop-all")
+async def stop_all_jobs(
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
+    """Hard stop all running jobs. Workers will finish current file then exit."""
+    result = request_stop(reason=f"admin_stop by {user.sub}")
+    log.warning("admin_stop_all", by=user.sub, jobs=result["stopped_jobs"])
+    return result
+
+
+# ── POST /api/admin/reset-stop ────────────────────────────────────────────
+
+@router.post("/reset-stop")
+async def reset_stop_flag(
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
+    """Clear the stop flag so new jobs can be started."""
+    reset_stop()
+    return {"ok": True}
+
+
+# ── GET /api/admin/stop-state ─────────────────────────────────────────────
+
+@router.get("/stop-state")
+async def stop_state(
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
+    return get_stop_state()
+
+
+# ── GET /api/admin/active-jobs ────────────────────────────────────────────
+
+@router.get("/active-jobs")
+async def active_jobs(
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+):
+    """All currently running or recently completed jobs. Polled by global status bar."""
+    from core.bulk_worker import get_all_active_jobs
+    from core.lifecycle_scanner import get_scan_state
+
+    bulk_jobs = await get_all_active_jobs()
+    lifecycle = get_scan_state()
+    stop = get_stop_state()
+
+    running_count = (
+        sum(1 for j in bulk_jobs if j["status"] in ("scanning", "running", "paused"))
+        + (1 if lifecycle["running"] else 0)
+    )
+
+    return {
+        "running_count": running_count,
+        "stop_requested": stop["stop_requested"],
+        "bulk_jobs": bulk_jobs,
+        "lifecycle_scan": lifecycle,
+    }
+
+
+# ── GET /api/admin/stats ─────────────────────────────────────────────────
 
 @router.get("/stats")
 async def admin_stats(

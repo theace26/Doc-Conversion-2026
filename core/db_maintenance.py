@@ -2,10 +2,15 @@
 Database health and maintenance operations.
 
 Provides: compaction (incremental vacuum + WAL checkpoint), integrity checks,
-foreign key checks, stale data detection, and health summary.
+foreign key checks, stale data detection, health summary, quick health check,
+and dump-and-restore repair.
 """
 
+import asyncio
+import os
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 
 import structlog
 
@@ -210,6 +215,120 @@ async def run_wal_checkpoint() -> None:
     except Exception as exc:
         duration_ms = int((time.perf_counter() - t0) * 1000)
         await log_maintenance("wal_checkpoint", "error", {"error": str(exc)}, duration_ms)
+
+
+async def run_quick_health_check() -> dict:
+    """Quick structural check, WAL size, DB size, row counts. Sub-second."""
+    results: dict = {}
+    db_path = DB_PATH
+
+    try:
+        async with get_db() as conn:
+            cur = await conn.execute("PRAGMA quick_check")
+            rows = await cur.fetchall()
+            results["quick_check"] = [r[0] for r in rows]
+            results["quick_check_ok"] = results["quick_check"] == ["ok"]
+
+        # WAL size
+        wal = db_path.with_suffix(".db-wal")
+        results["wal_size_mb"] = round(wal.stat().st_size / 1024 / 1024, 2) if wal.exists() else 0
+
+        # DB file size
+        results["db_size_mb"] = round(db_path.stat().st_size / 1024 / 1024, 2) if db_path.exists() else 0
+
+        # Row counts for key tables
+        tables = ["bulk_files", "conversion_history", "ocr_flags", "llm_providers",
+                  "api_keys", "scan_runs", "file_versions"]
+        counts = {}
+        async with get_db() as conn:
+            for t in tables:
+                try:
+                    cur = await conn.execute(f"SELECT COUNT(*) FROM {t}")  # noqa: S608 — table names are hardcoded
+                    row = await cur.fetchone()
+                    counts[t] = row[0] if row else None
+                except Exception:
+                    counts[t] = None
+        results["row_counts"] = counts
+    except Exception as exc:
+        results["error"] = str(exc)
+        results["quick_check_ok"] = False
+
+    results["generated_at"] = datetime.now(timezone.utc).isoformat()
+    return results
+
+
+async def run_full_integrity_check() -> dict:
+    """Full PRAGMA integrity_check. May be slow on large DBs."""
+    import sqlite3
+
+    db_path_str = str(DB_PATH)
+
+    def _check():
+        conn = sqlite3.connect(db_path_str)
+        cur = conn.execute("PRAGMA integrity_check")
+        rows = [r[0] for r in cur.fetchall()]
+        conn.close()
+        return rows
+
+    rows = await asyncio.to_thread(_check)
+    ok = rows == ["ok"]
+    return {
+        "ok": ok,
+        "errors": [] if ok else rows,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def repair_database() -> dict:
+    """Dump-and-restore repair. Acquires exclusive lock."""
+    from core.stop_controller import get_stop_state
+
+    state = get_stop_state()
+    if state["registered_tasks"]:
+        return {
+            "ok": False,
+            "error": "Active jobs are running. Stop all jobs before repairing.",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    db_path = DB_PATH
+    bak_path = db_path.with_suffix(".db.bak")
+    new_path = db_path.with_suffix(".db.repaired")
+
+    def _repair():
+        import shutil
+        import sqlite3
+
+        # Dump
+        src = sqlite3.connect(str(db_path))
+        dump = "\n".join(src.iterdump())
+        src.close()
+        # Restore to new file
+        dst = sqlite3.connect(str(new_path))
+        dst.executescript(dump)
+        dst.close()
+        # Rotate
+        shutil.copy2(str(db_path), str(bak_path))
+        new_path.rename(db_path)
+        return True
+
+    try:
+        await asyncio.to_thread(_repair)
+        return {
+            "ok": True,
+            "backup": str(bak_path),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        log.error("db_repair_failed", error=str(e))
+        # Clean up repaired file if it exists
+        if new_path.exists():
+            new_path.unlink(missing_ok=True)
+        return {
+            "ok": False,
+            "error": str(e),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
 
 
 async def get_health_summary() -> dict:

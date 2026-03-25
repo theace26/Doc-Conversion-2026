@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from core.auth import AuthenticatedUser, UserRole, require_role
+from core.stop_controller import reset_stop
 from pydantic import BaseModel, Field
 
 from core.bulk_worker import (
@@ -129,6 +130,9 @@ async def create_job(
         fidelity_tier=req.fidelity_tier,
         ocr_mode=req.ocr_mode,
     )
+
+    # Clear any previous stop flag before starting
+    reset_stop()
 
     # Ensure output dir exists
     output.mkdir(parents=True, exist_ok=True)

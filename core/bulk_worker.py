@@ -17,6 +17,7 @@ from typing import Any
 
 import structlog
 
+from core.stop_controller import should_stop, register_task, unregister_task
 from core.bulk_scanner import (
     ADOBE_EXTENSIONS,
     CONVERTIBLE_EXTENSIONS,
@@ -213,11 +214,25 @@ class BulkJob:
         self._skip_batch_count = 0
         self._review_queue_count = 0
 
+        # Job metadata for active-jobs panel
+        self.started_at: datetime | None = None
+        self.options: dict = {
+            "fidelity_tier": fidelity_tier,
+            "ocr_enabled": ocr_mode != "skip",
+            "ocr_mode": ocr_mode,
+            "worker_count": self.worker_count,
+            "include_adobe": include_adobe,
+        }
+        self.current_files: list[dict] = []   # [{worker_id, filename}]
+        self.dir_stats: dict[str, dict] = {}  # top_dir -> {converted, failed, pending}
+
     async def run(self) -> None:
         """Full job lifecycle."""
         t_start = time.perf_counter()
+        self.started_at = datetime.now(timezone.utc)
 
         register_job(self)
+        register_task(self.job_id, asyncio.current_task())
         _bulk_progress_queues[self.job_id] = asyncio.Queue(maxsize=500)
 
         try:
@@ -326,6 +341,7 @@ class BulkJob:
             )
             _emit_bulk_event(self.job_id, "done", {})
         finally:
+            unregister_task(self.job_id)
             deregister_job(self.job_id)
 
     async def _worker(self, worker_id: int) -> None:
@@ -336,6 +352,13 @@ class BulkJob:
             item = await self._queue.get()
             if item is None:
                 break
+
+            # Check global stop
+            if should_stop():
+                log.warning("bulk_worker_stopped", job_id=self.job_id, worker_id=worker_id)
+                _emit_bulk_event(self.job_id, "job_stopped", {
+                    "job_id": self.job_id, "reason": "global_stop_requested"})
+                continue  # drain queue
 
             # Check cancel
             if self._cancel_event.is_set():
@@ -348,6 +371,10 @@ class BulkJob:
             if self._cancel_event.is_set():
                 continue
 
+            # Check global stop again after pause
+            if should_stop():
+                continue
+
             file_dict = item
             ext = file_dict["file_ext"]
             file_id = file_dict["id"]
@@ -355,6 +382,11 @@ class BulkJob:
 
             # Track current worker_id for use in sub-methods
             self._current_worker_id = worker_id + 1
+
+            # Track current file for active-jobs panel
+            worker_entry = {"worker_id": worker_id + 1, "filename": source_path.name}
+            self.current_files = [e for e in self.current_files if e["worker_id"] != worker_id + 1]
+            self.current_files.append(worker_entry)
 
             # Emit file_start event so the UI can show what each worker is doing
             _emit_bulk_event(self.job_id, "file_start", {
@@ -406,6 +438,9 @@ class BulkJob:
                     "failed": self._failed,
                     "worker_id": worker_id + 1,
                 })
+            finally:
+                # Clear worker from current_files
+                self.current_files = [e for e in self.current_files if e["worker_id"] != worker_id + 1]
 
         log.debug("bulk_worker_stop", job_id=self.job_id, worker_id=worker_id)
 
@@ -494,6 +529,14 @@ class BulkJob:
 
         duration_ms = int((time.perf_counter() - t_start) * 1000)
 
+        # Track dir_stats for top-level subdirectory
+        try:
+            rel_parts = source_path.relative_to(self.source_path).parts
+            top_dir = rel_parts[0] if len(rel_parts) > 1 else "(root)"
+        except ValueError:
+            top_dir = "(root)"
+        self.dir_stats.setdefault(top_dir, {"converted": 0, "failed": 0, "pending": 0})
+
         if result.status == "success":
             # Compute content hash of output
             content_hash = None
@@ -512,6 +555,7 @@ class BulkJob:
                 converted_at=datetime.now(timezone.utc).isoformat(),
             )
             self._converted += 1
+            self.dir_stats[top_dir]["converted"] += 1
             await increment_bulk_job_counter(self.job_id, "converted")
 
             _emit_bulk_event(self.job_id, "file_converted", {
@@ -542,6 +586,7 @@ class BulkJob:
                 error_msg=result.error_message,
             )
             self._failed += 1
+            self.dir_stats[top_dir]["failed"] += 1
             await increment_bulk_job_counter(self.job_id, "failed")
 
             _emit_bulk_event(self.job_id, "file_failed", {
@@ -845,3 +890,36 @@ def _emit_gap_fill_event(gap_fill_id: str, event: str, data: dict) -> None:
             q.put_nowait({"event": event, "data": data})
         except asyncio.QueueFull:
             pass
+
+
+# ── Active jobs serialization ──────────────────────────────────────────────
+
+async def get_all_active_jobs() -> list[dict]:
+    """Return serialized state of all jobs in the registry (active + recently finished)."""
+    results = []
+    for job in _active_jobs.values():
+        # Determine status string
+        if job._cancel_event.is_set():
+            status = "cancelled"
+        elif not job._pause_event.is_set():
+            status = "paused"
+        elif job._total_pending > 0 and job._converted + job._failed + job._skipped < job._total_pending:
+            status = "running"
+        else:
+            status = "done"
+
+        results.append({
+            "job_id":        job.job_id,
+            "status":        status,
+            "source_path":   str(job.source_path),
+            "output_path":   str(job.output_path),
+            "total_files":   job._total_pending,
+            "converted":     job._converted,
+            "failed":        job._failed,
+            "skipped":       job._skipped,
+            "current_files": list(job.current_files),
+            "started_at":    job.started_at.isoformat() if job.started_at else None,
+            "options":       job.options,
+            "dir_stats":     dict(job.dir_stats),
+        })
+    return results

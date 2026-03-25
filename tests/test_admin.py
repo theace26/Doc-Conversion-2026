@@ -187,3 +187,67 @@ def test_get_cpu_info_cached():
     assert info1 is info2  # same object
     assert "logical_count" in info1
     assert "physical_count" in info1
+
+
+# ── DB Tools ────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_db_health_check(client):
+    """POST /api/db/health-check returns quick_check_ok, db_size_mb, row_counts."""
+    resp = await client.post("/api/db/health-check")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "quick_check_ok" in data
+    assert "db_size_mb" in data
+    assert "row_counts" in data
+    assert "generated_at" in data
+    assert isinstance(data["row_counts"], dict)
+
+
+@pytest.mark.asyncio
+async def test_db_full_integrity_check(client):
+    """POST /api/db/full-integrity-check returns ok and errors list."""
+    resp = await client.post("/api/db/full-integrity-check")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["errors"] == []
+
+
+@pytest.mark.asyncio
+async def test_db_repair_no_active_jobs(client):
+    """POST /api/db/repair with no active jobs succeeds."""
+    from core.stop_controller import reset_stop
+    reset_stop()
+
+    resp = await client.post("/api/db/repair")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert "backup" in data
+
+
+@pytest.mark.asyncio
+async def test_db_repair_blocked_with_active_tasks(client):
+    """POST /api/db/repair with active tasks returns error."""
+    import asyncio
+    from core.stop_controller import register_task, reset_stop
+
+    # Register a fake task to simulate active job
+    loop = asyncio.get_event_loop()
+    task = loop.create_task(asyncio.sleep(100))
+    register_task("fake-repair-test", task)
+
+    try:
+        resp = await client.post("/api/db/repair")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is False
+        assert "Active jobs" in data["error"]
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        reset_stop()

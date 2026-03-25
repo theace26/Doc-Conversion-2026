@@ -111,6 +111,20 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
   `GET /api/admin/stats`. New preferences: worker_count, cpu_affinity_cores,
   process_priority. `get_scheduler_status()` added to scheduler.py.
   psutil primed at startup in lifespan. 16 new tests in test_admin.py.
+**v0.9.3** — Global stop controls, active jobs panel, admin DB tools, locations
+  flagged for UX redesign. `core/stop_controller.py`: cooperative global stop
+  flag checked by bulk workers, bulk scanner, and lifecycle scanner before each
+  file. `POST /api/admin/stop-all` cancels all registered asyncio tasks.
+  `POST /api/admin/reset-stop` clears the flag. `GET /api/admin/active-jobs`
+  returns all running jobs for the global status bar. Persistent floating status
+  bar (`global-status-bar.js`) on every page shows job count, STOP ALL button,
+  and stop-requested banner. Active Jobs slide-in panel (`active-jobs-panel.js`)
+  shows per-job detail with progress bars, active workers, per-directory stats,
+  and individual stop buttons. `dir_stats` on BulkJob tracks top-level
+  subdirectory counts. Admin DB Tools section: quick health check, full integrity
+  check, dump-and-restore repair (blocked if jobs running). Locations page flagged
+  for UX redesign with visible banner. New tests in test_stop_controller.py,
+  test_active_jobs.py, and additions to test_admin.py.
 
 ---
 
@@ -294,6 +308,9 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 | `api/routes/auth.py` | GET /api/auth/me — current user identity and role |
 | `api/routes/admin.py` | API key CRUD, system info, resource controls, stats dashboard — admin only |
 | `core/resource_manager.py` | psutil wrapper: CPU affinity, process priority, live metrics |
+| `core/stop_controller.py` | Global stop flag, task registry, should_stop() / request_stop() / reset_stop() |
+| `static/js/global-status-bar.js` | Persistent floating bar, polls active-jobs, STOP ALL button |
+| `static/js/active-jobs-panel.js` | Slide-in panel with per-job detail, per-dir progress, individual stop |
 | `static/admin.html` | Admin panel: stats dashboard, task manager, resource controls, API keys |
 | `docs/unioncore-integration-contract.md` | Standalone spec for UnionCore team |
 | `pytest.ini` | Test configuration: asyncio_mode, custom markers (slow, ocr, integration, bulk) |
@@ -713,6 +730,30 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 - **Stats endpoint never returns 500**: All sub-queries in `GET /api/admin/stats`
   are wrapped in `_safe()` + `asyncio.gather(return_exceptions=True)`. If a query
   fails, its section is null in the response.
+
+- **Stop is cooperative, not instant**: `request_stop()` cancels asyncio tasks and
+  sets a flag. Workers check the flag before each file. A worker mid-conversion will
+  finish that file before stopping. Hard kill (`SIGKILL`) is not used — it would
+  corrupt the SQLite WAL. If a worker is hung on a single file, the only option is
+  container restart.
+
+- **`dir_stats` tracks top-level directories only**: Tracking the full directory tree
+  would create an unbounded dict on deep repositories. Top-level subdirectories only.
+  Full tree tracking is a future enhancement.
+
+- **`reset_stop()` must be called before starting new jobs**: If the stop flag is set
+  and not reset, new bulk jobs will immediately stop at the first file. `POST /api/bulk/jobs`
+  calls reset automatically. Manual reset available at `POST /api/admin/reset-stop`.
+
+- **DB repair acquires exclusive lock**: All in-flight requests will wait during a
+  dump-and-restore repair. The repair endpoint checks `stop_controller.registered_tasks`
+  and refuses to run if any tasks are active. User must stop all jobs first.
+
+- **Locations UX flagged for redesign**: static/locations.html and api/routes/locations.py
+  are functional but the layout and workflow have been flagged for UX revision.
+  Do NOT refactor until a redesign spec is written. A banner is shown to users.
+  Core functions (add/edit/delete location, path validation, FolderPicker) work correctly.
+  Tracked: LOCATIONS_UX_REDESIGN (search this token to find all related notes).
 
 ---
 

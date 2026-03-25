@@ -151,6 +151,45 @@
     </section>
 
     <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <!-- Database Tools                                                        -->
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <section class="admin-section" id="db-tools">
+      <h2>Database Tools</h2>
+      <p class="section-desc" style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem">
+        Run against the active database. For full details see
+        <a href="/db-health.html">DB Health</a>.
+      </p>
+
+      <div class="db-tool-row">
+
+        <div class="db-tool-card">
+          <h3>Health Check <span class="tool-badge tool-fast">fast</span></h3>
+          <p>Quick structural check, WAL size, row counts. Completes in under a second.</p>
+          <button class="btn-secondary" id="btn-health-check" data-label="Run Health Check">Run Health Check</button>
+          <div class="db-tool-result" id="result-health-check" hidden></div>
+        </div>
+
+        <div class="db-tool-card">
+          <h3>Integrity Check <span class="tool-badge tool-slow">slow</span></h3>
+          <p>Full content verification. May take 30+ seconds on large databases.</p>
+          <button class="btn-secondary" id="btn-integrity-check" data-label="Run Integrity Check">Run Integrity Check</button>
+          <div class="db-tool-result" id="result-integrity-check" hidden></div>
+        </div>
+
+        <div class="db-tool-card db-tool-card-danger">
+          <h3>Repair Database <span class="tool-badge tool-danger">destructive</span></h3>
+          <p>
+            Dump and restore via SQL. Original saved as <code>.db.bak</code>.
+            <strong>Stop all jobs first.</strong>
+          </p>
+          <button class="btn-danger" id="btn-repair-db" data-label="Repair Database">Repair Database</button>
+          <div class="db-tool-result" id="result-repair" hidden></div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
     <!-- Task Manager                                                          -->
     <!-- ══════════════════════════════════════════════════════════════════════ -->
     <section class="admin-section" id="task-manager">
@@ -269,6 +308,8 @@
   </main>
 
   <script src="/static/app.js"></script>
+  <script src="/static/js/active-jobs-panel.js"></script>
+  <script src="/static/js/global-status-bar.js"></script>
   <style>
     .admin-section {
       background: var(--surface);
@@ -681,8 +722,79 @@
     });
 
     /* ════════════════════════════════════════════════════════════════════════
-     *  System Info + API Keys (existing)
+     *  DB Tools
      * ════════════════════════════════════════════════════════════════════ */
+
+    async function runDbTool(endpoint, resultId, btnId, confirmMsg) {
+      if (confirmMsg && !confirm(confirmMsg)) return;
+      const btn    = document.getElementById(btnId);
+      const result = document.getElementById(resultId);
+      const label  = btn.dataset.label;
+      btn.disabled = true;
+      btn.textContent = 'Running\u2026';
+      result.hidden = false;
+      result.className = 'db-tool-result db-tool-running';
+      result.textContent = 'Running\u2026';
+
+      try {
+        const res  = await fetch(endpoint, { method: 'POST' });
+        const data = await res.json();
+        renderDbResult(result, data);
+      } catch (e) {
+        result.className = 'db-tool-result db-tool-error';
+        result.textContent = `Error: ${e.message}`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = label;
+      }
+    }
+
+    function renderDbResult(el, data) {
+      if (data.ok === false) {
+        el.className = 'db-tool-result db-tool-error';
+        const errors = (data.errors || []).join('\n') || data.error || 'Unknown error';
+        el.innerHTML = `<strong>\u2717 Check failed</strong><pre>${escapeHtml(errors)}</pre>`;
+        return;
+      }
+      if (data.ok === true) {
+        el.className = 'db-tool-result db-tool-ok';
+        if (data.backup) {
+          el.innerHTML = `<strong>\u2713 Repair complete</strong> \u2014 backup saved to <code>${escapeHtml(data.backup)}</code>`;
+        } else {
+          el.innerHTML = '<strong>\u2713 No errors found</strong>';
+        }
+        return;
+      }
+      // Health check — rich output
+      el.className = data.quick_check_ok ? 'db-tool-result db-tool-ok' : 'db-tool-result db-tool-error';
+      const qc  = data.quick_check_ok ? '\u2713 Structure OK' : '\u2717 Structural issues detected';
+      const wal = data.wal_size_mb > 50
+        ? `\u26a0 WAL is ${data.wal_size_mb} MB \u2014 checkpoint may be stalled`
+        : `\u2713 WAL: ${data.wal_size_mb} MB`;
+      const counts = Object.entries(data.row_counts || {})
+        .map(([t, c]) => `${t}: ${c != null ? c.toLocaleString() : 'n/a'}`)
+        .join(' \u00b7 ');
+      el.innerHTML = `
+        <div>${qc}</div>
+        <div>${wal}</div>
+        <div>DB size: ${data.db_size_mb} MB</div>
+        <div class="text-muted text-sm">${counts}</div>`;
+    }
+
+    document.getElementById('btn-health-check')?.addEventListener('click', () => {
+      runDbTool('/api/db/health-check', 'result-health-check', 'btn-health-check', null);
+    });
+    document.getElementById('btn-integrity-check')?.addEventListener('click', () => {
+      runDbTool('/api/db/full-integrity-check', 'result-integrity-check', 'btn-integrity-check', null);
+    });
+    document.getElementById('btn-repair-db')?.addEventListener('click', () => {
+      runDbTool('/api/db/repair', 'result-repair', 'btn-repair-db',
+        'This will dump and restore the database. All active jobs must be stopped first. Continue?');
+    });
+
+    /* ════════════════════════════════════════════════════════════════════════
+     *  System Info + API Keys (existing)
+     * ════════════════════════════════════════════════════════════════════════ */
 
     let _newKeyValue = '';
 

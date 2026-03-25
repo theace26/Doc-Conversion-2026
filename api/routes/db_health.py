@@ -73,3 +73,30 @@ async def maintenance_log(
     """Return recent maintenance log entries."""
     entries = await get_maintenance_log(limit=limit)
     return {"entries": entries}
+
+
+@router.post("/health-check")
+async def run_health_check(
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+) -> dict:
+    """Quick DB health check: structure, WAL size, row counts. Under 1 second."""
+    from core.db_maintenance import run_quick_health_check
+    return await run_quick_health_check()
+
+
+@router.post("/full-integrity-check")
+async def run_full_integrity(
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+) -> dict:
+    """Full integrity check. May take 30+ seconds on large databases."""
+    from core.db_maintenance import run_full_integrity_check
+    return await run_full_integrity_check()
+
+
+@router.post("/repair")
+async def repair_db(
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+) -> dict:
+    """Dump-and-restore repair. Blocks if jobs are running."""
+    from core.db_maintenance import repair_database
+    return await repair_database()

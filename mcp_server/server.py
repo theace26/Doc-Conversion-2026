@@ -21,10 +21,7 @@ import structlog
 log = structlog.get_logger(__name__)
 
 # Create MCP server
-mcp = FastMCP(
-    "MarkFlow",
-    description="Search, read, and convert documents in the MarkFlow repository.",
-)
+mcp = FastMCP("MarkFlow")
 
 # MCP auth token (optional)
 MCP_AUTH_TOKEN = os.getenv("MCP_AUTH_TOKEN", "")
