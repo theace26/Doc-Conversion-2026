@@ -2,6 +2,7 @@
 Full-text search API powered by Meilisearch.
 
 GET  /api/search              — Search documents or Adobe index
+GET  /api/search/autocomplete — Lightweight suggestions for search box
 GET  /api/search/index/status — Index health and stats
 POST /api/search/index/rebuild — Trigger full index rebuild
 """
@@ -87,6 +88,52 @@ async def search(
         "processing_time_ms": result.get("processingTimeMs", 0),
         "hits": hits,
     }
+
+
+# ── GET /api/search/autocomplete ─────────────────────────────────────────────
+
+@router.get("/autocomplete")
+async def autocomplete(
+    q: str = Query("", min_length=0),
+    limit: int = Query(5, ge=1, le=8),
+    user: AuthenticatedUser = Depends(require_role(UserRole.SEARCH_USER)),
+):
+    """Lightweight suggestions for search box autocomplete."""
+    if len(q.strip()) < 2:
+        return {"suggestions": []}
+
+    client = get_meili_client()
+
+    options = {
+        "limit": limit,
+        "attributesToRetrieve": ["title", "format", "source_format", "id", "file_ext"],
+    }
+
+    seen_titles: set[str] = set()
+    suggestions: list[dict] = []
+
+    for index_uid in ("documents", "adobe-files"):
+        try:
+            result = await client.search(index_uid, q.strip(), options)
+            for hit in result.get("hits", []):
+                title = hit.get("title") or hit.get("source_filename") or ""
+                if not title:
+                    continue
+                title_lower = title.lower()
+                if title_lower in seen_titles:
+                    continue
+                seen_titles.add(title_lower)
+                fmt = hit.get("source_format") or hit.get("format") or hit.get("file_ext") or ""
+                suggestions.append({
+                    "title": title,
+                    "format": fmt.lstrip("."),
+                    "id": hit.get("id", ""),
+                })
+        except Exception:
+            # Meilisearch down or error — silently return what we have
+            pass
+
+    return {"suggestions": suggestions[:limit]}
 
 
 # ── GET /api/search/index/status ─────────────────────────────────────────────

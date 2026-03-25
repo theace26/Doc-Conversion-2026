@@ -8,6 +8,7 @@ Supports incremental processing: unchanged files (same mtime) are skipped.
 import asyncio
 import os
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -72,7 +73,10 @@ class BulkScanner:
         self.output_path = Path(output_path) if output_path else None
         self._yield_interval = 1000  # yield control every N files
 
-    async def scan(self) -> ScanResult:
+    async def scan(
+        self,
+        on_progress: Callable[[dict], Awaitable[None]] | None = None,
+    ) -> ScanResult:
         """
         Walk source_path recursively. For each supported file:
           1. Check extension
@@ -86,6 +90,29 @@ class BulkScanner:
         self._convertible_paths: list[Path] = []
 
         log.info("bulk_scan_start", job_id=self.job_id, source_path=str(self.source_path))
+
+        # Pre-count files for progress estimation (capped at 10s)
+        total_estimate = 0
+        try:
+            total_estimate = await asyncio.wait_for(
+                asyncio.to_thread(self._count_files, self.source_path),
+                timeout=10.0,
+            )
+        except (asyncio.TimeoutError, Exception):
+            total_estimate = 0
+
+        # Emit first progress event
+        if on_progress:
+            await on_progress({
+                "event": "scan_progress",
+                "job_id": self.job_id,
+                "scanned": 0,
+                "total": total_estimate,
+                "current_file": "",
+                "pct": None if total_estimate == 0 else 0,
+            })
+
+        progress_interval = 50  # emit every N files
 
         for dirpath, dirnames, filenames in os.walk(self.source_path):
             # Skip hidden directories and _markflow output dirs
@@ -136,8 +163,36 @@ class BulkScanner:
                     await self._record_unrecognized(file_path, ext, file_size, mtime)
 
                 file_count += 1
+
+                # Emit progress every N files
+                if on_progress and (file_count % progress_interval == 0):
+                    try:
+                        rel_path = file_path.relative_to(self.source_path)
+                    except ValueError:
+                        rel_path = file_path
+                    pct = min(99, int(file_count / total_estimate * 100)) if total_estimate > 0 else None
+                    await on_progress({
+                        "event": "scan_progress",
+                        "job_id": self.job_id,
+                        "scanned": file_count,
+                        "total": total_estimate,
+                        "current_file": str(rel_path),
+                        "pct": pct,
+                    })
+
                 if file_count % self._yield_interval == 0:
                     await asyncio.sleep(0)
+
+        # Emit final progress event
+        if on_progress:
+            await on_progress({
+                "event": "scan_progress",
+                "job_id": self.job_id,
+                "scanned": file_count,
+                "total": total_estimate if total_estimate > 0 else file_count,
+                "current_file": "",
+                "pct": 99,
+            })
 
         # Count skipped (already converted, unchanged)
         from core.database import get_bulk_file_count
@@ -152,6 +207,14 @@ class BulkScanner:
             result.path_safety_result = await self._run_path_safety_pass(result)
 
         result.scan_duration_ms = int((time.perf_counter() - t_start) * 1000)
+
+        # Emit scan_complete event
+        if on_progress:
+            await on_progress({
+                "event": "scan_complete",
+                "job_id": self.job_id,
+                "total_found": file_count,
+            })
 
         log.info(
             "bulk_scan_complete",
@@ -169,6 +232,15 @@ class BulkScanner:
         )
 
         return result
+
+    @staticmethod
+    def _count_files(source_path: Path) -> int:
+        """Count files in the source directory (synchronous, for use in a thread)."""
+        count = 0
+        for _, dirnames, filenames in os.walk(source_path):
+            dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "_markflow"]
+            count += len(filenames)
+        return count
 
     async def _record_unrecognized(
         self, path: Path, ext: str, file_size: int, mtime: float

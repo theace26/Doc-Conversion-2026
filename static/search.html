@@ -39,7 +39,10 @@
     <div id="index-status" class="index-status mb-1"></div>
 
     <div class="search-box">
-      <input type="search" id="search-input" placeholder="Search documents..." autofocus>
+      <div class="search-autocomplete-wrapper">
+        <input type="search" id="search-input" placeholder="Search documents..." autofocus autocomplete="off">
+        <ul id="autocomplete-list" class="autocomplete-dropdown" hidden></ul>
+      </div>
       <button class="btn btn-primary" id="search-btn">Search</button>
     </div>
 
@@ -213,13 +216,83 @@
     return div.innerHTML;
   }
 
+  // ── Autocomplete ─────────────────────────────────────────────────────────
+  const acInput = document.getElementById('search-input');
+  const acList  = document.getElementById('autocomplete-list');
+  let acTimer = null;
+  let activeIdx = -1;
+
+  acInput.addEventListener('input', () => {
+    clearTimeout(acTimer);
+    const q = acInput.value.trim();
+    if (q.length < 2) { hideAC(); return; }
+    acTimer = setTimeout(() => fetchSuggestions(q), 200);
+  });
+
+  acInput.addEventListener('keydown', (e) => {
+    const items = acList.querySelectorAll('li');
+    if (e.key === 'ArrowDown')  { e.preventDefault(); moveAC(items,  1); }
+    if (e.key === 'ArrowUp')    { e.preventDefault(); moveAC(items, -1); }
+    if (e.key === 'Enter' && activeIdx >= 0) {
+      e.preventDefault();
+      items[activeIdx]?.click();
+      return;
+    }
+    if (e.key === 'Escape') hideAC();
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.search-autocomplete-wrapper')) hideAC();
+  });
+
+  async function fetchSuggestions(q) {
+    try {
+      const res  = await fetch(`/api/search/autocomplete?q=${encodeURIComponent(q)}&limit=6`);
+      const data = await res.json();
+      renderAC(data.suggestions || []);
+    } catch { hideAC(); }
+  }
+
+  function renderAC(suggestions) {
+    acList.innerHTML = '';
+    activeIdx = -1;
+    if (!suggestions.length) { hideAC(); return; }
+    suggestions.forEach((s, i) => {
+      const li = document.createElement('li');
+      li.dataset.idx = i;
+      li.innerHTML = `<span class="ac-title">${escapeHtml(s.title)}</span>
+                      <span class="ac-format">${s.format.toUpperCase()}</span>`;
+      li.addEventListener('mouseenter', () => setActive(acList.querySelectorAll('li'), i));
+      li.addEventListener('click', () => {
+        acInput.value = s.title;
+        hideAC();
+        currentPage = 1;
+        doSearch();
+      });
+      acList.appendChild(li);
+    });
+    acList.hidden = false;
+  }
+
+  function moveAC(items, dir) {
+    activeIdx = Math.max(-1, Math.min(items.length - 1, activeIdx + dir));
+    setActive(items, activeIdx);
+  }
+
+  function setActive(items, idx) {
+    items.forEach((li, i) => li.classList.toggle('ac-active', i === idx));
+    activeIdx = idx;
+  }
+
+  function hideAC() { acList.hidden = true; acList.innerHTML = ''; activeIdx = -1; }
+
   // Events
   document.getElementById('search-input').addEventListener('input', () => {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => { currentPage = 1; doSearch(); }, 400);
   });
   document.getElementById('search-input').addEventListener('keydown', e => {
-    if (e.key === 'Enter') { clearTimeout(debounceTimer); currentPage = 1; doSearch(); }
+    if (e.key === 'Enter' && activeIdx < 0) { clearTimeout(debounceTimer); currentPage = 1; doSearch(); }
   });
   document.getElementById('search-btn').addEventListener('click', () => { currentPage = 1; doSearch(); });
   document.getElementById('filter-format').addEventListener('change', e => {

@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
@@ -37,6 +38,25 @@ from core.lifecycle_manager import (
 )
 
 log = structlog.get_logger(__name__)
+
+# ── In-memory scan state (resets on container restart) ────────────────────────
+_scan_state: dict = {
+    "running": False,
+    "run_id": None,
+    "started_at": None,
+    "scanned": 0,
+    "total": 0,
+    "pct": None,
+    "current_file": None,
+    "eta_seconds": None,
+    "last_scan_at": None,
+    "last_scan_run_id": None,
+}
+
+
+def get_scan_state() -> dict:
+    """Return a snapshot of the current lifecycle scan state."""
+    return dict(_scan_state)
 
 
 def compute_file_hash(file_path: Path) -> str | None:
@@ -103,14 +123,41 @@ async def run_lifecycle_scan(
     error_entries: list[dict] = []
     seen_paths: set[str] = set()
 
+    # Update scan state for progress tracking
+    _scan_state["running"] = True
+    _scan_state["run_id"] = scan_run_id
+    _scan_state["started_at"] = datetime.now(timezone.utc).isoformat()
+    _scan_state["scanned"] = 0
+    _scan_state["total"] = 0
+    _scan_state["pct"] = None
+    _scan_state["current_file"] = None
+    _scan_state["eta_seconds"] = None
+
+    # Pre-count files for progress estimate
+    import asyncio
+    try:
+        total_estimate = await asyncio.wait_for(
+            asyncio.to_thread(_count_files_sync, source_root),
+            timeout=10.0,
+        )
+        _scan_state["total"] = total_estimate
+    except (asyncio.TimeoutError, Exception):
+        _scan_state["total"] = 0
+    _started_at_dt = datetime.now(timezone.utc)
+
     # Resolve the job_id to use for upserts — use most recent job if not specified
     if not job_id:
-        from core.database import list_bulk_jobs
+        from core.database import list_bulk_jobs, create_bulk_job
         jobs = await list_bulk_jobs(limit=1)
         if jobs:
             job_id = jobs[0]["id"]
         else:
-            job_id = scan_run_id  # fallback: use scan run id as job id
+            # No bulk jobs exist yet — create a synthetic lifecycle job so FK is satisfied
+            job_id = await create_bulk_job(
+                source_path=str(source_root),
+                output_path=os.getenv("BULK_OUTPUT_PATH", "/mnt/output-repo"),
+            )
+            log.info("lifecycle_scan.created_synthetic_job", job_id=job_id)
 
     # ── Walk source share ────────────────────────────────────────────────────
     try:
@@ -152,6 +199,26 @@ async def run_lifecycle_scan(
                     counters["errors"] += 1
                     error_entries.append({"path": path_str, "error": str(exc)})
                     log.error("lifecycle_scan.file_error", path=path_str, error=str(exc))
+
+                # Update scan state every 25 files
+                if counters["files_scanned"] % 25 == 0:
+                    _scan_state["scanned"] = counters["files_scanned"]
+                    try:
+                        _scan_state["current_file"] = str(file_path.relative_to(source_root))
+                    except ValueError:
+                        _scan_state["current_file"] = filename
+                    total_est = _scan_state["total"]
+                    if total_est > 0:
+                        _scan_state["pct"] = min(99, int(counters["files_scanned"] / total_est * 100))
+                    else:
+                        _scan_state["pct"] = None
+                    elapsed = (datetime.now(timezone.utc) - _started_at_dt).total_seconds()
+                    if elapsed > 5 and counters["files_scanned"] > 0:
+                        rate = counters["files_scanned"] / elapsed
+                        remaining = total_est - counters["files_scanned"] if total_est else 0
+                        _scan_state["eta_seconds"] = int(remaining / rate) if rate > 0 and remaining > 0 else None
+                    else:
+                        _scan_state["eta_seconds"] = None
     except Exception as exc:
         await update_scan_run(scan_run_id, {
             "status": "failed",
@@ -159,6 +226,11 @@ async def run_lifecycle_scan(
             "errors": counters["errors"] + 1,
             "error_log": json.dumps(error_entries + [{"path": str(source_root), "error": str(exc)}]),
         })
+        _scan_state["running"] = False
+        _scan_state["current_file"] = None
+        _scan_state["eta_seconds"] = None
+        _scan_state["last_scan_at"] = _now_iso()
+        _scan_state["last_scan_run_id"] = scan_run_id
         log.error("lifecycle_scan.walk_failed", error=str(exc))
         return scan_run_id
 
@@ -209,6 +281,15 @@ async def run_lifecycle_scan(
         "errors": counters["errors"],
         "error_log": json.dumps(error_entries) if error_entries else None,
     })
+
+    # Update scan state to idle
+    _scan_state["running"] = False
+    _scan_state["scanned"] = counters["files_scanned"]
+    _scan_state["pct"] = None
+    _scan_state["current_file"] = None
+    _scan_state["eta_seconds"] = None
+    _scan_state["last_scan_at"] = _now_iso()
+    _scan_state["last_scan_run_id"] = scan_run_id
 
     log.info(
         "lifecycle_scan.complete",
@@ -314,6 +395,14 @@ async def _find_hash_match_in_seen(
     return None
 
 
+def _count_files_sync(source_root: Path) -> int:
+    """Count all files in source tree (synchronous, for use in a thread)."""
+    count = 0
+    for _, dirnames, filenames in os.walk(source_root):
+        dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "_markflow"]
+        count += len(filenames)
+    return count
+
+
 def _now_iso() -> str:
-    from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()

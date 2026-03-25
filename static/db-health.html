@@ -29,6 +29,18 @@
     <h1>Database Health</h1>
     <p class="text-muted text-sm mb-2">Admin dashboard for SQLite database monitoring and maintenance.</p>
 
+    <!-- Lifecycle scan status bar -->
+    <div id="lifecycle-scan-bar" class="lifecycle-scan-status">
+      <span id="lsb-icon">&#128269;</span>
+      <span id="lsb-text">Loading scan status...</span>
+      <div id="lsb-progress-wrap" hidden>
+        <div class="lsb-track">
+          <div id="lsb-fill" class="lsb-fill" style="width:0%"></div>
+        </div>
+        <span id="lsb-eta" class="lsb-eta"></span>
+      </div>
+    </div>
+
     <!-- Overview cards -->
     <div id="health-grid" class="health-grid">
       <div class="health-card"><div class="label">Loading...</div></div>
@@ -142,6 +154,81 @@
     btn.disabled = false; btn.textContent = 'Run Stale Data Check';
     setTimeout(loadLog, 1000);
   }
+
+  // ── Lifecycle Scan Status Polling ─────────────────────────────────────────
+  function truncatePath(path, maxChars) {
+    if (!path || path.length <= maxChars) return path || '';
+    const truncated = path.slice(-(maxChars - 2));
+    const slashIdx = truncated.indexOf('/');
+    return '.../' + (slashIdx >= 0 ? truncated.slice(slashIdx + 1) : truncated);
+  }
+
+  function formatScanDuration(seconds) {
+    if (seconds == null) return '';
+    if (seconds < 60)   return `${seconds}s`;
+    if (seconds < 3600) return `${Math.round(seconds/60)}m`;
+    const h = Math.floor(seconds/3600), m = Math.round((seconds%3600)/60);
+    return m ? `${h}h ${m}m` : `${h}h`;
+  }
+
+  function formatRelativeTime(isoString) {
+    if (!isoString) return '';
+    const diff = (Date.now() - new Date(isoString)) / 1000;
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)} minutes ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)} hours ago`;
+    return `${Math.floor(diff / 86400)} days ago`;
+  }
+
+  function updateLifecycleScanBar(state) {
+    const text = document.getElementById('lsb-text');
+    const wrap = document.getElementById('lsb-progress-wrap');
+    const fill = document.getElementById('lsb-fill');
+    const eta  = document.getElementById('lsb-eta');
+    const icon = document.getElementById('lsb-icon');
+    const bar  = document.getElementById('lifecycle-scan-bar');
+
+    if (state.running) {
+      icon.textContent = '\u27F3';
+      bar.classList.add('scanning');
+      text.textContent = `Background scan running \u2014 ${(state.scanned||0).toLocaleString()} files`
+        + (state.total ? ` of ${state.total.toLocaleString()}` : '')
+        + (state.current_file ? ` \u2014 ${truncatePath(state.current_file, 60)}` : '');
+
+      wrap.hidden = (state.pct == null);
+      if (state.pct != null) {
+        fill.style.width = `${state.pct}%`;
+        eta.textContent  = state.eta_seconds != null
+          ? `~${formatScanDuration(state.eta_seconds)} remaining`
+          : '';
+      }
+    } else {
+      icon.textContent = '\u2713';
+      bar.classList.remove('scanning');
+      wrap.hidden = true;
+      text.textContent = state.last_scan_at
+        ? `Last background scan: ${formatRelativeTime(state.last_scan_at)}`
+        : 'No background scan has run yet.';
+    }
+  }
+
+  let scanPollInterval = null;
+  function startScanPolling() {
+    const poll = async () => {
+      try {
+        const r = await fetch('/api/scanner/progress');
+        if (r.ok) updateLifecycleScanBar(await r.json());
+      } catch {}
+    };
+    poll();
+    scanPollInterval = setInterval(poll, document.hidden ? 30000 : 3000);
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    clearInterval(scanPollInterval);
+    startScanPolling();
+  });
+  startScanPolling();
 
   loadHealth();
   loadLog();

@@ -92,6 +92,15 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
   split: system-level keys require manager role. Integration contract at
   `docs/unioncore-integration-contract.md`. New env vars: UNIONCORE_JWT_SECRET,
   UNIONCORE_ORIGIN, DEV_BYPASS_AUTH, API_KEY_SALT.
+**v0.9.1** — Search autocomplete & scan progress visibility.
+  Autocomplete dropdown on search.html powered by Meilisearch (debounced 200ms,
+  keyboard navigable, deduplicates across documents + adobe-files indexes).
+  `GET /api/search/autocomplete` endpoint. Bulk scan phase now emits
+  `scan_progress` SSE events (count, pct, current_file) every 50 files with
+  pre-counted total estimate. Background lifecycle scanner exposes in-memory
+  `_scan_state` via `GET /api/scanner/progress` (polled every 3s by UI).
+  Lifecycle scan status bar on bulk.html and db-health.html shows progress
+  or last-scan timestamp. New tests in test_search.py and test_scanner.py.
 
 ---
 
@@ -230,7 +239,7 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 | `core/search_client.py` | Thin async Meilisearch HTTP client via httpx, graceful degradation |
 | `core/search_indexer.py` | Manages Meilisearch indexes, document/adobe indexing, rebuild |
 | `api/routes/bulk.py` | Bulk job API: create, list, status, pause/resume/cancel, files, errors, SSE |
-| `api/routes/search.py` | Full-text search API: search, index status, rebuild |
+| `api/routes/search.py` | Full-text search API: search, autocomplete, index status, rebuild |
 | `api/routes/cowork.py` | AI assistant search: full .md content inline, token-budget-aware |
 | `static/search.html` | Search UI: debounced search, highlights, format/index filters, pagination |
 | `static/bulk.html` | Bulk job UI: location dropdowns, SSE progress, pause/cancel, job history |
@@ -259,12 +268,12 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 | `mcp_server/tools.py` | MCP tool implementations: search, read, list, convert, adobe, summary, status, deleted, history |
 | `core/differ.py` | Unified diff engine + bullet summary generator |
 | `core/lifecycle_manager.py` | Lifecycle state transitions: mark, restore, trash, purge, move, content change |
-| `core/lifecycle_scanner.py` | Source share walker, change detection, move detection via content hash |
+| `core/lifecycle_scanner.py` | Source share walker, change detection, move detection via content hash; `get_scan_state()` exposes in-memory `_scan_state` |
 | `core/scheduler.py` | APScheduler setup: lifecycle scan, trash expiry, DB maintenance jobs |
 | `core/db_maintenance.py` | VACUUM, integrity checks, stale data detection, health summary |
 | `api/routes/lifecycle.py` | Version history and diff API endpoints |
 | `api/routes/trash.py` | Trash management API: list, restore, purge, empty |
-| `api/routes/scanner.py` | Scanner status, trigger, run history API |
+| `api/routes/scanner.py` | Scanner status, progress, trigger, run history API |
 | `api/routes/db_health.py` | Database health and maintenance API |
 | `static/js/lifecycle-badge.js` | Reusable lifecycle status badge component |
 | `static/js/version-panel.js` | Version history timeline + compare modal |
@@ -659,6 +668,29 @@ Implement the full DOCX → Markdown pipeline end-to-end:
   instead of hardcoded links. `app.js::buildNav()` fetches `/api/auth/me` on page load
   and renders only the nav items the user's role permits. If `/api/auth/me` fails,
   nav falls back to `search_user` level (only Search visible).
+
+- **Lifecycle scanner needs a `bulk_jobs` parent row**: `bulk_files.job_id` has an FK
+  constraint referencing `bulk_jobs(id)`. If no bulk jobs exist (fresh DB or all deleted),
+  the lifecycle scanner creates a synthetic "lifecycle" job via `create_bulk_job()` before
+  inserting files. Using `scan_run_id` or any other non-existent ID as `job_id` will
+  cause `FOREIGN KEY constraint failed` on every file insert.
+
+- **FastMCP no longer accepts `description` kwarg**: The `mcp` library removed the
+  `description` parameter from `FastMCP.__init__()`. Pass the server name as the first
+  positional argument only. Check `inspect.signature(FastMCP.__init__)` when upgrading.
+
+- **Lifecycle scan state is in-memory**: `_scan_state` in `lifecycle_scanner.py` is a
+  module-level dict, not persisted to SQLite. If the container restarts mid-scan,
+  `running` will be `false` and `scanned` will be `0`. The scheduler fires a new scan
+  at the next scheduled interval. This is intentional.
+
+- **Bulk scan pre-count capped at 10s**: `BulkScanner.scan()` runs `_count_files()` in
+  a thread with `asyncio.wait_for(timeout=10)`. If it times out, `total_estimate=0`
+  and progress events report `pct: null`. The UI shows an indeterminate bar in this case.
+
+- **`GET /api/scanner/progress` uses `SEARCH_USER` role**: Unlike `/api/scanner/status`
+  which requires `MANAGER`, the progress endpoint is lighter-weight and available to
+  any authenticated user so the bulk.html lifecycle bar works for operators too.
 
 ---
 

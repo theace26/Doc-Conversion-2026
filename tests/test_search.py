@@ -220,3 +220,115 @@ class TestSearchAPI:
             assert data["total_hits"] == 1
             assert len(data["hits"]) == 1
             assert data["hits"][0]["title"] == "Q4 Report"
+
+
+# ── Autocomplete API tests ──────────────────────────────────────────────────
+
+
+class TestAutocompleteAPI:
+    async def test_autocomplete_short_query(self, client):
+        """Query < 2 chars returns empty suggestions without calling Meilisearch."""
+        resp = await client.get("/api/search/autocomplete?q=a")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["suggestions"] == []
+
+    async def test_autocomplete_empty_query(self, client):
+        """Empty query returns empty suggestions."""
+        resp = await client.get("/api/search/autocomplete?q=")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["suggestions"] == []
+
+    async def test_autocomplete_returns_suggestions(self, client):
+        """Valid query returns suggestions from Meilisearch."""
+        with patch("api.routes.search.get_meili_client") as mock_fn:
+            mock_client = AsyncMock()
+            mock_client.search.return_value = {
+                "hits": [
+                    {"id": "abc123", "title": "Safety Manual 2024", "source_format": "pdf"},
+                    {"id": "def456", "title": "Safety Checklist Q1", "source_format": "docx"},
+                ],
+                "estimatedTotalHits": 2,
+                "processingTimeMs": 1,
+            }
+            mock_fn.return_value = mock_client
+
+            resp = await client.get("/api/search/autocomplete?q=safety")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert len(data["suggestions"]) == 2
+            assert data["suggestions"][0]["title"] == "Safety Manual 2024"
+            assert data["suggestions"][0]["format"] == "pdf"
+            assert data["suggestions"][1]["title"] == "Safety Checklist Q1"
+            assert data["suggestions"][1]["format"] == "docx"
+
+    async def test_autocomplete_limit_capped(self, client):
+        """Limit parameter is capped at 8."""
+        with patch("api.routes.search.get_meili_client") as mock_fn:
+            mock_client = AsyncMock()
+            mock_client.search.return_value = {
+                "hits": [{"id": f"id{i}", "title": f"Doc {i}", "source_format": "pdf"} for i in range(10)],
+                "estimatedTotalHits": 10,
+                "processingTimeMs": 1,
+            }
+            mock_fn.return_value = mock_client
+
+            # Request limit=20, but endpoint caps at 8
+            resp = await client.get("/api/search/autocomplete?q=test&limit=20")
+            # FastAPI will validate max=8, so this should return 422
+            assert resp.status_code == 422
+
+    async def test_autocomplete_limit_valid(self, client):
+        """Limit parameter within range works correctly."""
+        with patch("api.routes.search.get_meili_client") as mock_fn:
+            mock_client = AsyncMock()
+            mock_client.search.return_value = {
+                "hits": [{"id": f"id{i}", "title": f"Doc {i}", "source_format": "pdf"} for i in range(10)],
+                "estimatedTotalHits": 10,
+                "processingTimeMs": 1,
+            }
+            mock_fn.return_value = mock_client
+
+            resp = await client.get("/api/search/autocomplete?q=test&limit=3")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert len(data["suggestions"]) <= 3
+
+    async def test_autocomplete_meilisearch_down(self, client):
+        """Returns empty suggestions (not 503) when Meilisearch is down."""
+        with patch("api.routes.search.get_meili_client") as mock_fn:
+            mock_client = AsyncMock()
+            mock_client.search.side_effect = Exception("Connection refused")
+            mock_fn.return_value = mock_client
+
+            resp = await client.get("/api/search/autocomplete?q=test")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["suggestions"] == []
+
+    async def test_autocomplete_deduplicates_by_title(self, client):
+        """Titles appearing in both indexes are deduplicated (case-insensitive)."""
+        with patch("api.routes.search.get_meili_client") as mock_fn:
+            mock_client = AsyncMock()
+            # First call (documents) returns a hit
+            # Second call (adobe-files) returns same title, different case
+            mock_client.search.side_effect = [
+                {
+                    "hits": [{"id": "a1", "title": "Project Logo", "source_format": "pdf"}],
+                    "estimatedTotalHits": 1,
+                    "processingTimeMs": 1,
+                },
+                {
+                    "hits": [{"id": "b1", "title": "project logo", "file_ext": ".psd"}],
+                    "estimatedTotalHits": 1,
+                    "processingTimeMs": 1,
+                },
+            ]
+            mock_fn.return_value = mock_client
+
+            resp = await client.get("/api/search/autocomplete?q=project")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert len(data["suggestions"]) == 1
+            assert data["suggestions"][0]["title"] == "Project Logo"

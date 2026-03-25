@@ -2,6 +2,7 @@
 Scanner status and control API endpoints.
 
 GET  /api/scanner/status     — last run, is_running, next estimate, business hours
+GET  /api/scanner/progress   — live scan progress (polling)
 POST /api/scanner/run-now    — trigger immediate scan
 GET  /api/scanner/runs       — recent scan run history
 """
@@ -64,6 +65,15 @@ async def scanner_status(
             "interval_minutes": int(interval),
         },
     }
+
+
+@router.get("/progress")
+async def scanner_progress(
+    user: AuthenticatedUser = Depends(require_role(UserRole.SEARCH_USER)),
+) -> dict:
+    """Live scan progress — poll this endpoint every 3 seconds."""
+    from core.lifecycle_scanner import get_scan_state
+    return get_scan_state()
 
 
 @router.post("/run-now")

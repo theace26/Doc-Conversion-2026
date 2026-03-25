@@ -224,7 +224,12 @@ class BulkJob:
             # 1. Scanning phase
             await update_bulk_job_status(self.job_id, "scanning")
             scanner = BulkScanner(self.job_id, self.source_path, self.output_path)
-            scan_result = await scanner.scan()
+
+            async def _scan_progress_cb(event: dict):
+                event_type = event.pop("event", "scan_progress")
+                _emit_bulk_event(self.job_id, event_type, event)
+
+            scan_result = await scanner.scan(on_progress=_scan_progress_cb)
 
             # Store resolved paths for workers
             self._resolved_paths: dict[str, tuple[str | None, str]] = {}

@@ -40,6 +40,18 @@
   <div class="container page-content">
     <div id="error-banner" role="alert" hidden></div>
 
+    <!-- Lifecycle scan status bar -->
+    <div id="lifecycle-scan-bar" class="lifecycle-scan-status">
+      <span id="lsb-icon">&#128269;</span>
+      <span id="lsb-text">Loading scan status...</span>
+      <div id="lsb-progress-wrap" hidden>
+        <div class="lsb-track">
+          <div id="lsb-fill" class="lsb-fill" style="width:0%"></div>
+        </div>
+        <span id="lsb-eta" class="lsb-eta"></span>
+      </div>
+    </div>
+
     <!-- OCR Gap-Fill banner (shown when un-OCR'd PDFs exist) -->
     <div id="gap-fill-banner" class="card mb-2" style="border:2px solid var(--warn);padding:1.25rem" hidden>
       <p style="margin:0 0 0.5rem 0"><strong>&#9888; <span id="gf-count">0</span> PDFs were converted without OCR.</strong></p>
@@ -111,6 +123,17 @@
         <h2>Active Job</h2>
         <span class="job-status" id="active-status">RUNNING</span>
       </div>
+
+      <!-- Scan progress section (shown during scan phase) -->
+      <section id="scan-progress-section" hidden>
+        <h3>Scanning source files</h3>
+        <div class="progress-bar-wrap">
+          <div id="scan-bar" class="progress-bar-fill" style="width:0%"></div>
+        </div>
+        <p id="scan-count" class="scan-meta text-sm text-muted"></p>
+        <p id="scan-file" class="scan-file-path text-muted"></p>
+      </section>
+
       <div class="progress-section">
         <div id="progress-text" class="text-sm text-muted">Scanning...</div>
         <div class="progress-bar-wrap">
@@ -327,12 +350,41 @@
     if (eventSource) eventSource.close();
     eventSource = new EventSource(`/api/bulk/jobs/${jobId}/stream`);
 
+    eventSource.addEventListener('scan_progress', e => {
+      const d = JSON.parse(e.data);
+      const scanSection = document.getElementById('scan-progress-section');
+      const scanBar = document.getElementById('scan-bar');
+      const scanCount = document.getElementById('scan-count');
+      const scanFile = document.getElementById('scan-file');
+      scanSection.hidden = false;
+      if (d.pct != null) {
+        scanBar.style.width = d.pct + '%';
+        scanBar.className = 'progress-bar-fill';
+      } else {
+        scanBar.style.width = '100%';
+        scanBar.className = 'progress-bar-fill indeterminate';
+      }
+      const pctStr = d.pct != null ? ` — ${d.pct}%` : '';
+      scanCount.textContent = `${(d.scanned || 0).toLocaleString()} files scanned${pctStr}`;
+      scanFile.textContent = d.current_file || '';
+    });
+
     eventSource.addEventListener('scan_complete', e => {
       const d = JSON.parse(e.data);
+      // Update scan progress section to show completion
+      const scanBar = document.getElementById('scan-bar');
+      const scanCount = document.getElementById('scan-count');
+      const scanFile = document.getElementById('scan-file');
+      if (d.total_found != null) {
+        scanBar.style.width = '100%';
+        scanBar.className = 'progress-bar-fill';
+        scanCount.textContent = `Scan complete — ${(d.total_found).toLocaleString()} files found`;
+        scanFile.textContent = '';
+      }
       totalPending = d.new || 0;
       document.getElementById('c-skipped').textContent = (d.skipped || 0).toLocaleString();
       document.getElementById('progress-text').textContent =
-        `${d.total.toLocaleString()} files found | ${(d.new || 0).toLocaleString()} to process`;
+        `${(d.total || d.total_found || 0).toLocaleString()} files found | ${(d.new || 0).toLocaleString()} to process`;
       const bar = document.getElementById('progress-bar');
       bar.className = 'progress-bar-fill';
       bar.style.width = '0%';
@@ -726,6 +778,75 @@
       btn.disabled = false;
     }
   }
+
+  // ── Lifecycle Scan Status Polling ─────────────────────────────────────────
+  function formatScanDuration(seconds) {
+    if (seconds == null) return '';
+    if (seconds < 60)   return `${seconds}s`;
+    if (seconds < 3600) return `${Math.round(seconds/60)}m`;
+    const h = Math.floor(seconds/3600), m = Math.round((seconds%3600)/60);
+    return m ? `${h}h ${m}m` : `${h}h`;
+  }
+
+  function formatRelativeTime(isoString) {
+    if (!isoString) return '';
+    const diff = (Date.now() - new Date(isoString)) / 1000;
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)} minutes ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)} hours ago`;
+    return `${Math.floor(diff / 86400)} days ago`;
+  }
+
+  function updateLifecycleScanBar(state) {
+    const text = document.getElementById('lsb-text');
+    const wrap = document.getElementById('lsb-progress-wrap');
+    const fill = document.getElementById('lsb-fill');
+    const eta  = document.getElementById('lsb-eta');
+    const icon = document.getElementById('lsb-icon');
+    const bar  = document.getElementById('lifecycle-scan-bar');
+
+    if (state.running) {
+      icon.textContent = '\u27F3';
+      bar.classList.add('scanning');
+      const pct = state.pct != null ? `${state.pct}%` : '';
+      text.textContent = `Background scan running \u2014 ${(state.scanned||0).toLocaleString()} files`
+        + (state.total ? ` of ${state.total.toLocaleString()}` : '')
+        + (state.current_file ? ` \u2014 ${truncatePath(state.current_file, 60)}` : '');
+
+      wrap.hidden = (state.pct == null);
+      if (state.pct != null) {
+        fill.style.width = `${state.pct}%`;
+        eta.textContent  = state.eta_seconds != null
+          ? `~${formatScanDuration(state.eta_seconds)} remaining`
+          : '';
+      }
+    } else {
+      icon.textContent = '\u2713';
+      bar.classList.remove('scanning');
+      wrap.hidden = true;
+      text.textContent = state.last_scan_at
+        ? `Last background scan: ${formatRelativeTime(state.last_scan_at)}`
+        : 'No background scan has run yet.';
+    }
+  }
+
+  let scanPollInterval = null;
+  function startScanPolling() {
+    const poll = async () => {
+      try {
+        const r = await fetch('/api/scanner/progress');
+        if (r.ok) updateLifecycleScanBar(await r.json());
+      } catch {}
+    };
+    poll();
+    scanPollInterval = setInterval(poll, document.hidden ? 30000 : 3000);
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    clearInterval(scanPollInterval);
+    startScanPolling();
+  });
+  startScanPolling();
 
   // Initial load
   loadLocationDropdowns();

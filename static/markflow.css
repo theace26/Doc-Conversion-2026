@@ -806,3 +806,115 @@ small, .text-sm { font-size: 0.85rem; }
 /* Deletion warning banner */
 .deletion-banner { background: rgba(217,119,6,0.08); border: 1px solid rgba(217,119,6,0.25); border-radius: var(--radius); padding: 0.6rem 1rem; display: flex; align-items: center; gap: 1rem; font-size: 0.85rem; margin-bottom: 1rem; }
 .deletion-banner a { color: var(--accent); font-weight: 500; }
+
+/* ── Autocomplete ──────────────────────────────────────────────────────────── */
+.search-autocomplete-wrapper {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+  flex: 1;
+}
+
+.autocomplete-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 200;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.autocomplete-dropdown li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  cursor: pointer;
+  gap: 8px;
+}
+
+.autocomplete-dropdown li:hover,
+.autocomplete-dropdown li.ac-active {
+  background: var(--surface-alt);
+}
+
+.ac-title {
+  flex: 1;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ac-format {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+/* ── Lifecycle Scan Status Bar ─────────────────────────────────────────────── */
+.lifecycle-scan-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.lifecycle-scan-status.scanning {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.lsb-track {
+  width: 120px;
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.lsb-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+.lsb-eta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+#lsb-progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Scan Progress (bulk scan phase) ───────────────────────────────────────── */
+.scan-file-path {
+  font-size: 0.8rem;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
