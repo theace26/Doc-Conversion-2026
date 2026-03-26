@@ -37,7 +37,7 @@ from api.routes import auth as auth_routes
 from api.routes import admin as admin_routes
 from api.middleware import add_middleware
 
-# ── Logging ──────────────────────────────────────────────────────────────────
+# ── Logging (initial config — level updated from DB in lifespan) ─────────────
 configure_logging()
 
 import structlog
@@ -64,6 +64,13 @@ async def lifespan(app: FastAPI):
     # Initialize SQLite schema + default preferences
     await init_db()
     log.info("markflow.db_ready")
+
+    # Apply saved log level preference
+    from core.database import get_preference
+    from core.logging_config import update_log_level
+    pref_level = await get_preference("log_level")
+    if pref_level and pref_level != "normal":
+        update_log_level(pref_level)
 
     # Verify system dependencies
     checker = HealthChecker()
@@ -127,7 +134,7 @@ app = FastAPI(
         "Convert documents bidirectionally between their original format "
         "and Markdown. OCR, batch processing, and style preservation."
     ),
-    version="0.9.2",
+    version="0.9.5",
     lifespan=lifespan,
 )
 
@@ -185,6 +192,12 @@ app.include_router(lifecycle_routes.router)
 app.include_router(trash_routes.router)
 app.include_router(scanner_routes.router)
 app.include_router(db_health_routes.router)
+
+# v0.9.5 — Logging endpoints
+from api.routes import client_log as client_log_routes
+from api.routes import logs as logs_routes
+app.include_router(client_log_routes.router)
+app.include_router(logs_routes.router)
 
 log.info("markflow.all_routes_registered")
 

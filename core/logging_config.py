@@ -1,18 +1,19 @@
 """
 structlog configuration for MarkFlow.
 
-JSON-format structured logging with:
-  - request_id / batch_id / file_id propagation via contextvars
-  - Rotating file handler: logs/markflow.json (10MB, 5 backups)
-  - stdout output for Docker log aggregation
-  - LOG_LEVEL env var (default INFO); DEBUG=true also enables debug
+Dual-file JSON logging strategy:
+  - Handler A: Operational log (logs/markflow.log)
+    Always active. WARNING when normal, INFO when elevated/developer.
+    Daily rotation, 30-day retention.
+  - Handler B: Debug trace log (logs/markflow-debug.log)
+    Only active in developer mode. DEBUG level.
+    Daily rotation, 7-day retention.
 
-Log entry fields: timestamp, level, logger, request_id, batch_id, file_name,
-                  stage, duration_ms, status, message, and any extras.
+Dynamic level switching via update_log_level() — no restart required.
 
 Usage:
     from core.logging_config import configure_logging
-    configure_logging()          # call once at app startup
+    configure_logging("normal")       # call once at app startup
 
     import structlog
     log = structlog.get_logger(__name__)
@@ -27,78 +28,107 @@ from pathlib import Path
 import structlog
 
 _configured = False
+_current_level: str = "normal"
+
+# Handler names for identification during hot-swap
+_OPERATIONAL_HANDLER_NAME = "markflow_operational"
+_DEBUG_HANDLER_NAME = "markflow_debug"
+
+# Map preference strings to Python logging constants
+LEVEL_MAP = {
+    "normal": logging.WARNING,
+    "elevated": logging.INFO,
+    "developer": logging.DEBUG,
+}
+
+# Operational handler level: WARNING for normal, INFO for elevated/developer
+_OPERATIONAL_LEVEL_MAP = {
+    "normal": logging.WARNING,
+    "elevated": logging.INFO,
+    "developer": logging.INFO,
+}
+
+_logs_dir = Path(os.getenv("LOGS_DIR", "logs"))
+
+# Keep a reference to the shared processors for formatter creation
+_shared_processors: list = []
+
+
+def _get_json_formatter():
+    """Create a structlog JSON formatter using the shared processor chain."""
+    return structlog.stdlib.ProcessorFormatter(
+        processor=structlog.processors.JSONRenderer(),
+        foreign_pre_chain=_shared_processors,
+    )
+
+
+def _make_operational_handler(level: int) -> logging.handlers.TimedRotatingFileHandler:
+    """Create the operational log handler (logs/markflow.log)."""
+    _logs_dir.mkdir(parents=True, exist_ok=True)
+    handler = logging.handlers.TimedRotatingFileHandler(
+        _logs_dir / "markflow.log",
+        when="midnight",
+        backupCount=30,
+        encoding="utf-8",
+    )
+    handler.setLevel(level)
+    handler.set_name(_OPERATIONAL_HANDLER_NAME)
+    handler.setFormatter(_get_json_formatter())
+    return handler
+
+
+def _make_debug_handler() -> logging.handlers.TimedRotatingFileHandler:
+    """Create the debug trace log handler (logs/markflow-debug.log)."""
+    _logs_dir.mkdir(parents=True, exist_ok=True)
+    handler = logging.handlers.TimedRotatingFileHandler(
+        _logs_dir / "markflow-debug.log",
+        when="midnight",
+        backupCount=7,
+        encoding="utf-8",
+    )
+    handler.setLevel(logging.DEBUG)
+    handler.set_name(_DEBUG_HANDLER_NAME)
+    handler.setFormatter(_get_json_formatter())
+    return handler
 
 
 def configure_logging(
-    log_level: str | None = None,
+    level: str = "normal",
     json_console: bool | None = None,
 ) -> None:
     """
     Configure structlog + stdlib logging. Idempotent.
 
     Args:
-        log_level: Override log level (DEBUG/INFO/WARNING/ERROR). Falls back to
-                   LOG_LEVEL env var, then DEBUG env var, then INFO.
+        level: MarkFlow log level preference ("normal", "elevated", "developer").
         json_console: If True, write JSON to stdout (for Docker). Falls back to
                       JSON_CONSOLE env var. Default: False.
     """
-    global _configured
+    global _configured, _current_level, _shared_processors
     if _configured:
         return
     _configured = True
+    _current_level = level
 
-    # ── Resolve log level ───────────────────────────────────────────────────
-    if log_level is None:
-        log_level = os.getenv("LOG_LEVEL", "").upper()
-    if not log_level:
-        debug = os.getenv("DEBUG", "false").lower() == "true"
-        log_level = "DEBUG" if debug else "INFO"
-
-    numeric_level = getattr(logging, log_level, logging.INFO)
-
-    # ── Resolve json_console ────────────────────────────────────────────────
+    # Resolve json_console
     if json_console is None:
         json_console = os.getenv("JSON_CONSOLE", "false").lower() == "true"
 
-    # ── Stdlib handler: rotating JSON file ──────────────────────────────────
-    logs_dir = Path("logs")
-    logs_dir.mkdir(exist_ok=True)
+    # Root level is always DEBUG so handlers control filtering
+    root_level = LEVEL_MAP.get(level, logging.WARNING)
 
-    file_handler = logging.handlers.RotatingFileHandler(
-        logs_dir / "markflow.json",
-        maxBytes=10 * 1024 * 1024,  # 10 MB
-        backupCount=5,
-        encoding="utf-8",
-    )
-    file_handler.setLevel(numeric_level)
-
-    # ── Stdlib handler: stdout ──────────────────────────────────────────────
-    stream_handler = logging.StreamHandler()
-    stream_handler.setLevel(numeric_level)
-
-    # Basic stdlib config (structlog chains into it)
-    logging.basicConfig(
-        level=numeric_level,
-        handlers=[file_handler, stream_handler],
-        format="%(message)s",
-    )
-
-    # Silence noisy third-party loggers
-    for noisy in ("uvicorn.access", "aiosqlite", "PIL", "weasyprint"):
-        logging.getLogger(noisy).setLevel(logging.WARNING)
-
-    # ── structlog processor chain ───────────────────────────────────────────
-    shared_processors: list = [
+    # structlog processor chain
+    _shared_processors = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
-        structlog.processors.TimeStamper(fmt="iso", utc=True),
+        structlog.processors.TimeStamper(fmt="iso", utc=False),
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
     ]
 
     structlog.configure(
-        processors=shared_processors + [
+        processors=_shared_processors + [
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],
         wrapper_class=structlog.stdlib.BoundLogger,
@@ -107,25 +137,104 @@ def configure_logging(
         cache_logger_on_first_use=True,
     )
 
-    # JSON renderer for file handler (always JSON)
-    json_formatter = structlog.stdlib.ProcessorFormatter(
-        processor=structlog.processors.JSONRenderer(),
-        foreign_pre_chain=shared_processors,
-    )
-    file_handler.setFormatter(json_formatter)
+    # Build handlers
+    handlers: list[logging.Handler] = []
 
-    # Console: JSON if json_console, else human-readable
+    # Handler A: Operational log (always active)
+    op_level = _OPERATIONAL_LEVEL_MAP.get(level, logging.WARNING)
+    op_handler = _make_operational_handler(op_level)
+    handlers.append(op_handler)
+
+    # Handler B: Debug trace log (developer mode only)
+    if level == "developer":
+        debug_handler = _make_debug_handler()
+        handlers.append(debug_handler)
+        root_level = logging.DEBUG
+
+    # Console handler
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(root_level)
+    stream_handler.set_name("markflow_console")
     if json_console:
         console_formatter = structlog.stdlib.ProcessorFormatter(
             processor=structlog.processors.JSONRenderer(),
-            foreign_pre_chain=shared_processors,
+            foreign_pre_chain=_shared_processors,
         )
     else:
         console_formatter = structlog.stdlib.ProcessorFormatter(
             processor=structlog.dev.ConsoleRenderer(),
-            foreign_pre_chain=shared_processors,
+            foreign_pre_chain=_shared_processors,
         )
     stream_handler.setFormatter(console_formatter)
+    handlers.append(stream_handler)
+
+    # Configure stdlib root logger
+    root = logging.getLogger()
+    root.setLevel(root_level)
+    for h in handlers:
+        root.addHandler(h)
+
+    # Silence noisy third-party loggers
+    for noisy in ("uvicorn.access", "aiosqlite", "PIL", "weasyprint"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
+
+def update_log_level(new_level: str) -> None:
+    """
+    Hot-swap the active log level. Called when the preference is saved.
+
+    1. Resolves new_level string to Python logging constant
+    2. Updates root logger level
+    3. Updates Handler A level (WARNING or INFO)
+    4. Adds or removes Handler B (debug trace)
+    5. Logs a WARNING-level event so the change is always visible
+    """
+    global _current_level
+
+    if new_level not in LEVEL_MAP:
+        return
+
+    old_level = _current_level
+    if old_level == new_level:
+        return
+
+    _current_level = new_level
+    root = logging.getLogger()
+
+    # Update root level
+    root_level = LEVEL_MAP[new_level]
+    root.setLevel(root_level)
+
+    # Update operational handler level
+    op_level = _OPERATIONAL_LEVEL_MAP.get(new_level, logging.WARNING)
+    for handler in root.handlers:
+        if getattr(handler, 'name', None) == _OPERATIONAL_HANDLER_NAME:
+            handler.setLevel(op_level)
+        elif getattr(handler, 'name', None) == "markflow_console":
+            handler.setLevel(root_level)
+
+    # Add or remove debug handler
+    has_debug = any(
+        getattr(h, 'name', None) == _DEBUG_HANDLER_NAME for h in root.handlers
+    )
+
+    if new_level == "developer" and not has_debug:
+        debug_handler = _make_debug_handler()
+        root.addHandler(debug_handler)
+    elif new_level != "developer" and has_debug:
+        for handler in root.handlers[:]:
+            if getattr(handler, 'name', None) == _DEBUG_HANDLER_NAME:
+                root.removeHandler(handler)
+                handler.close()
+
+    # Always log at WARNING so it appears in operational log regardless of level
+    log = structlog.get_logger("core.logging_config")
+    log.warning("log_level_changed", old_level=old_level, new_level=new_level)
+
+
+def get_current_level() -> str:
+    """Return the current MarkFlow log level string."""
+    return _current_level
 
 
 # ── Context binding helpers ─────────────────────────────────────────────────

@@ -135,6 +135,14 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
   `app.js` dynamically loads badge script after `buildNav()`. Old `.gsb-*`
   and `.ajp-*` CSS replaced by `.job-card`, `.status-pill`, `.nav-badge`
   design system classes. No backend changes.
+**v0.9.5** — Configurable logging levels with dual-file strategy. Three levels:
+  Normal (WARNING+), Elevated (INFO+), Developer (DEBUG + frontend trace).
+  Operational log always active (logs/markflow.log, 30-day rotation).
+  Debug trace log (logs/markflow-debug.log, 7-day) only active in Developer mode.
+  Dynamic level switching — no container restart required. Settings UI Logging section
+  with log file downloads. POST /api/log/client-event instruments ~15 JS actions in
+  Developer mode (rate-limited, silently dropped at other levels).
+  log_level is a system-level preference requiring Manager role.
 
 ---
 
@@ -320,6 +328,8 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 | `core/resource_manager.py` | psutil wrapper: CPU affinity, process priority, live metrics |
 | `core/stop_controller.py` | Global stop flag, task registry, should_stop() / request_stop() / reset_stop() |
 | `static/js/global-status-bar.js` | Badge-only polling: updates nav badge with active-job count |
+| `api/routes/client_log.py` | POST /api/log/client-event — frontend action logging (developer mode) |
+| `api/routes/logs.py` | GET /api/logs/download/{filename} — log file downloads (manager role) |
 | `static/status.html` | Dedicated status page: per-job cards, STOP ALL, lifecycle scanner, pause/resume/stop |
 | `static/admin.html` | Admin panel: stats dashboard, task manager, resource controls, API keys |
 | `docs/unioncore-integration-contract.md` | Standalone spec for UnionCore team |
@@ -778,6 +788,43 @@ Implement the full DOCX → Markdown pipeline end-to-end:
   `minRole: "search_user"` so every authenticated user can see active job status.
   The STOP ALL / pause / cancel buttons on `status.html` call admin/manager endpoints
   that enforce their own role checks server-side.
+
+- **Dual-file logging strategy**: `logs/markflow.log` (operational, always active)
+  and `logs/markflow-debug.log` (debug trace, developer mode only). Both use
+  `TimedRotatingFileHandler` with daily rotation. Operational keeps 30 days,
+  debug keeps 7 days. Both write structlog JSON format.
+
+- **`log_level` preference maps to handler levels, not root level**: The `LEVEL_MAP`
+  maps "normal"→WARNING, "elevated"→INFO, "developer"→DEBUG. The operational
+  handler uses `_OPERATIONAL_LEVEL_MAP` (WARNING for normal, INFO for elevated/developer).
+  Root logger level matches the LEVEL_MAP value.
+
+- **`update_log_level()` is synchronous**: Called from the async preferences
+  endpoint, but only touches logging module state (no DB or async I/O). Safe
+  to call from sync or async contexts.
+
+- **Client event endpoint never errors**: `POST /api/log/client-event` catches
+  all exceptions internally and always returns 204. Malformed JSON, missing
+  fields, rate limit exceeded — all return 204 silently. This prevents
+  frontend logging from ever disrupting the user experience.
+
+- **Client event rate limit is per-IP in-memory**: Uses `defaultdict(deque)`
+  token bucket. Max 50 events/second per IP. Not persistent — resets on
+  container restart. No Redis dependency.
+
+- **Log file download is whitelist-only**: `GET /api/logs/download/{filename}`
+  only accepts `markflow.log` or `markflow-debug.log`. Any other filename
+  returns 400. Path traversal is blocked by the whitelist check before any
+  filesystem access.
+
+- **`configure_logging()` is idempotent**: The `_configured` flag prevents
+  double initialization. The initial call happens at module level in `main.py`.
+  The lifespan then reads the DB preference and calls `update_log_level()` if
+  the stored level differs from "normal".
+
+- **Log file renamed from markflow.json to markflow.log**: v0.9.5 changed the
+  operational log filename. The file still contains JSON-formatted structlog
+  output — only the extension changed for clarity in the dual-file naming.
 
 ---
 

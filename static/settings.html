@@ -121,6 +121,38 @@
         </div>
       </div>
 
+      <!-- Logging section -->
+      <div class="section-title">Logging</div>
+      <div class="card">
+        <div class="form-group">
+          <label for="pref-log_level">Log Level</label>
+          <select id="pref-log_level" data-key="log_level">
+            <option value="normal">Normal &mdash; Errors, crashes, warnings only</option>
+            <option value="elevated">Elevated &mdash; + files being processed, job events</option>
+            <option value="developer">Developer &mdash; Everything: DEBUG + frontend action trace</option>
+          </select>
+          <p class="hint" id="log-level-role-hint" hidden>Requires Manager role to change.</p>
+          <div class="inline-error" id="err-log_level"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Log files</label>
+          <ul class="text-sm" style="margin:0;padding-left:1.2rem;line-height:1.8">
+            <li>Operational: <code>/app/logs/markflow.log</code> (always active)</li>
+            <li>Debug trace: <code>/app/logs/markflow-debug.log</code> (developer mode only)</li>
+          </ul>
+        </div>
+
+        <div class="form-group" style="display:flex;gap:0.5rem;flex-wrap:wrap">
+          <a href="/api/logs/download/markflow.log" class="btn btn-ghost btn-sm" id="btn-dl-operational">Download markflow.log</a>
+          <a href="/api/logs/download/markflow-debug.log" class="btn btn-ghost btn-sm" id="btn-dl-debug">Download markflow-debug.log</a>
+        </div>
+
+        <div id="dev-logging-warning" class="alert-warning" style="margin-top:0.5rem" hidden>
+          Developer logging writes every user action to disk. Disable when not actively debugging.
+        </div>
+      </div>
+
       <!-- AI Enhancement section -->
       <div class="section-title">AI Enhancement</div>
       <div class="card">
@@ -378,6 +410,9 @@
       originalValues = { ...prefs };
       defaults = { ...DEFAULTS };
       populateForm(prefs);
+      // Set dev logging flag for client event logging
+      window._devLoggingEnabled = (prefs.log_level === 'developer');
+      updateDevWarning(prefs.log_level);
       document.getElementById('loading').hidden = true;
       document.getElementById('settings-form').hidden = false;
     } catch (e) {
@@ -659,6 +694,48 @@
   function copyMcpUrl() {
     const url = document.getElementById('mcp-url').value;
     navigator.clipboard.writeText(url).then(() => showToast('URL copied!', 'success'));
+  }
+
+  // ── Logging section ──────────────────────────────────────────────────────
+  function updateDevWarning(level) {
+    const warn = document.getElementById('dev-logging-warning');
+    if (warn) warn.hidden = (level !== 'developer');
+  }
+
+  const logLevelSelect = document.getElementById('pref-log_level');
+  if (logLevelSelect) {
+    logLevelSelect.addEventListener('change', () => {
+      updateDevWarning(logLevelSelect.value);
+      if (typeof logClientEvent === 'function') logClientEvent('log_level_change', 'pref-log_level', logLevelSelect.value);
+    });
+  }
+
+  // Check role for log_level dropdown
+  (async () => {
+    try {
+      const res = await fetch('/api/auth/me');
+      if (res.ok) {
+        const data = await res.json();
+        const role = data.role || 'search_user';
+        if (!roleGte(role, 'manager')) {
+          const sel = document.getElementById('pref-log_level');
+          if (sel) {
+            sel.disabled = true;
+            sel.title = 'Requires Manager role';
+          }
+          const hint = document.getElementById('log-level-role-hint');
+          if (hint) hint.hidden = false;
+        }
+      }
+    } catch { /* ignore */ }
+  })();
+
+  // ── Scanner toggle label ───────────────────────────────────────────────
+  const scannerToggle = document.getElementById('pref-scanner_enabled');
+  if (scannerToggle) {
+    scannerToggle.addEventListener('change', () => {
+      document.getElementById('toggle-label-scanner').textContent = scannerToggle.checked ? 'ON' : 'OFF';
+    });
   }
   </script>
 </body>

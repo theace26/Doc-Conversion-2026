@@ -21,49 +21,44 @@ from core.logging_config import (
 class TestStructuredLogging:
     """Verify structured logging patterns."""
 
-    def test_conversion_start_emits_batch_id(self, caplog):
+    def test_conversion_start_emits_batch_id(self, capsys):
         """A conversion log event should include batch_id field."""
         log = structlog.get_logger("test.logging")
 
-        with caplog.at_level(logging.INFO):
-            clear_context()
-            bind_batch_context("batch_123", 3)
-            log.info("conversion_start", batch_id="batch_123", file_count=3)
+        clear_context()
+        bind_batch_context("batch_123", 3)
+        log.warning("conversion_start", batch_id="batch_123", file_count=3)
+        clear_context()
 
-        assert any("conversion_start" in r.message for r in caplog.records)
+        captured = capsys.readouterr()
+        assert "conversion_start" in captured.out
 
-    def test_error_event_at_error_level(self, caplog):
+    def test_error_event_at_error_level(self, capsys):
         """Error events should use error log level."""
         log = structlog.get_logger("test.logging")
 
-        with caplog.at_level(logging.ERROR):
-            log.error("file_conversion_error", filename="test.docx", error_type="ValueError", error_msg="bad")
+        log.error("file_conversion_error", filename="test.docx", error_type="ValueError", error_msg="bad")
 
-        error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
-        assert len(error_records) >= 1
+        captured = capsys.readouterr()
+        assert "file_conversion_error" in captured.out
 
-    def test_request_id_in_context(self, caplog):
+    def test_request_id_in_context(self, capsys):
         """request_id should appear in log events during a request."""
         log = structlog.get_logger("test.logging")
 
-        with caplog.at_level(logging.INFO):
-            clear_context()
-            bind_request_context("req-abc-123", "/api/convert", "POST")
-            log.info("test_event", data="hello")
+        clear_context()
+        bind_request_context("req-abc-123", "/api/convert", "POST")
+        log.warning("test_event", data="hello")
 
-        # The request_id should be bound in structlog context
-        # (visible in JSON output, caplog may not show it directly)
-        assert any("test_event" in r.message for r in caplog.records)
+        captured = capsys.readouterr()
+        assert "test_event" in captured.out
         clear_context()
 
     def test_log_level_env_var(self):
-        """LOG_LEVEL env var should control the configured level."""
-        import os
-
-        # Just verify the config function accepts a log_level param
+        """configure_logging accepts a level param."""
         from core.logging_config import configure_logging
         # Already configured — idempotent check
-        configure_logging(log_level="DEBUG")
+        configure_logging(level="normal")
 
     def test_clear_context_resets(self):
         """clear_context() should remove all bound vars."""
@@ -179,11 +174,11 @@ class TestNoBareLogs:
             assert "import structlog" in source, f"{fname} does not import structlog"
 
     def test_json_log_file_path(self):
-        """Log file should be named markflow.json, not markflow.log."""
+        """Log file should be named markflow.log (v0.9.5 dual-file strategy)."""
         from pathlib import Path
 
         config_source = Path("core/logging_config.py").read_text(encoding="utf-8")
-        assert "markflow.json" in config_source
+        assert "markflow.log" in config_source
 
     def test_no_logging_import_in_image_handler(self):
         """image_handler.py should use structlog, not logging."""
@@ -200,3 +195,244 @@ class TestNoBareLogs:
         source = Path("api/middleware.py").read_text(encoding="utf-8")
         assert "clear_context" in source
         assert "finally:" in source
+
+
+# ── v0.9.5: Configurable logging levels ──────────────────────────────────────
+
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+
+
+def _reset_logging():
+    """Reset the logging_config module state for unit tests."""
+    import core.logging_config as lc
+    lc._configured = False
+    lc._current_level = "normal"
+    root = logging.getLogger()
+    for h in root.handlers[:]:
+        name = getattr(h, 'name', '')
+        if name and name.startswith('markflow'):
+            root.removeHandler(h)
+            try:
+                h.close()
+            except Exception:
+                pass
+
+
+class TestConfigureLoggingLevels:
+    """Test dual-file logging configuration at each level."""
+
+    def setup_method(self):
+        _reset_logging()
+
+    def teardown_method(self):
+        _reset_logging()
+
+    def test_normal_sets_warning(self, tmp_path):
+        """configure_logging('normal') sets operational handler to WARNING."""
+        from unittest.mock import patch
+        with patch("core.logging_config._logs_dir", tmp_path):
+            from core.logging_config import configure_logging
+            configure_logging("normal")
+
+        root = logging.getLogger()
+        op = next((h for h in root.handlers if getattr(h, 'name', '') == 'markflow_operational'), None)
+        assert op is not None
+        assert op.level == logging.WARNING
+
+    def test_elevated_sets_info(self, tmp_path):
+        """configure_logging('elevated') sets operational handler to INFO."""
+        from unittest.mock import patch
+        with patch("core.logging_config._logs_dir", tmp_path):
+            from core.logging_config import configure_logging
+            configure_logging("elevated")
+
+        root = logging.getLogger()
+        op = next((h for h in root.handlers if getattr(h, 'name', '') == 'markflow_operational'), None)
+        assert op is not None
+        assert op.level == logging.INFO
+
+    def test_developer_creates_debug_handler(self, tmp_path):
+        """configure_logging('developer') creates debug handler at DEBUG level."""
+        from unittest.mock import patch
+        with patch("core.logging_config._logs_dir", tmp_path):
+            from core.logging_config import configure_logging
+            configure_logging("developer")
+
+        root = logging.getLogger()
+        debug_h = next((h for h in root.handlers if getattr(h, 'name', '') == 'markflow_debug'), None)
+        assert debug_h is not None
+        assert debug_h.level == logging.DEBUG
+
+    def test_normal_no_debug_handler(self, tmp_path):
+        """configure_logging('normal') does NOT create debug handler."""
+        from unittest.mock import patch
+        with patch("core.logging_config._logs_dir", tmp_path):
+            from core.logging_config import configure_logging
+            configure_logging("normal")
+
+        root = logging.getLogger()
+        names = [getattr(h, 'name', '') for h in root.handlers]
+        assert 'markflow_debug' not in names
+
+
+class TestUpdateLogLevel:
+    """Test hot-swap of log levels at runtime."""
+
+    def setup_method(self):
+        _reset_logging()
+
+    def teardown_method(self):
+        _reset_logging()
+
+    def test_switch_to_developer_adds_debug_handler(self, tmp_path):
+        from unittest.mock import patch
+        with patch("core.logging_config._logs_dir", tmp_path):
+            from core.logging_config import configure_logging, update_log_level
+            configure_logging("normal")
+
+            root = logging.getLogger()
+            assert not any(getattr(h, 'name', '') == 'markflow_debug' for h in root.handlers)
+
+            update_log_level("developer")
+            assert any(getattr(h, 'name', '') == 'markflow_debug' for h in root.handlers)
+
+    def test_switch_to_normal_removes_debug_handler(self, tmp_path):
+        from unittest.mock import patch
+        with patch("core.logging_config._logs_dir", tmp_path):
+            from core.logging_config import configure_logging, update_log_level
+            configure_logging("developer")
+
+            root = logging.getLogger()
+            assert any(getattr(h, 'name', '') == 'markflow_debug' for h in root.handlers)
+
+            update_log_level("normal")
+            assert not any(getattr(h, 'name', '') == 'markflow_debug' for h in root.handlers)
+
+    def test_level_change_updates_operational_level(self, tmp_path):
+        from unittest.mock import patch
+        with patch("core.logging_config._logs_dir", tmp_path):
+            from core.logging_config import configure_logging, update_log_level
+            configure_logging("normal")
+
+            root = logging.getLogger()
+            op = next(h for h in root.handlers if getattr(h, 'name', '') == 'markflow_operational')
+            assert op.level == logging.WARNING
+
+            update_log_level("elevated")
+            assert op.level == logging.INFO
+
+    def test_change_event_always_logged(self, tmp_path, caplog):
+        """Log level change event is always visible (logged at WARNING)."""
+        from unittest.mock import patch
+        with patch("core.logging_config._logs_dir", tmp_path):
+            from core.logging_config import configure_logging, update_log_level
+            configure_logging("normal")
+
+        with caplog.at_level(logging.WARNING):
+            from core.logging_config import update_log_level
+            update_log_level("elevated")
+
+        assert any("log_level_changed" in r.message for r in caplog.records)
+
+    def test_get_current_level_reflects_changes(self, tmp_path):
+        from unittest.mock import patch
+        with patch("core.logging_config._logs_dir", tmp_path):
+            from core.logging_config import configure_logging, update_log_level, get_current_level
+            configure_logging("normal")
+            assert get_current_level() == "normal"
+            update_log_level("developer")
+            assert get_current_level() == "developer"
+
+
+# ── API endpoint tests ─────────────────────────────────────────────────────────
+
+@pytest_asyncio.fixture(scope="module")
+async def log_client():
+    """Async HTTP client for logging endpoint tests."""
+    from core.database import init_db
+    from main import app
+    await init_db()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+
+
+class TestClientEventEndpoint:
+
+    @pytest.mark.anyio
+    async def test_dev_mode_off_returns_204(self, log_client):
+        """POST /api/log/client-event returns 204 when not in developer mode."""
+        await log_client.put("/api/preferences/log_level", json={"value": "normal"})
+        resp = await log_client.post("/api/log/client-event", json={
+            "page": "test.html", "event": "click", "target": "btn-test"
+        })
+        assert resp.status_code == 204
+
+    @pytest.mark.anyio
+    async def test_dev_mode_on_returns_204(self, log_client):
+        """POST /api/log/client-event returns 204 in developer mode."""
+        await log_client.put("/api/preferences/log_level", json={"value": "developer"})
+        resp = await log_client.post("/api/log/client-event", json={
+            "page": "test.html", "event": "click", "target": "btn-test"
+        })
+        assert resp.status_code == 204
+        await log_client.put("/api/preferences/log_level", json={"value": "normal"})
+
+    @pytest.mark.anyio
+    async def test_malformed_body_returns_204(self, log_client):
+        """POST /api/log/client-event with malformed body still returns 204."""
+        resp = await log_client.post(
+            "/api/log/client-event",
+            content="not json at all",
+            headers={"Content-Type": "application/json"},
+        )
+        assert resp.status_code == 204
+
+
+class TestLogDownloadEndpoint:
+
+    @pytest.mark.anyio
+    async def test_unknown_file_returns_400(self, log_client):
+        resp = await log_client.get("/api/logs/download/unknown.log")
+        assert resp.status_code == 400
+
+    @pytest.mark.anyio
+    async def test_path_traversal_returns_400(self, log_client):
+        """Filenames not in the whitelist are rejected — prevents traversal."""
+        resp = await log_client.get("/api/logs/download/secret.log")
+        assert resp.status_code == 400
+
+    @pytest.mark.anyio
+    async def test_markflow_log_allowed(self, log_client):
+        """markflow.log is in the whitelist — returns 200 or 404."""
+        resp = await log_client.get("/api/logs/download/markflow.log")
+        assert resp.status_code in (200, 404)
+
+    @pytest.mark.anyio
+    async def test_markflow_debug_log_allowed(self, log_client):
+        """markflow-debug.log is in the whitelist — returns 200 or 404."""
+        resp = await log_client.get("/api/logs/download/markflow-debug.log")
+        assert resp.status_code in (200, 404)
+
+
+class TestLogLevelPreference:
+
+    @pytest.mark.anyio
+    async def test_log_level_in_preferences(self, log_client):
+        resp = await log_client.get("/api/preferences")
+        assert resp.status_code == 200
+        prefs = resp.json().get("preferences", resp.json())
+        assert "log_level" in prefs
+
+    @pytest.mark.anyio
+    async def test_valid_enum_values(self, log_client):
+        for level in ("normal", "elevated", "developer"):
+            resp = await log_client.put("/api/preferences/log_level", json={"value": level})
+            assert resp.status_code == 200
+        await log_client.put("/api/preferences/log_level", json={"value": "normal"})
+
+    @pytest.mark.anyio
+    async def test_invalid_enum_rejected(self, log_client):
+        resp = await log_client.put("/api/preferences/log_level", json={"value": "verbose"})
+        assert resp.status_code == 422

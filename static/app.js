@@ -235,5 +235,73 @@ function _loadStatusBadge() {
     document.head.appendChild(script);
 }
 
+// ── Client event logging (developer mode) ────────────────────────────────────
+
+window._devLoggingEnabled = false;
+
+async function logClientEvent(event, target, detail = "") {
+    if (!window._devLoggingEnabled) return;
+    try {
+        await fetch("/api/log/client-event", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ page: location.pathname, event, target, detail })
+        });
+    } catch { /* never throw */ }
+}
+
+// Check dev logging on load
+async function _initDevLogging() {
+    try {
+        const data = await fetch("/api/preferences").then(r => r.ok ? r.json() : null);
+        if (data) {
+            const prefs = data.preferences || data;
+            window._devLoggingEnabled = (prefs.log_level === "developer");
+        }
+    } catch { /* ignore */ }
+}
+
+// ── Instrument user actions ────────────────────────────────────────────────────
+
+function _instrumentActions() {
+    // Nav link clicks
+    const nav = document.getElementById('main-nav');
+    if (nav) {
+        nav.addEventListener('click', (e) => {
+            const link = e.target.closest('a');
+            if (link) logClientEvent('nav_click', link.textContent.trim(), link.href);
+        });
+    }
+
+    // Global delegated button instrumentation for known action buttons
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('button, [role="button"]');
+        if (!btn) return;
+        const id = btn.id || '';
+        const text = btn.textContent.trim().substring(0, 40);
+
+        // Instrument specific known action buttons
+        const tracked = [
+            'btn-convert', 'btn-save', 'btn-reset', 'reset-confirm',
+            'start-btn', 'pause-btn', 'cancel-btn',
+            'stop-all-btn', 'reset-stop-btn',
+        ];
+        if (tracked.includes(id)) {
+            logClientEvent('click', id, text);
+        }
+    });
+
+    // Form submissions
+    document.addEventListener('submit', (e) => {
+        const form = e.target;
+        const id = form.id || form.action || 'unknown-form';
+        logClientEvent('form_submit', id);
+    });
+}
+
 // Build nav on page load
-document.addEventListener('DOMContentLoaded', buildNav);
+document.addEventListener('DOMContentLoaded', async () => {
+    await buildNav();
+    _instrumentActions();
+    _initDevLogging();
+});

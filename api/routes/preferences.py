@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from api.models import PreferenceUpdate
 from core.auth import AuthenticatedUser, UserRole, require_role, role_satisfies
 from core.database import DEFAULT_PREFERENCES, get_all_preferences, set_preference
+from core.logging_config import update_log_level
 
 router = APIRouter(prefix="/api/preferences", tags=["preferences"])
 
@@ -25,6 +26,7 @@ _SYSTEM_PREF_KEYS: set[str] = {
     "scanner_business_hours_start", "scanner_business_hours_end",
     "lifecycle_grace_period_hours", "lifecycle_trash_retention_days",
     "worker_count", "cpu_affinity_cores", "process_priority",
+    "log_level",
 }
 
 # Valid preference keys (whitelist from defaults)
@@ -195,6 +197,12 @@ _PREFERENCE_SCHEMA: dict[str, dict] = {
         "label": "Process scheduling priority",
         "description": "'high' requires root in Docker.",
     },
+    "log_level": {
+        "type": "select",
+        "options": ["normal", "elevated", "developer"],
+        "label": "Logging verbosity",
+        "description": "Normal (WARNING+), Elevated (INFO+), Developer (DEBUG + frontend trace)",
+    },
 }
 
 # Validation rules per key
@@ -282,4 +290,8 @@ async def update_preference(
     _validate_preference(key, body.value)
 
     await set_preference(key, body.value)
+
+    if key == "log_level":
+        update_log_level(body.value)
+
     return {"key": key, "value": body.value}

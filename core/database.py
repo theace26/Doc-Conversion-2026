@@ -61,6 +61,7 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     "worker_count": "4",
     "cpu_affinity_cores": "[]",
     "process_priority": "normal",
+    "log_level": "normal",
 }
 
 # ── Schema DDL ────────────────────────────────────────────────────────────────
