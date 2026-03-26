@@ -826,6 +826,14 @@ Implement the full DOCX → Markdown pipeline end-to-end:
   operational log filename. The file still contains JSON-formatted structlog
   output — only the extension changed for clarity in the dual-file naming.
 
+- **Lifecycle scan FK error was a one-time boot issue (2026-03-25)**: The first
+  scan that found files ran before any `bulk_jobs` existed. The synthetic job
+  creation code (lifecycle_scanner.py:150-161) either wasn't present in the
+  running Docker image or failed silently. 7,055 files had FK errors. The
+  issue self-resolved when the first user-created bulk_job was added. Current
+  scans work correctly (`errors=0`). Six stuck `scan_runs` with
+  `status='running'` were cleaned up manually.
+
 ---
 
 ## Running the App
