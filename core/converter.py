@@ -53,7 +53,23 @@ def _emit_event(batch_id: str, event: str, data: dict) -> None:
             pass  # drop event if queue is full (shouldn't happen)
 
 # Allowed extensions for upload
-ALLOWED_EXTENSIONS = {".docx", ".doc", ".pdf", ".pptx", ".xlsx", ".csv", ".tsv", ".md"}
+ALLOWED_EXTENSIONS = {
+    # Office documents
+    ".docx", ".doc", ".pdf", ".pptx", ".xlsx", ".csv", ".tsv", ".rtf",
+    # OpenDocument
+    ".odt", ".ods", ".odp",
+    # Markdown & text
+    ".md", ".txt", ".log", ".text",
+    # Web & data
+    ".html", ".htm", ".xml", ".epub",
+    # Email
+    ".eml", ".msg",
+    # Adobe creative suite
+    ".psd", ".ai", ".indd", ".aep", ".prproj", ".xd",
+    # Media (audio/video — indexed for metadata/scene detection)
+    ".mp3", ".mp4", ".mov", ".avi", ".mkv", ".wav", ".flac", ".ogg",
+    ".webm", ".m4a", ".m4v", ".wmv", ".aac", ".wma",
+}
 
 # Max file sizes (in bytes)
 DEFAULT_MAX_FILE_MB = int(os.getenv("MAX_UPLOAD_MB", "100"))

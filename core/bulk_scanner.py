@@ -20,21 +20,34 @@ from core.path_utils import PathSafetyResult, run_path_safety_pass
 
 log = structlog.get_logger(__name__)
 
-# Extensions that will be converted to Markdown
-CONVERTIBLE_EXTENSIONS = {
+# All supported extensions — unified scanning (no separate Adobe/convertible split)
+SUPPORTED_EXTENSIONS = {
+    # Office documents
     ".docx", ".doc",
     ".pdf",
     ".pptx", ".ppt",
     ".xlsx", ".xls",
     ".csv", ".tsv",
+    ".rtf",
+    # OpenDocument
+    ".odt", ".ods", ".odp",
+    # Markdown & text
+    ".md", ".txt", ".log", ".text",
+    # Web & data
+    ".html", ".htm", ".xml", ".epub",
+    # Email
+    ".eml", ".msg",
+    # Adobe creative suite
+    ".psd", ".ai", ".indd", ".aep", ".prproj", ".xd",
+    # Media (audio/video — indexed for metadata/scene detection)
+    ".mp3", ".mp4", ".mov", ".avi", ".mkv", ".wav", ".flac", ".ogg",
+    ".webm", ".m4a", ".m4v", ".wmv", ".aac", ".wma",
 }
 
-# Extensions that will be indexed (not converted)
-ADOBE_EXTENSIONS = {
-    ".ai", ".psd", ".indd", ".aep", ".prproj", ".xd",
-}
-
-ALL_SUPPORTED = CONVERTIBLE_EXTENSIONS | ADOBE_EXTENSIONS
+# Backwards-compat aliases (referenced by bulk_worker and other modules)
+CONVERTIBLE_EXTENSIONS = SUPPORTED_EXTENSIONS
+ADOBE_EXTENSIONS = {".ai", ".psd", ".indd", ".aep", ".prproj", ".xd"}
+ALL_SUPPORTED = SUPPORTED_EXTENSIONS
 
 
 @dataclass
@@ -149,19 +162,9 @@ class BulkScanner:
 
                 result.total_discovered += 1
 
-                if ext in CONVERTIBLE_EXTENSIONS:
+                if ext in SUPPORTED_EXTENSIONS:
                     result.convertible_count += 1
                     self._convertible_paths.append(file_path)
-
-                    file_id = await upsert_bulk_file(
-                        job_id=self.job_id,
-                        source_path=str(file_path),
-                        file_ext=ext,
-                        file_size_bytes=file_size,
-                        source_mtime=mtime,
-                    )
-                elif ext in ADOBE_EXTENSIONS:
-                    result.adobe_count += 1
 
                     file_id = await upsert_bulk_file(
                         job_id=self.job_id,
@@ -233,8 +236,7 @@ class BulkScanner:
             "bulk_scan_complete",
             job_id=self.job_id,
             total_discovered=result.total_discovered,
-            convertible=result.convertible_count,
-            adobe=result.adobe_count,
+            supported=result.convertible_count,
             unrecognized=result.unrecognized_count,
             skipped=result.skipped_count,
             pending=pending,

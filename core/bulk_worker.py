@@ -437,17 +437,14 @@ class BulkJob:
                     if skip_for_review:
                         continue
 
-                if ext in ADOBE_EXTENSIONS:
-                    await self._process_adobe(file_dict, worker_id)
-                elif ext in CONVERTIBLE_EXTENSIONS:
-                    # Check resolved_paths — skip files flagged by path safety
-                    resolved = self._resolved_paths.get(str(source_path))
-                    if resolved and resolved[0] is None:
-                        # File was flagged (too long, collision skip/error)
-                        log.debug("bulk_worker_path_skip", file_id=file_id,
-                                  reason=resolved[1])
-                        continue
-                    await self._process_convertible(file_dict, worker_id)
+                # Unified dispatch — all formats go through conversion pipeline
+                # Check resolved_paths — skip files flagged by path safety
+                resolved = self._resolved_paths.get(str(source_path))
+                if resolved and resolved[0] is None:
+                    log.debug("bulk_worker_path_skip", file_id=file_id,
+                              reason=resolved[1])
+                    continue
+                await self._process_convertible(file_dict, worker_id)
             except Exception as exc:
                 log.error(
                     "bulk_worker_unhandled",

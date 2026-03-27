@@ -16,7 +16,7 @@
     <div id="error-banner" role="alert" hidden></div>
 
     <h1 data-help="document-conversion">Document Conversion</h1>
-    <p class="text-muted mb-2">Convert documents to and from Markdown. Supports DOCX, PDF, PPTX, XLSX, and CSV.</p>
+    <p class="text-muted mb-2">Convert documents to and from Markdown. Drop files or entire folders.</p>
 
     <!-- System status -->
     <div class="card mb-2" id="health-card">
@@ -47,16 +47,30 @@
           <option value="pdf">PDF</option>
           <option value="pptx">PPTX</option>
           <option value="xlsx">XLSX</option>
+          <option value="odt">ODT</option>
+          <option value="rtf">RTF</option>
+          <option value="html">HTML</option>
+          <option value="epub">EPUB</option>
+          <option value="txt">TXT</option>
         </select>
         <p class="hint">For best results, upload the <code>.styles.json</code> sidecar alongside the <code>.md</code> file (Tier 2). Also upload the original file for near-perfect reconstruction (Tier 3).</p>
       </div>
 
       <!-- Drop zone -->
-      <div id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="Drop files here or click to browse">
+      <div id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="Drop files or folders here or click to browse">
         <p style="font-size:1.5rem">&#128196;</p>
-        <p>Drop files here, or <strong>click to browse</strong></p>
-        <p class="text-sm text-muted">Supports: .docx, .doc, .pdf, .pptx, .xlsx, .csv, .md</p>
-        <input type="file" id="file-input" multiple accept=".docx,.doc,.pdf,.pptx,.xlsx,.csv,.md" style="display:none">
+        <p>Drop files <em>or folders</em> here, or <strong>click to browse</strong></p>
+        <p class="text-sm text-muted">Supports: DOCX, DOC, PDF, PPTX, XLSX, CSV, TSV, RTF, ODT, ODS, ODP, MD, TXT, HTML, XML, EPUB, EML, MSG, PSD, AI</p>
+        <input type="file" id="file-input" multiple accept=".docx,.doc,.pdf,.pptx,.xlsx,.csv,.tsv,.rtf,.odt,.ods,.odp,.md,.txt,.log,.text,.html,.htm,.xml,.epub,.eml,.msg,.psd,.ai,.indd,.aep,.prproj,.xd" style="display:none">
+        <input type="file" id="folder-input" webkitdirectory directory style="display:none">
+      </div>
+      <!-- Skipped files log (shown when folder drop contains unsupported files) -->
+      <div id="skipped-log" hidden class="mt-1" style="max-height:150px;overflow-y:auto;background:var(--surface-alt,#f8f8f8);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.5rem">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span class="text-sm" style="font-weight:600;color:var(--warn)">Skipped files (unsupported format)</span>
+          <a href="#" id="dismiss-skipped" class="text-sm" style="color:var(--text-muted)">dismiss</a>
+        </div>
+        <ul id="skipped-list" class="text-sm text-muted" style="list-style:none;padding:0;margin:0.4rem 0 0"></ul>
       </div>
 
       <!-- File list -->
@@ -132,24 +146,116 @@
     document.getElementById('target-format-row').hidden = dir !== 'from_md';
   }
 
-  // ── File drop zone ────────────────────────────────────────────────────────
+  // ── File drop zone (supports files and folders) ─────────────────────────
+  const VALID_EXTENSIONS = new Set([
+    '.docx', '.doc', '.pdf', '.pptx', '.ppt', '.xlsx', '.xls', '.csv', '.tsv', '.rtf',
+    '.odt', '.ods', '.odp', '.md', '.txt', '.log', '.text',
+    '.html', '.htm', '.xml', '.epub', '.eml', '.msg',
+    '.psd', '.ai', '.indd', '.aep', '.prproj', '.xd',
+    '.mp3', '.mp4', '.mov', '.avi', '.mkv', '.wav', '.flac', '.ogg', '.webm', '.m4a', '.m4v',
+    '.wmv', '.aac', '.wma',
+  ]);
+
   const dropZone = document.getElementById('drop-zone');
   const fileInput = document.getElementById('file-input');
+  const folderInput = document.getElementById('folder-input');
   let selectedFiles = [];
 
-  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('click', e => {
+    // Shift+click or right area for folder picker
+    if (e.shiftKey) {
+      folderInput.click();
+    } else {
+      fileInput.click();
+    }
+  });
   dropZone.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); });
   dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
   dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-  dropZone.addEventListener('drop', e => {
+
+  // Handle folder and file drops via DataTransfer API
+  dropZone.addEventListener('drop', async e => {
     e.preventDefault();
     dropZone.classList.remove('drag-over');
-    addFiles([...e.dataTransfer.files]);
+
+    const items = e.dataTransfer.items;
+    if (items && items.length > 0 && items[0].webkitGetAsEntry) {
+      // Use directory entry API for folder support
+      const allFiles = [];
+      const entries = [];
+      for (let i = 0; i < items.length; i++) {
+        const entry = items[i].webkitGetAsEntry();
+        if (entry) entries.push(entry);
+      }
+      await Promise.all(entries.map(entry => traverseEntry(entry, allFiles)));
+      filterAndAddFiles(allFiles);
+    } else {
+      filterAndAddFiles([...e.dataTransfer.files]);
+    }
   });
-  fileInput.addEventListener('change', () => { addFiles([...fileInput.files]); fileInput.value = ''; });
+
+  async function traverseEntry(entry, fileList) {
+    if (entry.isFile) {
+      const file = await new Promise(resolve => entry.file(resolve));
+      fileList.push(file);
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const entries = await new Promise((resolve, reject) => {
+        const results = [];
+        function readBatch() {
+          reader.readEntries(batch => {
+            if (batch.length === 0) { resolve(results); return; }
+            results.push(...batch);
+            readBatch(); // Chrome returns max 100 per batch
+          }, reject);
+        }
+        readBatch();
+      });
+      await Promise.all(entries.map(e => traverseEntry(e, fileList)));
+    }
+  }
+
+  function getFileExt(name) {
+    const dot = name.lastIndexOf('.');
+    return dot >= 0 ? name.substring(dot).toLowerCase() : '';
+  }
+
+  function filterAndAddFiles(files) {
+    const valid = [];
+    const skipped = [];
+    for (const f of files) {
+      // Skip hidden files and system files
+      if (f.name.startsWith('.') || f.name.startsWith('~$')) continue;
+      const ext = getFileExt(f.name);
+      if (VALID_EXTENSIONS.has(ext)) {
+        valid.push(f);
+      } else if (ext) {
+        skipped.push(f.name);
+      }
+    }
+    if (valid.length) addFiles(valid);
+    showSkippedLog(skipped);
+  }
+
+  function showSkippedLog(skipped) {
+    const container = document.getElementById('skipped-log');
+    const list = document.getElementById('skipped-list');
+    if (!skipped.length) { container.hidden = true; return; }
+    container.hidden = false;
+    list.innerHTML = skipped.map(n => `<li>${n}</li>`).join('');
+  }
+
+  document.getElementById('dismiss-skipped').addEventListener('click', e => {
+    e.preventDefault();
+    document.getElementById('skipped-log').hidden = true;
+  });
+
+  fileInput.addEventListener('change', () => { filterAndAddFiles([...fileInput.files]); fileInput.value = ''; });
+  folderInput.addEventListener('change', () => { filterAndAddFiles([...folderInput.files]); folderInput.value = ''; });
 
   document.getElementById('clear-files').addEventListener('click', () => {
     selectedFiles = [];
+    document.getElementById('skipped-log').hidden = true;
     renderFileList();
   });
 

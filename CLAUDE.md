@@ -26,10 +26,10 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.11.0
+## Current Status — v0.12.0
 
-All 10 phases complete. Latest: intelligent auto-conversion engine (immediate/queued/scheduled
-modes, dynamic worker scaling, historical metrics learning).
+All 10 phases complete + universal format support. Latest: expanded format handlers (25+ formats),
+unified scanning pipeline, folder drop UI, font recognition for reconstruction.
 
 For full version-by-version changelog, see [`docs/version-history.md`](docs/version-history.md).
 
@@ -44,6 +44,7 @@ For full version-by-version changelog, see [`docs/version-history.md`](docs/vers
 | 2 | Round-trip: Markdown → DOCX with fidelity tiers | Done |
 | 3 | OCR pipeline (multi-signal detection, review UI, unattended mode) | Done |
 | 4 | Remaining formats: PDF, PPTX, XLSX/CSV (both directions) | Done |
+| 4b | Universal format support: RTF, ODT/ODS/ODP, TXT, HTML, EPUB, EML/MSG, XML, Adobe, media indexing | Done |
 | 5 | Testing & debug infrastructure (full test suite, structlog, debug dashboard) | Done |
 | 6 | Full UI, batch progress, history page, settings, polish | Done |
 | 7 | Bulk conversion, Adobe indexing, Meilisearch search, Cowork integration | Done |
@@ -64,6 +65,9 @@ Phase 1 implementation instructions (historical): [`docs/phase-1-instructions.md
 - **Fidelity tiers**: Tier 1 = structure (guaranteed), Tier 2 = styles (sidecar), Tier 3 = original file patch
 - **Content-hash keying** — sidecar JSON keyed by SHA-256 of normalized paragraph/table content
 - **Format registry** — handlers register by extension, converter looks up by extension
+- **Unified scanning** — no separate Adobe/convertible split; all formats go through same pipeline
+- **Font recognition** — handlers extract font declarations in `extract_styles()` for Tier 2 reconstruction
+- **Folder drop** — Convert page accepts entire folders via drag-and-drop, auto-scans for valid formats
 
 ---
 
@@ -82,6 +86,10 @@ Critical files to know:
 | `core/auth.py` | JWT validation, role hierarchy, API key verification |
 | `core/scheduler.py` | APScheduler: lifecycle scan, trash expiry, DB maintenance |
 | `core/auto_converter.py` | Auto-conversion decision engine |
+| `formats/rtf_handler.py` | RTF ingest/export with control-word parser |
+| `formats/html_handler.py` | HTML/HTM with BeautifulSoup, font extraction |
+| `formats/odt_handler.py` | OpenDocument Text via odfpy |
+| `formats/adobe_handler.py` | PSD/AI/INDD/AEP/PRPROJ/XD — unified Adobe handler |
 | `static/app.js` | Shared JS: API helpers, dynamic nav, toast |
 | `static/markflow.css` | Design system: CSS variables, dark mode |
 | `docker-compose.yml` | Port 8000, MCP 8001, Meilisearch 7700 |
@@ -104,6 +112,25 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **Stop is cooperative**: Workers finish current file before stopping
 - **Password handling**: Preprocessing step before `handler.ingest()`, not a handler change
 - **MCP server is separate**: Port 8001, own process, no JWT auth (uses `MCP_AUTH_TOKEN`)
+
+---
+
+## Supported Formats (v0.12.0)
+
+| Category | Extensions | Handler |
+|----------|-----------|---------|
+| Office | .docx, .doc, .pdf, .pptx, .xlsx, .csv, .tsv | DocxHandler, PdfHandler, PptxHandler, XlsxHandler, CsvHandler |
+| Rich Text | .rtf | RtfHandler |
+| OpenDocument | .odt, .ods, .odp | OdtHandler, OdsHandler, OdpHandler |
+| Markdown & Text | .md, .txt, .log, .text | MarkdownHandler, TxtHandler |
+| Web & Data | .html, .htm, .xml, .epub | HtmlHandler, XmlHandler, EpubHandler |
+| Email | .eml, .msg | EmlHandler |
+| Adobe | .psd, .ai, .indd, .aep, .prproj, .xd | AdobeHandler |
+| Media | .mp3, .mp4, .mov, .avi, .mkv, .wav, .flac, .ogg, .webm, .m4a, .m4v, .wmv, .aac, .wma | Indexed (metadata/scene detection); **TODO: add media conversion handlers** |
+
+**Note:** Media files are currently recognized and indexed during bulk scans (metadata extraction,
+scene detection for video). Full media-to-document conversion handlers (transcription, frame
+extraction summaries) are the next planned addition.
 
 ---
 

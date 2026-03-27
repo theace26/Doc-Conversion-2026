@@ -29,6 +29,21 @@ fpdf2
 # Markdown parsing
 mistune
 
+# RTF processing
+striprtf
+
+# OpenDocument (ODT/ODS/ODP)
+odfpy
+
+# EPUB processing
+ebooklib
+
+# HTML parsing
+beautifulsoup4
+
+# Email (.msg) parsing
+olefile
+
 # Alternative conversion engine
 markitdown[all]
 
