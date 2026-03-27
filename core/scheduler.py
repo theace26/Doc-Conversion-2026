@@ -128,6 +128,9 @@ async def run_db_compaction() -> None:
 
         from core.db_maintenance import run_compaction
         await run_compaction()
+
+        from core.metrics_collector import record_activity_event
+        await record_activity_event("db_maintenance", "Scheduled DB maintenance (VACUUM/integrity check)")
     except Exception as exc:
         log.error("scheduler.compaction_failed", error=str(exc))
 
@@ -150,8 +153,103 @@ async def run_stale_data_check() -> None:
         log.error("scheduler.stale_check_failed", error=str(exc))
 
 
+async def _run_deferred_conversions() -> None:
+    """Check for deferred auto-conversion jobs and start them if in-window.
+
+    Only relevant in 'scheduled' mode. Checks if we're now inside a
+    conversion window and picks up any pending deferred runs.
+    """
+    try:
+        from core.database import get_preference
+        mode = await get_preference("auto_convert_mode") or "off"
+        if mode != "scheduled":
+            return
+
+        from core.auto_converter import get_auto_conversion_engine
+        engine = get_auto_conversion_engine()
+        hist = await engine._get_historical_context()
+
+        if not await engine._is_in_conversion_window(hist):
+            return
+
+        # Find pending deferred runs
+        import aiosqlite
+        from core.database import get_db_path
+
+        async with aiosqlite.connect(get_db_path()) as conn:
+            conn.row_factory = aiosqlite.Row
+            rows = await conn.execute_fetchall(
+                """SELECT * FROM auto_conversion_runs
+                   WHERE status = 'deferred'
+                   ORDER BY started_at ASC LIMIT 5"""
+            )
+
+        if not rows:
+            return
+
+        for run in rows:
+            try:
+                from core.lifecycle_scanner import run_lifecycle_scan
+                log.info(
+                    "deferred_conversion_triggered",
+                    event="deferred_conversion_triggered",
+                    run_id=run["id"],
+                    original_scan_run=run["scan_run_id"],
+                )
+                # Re-run the lifecycle scan which will trigger auto-conversion
+                # (now in-window, so it will proceed)
+                await run_lifecycle_scan()
+
+                # Mark the deferred run as completed
+                async with aiosqlite.connect(get_db_path()) as conn:
+                    await conn.execute(
+                        "UPDATE auto_conversion_runs SET status = 'completed' WHERE id = ?",
+                        (run["id"],),
+                    )
+                    await conn.commit()
+            except Exception as exc:
+                log.error(
+                    "deferred_conversion_failed",
+                    run_id=run["id"],
+                    error=str(exc),
+                )
+    except Exception as exc:
+        log.error("deferred_conversion_runner_failed", error=str(exc))
+
+
 def start_scheduler() -> None:
     """Register all jobs and start the scheduler. Called from lifespan."""
+    from core.metrics_collector import collect_metrics, collect_disk_snapshot, purge_old_metrics
+
+    # Resource metrics — every 30 seconds
+    scheduler.add_job(
+        collect_metrics,
+        trigger=IntervalTrigger(seconds=30),
+        id="collect_metrics",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=10,
+    )
+
+    # Disk metrics — every 6 hours
+    scheduler.add_job(
+        collect_disk_snapshot,
+        trigger=IntervalTrigger(hours=6),
+        id="collect_disk_snapshot",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=300,
+    )
+
+    # Purge old metrics — daily at 03:00
+    scheduler.add_job(
+        purge_old_metrics,
+        trigger=CronTrigger(hour=3, minute=0),
+        id="purge_old_metrics",
+        replace_existing=True,
+        max_instances=1,
+    )
+
     # Lifecycle scan — every 15 minutes (business hours enforced in the job)
     scheduler.add_job(
         run_lifecycle_scan,
@@ -197,8 +295,27 @@ def start_scheduler() -> None:
         max_instances=1,
     )
 
+    # v0.11.0: Hourly auto-metrics aggregation — :05 past every hour
+    from core.auto_metrics_aggregator import aggregate_hourly_metrics
+    scheduler.add_job(
+        aggregate_hourly_metrics,
+        trigger=CronTrigger(minute=5),
+        id="auto_metrics_aggregation",
+        replace_existing=True,
+        max_instances=1,
+    )
+
+    # v0.11.0: Deferred conversion runner — every 15 minutes
+    scheduler.add_job(
+        _run_deferred_conversions,
+        trigger=IntervalTrigger(minutes=15),
+        id="deferred_conversion_runner",
+        replace_existing=True,
+        max_instances=1,
+    )
+
     scheduler.start()
-    log.info("scheduler.started", jobs=5)
+    log.info("scheduler.started", jobs=10)
 
 
 def get_scheduler_status() -> dict:
@@ -208,6 +325,11 @@ def get_scheduler_status() -> dict:
         "lifecycle_scan": "lifecycle_scan_next",
         "trash_expiry": "trash_expiry_next",
         "db_compaction": "db_compact_next",
+        "collect_metrics": "metrics_collect_next",
+        "collect_disk_snapshot": "disk_snapshot_next",
+        "purge_old_metrics": "metrics_purge_next",
+        "auto_metrics_aggregation": "auto_metrics_aggregation_next",
+        "deferred_conversion_runner": "deferred_conversion_next",
     }
     for job_id, key in job_names.items():
         try:

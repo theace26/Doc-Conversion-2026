@@ -108,18 +108,41 @@ async def lifespan(app: FastAPI):
     import psutil
     psutil.cpu_percent(interval=0.1, percpu=True)
 
+    # Detect GPU for hashcat password cracking
+    try:
+        from core.gpu_detector import detect_gpu
+        gpu_info = detect_gpu()
+        log.info("markflow.gpu_detected",
+                 execution_path=gpu_info.execution_path,
+                 effective_gpu=gpu_info.effective_gpu_name)
+    except Exception as exc:
+        log.warning("markflow.gpu_detection_failed", error=str(exc))
+
     # Phase 9: Start scheduler and run initial lifecycle scan
     from core.scheduler import start_scheduler, stop_scheduler, run_lifecycle_scan
+    from core.metrics_collector import collect_disk_snapshot, record_activity_event
     try:
         start_scheduler()
         # Run one immediate scan on startup (regardless of business hours)
         import asyncio
         asyncio.create_task(run_lifecycle_scan(force=True))
+        # Fire initial disk snapshot so Resources page has data on first load
+        asyncio.create_task(collect_disk_snapshot())
+        # Record startup event
+        await record_activity_event("startup", "MarkFlow started", {
+            "version": "0.9.7",
+            "cpu_count": psutil.cpu_count(logical=True),
+            "ram_total": psutil.virtual_memory().total,
+        })
     except Exception as exc:
         log.warning("markflow.scheduler_start_error", error=str(exc))
 
     yield
 
+    try:
+        await record_activity_event("shutdown", "MarkFlow shutting down")
+    except Exception:
+        pass
     try:
         stop_scheduler()
     except Exception as exc:
@@ -134,7 +157,7 @@ app = FastAPI(
         "Convert documents bidirectionally between their original format "
         "and Markdown. OCR, batch processing, and style preservation."
     ),
-    version="0.9.6",
+    version="0.9.7",
     lifespan=lifespan,
 )
 
@@ -198,6 +221,18 @@ from api.routes import client_log as client_log_routes
 from api.routes import logs as logs_routes
 app.include_router(client_log_routes.router)
 app.include_router(logs_routes.router)
+
+# v0.9.7 — Resources page (metrics, activity, summary)
+from api.routes import resources as resources_routes
+app.include_router(resources_routes.router)
+
+# v0.10.0 — Help wiki (public, no auth)
+from api.routes import help as help_routes
+app.include_router(help_routes.router)
+
+# v0.11.0 — Auto-conversion engine
+from api.routes import auto_convert as auto_convert_routes
+app.include_router(auto_convert_routes.router)
 
 log.info("markflow.all_routes_registered")
 

@@ -13,7 +13,7 @@
   </nav>
 
   <main class="container">
-    <h1>Admin Panel</h1>
+    <h1 data-help="admin-tools">Admin Panel</h1>
 
     <!-- Dev bypass warning banner -->
     <div id="dev-bypass-banner" class="banner banner-warning" hidden>
@@ -222,36 +222,16 @@
     </section>
 
     <!-- ══════════════════════════════════════════════════════════════════════ -->
-    <!-- Task Manager                                                          -->
+    <!-- Task Manager (moved to Resources page)                                -->
     <!-- ══════════════════════════════════════════════════════════════════════ -->
     <section class="admin-section" id="task-manager">
       <h2>Task Manager</h2>
-
-      <!-- CPU Cores Grid -->
-      <div class="tm-grid">
-        <div class="tm-cpu-panel">
-          <h3>CPU <span id="tm-cpu-total" class="tm-badge">--</span></h3>
-          <div id="tm-cores-grid" class="tm-cores-grid"></div>
-          <p class="tm-note" id="tm-affinity-note"></p>
-          <p class="tm-note" id="tm-docker-limit-note"></p>
-        </div>
-
-        <div class="tm-mem-panel">
-          <h3>Memory <span id="tm-mem-pct" class="tm-badge">--</span></h3>
-          <div class="tm-mem-bar-track">
-            <div id="tm-mem-bar" class="tm-mem-bar" style="width:0%"></div>
-          </div>
-          <p class="tm-note" id="tm-mem-detail"></p>
-        </div>
-
-        <div class="tm-threads-panel">
-          <h3>Threads</h3>
-          <span id="tm-thread-count" class="tm-big-number">--</span>
-          <p class="tm-note">active threads in this process</p>
-        </div>
+      <div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">
+        <p style="margin-bottom: 0.75rem;">Live system metrics have moved to the <strong>Resources</strong> page.</p>
+        <a href="/resources.html" class="btn btn-primary">Go to Resources &rarr;</a>
       </div>
 
-      <!-- Resource Controls -->
+      <!-- Resource Controls remain here for admin convenience -->
       <details class="admin-subsection" id="resource-controls">
         <summary>Resource Controls</summary>
         <div class="resource-form">
@@ -627,92 +607,26 @@
     document.getElementById('stats-refresh-btn')?.addEventListener('click', loadStats);
 
     /* ════════════════════════════════════════════════════════════════════════
-     *  Task Manager
+     *  Resource Controls (Task Manager moved to Resources page)
      * ════════════════════════════════════════════════════════════════════ */
 
-    let tmInterval = null;
     let coreCount  = 0;
     let affinity   = [];
 
-    async function initTaskManager() {
+    async function initResourceControls() {
       try {
         const data = await API.get('/api/admin/system/metrics');
         coreCount  = data.cpu_info.logical_count;
         affinity   = data.cpu_info.current_affinity;
-
-        // Build core bars
-        const grid = document.getElementById('tm-cores-grid');
-        grid.innerHTML = '';
-        for (let i = 0; i < coreCount; i++) {
-          const pinned = affinity.includes(i);
-          grid.innerHTML += `
-            <div class="tm-core ${pinned ? '' : 'tm-core-idle'}" data-core="${i}">
-              <div class="tm-core-track">
-                <div class="tm-core-fill" id="core-bar-${i}" style="height:0%"></div>
-              </div>
-              <span class="tm-core-label">CPU${i}</span>
-              <span class="tm-core-pct" id="core-pct-${i}">0%</span>
-            </div>`;
-        }
-
-        // Docker limit note
-        if (data.docker_cpu_limit) {
-          document.getElementById('tm-docker-limit-note').textContent =
-            `Container CPU limit: ${data.docker_cpu_limit} cores`;
-        }
 
         // Build core checkboxes in resource controls
         buildCoreCheckboxes(coreCount, affinity);
 
         // Load saved preferences into resource form
         loadResourcePrefs();
-
-        // Start live polling
-        updateMetrics(data);
-        tmInterval = setInterval(pollMetrics, 2000);
       } catch (e) {
-        console.warn('Task manager init failed:', e);
+        console.warn('Resource controls init failed:', e);
       }
-    }
-
-    async function pollMetrics() {
-      try {
-        const data = await API.get('/api/admin/system/metrics');
-        updateMetrics(data);
-      } catch {}
-    }
-
-    function updateMetrics(data) {
-      // CPU total
-      setText('tm-cpu-total', `${data.cpu_total_pct}%`);
-
-      // Per-core bars
-      (data.cpu_per_core || []).forEach((pct, i) => {
-        const bar = document.getElementById(`core-bar-${i}`);
-        const lbl = document.getElementById(`core-pct-${i}`);
-        if (!bar) return;
-        bar.style.height = `${pct}%`;
-        bar.style.background = cpuColor(pct);
-        lbl.textContent = `${Math.round(pct)}%`;
-      });
-
-      // Affinity note
-      const pinned = data.cpu_affinity || [];
-      document.getElementById('tm-affinity-note').textContent =
-        pinned.length === coreCount
-          ? 'Using all cores'
-          : `Pinned to cores: ${pinned.join(', ')}`;
-
-      // Memory
-      setText('tm-mem-pct', `${data.mem_pct}%`);
-      const memBar = document.getElementById('tm-mem-bar');
-      memBar.style.width = `${data.mem_pct}%`;
-      memBar.style.background = cpuColor(data.mem_pct);
-      document.getElementById('tm-mem-detail').textContent =
-        `${fmtMb(data.mem_used_mb)} used / ${fmtMb(data.mem_total_mb)} total  \u2014  ${fmtMb(data.mem_available_mb)} available`;
-
-      // Threads
-      setText('tm-thread-count', data.thread_count);
     }
 
     /* ════════════════════════════════════════════════════════════════════════
@@ -1051,14 +965,9 @@
     document.addEventListener('DOMContentLoaded', () => {
       loadStats();
       loadDiskUsage();
-      initTaskManager();
+      initResourceControls();
       loadSystemInfo();
       loadKeys();
-    });
-
-    document.addEventListener('visibilitychange', () => {
-      clearInterval(tmInterval);
-      if (!document.hidden) tmInterval = setInterval(pollMetrics, 2000);
     });
   </script>
 </body>

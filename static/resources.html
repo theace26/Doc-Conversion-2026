@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Resources — MarkFlow</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="/" class="nav-logo">MarkFlow</a>
+    <div id="main-nav" class="nav-links"></div>
+  </nav>
+
+  <main class="container">
+    <h1 data-help="resources-monitoring">Resources</h1>
+    <p class="text-muted" style="margin-bottom:1.5rem">Resource usage history and activity monitoring</p>
+
+    <div id="error-banner" class="error-banner" hidden></div>
+
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <!-- Section 1: Executive Summary                                          -->
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <section class="res-section" id="summary-section">
+      <div class="section-header">
+        <h2>MarkFlow Resource Summary — Last <span id="summary-days">30</span> Days</h2>
+        <div class="section-actions">
+          <div class="dropdown" id="export-dropdown">
+            <button class="btn btn-ghost btn-sm" onclick="toggleExportDropdown()">Export CSV &#9662;</button>
+            <div class="dropdown-menu" id="export-menu" hidden>
+              <a href="#" onclick="exportCSV('system'); return false;">System Metrics</a>
+              <a href="#" onclick="exportCSV('disk'); return false;">Disk Metrics</a>
+              <a href="#" onclick="exportCSV('events'); return false;">Activity Events</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="summary-loading" class="text-muted" style="padding:1rem 0">Loading summary...</div>
+      <div id="summary-content" hidden>
+        <!-- KPI cards -->
+        <div class="summary-kpis">
+          <div class="summary-kpi">
+            <div class="summary-kpi__title">CPU</div>
+            <div class="summary-kpi__value" id="sum-cpu-avg">--</div>
+            <div class="summary-kpi__sub" id="sum-cpu-detail">--</div>
+          </div>
+          <div class="summary-kpi">
+            <div class="summary-kpi__title">Memory</div>
+            <div class="summary-kpi__value" id="sum-mem-avg">--</div>
+            <div class="summary-kpi__sub" id="sum-mem-detail">--</div>
+          </div>
+          <div class="summary-kpi">
+            <div class="summary-kpi__title">Disk</div>
+            <div class="summary-kpi__value" id="sum-disk-total">--</div>
+            <div class="summary-kpi__sub" id="sum-disk-detail">--</div>
+          </div>
+          <div class="summary-kpi">
+            <div class="summary-kpi__title">Uptime</div>
+            <div class="summary-kpi__value" id="sum-uptime">--</div>
+            <div class="summary-kpi__sub" id="sum-uptime-detail">--</div>
+          </div>
+        </div>
+
+        <!-- Natural language summary (the "copy this into an email" text) -->
+        <div class="summary-prose" id="summary-prose"></div>
+
+        <!-- Self governance -->
+        <div class="summary-controls" id="summary-controls"></div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <!-- Section 2: Historical Charts — CPU & Memory                           -->
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <section class="res-section" id="charts-section">
+      <div class="section-header">
+        <h2>Historical Metrics</h2>
+        <div class="range-selector" id="metrics-range">
+          <button data-range="1h">1h</button>
+          <button data-range="6h">6h</button>
+          <button data-range="24h" class="active">24h</button>
+          <button data-range="7d">7d</button>
+          <button data-range="30d">30d</button>
+          <button data-range="90d">90d</button>
+        </div>
+      </div>
+
+      <div id="charts-empty" class="text-muted" style="text-align:center;padding:3rem 0" hidden>
+        No metrics data yet. Data appears after ~30 seconds of collection.
+      </div>
+
+      <div class="charts-grid" id="charts-grid">
+        <div class="chart-container">
+          <h3>CPU Usage</h3>
+          <canvas id="cpu-chart"></canvas>
+        </div>
+        <div class="chart-container">
+          <h3>Memory Usage</h3>
+          <canvas id="mem-chart"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <!-- Section 3: Disk Usage Chart                                           -->
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <section class="res-section" id="disk-chart-section">
+      <div class="section-header">
+        <h2>Disk Growth</h2>
+        <div class="range-selector" id="disk-range">
+          <button data-range="7d">7d</button>
+          <button data-range="30d" class="active">30d</button>
+          <button data-range="90d">90d</button>
+        </div>
+      </div>
+
+      <div id="disk-chart-empty" class="text-muted" style="text-align:center;padding:3rem 0" hidden>
+        No disk data yet. First snapshot is taken at startup and then every 6 hours.
+      </div>
+
+      <div class="chart-container chart-container--wide">
+        <canvas id="disk-chart"></canvas>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <!-- Section 4: Live System Metrics                                        -->
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <section class="res-section" id="live-section">
+      <h2>Live System Metrics</h2>
+
+      <div class="tm-grid">
+        <div class="tm-cpu-panel">
+          <h3>CPU <span id="tm-cpu-total" class="tm-badge">--</span></h3>
+          <div id="tm-cores-grid" class="tm-cores-grid"></div>
+          <p class="tm-note" id="tm-affinity-note"></p>
+        </div>
+
+        <div class="tm-mem-panel">
+          <h3>Memory <span id="tm-mem-pct" class="tm-badge">--</span></h3>
+          <div class="tm-mem-bar-track">
+            <div id="tm-mem-bar" class="tm-mem-bar" style="width:0%"></div>
+          </div>
+          <p class="tm-note" id="tm-mem-detail"></p>
+        </div>
+
+        <div class="tm-threads-panel">
+          <h3>Threads</h3>
+          <span id="tm-thread-count" class="tm-big-number">--</span>
+          <p class="tm-note">active threads in this process</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <!-- Section 5: Activity Log                                               -->
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <section class="res-section" id="activity-section">
+      <div class="section-header">
+        <h2>Activity Log</h2>
+        <div class="section-actions">
+          <select id="event-filter" class="input input-sm">
+            <option value="">All Events</option>
+            <option value="bulk_start,bulk_end">Bulk Jobs</option>
+            <option value="lifecycle_scan_start,lifecycle_scan_end">Lifecycle</option>
+            <option value="db_maintenance,index_rebuild">Maintenance</option>
+            <option value="error">Errors</option>
+            <option value="startup,shutdown">System</option>
+          </select>
+          <div class="range-selector" id="events-range">
+            <button data-range="24h">24h</button>
+            <button data-range="7d" class="active">7d</button>
+            <button data-range="30d">30d</button>
+            <button data-range="90d">90d</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="events-loading" class="text-muted" style="padding:1rem 0">Loading...</div>
+      <table class="table" id="events-table" hidden>
+        <thead>
+          <tr><th style="width:140px">Time</th><th style="width:130px">Type</th><th>Description</th></tr>
+        </thead>
+        <tbody id="events-tbody"></tbody>
+      </table>
+      <div id="events-empty" class="text-muted" style="text-align:center;padding:2rem 0" hidden>
+        No activity events in this time range.
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <!-- Section 6: Repository Overview (copied from Admin)                    -->
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <section class="res-section" id="repo-section">
+      <div class="section-header">
+        <h2>Repository Overview</h2>
+        <button id="repo-refresh-btn" class="btn btn-ghost btn-sm">&#8635; Refresh</button>
+      </div>
+
+      <div class="stats-kpi-row">
+        <div class="kpi-card">
+          <span class="kpi-value" id="kpi-total-files">--</span>
+          <span class="kpi-label">Total Files</span>
+        </div>
+        <div class="kpi-card kpi-success">
+          <span class="kpi-value" id="kpi-converted">--</span>
+          <span class="kpi-label">Converted</span>
+        </div>
+        <div class="kpi-card kpi-warn">
+          <span class="kpi-value" id="kpi-unrecognized">--</span>
+          <span class="kpi-label">Unrecognized</span>
+        </div>
+        <div class="kpi-card kpi-danger">
+          <span class="kpi-value" id="kpi-failed">--</span>
+          <span class="kpi-label">Failed</span>
+        </div>
+        <div class="kpi-card kpi-info">
+          <span class="kpi-value" id="kpi-meili">--</span>
+          <span class="kpi-label">Search Index</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <style>
+    .res-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+    .section-header h2 { flex: 1; margin-bottom: 0; }
+    .section-actions {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    /* Range selector */
+    .range-selector {
+      display: flex;
+      gap: 2px;
+      background: var(--border);
+      border-radius: var(--radius-sm);
+      padding: 2px;
+    }
+    .range-selector button {
+      padding: 0.25rem 0.6rem;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+      border-radius: 3px;
+      transition: var(--transition);
+    }
+    .range-selector button.active,
+    .range-selector button:hover {
+      background: var(--surface);
+      color: var(--text);
+    }
+
+    /* Summary KPIs */
+    .summary-kpis {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+    }
+    .summary-kpi {
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+    }
+    .summary-kpi__title {
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 0.25rem;
+    }
+    .summary-kpi__value {
+      font-size: 1.4rem;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+    .summary-kpi__sub {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+    }
+    .summary-prose {
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem 1.25rem;
+      font-style: italic;
+      line-height: 1.6;
+      margin-bottom: 1rem;
+    }
+    .summary-controls {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    /* Charts */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+    @media (max-width: 900px) {
+      .charts-grid { grid-template-columns: 1fr; }
+    }
+    .chart-container {
+      position: relative;
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+    }
+    .chart-container h3 { margin-bottom: 0.5rem; font-size: 0.95rem; }
+    .chart-container--wide { margin-top: 0; }
+
+    /* Task Manager (moved from admin) */
+    .tm-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr;
+      gap: 1.5rem;
+      align-items: start;
+    }
+    @media (max-width: 900px) { .tm-grid { grid-template-columns: 1fr; } }
+    .tm-cpu-panel, .tm-mem-panel, .tm-threads-panel {
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+    }
+    .tm-cores-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));
+      gap: 6px;
+      margin: 0.5rem 0;
+    }
+    .tm-core {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+    .tm-core-idle { opacity: 0.4; }
+    .tm-core-track {
+      width: 100%;
+      height: 40px;
+      background: var(--border);
+      border-radius: 3px;
+      position: relative;
+      overflow: hidden;
+    }
+    .tm-core-fill {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      border-radius: 3px;
+      transition: height 0.3s ease, background 0.3s ease;
+    }
+    .tm-core-label { font-size: 0.7rem; color: var(--text-muted); }
+    .tm-core-pct   { font-size: 0.7rem; font-weight: 600; }
+    .tm-badge {
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin-left: 0.5rem;
+    }
+    .tm-mem-bar-track {
+      height: 16px;
+      background: var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+      margin: 0.5rem 0;
+    }
+    .tm-mem-bar {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.3s ease, background 0.3s ease;
+    }
+    .tm-big-number { font-size: 2rem; font-weight: 700; display: block; }
+    .tm-note { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem; }
+
+    /* Activity log */
+    .event-badge {
+      display: inline-block;
+      padding: 0.15rem 0.4rem;
+      border-radius: 3px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .event-badge--bulk_start, .event-badge--bulk_end  { background: #dbeafe; color: #1d4ed8; }
+    .event-badge--lifecycle_scan_start, .event-badge--lifecycle_scan_end { background: #fef3c7; color: #92400e; }
+    .event-badge--db_maintenance, .event-badge--index_rebuild { background: #e0e7ff; color: #3730a3; }
+    .event-badge--startup, .event-badge--shutdown { background: #f3e8ff; color: #7c3aed; }
+    .event-badge--error { background: #fee2e2; color: #b91c1c; }
+    @media (prefers-color-scheme: dark) {
+      .event-badge--bulk_start, .event-badge--bulk_end  { background: #1e3a5f; color: #93c5fd; }
+      .event-badge--lifecycle_scan_start, .event-badge--lifecycle_scan_end { background: #422006; color: #fcd34d; }
+      .event-badge--db_maintenance, .event-badge--index_rebuild { background: #312e81; color: #a5b4fc; }
+      .event-badge--startup, .event-badge--shutdown { background: #3b0764; color: #c4b5fd; }
+      .event-badge--error { background: #450a0a; color: #fca5a5; }
+    }
+    .event-meta {
+      display: none;
+      padding: 0.5rem;
+      background: var(--bg);
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      white-space: pre-wrap;
+      margin-top: 0.25rem;
+    }
+    .event-row--expanded .event-meta { display: block; }
+    .event-row { cursor: pointer; }
+    .event-row:hover td { background: var(--surface-alt); }
+    .event-duration {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-left: 0.5rem;
+    }
+
+    /* Stats KPI row */
+    .stats-kpi-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 1rem;
+    }
+    .kpi-card {
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.75rem 1rem;
+      text-align: center;
+    }
+    .kpi-value { display: block; font-size: 1.3rem; font-weight: 700; }
+    .kpi-label { display: block; font-size: 0.8rem; color: var(--text-muted); }
+    .kpi-success .kpi-value { color: var(--ok); }
+    .kpi-warn   .kpi-value { color: var(--warn); }
+    .kpi-danger  .kpi-value { color: var(--error); }
+    .kpi-info    .kpi-value { color: var(--info); }
+
+    /* Export dropdown */
+    .dropdown { position: relative; }
+    .dropdown-menu {
+      position: absolute;
+      right: 0;
+      top: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-lg);
+      min-width: 160px;
+      z-index: 10;
+      padding: 0.25rem 0;
+    }
+    .dropdown-menu a {
+      display: block;
+      padding: 0.5rem 1rem;
+      color: var(--text);
+      font-size: 0.85rem;
+    }
+    .dropdown-menu a:hover {
+      background: var(--surface-alt);
+      text-decoration: none;
+    }
+  </style>
+
+  <script>
+    /* ════════════════════════════════════════════════════════════════════════
+     *  Helpers
+     * ════════════════════════════════════════════════════════════════════ */
+
+    function setText(id, val)   { var el = document.getElementById(id); if (el) el.textContent = val ?? '--'; }
+    function fmt(n)             { return n != null ? n.toLocaleString() : '--'; }
+    function fmtMb(mb)          { return mb >= 1024 ? (mb/1024).toFixed(1) + ' GB' : mb + ' MB'; }
+    function cpuColor(pct)      { if (pct < 50) return 'var(--ok)'; if (pct < 80) return 'var(--warn)'; return 'var(--error)'; }
+    function escapeHtml(s)      { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+    function formatRelativeTime(iso) {
+      if (!iso) return '--';
+      try {
+        var diff = (Date.now() - new Date(iso)) / 1000;
+        if (diff < 60) return 'just now';
+        if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+        if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+        return Math.floor(diff / 86400) + 'd ago';
+      } catch (e) { return '--'; }
+    }
+
+    function formatEventTime(iso) {
+      if (!iso) return '--';
+      try {
+        var d = new Date(iso);
+        return d.toLocaleDateString([], {month:'short', day:'numeric'}) + ' ' +
+               d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      } catch (e) { return iso; }
+    }
+
+    function formatDurationShort(seconds) {
+      if (!seconds) return '';
+      if (seconds < 60) return Math.round(seconds) + 's';
+      if (seconds < 3600) return Math.floor(seconds / 60) + 'm ' + Math.round(seconds % 60) + 's';
+      return Math.floor(seconds / 3600) + 'h ' + Math.floor((seconds % 3600) / 60) + 'm';
+    }
+
+    /* ════════════════════════════════════════════════════════════════════════
+     *  Section 1: Executive Summary
+     * ════════════════════════════════════════════════════════════════════ */
+
+    async function loadSummary() {
+      try {
+        var d = await API.get('/api/resources/summary?days=30');
+        document.getElementById('summary-loading').hidden = true;
+        document.getElementById('summary-content').hidden = false;
+        renderSummary(d);
+      } catch (e) {
+        document.getElementById('summary-loading').textContent = 'Failed to load summary.';
+      }
+    }
+
+    function renderSummary(d) {
+      // CPU
+      if (d.cpu) {
+        setText('sum-cpu-avg', 'avg ' + (d.cpu.process_avg_percent || 0).toFixed(1) + '%');
+        setText('sum-cpu-detail', 'peak ' + (d.cpu.process_peak_percent || 0).toFixed(1) + '% \u00B7 idle ' + (d.cpu.idle_baseline_percent || 0).toFixed(1) + '%');
+      }
+      // Memory
+      if (d.memory) {
+        setText('sum-mem-avg', d.memory.rss_avg_human || '--');
+        setText('sum-mem-detail', (d.memory.percent_of_system_avg || 0).toFixed(1) + '% of ' + (d.memory.system_total_human || '--'));
+      }
+      // Disk
+      if (d.disk) {
+        setText('sum-disk-total', d.disk.current_total_human || '--');
+        setText('sum-disk-detail', '+' + (d.disk.growth_human_per_day || '0 B') + '/day \u00B7 ' + (d.disk.volume_free_human || '--') + ' free');
+      }
+      // Uptime
+      if (d.uptime_hours != null) {
+        var days = (d.uptime_hours / 24).toFixed(1);
+        setText('sum-uptime', Math.round(d.uptime_hours) + ' hrs');
+        setText('sum-uptime-detail', '(' + days + ' days)');
+      }
+
+      // Prose
+      var prose = [];
+      if (d.cpu) prose.push(d.cpu.description);
+      if (d.memory) prose.push(d.memory.description);
+      if (d.disk) prose.push(d.disk.description);
+      document.getElementById('summary-prose').textContent = prose.join(' ') || 'No data available yet.';
+
+      // Self governance
+      if (d.self_governance) {
+        document.getElementById('summary-controls').innerHTML =
+          '<strong>Resource Controls:</strong> ' + escapeHtml(d.self_governance.description);
+      }
+    }
+
+    /* ════════════════════════════════════════════════════════════════════════
+     *  Section 2: Historical Charts — CPU & Memory
+     * ════════════════════════════════════════════════════════════════════ */
+
+    var cpuChart = null;
+    var memChart = null;
+    var currentMetricsRange = '24h';
+
+    async function loadMetricsCharts(range) {
+      currentMetricsRange = range || currentMetricsRange;
+      try {
+        var d = await API.get('/api/resources/metrics?range=' + currentMetricsRange);
+        if (!d.points || d.points.length === 0) {
+          document.getElementById('charts-empty').hidden = false;
+          document.getElementById('charts-grid').style.display = 'none';
+          return;
+        }
+        document.getElementById('charts-empty').hidden = true;
+        document.getElementById('charts-grid').style.display = '';
+        renderCPUChart(d.points);
+        renderMemChart(d.points);
+      } catch (e) {
+        document.getElementById('charts-empty').hidden = false;
+        document.getElementById('charts-empty').textContent = 'Failed to load metrics: ' + e.message;
+      }
+    }
+
+    function renderCPUChart(points) {
+      var labels = points.map(function(p) { return new Date(p.timestamp); });
+      var cpuProc = points.map(function(p) { return p.cpu_percent_total; });
+      var cpuSys  = points.map(function(p) { return p.cpu_percent_system; });
+
+      // Build bulk activity background segments
+      var bulkSegments = [];
+      var inBulk = false;
+      for (var i = 0; i < points.length; i++) {
+        if (points[i].active_bulk_jobs > 0 && !inBulk) {
+          inBulk = true;
+          bulkSegments.push({start: labels[i]});
+        } else if (points[i].active_bulk_jobs === 0 && inBulk) {
+          inBulk = false;
+          bulkSegments[bulkSegments.length - 1].end = labels[i];
+        }
+      }
+      if (inBulk) bulkSegments[bulkSegments.length - 1].end = labels[labels.length - 1];
+
+      var ctx = document.getElementById('cpu-chart').getContext('2d');
+      if (cpuChart) cpuChart.destroy();
+
+      // Annotation boxes for bulk activity
+      var annotations = {};
+      bulkSegments.forEach(function(seg, idx) {
+        annotations['bulk' + idx] = {
+          type: 'box',
+          xMin: seg.start,
+          xMax: seg.end,
+          backgroundColor: 'rgba(79, 91, 213, 0.08)',
+          borderWidth: 0,
+        };
+      });
+
+      cpuChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'MarkFlow CPU %',
+              data: cpuProc,
+              borderColor: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#4f5bd5',
+              borderWidth: 1.5,
+              pointRadius: 0,
+              tension: 0.3,
+              fill: false,
+            },
+            {
+              label: 'System CPU %',
+              data: cpuSys,
+              borderColor: 'rgba(107, 112, 132, 0.5)',
+              borderWidth: 1,
+              borderDash: [4, 4],
+              pointRadius: 0,
+              tension: 0.3,
+              fill: false,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          interaction: { intersect: false, mode: 'index' },
+          scales: {
+            x: { type: 'time', grid: { display: false } },
+            y: { min: 0, title: { display: true, text: '%' }, grid: { color: 'rgba(128,128,128,0.1)' } },
+          },
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+            tooltip: {
+              callbacks: {
+                afterBody: function(items) {
+                  var idx = items[0].dataIndex;
+                  var p = points[idx];
+                  var parts = [];
+                  if (p.active_bulk_jobs > 0) parts.push('Bulk job active');
+                  if (p.active_lifecycle_scan > 0) parts.push('Lifecycle scan');
+                  if (p.active_conversions > 0) parts.push(p.active_conversions + ' conversion(s)');
+                  return parts.length ? '\n' + parts.join(', ') : '';
+                }
+              }
+            },
+          },
+        },
+      });
+    }
+
+    function renderMemChart(points) {
+      var labels = points.map(function(p) { return new Date(p.timestamp); });
+      var rssMB  = points.map(function(p) { return p.mem_rss_bytes ? Math.round(p.mem_rss_bytes / 1048576) : 0; });
+      var sysPct = points.map(function(p) { return p.mem_system_used_percent; });
+
+      var ctx = document.getElementById('mem-chart').getContext('2d');
+      if (memChart) memChart.destroy();
+
+      memChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'MarkFlow RSS (MB)',
+              data: rssMB,
+              borderColor: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#4f5bd5',
+              borderWidth: 1.5,
+              pointRadius: 0,
+              tension: 0.3,
+              fill: false,
+              yAxisID: 'y',
+            },
+            {
+              label: 'System Memory %',
+              data: sysPct,
+              borderColor: 'rgba(107, 112, 132, 0.5)',
+              borderWidth: 1,
+              borderDash: [4, 4],
+              pointRadius: 0,
+              tension: 0.3,
+              fill: false,
+              yAxisID: 'y1',
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          interaction: { intersect: false, mode: 'index' },
+          scales: {
+            x: { type: 'time', grid: { display: false } },
+            y:  { min: 0, title: { display: true, text: 'MB' }, grid: { color: 'rgba(128,128,128,0.1)' } },
+            y1: { min: 0, max: 100, position: 'right', title: { display: true, text: '%' }, grid: { display: false } },
+          },
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+          },
+        },
+      });
+    }
+
+    /* ════════════════════════════════════════════════════════════════════════
+     *  Section 3: Disk Chart
+     * ════════════════════════════════════════════════════════════════════ */
+
+    var diskChart = null;
+    var currentDiskRange = '30d';
+
+    async function loadDiskChart(range) {
+      currentDiskRange = range || currentDiskRange;
+      try {
+        var d = await API.get('/api/resources/disk?range=' + currentDiskRange);
+        if (!d.points || d.points.length === 0) {
+          document.getElementById('disk-chart-empty').hidden = false;
+          return;
+        }
+        document.getElementById('disk-chart-empty').hidden = true;
+        renderDiskChart(d.points);
+      } catch (e) {
+        document.getElementById('disk-chart-empty').hidden = false;
+        document.getElementById('disk-chart-empty').textContent = 'Failed to load disk data.';
+      }
+    }
+
+    function renderDiskChart(points) {
+      var labels = points.map(function(p) { return new Date(p.timestamp); });
+      var toMB = function(b) { return Math.round((b || 0) / 1048576); };
+
+      var ctx = document.getElementById('disk-chart').getContext('2d');
+      if (diskChart) diskChart.destroy();
+
+      var colors = ['#4f5bd5', '#16a34a', '#d97706', '#6366f1', '#2563eb', '#8b5cf6'];
+
+      diskChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            { label: 'Output Repo', data: points.map(function(p) { return toMB(p.output_repo_bytes); }), borderColor: colors[0], backgroundColor: colors[0] + '30', fill: true, pointRadius: 0, tension: 0.3, borderWidth: 1.5 },
+            { label: 'Trash',       data: points.map(function(p) { return toMB(p.trash_bytes); }),       borderColor: colors[1], backgroundColor: colors[1] + '30', fill: true, pointRadius: 0, tension: 0.3, borderWidth: 1.5 },
+            { label: 'Database',    data: points.map(function(p) { return toMB(p.database_bytes); }),    borderColor: colors[2], backgroundColor: colors[2] + '30', fill: true, pointRadius: 0, tension: 0.3, borderWidth: 1.5 },
+            { label: 'Logs',        data: points.map(function(p) { return toMB(p.logs_bytes); }),        borderColor: colors[3], backgroundColor: colors[3] + '30', fill: true, pointRadius: 0, tension: 0.3, borderWidth: 1.5 },
+            { label: 'Meilisearch', data: points.map(function(p) { return toMB(p.meilisearch_bytes); }), borderColor: colors[4], backgroundColor: colors[4] + '30', fill: true, pointRadius: 0, tension: 0.3, borderWidth: 1.5 },
+            { label: 'Conv. Output',data: points.map(function(p) { return toMB(p.conversion_output_bytes); }), borderColor: colors[5], backgroundColor: colors[5] + '30', fill: true, pointRadius: 0, tension: 0.3, borderWidth: 1.5 },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          interaction: { intersect: false, mode: 'index' },
+          scales: {
+            x: { type: 'time', grid: { display: false } },
+            y: { min: 0, stacked: true, title: { display: true, text: 'MB' }, grid: { color: 'rgba(128,128,128,0.1)' } },
+          },
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+          },
+        },
+      });
+    }
+
+    /* ════════════════════════════════════════════════════════════════════════
+     *  Section 4: Live System Metrics
+     * ════════════════════════════════════════════════════════════════════ */
+
+    var tmInterval = null;
+    var coreCount  = 0;
+    var affinity   = [];
+
+    async function initLiveMetrics() {
+      try {
+        var data = await API.get('/api/admin/system/metrics');
+        coreCount = data.cpu_info.logical_count;
+        affinity  = data.cpu_info.current_affinity;
+
+        var grid = document.getElementById('tm-cores-grid');
+        grid.innerHTML = '';
+        for (var i = 0; i < coreCount; i++) {
+          var pinned = affinity.includes(i);
+          grid.innerHTML +=
+            '<div class="tm-core ' + (pinned ? '' : 'tm-core-idle') + '" data-core="' + i + '">' +
+              '<div class="tm-core-track">' +
+                '<div class="tm-core-fill" id="core-bar-' + i + '" style="height:0%"></div>' +
+              '</div>' +
+              '<span class="tm-core-label">CPU' + i + '</span>' +
+              '<span class="tm-core-pct" id="core-pct-' + i + '">0%</span>' +
+            '</div>';
+        }
+
+        updateLiveMetrics(data);
+        tmInterval = setInterval(pollLiveMetrics, 2000);
+      } catch (e) {
+        console.warn('Live metrics init failed:', e);
+      }
+    }
+
+    async function pollLiveMetrics() {
+      try {
+        var data = await API.get('/api/admin/system/metrics');
+        updateLiveMetrics(data);
+      } catch (e) {}
+    }
+
+    function updateLiveMetrics(data) {
+      setText('tm-cpu-total', data.cpu_total_pct + '%');
+
+      (data.cpu_per_core || []).forEach(function(pct, i) {
+        var bar = document.getElementById('core-bar-' + i);
+        var lbl = document.getElementById('core-pct-' + i);
+        if (!bar) return;
+        bar.style.height = pct + '%';
+        bar.style.background = cpuColor(pct);
+        lbl.textContent = Math.round(pct) + '%';
+      });
+
+      var pinned = data.cpu_affinity || [];
+      document.getElementById('tm-affinity-note').textContent =
+        pinned.length === coreCount ? 'Using all cores' : 'Pinned to cores: ' + pinned.join(', ');
+
+      setText('tm-mem-pct', data.mem_pct + '%');
+      var memBar = document.getElementById('tm-mem-bar');
+      memBar.style.width = data.mem_pct + '%';
+      memBar.style.background = cpuColor(data.mem_pct);
+      document.getElementById('tm-mem-detail').textContent =
+        fmtMb(data.mem_used_mb) + ' used / ' + fmtMb(data.mem_total_mb) + ' total \u2014 ' + fmtMb(data.mem_available_mb) + ' available';
+
+      setText('tm-thread-count', data.thread_count);
+    }
+
+    /* ════════════════════════════════════════════════════════════════════════
+     *  Section 5: Activity Log
+     * ════════════════════════════════════════════════════════════════════ */
+
+    var currentEventsRange = '7d';
+
+    async function loadEvents(range) {
+      currentEventsRange = range || currentEventsRange;
+      var filter = document.getElementById('event-filter').value;
+      var url = '/api/resources/events?range=' + currentEventsRange + '&limit=100';
+      if (filter) url += '&type=' + encodeURIComponent(filter);
+
+      document.getElementById('events-loading').hidden = false;
+      document.getElementById('events-table').hidden = true;
+      document.getElementById('events-empty').hidden = true;
+
+      try {
+        var d = await API.get(url);
+        document.getElementById('events-loading').hidden = true;
+
+        if (!d.events || d.events.length === 0) {
+          document.getElementById('events-empty').hidden = false;
+          return;
+        }
+
+        document.getElementById('events-table').hidden = false;
+        var tbody = document.getElementById('events-tbody');
+        tbody.innerHTML = d.events.map(function(ev) {
+          var dur = ev.duration_seconds ? '<span class="event-duration">(' + formatDurationShort(ev.duration_seconds) + ')</span>' : '';
+          var meta = ev.metadata ? '<div class="event-meta">' + escapeHtml(JSON.stringify(ev.metadata, null, 2)) + '</div>' : '';
+          return '<tr class="event-row" onclick="this.classList.toggle(\'event-row--expanded\')">' +
+            '<td class="text-sm">' + formatEventTime(ev.timestamp) + '</td>' +
+            '<td><span class="event-badge event-badge--' + (ev.event_type || '') + '">' + escapeHtml(ev.event_type || '') + '</span></td>' +
+            '<td>' + escapeHtml(ev.description || '') + dur + meta + '</td>' +
+          '</tr>';
+        }).join('');
+      } catch (e) {
+        document.getElementById('events-loading').textContent = 'Failed to load events.';
+      }
+    }
+
+    document.getElementById('event-filter').addEventListener('change', function() { loadEvents(); });
+
+    /* ════════════════════════════════════════════════════════════════════════
+     *  Section 6: Repository Overview
+     * ════════════════════════════════════════════════════════════════════ */
+
+    async function loadRepoOverview() {
+      try {
+        var d = await API.get('/api/admin/stats');
+        var bf = d.bulk_files || {};
+        var ms = d.meilisearch || {};
+        setText('kpi-total-files',  fmt(bf.total));
+        setText('kpi-converted',    fmt(bf.by_status ? bf.by_status.converted : null));
+        setText('kpi-unrecognized', fmt(bf.by_status ? bf.by_status.unrecognized : null));
+        setText('kpi-failed',       fmt(d.conversion_history ? d.conversion_history.by_status.failed : null));
+        setText('kpi-meili',        ms.available ? fmt(ms.documents_index ? ms.documents_index.count : 0) : 'Offline');
+      } catch (e) {
+        console.warn('Repo overview failed:', e);
+      }
+    }
+
+    document.getElementById('repo-refresh-btn').addEventListener('click', loadRepoOverview);
+
+    /* ════════════════════════════════════════════════════════════════════════
+     *  Export CSV
+     * ════════════════════════════════════════════════════════════════════ */
+
+    function toggleExportDropdown() {
+      var menu = document.getElementById('export-menu');
+      menu.hidden = !menu.hidden;
+    }
+    // Close dropdown on outside click
+    document.addEventListener('click', function(e) {
+      if (!e.target.closest('#export-dropdown')) {
+        document.getElementById('export-menu').hidden = true;
+      }
+    });
+
+    function exportCSV(table) {
+      document.getElementById('export-menu').hidden = true;
+      window.location.href = '/api/resources/export?table=' + table + '&range=30d';
+    }
+
+    /* ════════════════════════════════════════════════════════════════════════
+     *  Range selector wiring
+     * ════════════════════════════════════════════════════════════════════ */
+
+    function wireRangeSelector(containerId, callback) {
+      var container = document.getElementById(containerId);
+      if (!container) return;
+      container.addEventListener('click', function(e) {
+        var btn = e.target.closest('button[data-range]');
+        if (!btn) return;
+        container.querySelectorAll('button').forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        callback(btn.dataset.range);
+      });
+    }
+
+    wireRangeSelector('metrics-range', loadMetricsCharts);
+    wireRangeSelector('disk-range', loadDiskChart);
+    wireRangeSelector('events-range', loadEvents);
+
+    /* ════════════════════════════════════════════════════════════════════════
+     *  Init
+     * ════════════════════════════════════════════════════════════════════ */
+
+    document.addEventListener('DOMContentLoaded', function() {
+      loadSummary();
+      loadMetricsCharts('24h');
+      loadDiskChart('30d');
+      initLiveMetrics();
+      loadEvents('7d');
+      loadRepoOverview();
+    });
+
+    // Pause live polling when tab is hidden
+    document.addEventListener('visibilitychange', function() {
+      clearInterval(tmInterval);
+      if (!document.hidden) tmInterval = setInterval(pollLiveMetrics, 2000);
+    });
+  </script>
+</body>
+</html>

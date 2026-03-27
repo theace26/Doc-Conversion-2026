@@ -27,6 +27,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     # libmagic for MIME type detection (python-magic)
     libmagic1 \
+    # pikepdf C library dependency (PDF password handling)
+    libqpdf-dev \
+    # Password cracking tools
+    john \
+    hashcat \
+    hashcat-data \
+    opencl-headers \
+    ocl-icd-libopencl1 \
+    clinfo \
+    perl-base \
     # curl for healthchecks
     curl \
     # Misc build tools

@@ -146,6 +146,13 @@ async def run_lifecycle_scan(
         _scan_state["total"] = 0
     _started_at_dt = datetime.now(timezone.utc)
 
+    # Record activity event for scan start
+    try:
+        from core.metrics_collector import record_activity_event
+        await record_activity_event("lifecycle_scan_start", "Lifecycle scan started")
+    except Exception:
+        pass
+
     # Resolve the job_id to use for upserts — use most recent job if not specified
     if not job_id:
         from core.database import list_bulk_jobs, create_bulk_job
@@ -299,11 +306,49 @@ async def run_lifecycle_scan(
     _scan_state["last_scan_at"] = _now_iso()
     _scan_state["last_scan_run_id"] = scan_run_id
 
+    elapsed_s = round((datetime.now(timezone.utc) - _started_at_dt).total_seconds(), 1)
     log.info(
         "lifecycle_scan.complete",
         scan_run_id=scan_run_id,
         **counters,
     )
+
+    # Record activity event for scan end
+    try:
+        from core.metrics_collector import record_activity_event
+        await record_activity_event(
+            "lifecycle_scan_end",
+            f"Lifecycle scan: {counters['files_scanned']} files, {counters['files_new']} new, {counters['files_modified']} modified, {counters['files_deleted']} deleted",
+            {
+                "scanned": counters["files_scanned"],
+                "new": counters["files_new"],
+                "modified": counters["files_modified"],
+                "deleted": counters["files_deleted"],
+                "errors": counters["errors"],
+                "duration": elapsed_s,
+            },
+            duration_seconds=elapsed_s,
+        )
+    except Exception:
+        pass
+
+    # ── Auto-conversion trigger ──────────────────────────────────────────────
+    try:
+        from core.auto_converter import get_auto_conversion_engine
+
+        engine = get_auto_conversion_engine()
+        decision = await engine.on_scan_complete(
+            scan_run_id=scan_run_id,
+            new_files=counters["files_new"],
+            modified_files=counters["files_modified"],
+        )
+
+        if decision.should_convert:
+            await _execute_auto_conversion(
+                decision, scan_run_id, source_root, job_id
+            )
+    except Exception as exc:
+        log.error("lifecycle_scan.auto_convert_trigger_failed", error=str(exc))
 
     return scan_run_id
 
@@ -410,6 +455,90 @@ def _count_files_sync(source_root: Path) -> int:
         dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "_markflow"]
         count += len(filenames)
     return count
+
+
+async def _execute_auto_conversion(
+    decision,
+    scan_run_id: str,
+    source_root: Path,
+    job_id: str,
+) -> None:
+    """Create and start a bulk job based on the auto-conversion decision.
+
+    Uses the existing BulkJob infrastructure — auto-conversion is just
+    a programmatically-created bulk job with specific worker/batch settings.
+    """
+    import asyncio as _asyncio
+
+    from core.bulk_worker import BulkJob
+    from core.database import create_bulk_job, get_db_path
+
+    try:
+        output_path = os.getenv("BULK_OUTPUT_PATH", "/mnt/output-repo")
+
+        # Create a bulk job marked as auto-conversion
+        import aiosqlite
+        new_job_id = await create_bulk_job(
+            source_path=str(source_root),
+            output_path=output_path,
+            worker_count=decision.workers,
+        )
+
+        # Mark it as auto-triggered
+        async with aiosqlite.connect(get_db_path()) as conn:
+            await conn.execute(
+                "UPDATE bulk_jobs SET auto_triggered = 1 WHERE id = ?",
+                (new_job_id,),
+            )
+            await conn.commit()
+
+        log.info(
+            "auto_convert_job_created",
+            event="auto_convert_job_created",
+            job_id=new_job_id,
+            mode=decision.mode,
+            workers=decision.workers,
+            batch_size=decision.batch_size,
+            scan_run_id=scan_run_id,
+        )
+
+        # Update the auto_conversion_runs record with the bulk_job_id
+        try:
+            async with aiosqlite.connect(get_db_path()) as conn:
+                await conn.execute(
+                    """
+                    UPDATE auto_conversion_runs
+                    SET bulk_job_id = ?, status = 'running'
+                    WHERE scan_run_id = ? AND status = 'pending'
+                    """,
+                    (new_job_id, scan_run_id),
+                )
+                await conn.commit()
+        except Exception:
+            pass  # Fire-and-forget
+
+        job = BulkJob(
+            job_id=new_job_id,
+            source_path=str(source_root),
+            output_path=output_path,
+            worker_count=decision.workers,
+            max_files=decision.batch_size if decision.batch_size > 0 else None,
+        )
+
+        if decision.mode == "immediate":
+            # Block scanner until batch completes
+            await job.run()
+        elif decision.mode in ("queued", "scheduled"):
+            # Background task — scanner moves on
+            _asyncio.create_task(job.run())
+
+    except Exception as exc:
+        log.error(
+            "auto_convert_execution_failed",
+            event="auto_convert_execution_failed",
+            error=str(exc),
+            scan_run_id=scan_run_id,
+        )
 
 
 def _now_iso() -> str:

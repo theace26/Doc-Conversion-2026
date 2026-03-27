@@ -27,6 +27,14 @@ _SYSTEM_PREF_KEYS: set[str] = {
     "lifecycle_grace_period_hours", "lifecycle_trash_retention_days",
     "worker_count", "cpu_affinity_cores", "process_priority",
     "log_level",
+    "password_dictionary_enabled", "password_brute_force_enabled",
+    "password_brute_force_max_length", "password_brute_force_charset",
+    "password_timeout_seconds", "password_reuse_found",
+    "password_hashcat_enabled", "password_hashcat_workload",
+    "auto_convert_mode", "auto_convert_workers", "auto_convert_batch_size",
+    "auto_convert_schedule_windows", "auto_convert_decision_log_level",
+    "auto_metrics_retention_days", "auto_convert_business_hours_start",
+    "auto_convert_business_hours_end", "auto_convert_conservative_factor",
 }
 
 # Valid preference keys (whitelist from defaults)
@@ -203,6 +211,116 @@ _PREFERENCE_SCHEMA: dict[str, dict] = {
         "label": "Logging verbosity",
         "description": "Normal (WARNING+), Elevated (INFO+), Developer (DEBUG + frontend trace)",
     },
+    "password_dictionary_enabled": {
+        "type": "toggle",
+        "label": "Dictionary attack on unknown passwords",
+        "description": "Try common passwords from the bundled dictionary when a file is encrypted",
+    },
+    "password_brute_force_enabled": {
+        "type": "toggle",
+        "label": "Brute-force password recovery",
+        "description": "Try all character combinations up to a configured length (can be slow)",
+    },
+    "password_brute_force_max_length": {
+        "type": "number",
+        "min": 1,
+        "max": 8,
+        "label": "Max brute-force password length",
+    },
+    "password_brute_force_charset": {
+        "type": "select",
+        "options": ["numeric", "alpha", "alphanumeric", "all_printable"],
+        "label": "Brute-force character set",
+    },
+    "password_timeout_seconds": {
+        "type": "number",
+        "min": 10,
+        "max": 3600,
+        "label": "Password recovery timeout (seconds)",
+        "description": "Max time to spend cracking a single file",
+    },
+    "password_reuse_found": {
+        "type": "toggle",
+        "label": "Reuse found passwords across batch",
+        "description": "Try passwords that worked on other files in the same bulk job",
+    },
+    "password_hashcat_enabled": {
+        "type": "toggle",
+        "label": "Use hashcat when available",
+        "description": "Enable GPU-accelerated cracking via hashcat (container or host worker)",
+    },
+    "password_hashcat_workload": {
+        "type": "select",
+        "options": ["1", "2", "3", "4"],
+        "label": "Hashcat workload profile",
+        "description": "1=Low (keep responsive), 2=Default, 3=High (dedicated), 4=Maximum (100% GPU)",
+    },
+    # ── Auto-Conversion ──
+    "auto_convert_mode": {
+        "type": "select",
+        "options": ["off", "immediate", "queued", "scheduled"],
+        "label": "Auto-Conversion Mode",
+        "description": "How to handle new/modified files found by the lifecycle scanner. Off = detect only.",
+        "section": "auto_conversion",
+    },
+    "auto_convert_workers": {
+        "type": "select",
+        "options": ["auto", "1", "2", "3", "4", "6", "8"],
+        "label": "Auto-Conversion Workers",
+        "description": "Parallel workers for auto-conversion jobs. Auto adjusts based on system load.",
+        "section": "auto_conversion",
+    },
+    "auto_convert_batch_size": {
+        "type": "select",
+        "options": ["auto", "25", "50", "100", "250", "500", "unlimited"],
+        "label": "Max Batch Size",
+        "description": "Maximum files per auto-conversion run. Auto adjusts based on load and time.",
+        "section": "auto_conversion",
+    },
+    "auto_convert_schedule_windows": {
+        "type": "text",
+        "label": "Scheduled Conversion Windows",
+        "description": "JSON time windows for scheduled mode. Example: [{\"start\":\"00:00\",\"end\":\"05:00\",\"days\":[0,1,2,3,4]}]. Empty = auto-detect.",
+        "section": "auto_conversion",
+    },
+    "auto_convert_decision_log_level": {
+        "type": "select",
+        "options": ["normal", "elevated", "developer"],
+        "label": "Decision Logging Level",
+        "description": "Detail level for auto-conversion decision logs. Developer adds raw metric snapshots.",
+        "section": "auto_conversion",
+    },
+    "auto_metrics_retention_days": {
+        "type": "number",
+        "min": 7,
+        "max": 365,
+        "label": "Metrics Retention (Days)",
+        "description": "Historical metrics retention for auto-conversion learning. Longer = better patterns.",
+        "section": "auto_conversion",
+    },
+    "auto_convert_business_hours_start": {
+        "type": "select",
+        "options": ["00:00", "01:00", "02:00", "03:00", "04:00", "05:00", "06:00", "07:00", "08:00", "09:00", "10:00", "11:00", "12:00"],
+        "label": "Business Hours Start",
+        "description": "Auto-conversion throttles during business hours.",
+        "section": "auto_conversion",
+    },
+    "auto_convert_business_hours_end": {
+        "type": "select",
+        "options": ["12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00"],
+        "label": "Business Hours End",
+        "description": "After this time, auto-conversion can be more aggressive.",
+        "section": "auto_conversion",
+    },
+    "auto_convert_conservative_factor": {
+        "type": "range",
+        "min": 0.3,
+        "max": 1.0,
+        "step": 0.05,
+        "label": "Conservatism Factor",
+        "description": "Resource usage caution level. 0.3 = very conservative, 1.0 = full utilization.",
+        "section": "auto_conversion",
+    },
 }
 
 # Validation rules per key
@@ -241,7 +359,22 @@ def _validate_preference(key: str, value: str) -> None:
             )
 
     elif ptype in ("number", "range"):
-        _validate_int_range(value, schema.get("min", 0), schema.get("max", 999999), key)
+        # Support float ranges (e.g. conservatism factor 0.3-1.0)
+        if schema.get("step") and isinstance(schema["step"], float):
+            try:
+                n = float(value)
+            except ValueError:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"'{key}' must be a number, got '{value}'.",
+                )
+            if n < schema.get("min", 0) or n > schema.get("max", 999999):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"'{key}' must be between {schema['min']} and {schema['max']}, got {n}.",
+                )
+        else:
+            _validate_int_range(value, schema.get("min", 0), schema.get("max", 999999), key)
 
     elif ptype == "toggle":
         if value not in ("true", "false"):

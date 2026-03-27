@@ -230,7 +230,36 @@ async def run_health_check() -> dict:
     checker = HealthChecker()
     components = await checker.check_all()
 
-    all_ok = all(c.get("ok", False) for c in components.values())
+    # GPU info (re-reads host worker capabilities for live status)
+    try:
+        from core.gpu_detector import get_gpu_info_live
+        gpu = get_gpu_info_live()
+        components["gpu"] = {
+            "execution_path": gpu.execution_path,
+            "container_gpu": {
+                "available": gpu.container_gpu_available,
+                "vendor": gpu.container_gpu_vendor,
+                "name": gpu.container_gpu_name,
+                "vram_mb": gpu.container_gpu_vram_mb,
+                "hashcat_backend": gpu.container_hashcat_backend,
+            },
+            "host_worker": {
+                "available": gpu.host_worker_available,
+                "vendor": gpu.host_worker_gpu_vendor,
+                "name": gpu.host_worker_gpu_name,
+                "vram_mb": gpu.host_worker_gpu_vram_mb,
+                "backend": gpu.host_worker_gpu_backend,
+            },
+            "effective_gpu": gpu.effective_gpu_name,
+            "effective_backend": gpu.effective_backend,
+        }
+    except Exception:
+        components["gpu"] = {"execution_path": "none", "error": "detection_failed"}
+
+    all_ok = all(
+        c.get("ok", False) for k, c in components.items()
+        if k != "gpu" and isinstance(c, dict)
+    )
     uptime_seconds = int(time.monotonic() - _APP_START_TIME)
 
     return {

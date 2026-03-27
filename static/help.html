@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Help — MarkFlow</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="/" class="nav-logo">MarkFlow</a>
+    <div id="main-nav" class="nav-links"></div>
+  </nav>
+
+  <div class="help-layout">
+    <!-- Sidebar -->
+    <aside class="help-sidebar" id="help-sidebar">
+      <input type="text" class="search-input" id="help-search" placeholder="Search help..." autocomplete="off" />
+      <div id="search-results" hidden></div>
+      <nav id="help-toc"></nav>
+    </aside>
+
+    <!-- Content -->
+    <main class="help-content" id="help-content">
+      <p class="text-muted" style="padding:3rem 0;text-align:center">Loading...</p>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script>
+    var helpIndex = null;
+    var currentSlug = '';
+
+    // ── Load index and render sidebar ────────────────────────────────────
+    async function init() {
+      try {
+        helpIndex = await API.get('/api/help/index');
+        renderTOC(helpIndex);
+      } catch (e) {
+        document.getElementById('help-toc').innerHTML = '<p class="text-muted">Failed to load help index.</p>';
+      }
+
+      var slug = window.location.hash ? window.location.hash.slice(1) : 'getting-started';
+      await loadArticle(slug);
+
+      document.getElementById('help-search').addEventListener('input', debounce(handleSearch, 300));
+      window.addEventListener('hashchange', function() {
+        var s = window.location.hash ? window.location.hash.slice(1) : '';
+        if (s && s !== currentSlug) loadArticle(s);
+      });
+    }
+
+    function renderTOC(index) {
+      var toc = document.getElementById('help-toc');
+      toc.innerHTML = '';
+      (index.categories || []).forEach(function(cat) {
+        var heading = document.createElement('div');
+        heading.className = 'category-heading open';
+        heading.textContent = cat.name;
+        heading.addEventListener('click', function() {
+          this.classList.toggle('open');
+          this.nextElementSibling.hidden = !this.classList.contains('open');
+        });
+        toc.appendChild(heading);
+
+        var list = document.createElement('div');
+        list.className = 'category-articles';
+        (cat.articles || []).forEach(function(art) {
+          var a = document.createElement('a');
+          a.className = 'article-link';
+          a.href = '#' + art.slug;
+          a.dataset.slug = art.slug;
+          a.textContent = art.title;
+          a.addEventListener('click', function(e) {
+            e.preventDefault();
+            loadArticle(art.slug);
+          });
+          list.appendChild(a);
+        });
+        toc.appendChild(list);
+      });
+    }
+
+    // ── Load article ─────────────────────────────────────────────────────
+    async function loadArticle(slug) {
+      var content = document.getElementById('help-content');
+      content.innerHTML = '<p class="text-muted" style="padding:3rem 0;text-align:center">Loading...</p>';
+      currentSlug = slug;
+
+      try {
+        var article = await API.get('/api/help/article/' + slug);
+        content.innerHTML = article.html;
+
+        // Post-process blockquote tips/warnings
+        content.querySelectorAll('blockquote').forEach(function(bq) {
+          var text = bq.textContent.trim();
+          if (text.startsWith('Tip:')) bq.classList.add('tip');
+          else if (text.startsWith('Warning:')) bq.classList.add('warning');
+          else if (text.startsWith('Note:')) bq.classList.add('note');
+        });
+
+        // Update sidebar active state
+        document.querySelectorAll('.article-link').forEach(function(a) {
+          a.classList.toggle('active', a.dataset.slug === slug);
+        });
+
+        window.location.hash = slug;
+        content.scrollTop = 0;
+      } catch (e) {
+        content.innerHTML = '<h1>Article Not Found</h1><p>The help article "' + slug + '" doesn\'t exist yet.</p>' +
+          '<p><a href="#getting-started">Go to Getting Started</a></p>';
+      }
+    }
+
+    // ── Search ───────────────────────────────────────────────────────────
+    async function handleSearch(e) {
+      var q = e.target.value.trim();
+      var resultsEl = document.getElementById('search-results');
+      var tocEl = document.getElementById('help-toc');
+
+      if (q.length < 2) {
+        resultsEl.hidden = true;
+        tocEl.hidden = false;
+        return;
+      }
+
+      try {
+        var data = await API.get('/api/help/search?q=' + encodeURIComponent(q));
+        if (data.results.length === 0) {
+          resultsEl.innerHTML = '<p class="text-muted" style="padding:0.5rem">No results found.</p>';
+        } else {
+          resultsEl.innerHTML = '<ul class="help-search-results">' +
+            data.results.map(function(r) {
+              return '<li onclick="loadArticle(\'' + r.slug + '\'); document.getElementById(\'help-search\').value=\'\'; document.getElementById(\'search-results\').hidden=true; document.getElementById(\'help-toc\').hidden=false;">' +
+                '<strong>' + escapeHtml(r.title) + '</strong>' +
+                '<span class="text-muted text-sm"> — ' + escapeHtml(r.category) + '</span>' +
+                (r.snippet ? '<div class="snippet">' + escapeHtml(r.snippet) + '</div>' : '') +
+              '</li>';
+            }).join('') + '</ul>';
+        }
+        resultsEl.hidden = false;
+        tocEl.hidden = true;
+      } catch (e) {
+        resultsEl.innerHTML = '<p class="text-muted">Search failed.</p>';
+        resultsEl.hidden = false;
+      }
+    }
+
+    function escapeHtml(s) {
+      var d = document.createElement('div');
+      d.textContent = s || '';
+      return d.innerHTML;
+    }
+
+    function debounce(fn, ms) {
+      var timer;
+      return function(e) {
+        clearTimeout(timer);
+        var evt = e;
+        timer = setTimeout(function() { fn(evt); }, ms);
+      };
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

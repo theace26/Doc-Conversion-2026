@@ -1225,3 +1225,60 @@ small, .text-sm { font-size: 0.85rem; }
   padding: 6px 14px; border-radius: var(--radius); cursor: pointer; font-weight: 600;
 }
 .btn-danger:hover { background: #b71c1c; }
+
+/* ── Help Wiki Layout ──────────────────────────────────────────────────────── */
+.help-layout { display: grid; grid-template-columns: 280px 1fr; gap: 0; min-height: calc(100vh - 60px); }
+.help-sidebar {
+  border-right: 1px solid var(--border); padding: 1rem; overflow-y: auto;
+  position: sticky; top: 60px; height: calc(100vh - 60px); background: var(--surface);
+}
+.help-sidebar .search-input {
+  width: 100%; padding: 0.5rem 0.75rem; margin-bottom: 1rem;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg); color: var(--text); font-size: 0.875rem;
+}
+.help-sidebar .category-heading {
+  font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--text-muted); margin: 1rem 0 0.5rem;
+  cursor: pointer; display: flex; align-items: center; gap: 0.25rem;
+}
+.help-sidebar .category-heading::before { content: "\25B8"; transition: transform 0.15s; }
+.help-sidebar .category-heading.open::before { transform: rotate(90deg); }
+.help-sidebar .article-link {
+  display: block; padding: 0.35rem 0.75rem; margin: 0.1rem 0;
+  border-radius: var(--radius); color: var(--text); text-decoration: none;
+  font-size: 0.875rem; transition: background 0.15s;
+}
+.help-sidebar .article-link:hover { background: var(--surface-alt); }
+.help-sidebar .article-link.active { background: var(--accent); color: var(--text-on-accent); font-weight: 500; }
+.help-content { padding: 2rem 3rem; max-width: 800px; overflow-y: auto; }
+.help-content h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; }
+.help-content h2 { font-size: 1.35rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--border); }
+.help-content h3 { font-size: 1.1rem; font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.5rem; }
+.help-content p { line-height: 1.7; margin-bottom: 1rem; }
+.help-content code { background: var(--surface-alt); padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.875em; }
+.help-content pre { background: var(--surface-alt); padding: 1rem; border-radius: var(--radius); overflow-x: auto; margin-bottom: 1rem; border: 1px solid var(--border); }
+.help-content pre code { background: none; padding: 0; font-size: 0.85rem; }
+.help-content blockquote { border-left: 3px solid var(--accent); padding: 0.75rem 1rem; margin: 1rem 0; background: var(--surface-alt); border-radius: 0 var(--radius) var(--radius) 0; }
+.help-content blockquote p { margin-bottom: 0; }
+.help-content blockquote.tip { border-left-color: var(--ok); }
+.help-content blockquote.warning { border-left-color: var(--warn); }
+.help-content blockquote.note { border-left-color: var(--info); }
+.help-content table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+.help-content th, .help-content td { padding: 0.5rem 0.75rem; border: 1px solid var(--border); text-align: left; font-size: 0.9rem; }
+.help-content th { background: var(--surface); font-weight: 600; }
+.help-content img { max-width: 100%; border-radius: var(--radius); }
+.help-search-results { list-style: none; padding: 0; margin: 0.5rem 0; }
+.help-search-results li { padding: 0.5rem 0.75rem; border-radius: var(--radius); cursor: pointer; }
+.help-search-results li:hover { background: var(--surface-alt); }
+.help-search-results .snippet { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.15rem; }
+@media (max-width: 768px) {
+  .help-layout { grid-template-columns: 1fr; }
+  .help-sidebar { position: static; height: auto; max-height: 50vh; border-right: none; border-bottom: 1px solid var(--border); }
+  .help-content { padding: 1.5rem 1rem; }
+}
+
+/* ── Section Help Text (settings page) ─────────────────────────────────────── */
+.section-help { font-size: 0.85rem; color: var(--text-muted); margin: -0.25rem 0 1rem; line-height: 1.5; max-width: 600px; }
+.section-help a { color: var(--accent); }
+.setting-description { display: block; font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem; line-height: 1.4; }

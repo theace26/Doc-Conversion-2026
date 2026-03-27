@@ -1,0 +1,16 @@
+# GPU override — use with: docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+# Requires NVIDIA Container Toolkit installed on the host.
+# Only needed for NVIDIA GPU passthrough into the container.
+# AMD/Intel GPUs use the host worker instead (no override needed).
+services:
+  markflow:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, compute, utility]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility

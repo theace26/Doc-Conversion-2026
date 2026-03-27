@@ -40,6 +40,7 @@ async def convert_files(
     output_dir: str = Form(default=""),
     target_format: str = Form(default="docx"),
     unattended: bool = Form(default=False),
+    password: str = Form(default=""),
     user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
 ):
     """
@@ -103,6 +104,8 @@ async def convert_files(
         "target_format": target_format,
         "unattended": unattended,
     }
+    if password:
+        options["password"] = password
 
     # Fire-and-forget: run in background so we return batch_id immediately
     asyncio.create_task(

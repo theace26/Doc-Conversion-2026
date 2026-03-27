@@ -1,0 +1,48 @@
+{
+  "categories": [
+    {
+      "name": "Basics",
+      "articles": [
+        {"slug": "getting-started", "title": "Getting Started", "description": "First-time setup and your first conversion"},
+        {"slug": "document-conversion", "title": "Document Conversion", "description": "Upload, convert, and download documents"},
+        {"slug": "fidelity-tiers", "title": "Fidelity Tiers Explained", "description": "How MarkFlow preserves formatting quality"}
+      ]
+    },
+    {
+      "name": "Core Features",
+      "articles": [
+        {"slug": "ocr-pipeline", "title": "OCR & Scanned Documents", "description": "Automatic text extraction from images and scans"},
+        {"slug": "bulk-conversion", "title": "Bulk Repository Conversion", "description": "Convert entire document libraries at once"},
+        {"slug": "search", "title": "Searching Your Documents", "description": "Full-text search across your converted repository"},
+        {"slug": "file-lifecycle", "title": "File Lifecycle & Versioning", "description": "Change tracking, version history, and trash management"}
+      ]
+    },
+    {
+      "name": "Advanced",
+      "articles": [
+        {"slug": "password-recovery", "title": "Password-Protected Documents", "description": "Handling encrypted and restricted files"},
+        {"slug": "adobe-files", "title": "Adobe File Indexing", "description": "Metadata and text extraction from creative files"},
+        {"slug": "unrecognized-files", "title": "Unrecognized Files", "description": "What happens with unsupported file types"},
+        {"slug": "llm-providers", "title": "LLM Provider Setup", "description": "AI-powered OCR correction and summaries"},
+        {"slug": "gpu-setup", "title": "GPU Acceleration Setup", "description": "NVIDIA, AMD, and Intel GPU configuration"}
+      ]
+    },
+    {
+      "name": "Configuration",
+      "articles": [
+        {"slug": "settings-guide", "title": "Settings Reference", "description": "Every setting explained"},
+        {"slug": "status-page", "title": "Status & Active Jobs", "description": "Monitoring running jobs and system state"},
+        {"slug": "admin-tools", "title": "Administration", "description": "Admin panel, API keys, and database tools"},
+        {"slug": "resources-monitoring", "title": "Resources & Monitoring", "description": "System metrics, charts, and activity log"}
+      ]
+    },
+    {
+      "name": "Integration",
+      "articles": [
+        {"slug": "mcp-integration", "title": "AI Assistant Integration", "description": "Connect MarkFlow to Claude.ai"},
+        {"slug": "troubleshooting", "title": "Troubleshooting", "description": "Common issues and how to fix them"},
+        {"slug": "keyboard-shortcuts", "title": "Keyboard Shortcuts", "description": "Quick navigation reference"}
+      ]
+    }
+  ]
+}

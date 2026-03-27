@@ -53,6 +53,11 @@ python-magic>=0.4.27
 psd-tools
 pyexiftool
 
+# Password-protected document handling
+pikepdf>=9.0.0
+msoffcrypto-tool>=5.4.0
+lxml>=5.0.0
+
 # System metrics
 psutil>=5.9.0
 

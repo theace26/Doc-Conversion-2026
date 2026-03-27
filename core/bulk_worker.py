@@ -191,6 +191,7 @@ class BulkJob:
         fidelity_tier: int = 2,
         ocr_mode: str = "auto",
         include_adobe: bool = True,
+        max_files: int | None = None,
     ):
         self.job_id = job_id
         self.source_path = Path(source_path)
@@ -199,6 +200,7 @@ class BulkJob:
         self.fidelity_tier = fidelity_tier
         self.ocr_mode = ocr_mode
         self.include_adobe = include_adobe
+        self.max_files = max_files  # Auto-conversion batch limit
 
         self._queue: asyncio.Queue[dict | None] = asyncio.Queue()
         self._pause_event = asyncio.Event()
@@ -213,6 +215,7 @@ class BulkJob:
         self._total_pending = 0
         self._skip_batch_count = 0
         self._review_queue_count = 0
+        self._files_completed = 0  # Track total completed for max_files
 
         # Job metadata for active-jobs panel
         self.started_at: datetime | None = None
@@ -287,6 +290,25 @@ class BulkJob:
                 skipped=scan_result.skipped_count,
             )
 
+            # Record activity event for job start
+            try:
+                from core.metrics_collector import record_activity_event
+                source_name = self.source_path.name if hasattr(self.source_path, 'name') else str(self.source_path)
+                await record_activity_event("bulk_start", f"Bulk job started: {scan_result.total_discovered} files from {source_name}", {
+                    "job_id": self.job_id, "file_count": scan_result.total_discovered, "source": str(self.source_path),
+                })
+            except Exception:
+                pass
+
+            # Initialize shared PasswordHandler for found-password reuse across files
+            try:
+                from core.password_handler import PasswordHandler
+                from core.database import get_all_preferences
+                pw_prefs = await get_all_preferences()
+                self._password_handler = PasswordHandler(pw_prefs)
+            except Exception:
+                self._password_handler = None
+
             # 2. Enqueue pending files
             pending_files = await get_unprocessed_bulk_files(self.job_id)
             self._total_pending = len(pending_files)
@@ -331,6 +353,17 @@ class BulkJob:
                 "duration_ms": duration_ms,
             })
             _emit_bulk_event(self.job_id, "done", {})
+
+            # Record activity event for job end
+            try:
+                from core.metrics_collector import record_activity_event
+                elapsed_s = round(duration_ms / 1000, 1)
+                await record_activity_event("bulk_end", f"Bulk job {final_status}: {self._converted}/{scan_result.total_discovered} files in {elapsed_s}s", {
+                    "job_id": self.job_id, "converted": self._converted, "failed": self._failed,
+                    "skipped": self._skipped, "duration": elapsed_s,
+                }, duration_seconds=elapsed_s)
+            except Exception:
+                pass
 
         except Exception as exc:
             log.error("bulk_job_fatal", job_id=self.job_id, error=str(exc))
@@ -442,6 +475,19 @@ class BulkJob:
                 # Clear worker from current_files
                 self.current_files = [e for e in self.current_files if e["worker_id"] != worker_id + 1]
 
+                # Check max_files limit (auto-conversion batch cap)
+                self._files_completed += 1
+                if self.max_files and self._files_completed >= self.max_files:
+                    log.info(
+                        "bulk_worker_max_files_reached",
+                        job_id=self.job_id,
+                        max_files=self.max_files,
+                        completed=self._files_completed,
+                    )
+                    self._cancel_event.set()
+                    self._pause_event.set()
+                    break
+
         log.debug("bulk_worker_stop", job_id=self.job_id, worker_id=worker_id)
 
     async def _check_confidence_prescan(self, file_dict: dict) -> bool:
@@ -517,14 +563,17 @@ class BulkJob:
 
         t_start = time.perf_counter()
 
-        # Run sync conversion in thread
+        # Run sync conversion in thread (with shared PasswordHandler for batch reuse)
+        convert_opts = {"fidelity_tier": self.fidelity_tier, "ocr_mode": self.ocr_mode}
+        if self._password_handler:
+            convert_opts["_password_handler"] = self._password_handler
         result = await asyncio.to_thread(
             _convert_file_sync,
             source_path,
             "to_md",
             self.job_id,
             output_md.parent,  # output_dir — the converter creates batch_id subdir
-            {"fidelity_tier": self.fidelity_tier, "ocr_mode": self.ocr_mode},
+            convert_opts,
         )
 
         duration_ms = int((time.perf_counter() - t_start) * 1000)

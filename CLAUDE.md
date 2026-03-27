@@ -149,6 +149,82 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
   DB + WAL reported separately in API, combined in UI. Admin page gains Disk Usage
   section with volume progress bars, breakdown cards, and manual Refresh button.
   No auto-polling — directory walks can take seconds on large repos.
+**v0.9.7** — Resources page & activity monitoring. New `system_metrics` table
+  (30s samples via APScheduler), `disk_metrics` (6h snapshots), `activity_events`
+  (bulk start/end, lifecycle scan, index rebuild, startup/shutdown, DB maintenance).
+  `core/metrics_collector.py` owns collection, queries, and 90-day purge.
+  Resources page (`/resources.html`, manager+ role) with: executive summary card
+  (IT admin pitch with description sentences), CPU/memory Chart.js time-series,
+  disk growth stacked area chart, live system metrics (moved from Admin), activity
+  log with type filters and expandable metadata, repository overview. CSV export
+  for all three metrics tables. Admin Task Manager replaced with link card to
+  Resources; resource controls remain on Admin. 5 new API endpoints under
+  `/api/resources/` (metrics, disk, events, summary, export).
+**v0.9.8** — Password-protected document handling. `core/password_handler.py`
+  detects two layers: restrictions (edit/print flags stripped automatically via
+  pikepdf/lxml) and real encryption (password cascade: empty → user-supplied →
+  org list → found-reuse → dictionary → brute-force → john). `pikepdf` handles
+  PDF owner/user passwords. `msoffcrypto-tool` handles OOXML + legacy Office
+  encryption. OOXML restriction tags (`documentProtection`, `sheetProtection`,
+  `workbookProtection`, `modifyVerifier`) stripped via ZIP+lxml rewrite.
+  Converter preprocesses files before `handler.ingest()` — no handler signature
+  changes. Bulk worker shares `PasswordHandler` instance across files for
+  found-password reuse. Convert page gains password input field. Settings page
+  gains Password Recovery section (6 new preferences). DB columns:
+  `protection_type`, `password_method`, `password_attempts` on both
+  `conversion_history` and `bulk_files`. `john` installed in Docker for
+  enhanced PDF cracking. Bundled `common.txt` dictionary (top passwords).
+**v0.9.9** — GPU auto-detection & dual-path hashcat integration.
+  `core/gpu_detector.py` probes container for NVIDIA (nvidia-smi) and reads
+  host worker capabilities from `/mnt/hashcat-queue/worker_capabilities.json`.
+  Execution path priority: NVIDIA container > host worker > hashcat CPU > none.
+  `tools/markflow-hashcat-worker.py` runs outside Docker, watches shared queue
+  volume for crack jobs, runs hashcat with host GPU (AMD ROCm, Intel OpenCL).
+  Job queue is file-based JSON over a bind-mounted volume. `docker-compose.gpu.yml`
+  overlay provides NVIDIA Container Toolkit GPU reservation. Dockerfile adds
+  hashcat, OpenCL packages, clinfo. `CrackMethod` enum gains `HASHCAT_GPU`,
+  `HASHCAT_CPU`, `HASHCAT_HOST`. New preferences: `password_hashcat_enabled`,
+  `password_hashcat_workload`. Health endpoint reports dual-path GPU info.
+  Settings page gains GPU Acceleration status card. Container starts normally
+  with no GPU present — graceful degradation to CPU/john fallback.
+  Apple Silicon Macs: Metal backend detection, unified memory estimation,
+  Rosetta 2 binary guard, hashcat >= 6.2.0 version gate, thermal-safe
+  workload profile (-w 2). macOS Intel discrete GPUs (Radeon Pro) supported
+  via OpenCL.
+**v0.10.0** — In-app help wiki & contextual help system. 19 markdown articles
+  in `docs/help/` rendered via mistune at `GET /api/help/article/{slug}`.
+  Searchable via `GET /api/help/search?q=`. Help page (`/help.html`) with sidebar
+  TOC, search, hash-based navigation. Contextual "?" icons via `data-help`
+  attributes + `static/js/help-link.js`. Nav gains "Help" link (all roles, no auth).
+  Help API endpoints are public. CSS: help-layout classes in markflow.css.
+**v0.10.1** — Apple Silicon Metal support for GPU hashcat worker.
+  `tools/markflow-hashcat-worker.py` gains macOS detection: Apple Silicon
+  (M1/M2/M3/M4) via Metal backend, Intel Mac discrete GPU via OpenCL.
+  Rosetta 2 binary warning prevents silent Metal loss. hashcat version
+  gated at >= 6.2.0 for Metal. Unified memory estimation (~75% of system
+  RAM) replaces VRAM reporting on Apple Silicon. Thermal-safe workload
+  profile (-w 2, not -w 3) prevents throttling on fanless Macs.
+  `core/gpu_detector.py` recognizes vendor=apple/backend=Metal in worker
+  capabilities. Settings GPU status card updated for Apple display.
+**v0.11.0** — Intelligent auto-conversion engine. When the lifecycle
+  scanner finds new/modified files, the engine decides whether, when,
+  and how aggressively to convert them. Three modes: immediate (same
+  scan cycle), queued (background task), scheduled (time-window only).
+  Dynamic worker scaling and batch sizing based on real-time CPU/memory
+  load + historical hourly averages. `core/auto_converter.py` (decision
+  engine), `core/auto_metrics_aggregator.py` (hourly rollup from
+  system_metrics into auto_metrics table). Two new SQLite tables:
+  `auto_metrics` (hourly aggregated system metrics for pattern learning),
+  `auto_conversion_runs` (decision/execution audit log). 9 new preferences
+  (auto_convert_mode, workers, batch_size, schedule_windows,
+  decision_log_level, metrics_retention_days, business_hours_start/end,
+  conservative_factor). `BulkJob` gains `max_files` parameter for batch
+  capping. `bulk_jobs` gains `auto_triggered` column. APScheduler gains
+  hourly aggregation job (:05 past each hour) and 15-min deferred
+  conversion runner. Status page gains mode override card (ephemeral,
+  resets on container restart). Settings page gains Auto-Conversion
+  section. API: GET/POST/DELETE /api/auto-convert/override,
+  GET /api/auto-convert/status, /history, /metrics.
 
 ---
 
@@ -337,8 +413,24 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 | `api/routes/client_log.py` | POST /api/log/client-event — frontend action logging (developer mode) |
 | `api/routes/logs.py` | GET /api/logs/download/{filename} — log file downloads (manager role) |
 | `static/status.html` | Dedicated status page: per-job cards, STOP ALL, lifecycle scanner, pause/resume/stop |
-| `static/admin.html` | Admin panel: stats dashboard, task manager, resource controls, API keys |
+| `static/admin.html` | Admin panel: stats dashboard, disk usage, resource controls, API keys |
+| `core/metrics_collector.py` | System/disk metrics collection, activity events, 90-day purge, query helpers |
+| `api/routes/resources.py` | Resources API: metrics, disk history, events, summary, CSV export |
+| `static/resources.html` | Resources page: executive summary, Chart.js charts, live metrics, activity log |
+| `core/password_handler.py` | Password detection, restriction stripping, encryption cracking cascade |
+| `core/password_wordlists/common.txt` | Bundled top-password dictionary for dictionary attacks |
+| `core/gpu_detector.py` | Dual-path GPU detection: container NVIDIA + host worker capabilities |
+| `tools/markflow-hashcat-worker.py` | Host-side hashcat worker (runs outside Docker for AMD/Intel GPU) |
+| `docker-compose.gpu.yml` | NVIDIA GPU overlay — `docker compose -f ... -f docker-compose.gpu.yml up` |
+| `api/routes/help.py` | Help wiki API: index, article rendering (mistune), keyword search |
+| `static/help.html` | Help wiki page: sidebar TOC + article content area |
+| `static/js/help-link.js` | Contextual "?" icon component — finds `data-help` attrs, appends icons |
+| `docs/help/_index.json` | Article index with categories, titles, descriptions |
+| `docs/help/*.md` | 19 help articles in markdown (rendered at runtime via mistune) |
 | `docs/unioncore-integration-contract.md` | Standalone spec for UnionCore team |
+| `core/auto_converter.py` | Auto-conversion decision engine: mode resolution, worker/batch sizing, scheduling |
+| `core/auto_metrics_aggregator.py` | Hourly rollup of system_metrics into auto_metrics for historical learning |
+| `api/routes/auto_convert.py` | Auto-conversion API: status, mode override, run history, metrics |
 | `pytest.ini` | Test configuration: asyncio_mode, custom markers (slow, ocr, integration, bulk) |
 | `docker-compose.yml` | Port 8000, MCP 8001, Meilisearch 7700, volumes: input/output/logs/source/output-repo |
 
@@ -848,6 +940,206 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 - **Trash is subtracted from output-repo total**: The `.trash/` directory lives
   inside `/mnt/output-repo`. The disk usage endpoint reports them separately and
   excludes `.trash/` from the output-repo walk to avoid double-counting.
+
+- **Metrics collector samples every 30 seconds**: `collect_metrics()` is a lightweight
+  psutil call (~1ms). It runs via APScheduler with `max_instances=1` — if a sample takes
+  longer than 30s (impossible in practice), the next is skipped, not stacked.
+
+- **Disk snapshots every 6 hours, not 30 seconds**: Directory walks on large repos
+  take 5-10 seconds. `collect_disk_snapshot()` runs every 6 hours. An immediate snapshot
+  fires at startup so the Resources page has data on first load.
+
+- **Metrics retention is 90 days**: `purge_old_metrics()` runs daily at 03:00 and
+  deletes all three metrics tables' rows older than 90 days. At 2,880 samples/day
+  (30s interval), this is ~260K rows for system_metrics — about 25 MB. Acceptable.
+
+- **Activity events are fire-and-forget**: `record_activity_event()` catches all
+  exceptions internally. A failed event insert never disrupts the operation being recorded.
+  This follows the same pattern as `POST /api/log/client-event`.
+
+- **Summary endpoint computes p95 in Python, not SQL**: SQLite lacks PERCENTILE_CONT.
+  The summary endpoint fetches the relevant column values and computes percentile in
+  Python. For 90 days of 30s samples (~260K rows), fetching a single column is fast
+  (~50ms). If this becomes a problem, add a precomputed daily_summary table.
+
+- **`idle_baseline_percent`**: Computed from samples where ALL task counters are zero.
+  If MarkFlow is always running something (unlikely), idle baseline falls back to the
+  p5 (5th percentile) of CPU readings.
+
+- **Chart.js loaded from CDN**: If cdn.jsdelivr.net is unreachable from the Docker
+  container, charts will not render. Bundle the minified JS files in `static/vendor/`
+  during docker build as a fallback.
+
+- **Resources page is MANAGER role, not ADMIN**: IT administrators may be given manager
+  access to review resource usage without needing full admin (API key management,
+  DB repair). The Resources API endpoints use `require_role(UserRole.MANAGER)`.
+
+- **CPU percent can exceed 100%**: `psutil.Process.cpu_percent()` returns per-process
+  CPU usage where 100% = one full core. On a 4-core system, max is 400%. The charts
+  should account for this — Y-axis max should be `cpu_count * 100`, not hardcoded 100.
+
+- **I/O counters are cumulative**: `io_read_bytes` and `io_write_bytes` in system_metrics
+  are cumulative counters from process start. The Resources page computes deltas between
+  adjacent samples for rate display. First sample of a session has no delta — show N/A.
+
+- **Task Manager moved to Resources page**: The live CPU bars, memory gauge, and thread
+  count previously on admin.html now live on resources.html. Admin page shows a link card
+  pointing to Resources. The `GET /api/admin/system/metrics` endpoint is unchanged — both
+  pages can call it.
+
+- **Repository Overview is duplicated, not moved**: The stats cards appear on BOTH the
+  admin page and the Resources page. Same `GET /api/admin/stats` call. This is intentional —
+  admin users expect it on admin, IT reviewers need it on resources.
+
+- **Password handling is a converter preprocessing step**: `PasswordHandler.handle_sync()`
+  runs before `handler.ingest()` in `_convert_file_sync()`. The handler signature is
+  unchanged — `ingest()` receives the decrypted `working_path`, not the original encrypted
+  file. This avoids changing the abstract `FormatHandler` interface.
+
+- **Two distinct protection layers**: Restrictions (owner password, edit protection) are
+  metadata flags stripped instantly — no password needed. Encryption (user password, AES/RC4)
+  requires actual password or cracking. Never confuse the two in code or UI.
+
+- **pikepdf opens owner-password PDFs without any password**: `pikepdf.open()` ignores
+  owner-password restrictions. If it succeeds, the file has restrictions only. If it raises
+  `pikepdf.PasswordError`, the file has real encryption.
+
+- **msoffcrypto OfficeFile detection order**: Call `is_encrypted()` first. If the file is
+  a valid ZIP (OOXML) but not OLE-encrypted, `msoffcrypto` may raise. Catch and fall through
+  to XML-level restriction check.
+
+- **Found passwords are in-memory only**: `_found_passwords` on the `PasswordHandler`
+  instance are never written to disk or database. The `password_found` field in
+  `PasswordResult` is for runtime reuse within a batch only.
+
+- **msoffcrypto encrypt vs decrypt**: `msoffcrypto` has both `encrypt()` and `decrypt()`.
+  The test fixture generator uses `encrypt()` to create encrypted files. The handler uses
+  `decrypt()`. Don't confuse them.
+
+- **`john` (John the Ripper) is optional**: Installed in Docker but only used for PDF
+  cracking when all other methods fail. `_check_john_available()` caches the result.
+  If not installed, the phase is silently skipped.
+
+- **Brute-force is disabled by default**: `password_brute_force_enabled` defaults to
+  `"false"`. Even numeric-only brute-force to 6 digits (1M combos) is fast, but
+  alphanumeric to 6 chars (2.2B combos) would take hours. The timeout prevents runaway.
+
+- **Temp file cleanup**: Decrypted files are written to system temp dir via
+  `tempfile.mkstemp()`. Cleanup happens in `_convert_file_sync()` after conversion
+  succeeds or fails. If the process crashes mid-conversion, the OS cleans temp on reboot.
+
+- **OOXML restriction stripping rewrites the ZIP**: The entire OOXML ZIP is read,
+  protection tags are removed from XML, and a new ZIP is written. This preserves all
+  other content (images, charts, etc.) but does modify internal XML whitespace.
+
+- **`password_locked` status in conversion_history**: Files that fail decryption get
+  `status='password_locked'` (not `'error'`). This lets the UI distinguish password
+  failures from other conversion errors.
+
+- **GPU passthrough requires NVIDIA Container Toolkit**: The `docker-compose.gpu.yml`
+  overlay adds GPU reservation. Without the overlay, the container starts normally
+  and `detect_gpu()` returns `container_gpu_available=False`. Use:
+  `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d`.
+
+- **AMD/Intel GPUs need the host worker**: Docker on WSL2 cannot pass AMD or Intel
+  GPUs to containers. Run `python tools/markflow-hashcat-worker.py --queue-dir ...`
+  on the host. Without it, MarkFlow falls back to hashcat CPU or john.
+
+- **Host worker capabilities read at startup + live on health check**: `detect_gpu()`
+  runs once at startup and caches. The health endpoint uses `get_gpu_info_live()`
+  which re-reads `worker_capabilities.json` each call for fresh status.
+
+- **hashcat --force flag required in Docker**: Without it, hashcat refuses to run
+  in container environments. Safe for single-file cracking.
+
+- **hashcat potfile conflicts**: Each attack uses a unique temp potfile. Never use
+  hashcat's default potfile — concurrent batch cracking would corrupt it.
+
+- **Host worker queue is fire-and-forget**: If the host worker is not running, jobs
+  accumulate. MarkFlow times out (timeout_seconds + 120) and falls back.
+
+- **HASHCAT_QUEUE_DIR must be a bind mount**: Named volumes aren't easily accessible
+  from the host. The compose file uses `${HASHCAT_QUEUE_DIR:-./hashcat-queue}`.
+
+- **hashcat exit codes**: 0=cracked, 1=exhausted, 2=user-abort. The handler checks
+  output file content rather than exit code for robustness.
+
+- **docker-compose.gpu.yml is an overlay, not standalone**: Use with `-f` flag.
+  The base `docker-compose.yml` works without GPU support.
+
+- **Help articles are cached in-memory**: `_article_cache` persists for the life
+  of the process. Editing a .md file requires container restart to see changes.
+
+- **mistune rendering must include table plugin**: Same `plugins=["table",
+  "strikethrough", "footnotes"]` config used elsewhere.
+
+- **Help routes bypass auth**: Help endpoints have no `Depends(require_role())`.
+  This is intentional — help should always be accessible.
+
+- **data-help attributes are passive**: They don't break if the target article
+  doesn't exist. The user just gets a "not found" page on the wiki.
+
+- **help-link.js is idempotent**: `initHelpLinks()` checks for existing `.help-icon`
+  children before adding. Safe to call after dynamic content loads.
+
+- **Article slugs are validated**: Only lowercase alphanumeric + hyphens allowed.
+  Path traversal blocked by both validation and resolved-path containment check.
+
+- **No OpenCL on Apple Silicon**: macOS ARM64 has no OpenCL. hashcat's Metal
+  backend is the only GPU path. Do not attempt `-D 2` with OpenCL on ARM Macs.
+
+- **Rosetta hashcat has no Metal**: An x86 hashcat binary under Rosetta 2 sees
+  no GPU. The worker checks via `file $(which hashcat)` and warns if not arm64.
+  `brew install hashcat` installs the native ARM build.
+
+- **Apple Silicon thermal throttling is normal**: M-series chips (especially
+  MacBook Air) throttle from ~500 MH/s to ~200 MH/s within seconds under
+  sustained GPU load. Do not treat this as an error or retry.
+
+- **`system_profiler` is slow (1-3s)**: Called once at worker startup, not per
+  job. GPU info is cached in the capabilities dict for the worker's lifetime.
+
+- **hashcat `-w 4` (nightmare) causes thermal shutdown on fanless Macs**: Always
+  default to `-w 2` for Metal. User can override via password_hashcat_workload
+  preference, but the default must be safe for a MacBook Air.
+
+- **Auto-conversion mode override is ephemeral**: `set_mode_override()` stores
+  the override in-memory on the `AutoConversionEngine` singleton. Container
+  restart resets it to the preference value. This is intentional — prevents a
+  forgotten override from silently changing behavior long-term.
+
+- **Auto-conversion creates real bulk jobs**: Each auto-conversion run creates
+  a record in `bulk_jobs` with `auto_triggered=1`. The jobs appear on the
+  Status page and in job history alongside manually-started jobs.
+
+- **`max_files` on BulkJob is cooperative**: Like the cancel event, the worker
+  checks after each file completes. A file mid-conversion will finish before
+  the limit takes effect. When reached, it sets the cancel event — remaining
+  queued files are drained without processing.
+
+- **`auto_metrics` is separate from `system_metrics`**: `auto_metrics` stores
+  hourly aggregates for the decision engine. `system_metrics` stores raw 30s
+  samples for the Resources page. Don't query `auto_metrics` for real-time
+  data — it's always at least 1 hour behind.
+
+- **Hourly aggregation runs at :05**: The 5-minute offset ensures the previous
+  hour's last 30-second sample is in the DB before aggregation reads it.
+  Aggregation is idempotent — re-running for an already-aggregated hour is
+  a no-op.
+
+- **`psutil.getloadavg()` not available on all platforms**: Windows Docker
+  containers may not support `getloadavg()`. The engine catches `AttributeError`
+  and falls back to zeros. CPU percent is the primary load signal.
+
+- **Conservatism factor stacks during business hours**: The user's configured
+  factor (default 0.7) gets an additional `*= 0.7` during business hours.
+  Effective factor during business = 0.7 * 0.7 = 0.49. This is intentional —
+  business hours should be very conservative.
+
+- **Deferred conversion runner re-triggers lifecycle scan**: When a scheduled
+  mode's deferred runs come due, the runner re-runs `run_lifecycle_scan()`
+  rather than picking up specific files. This is simpler and ensures the
+  scan has fresh data, but means the engine re-evaluates its decision.
 
 ---
 

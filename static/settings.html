@@ -153,6 +153,98 @@
         </div>
       </div>
 
+      <!-- Password Recovery section -->
+      <div class="section-title">Password Recovery</div>
+      <div class="card">
+        <p class="text-sm text-muted" style="margin:0 0 1rem">
+          Configure how MarkFlow handles password-protected documents.
+          Restrictions (edit/print) are always stripped automatically.
+          Encryption recovery is attempted via the cascade below.
+        </p>
+
+        <div class="form-group">
+          <label class="toggle-label">
+            <input type="checkbox" id="pref-password_dictionary_enabled" data-key="password_dictionary_enabled" />
+            Dictionary attack on unknown passwords
+          </label>
+          <p class="hint">Try common passwords from the bundled dictionary when a file is encrypted.</p>
+        </div>
+
+        <div class="form-group">
+          <label class="toggle-label">
+            <input type="checkbox" id="pref-password_reuse_found" data-key="password_reuse_found" />
+            Reuse found passwords across batch
+          </label>
+          <p class="hint">Try passwords that worked on other files in the same bulk job.</p>
+        </div>
+
+        <div class="form-group">
+          <label class="toggle-label">
+            <input type="checkbox" id="pref-password_brute_force_enabled" data-key="password_brute_force_enabled" />
+            Brute-force password recovery
+          </label>
+          <p class="hint">Try all character combinations up to a configured length. Can be very slow.</p>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-password_brute_force_max_length">Max brute-force length</label>
+          <input type="number" id="pref-password_brute_force_max_length" data-key="password_brute_force_max_length" min="1" max="8" />
+        </div>
+
+        <div class="form-group">
+          <label for="pref-password_brute_force_charset">Brute-force character set</label>
+          <select id="pref-password_brute_force_charset" data-key="password_brute_force_charset">
+            <option value="numeric">Numeric (0-9)</option>
+            <option value="alpha">Lowercase letters (a-z)</option>
+            <option value="alphanumeric">Alphanumeric (a-z, 0-9)</option>
+            <option value="all_printable">All printable characters</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-password_timeout_seconds">Recovery timeout (seconds)</label>
+          <input type="number" id="pref-password_timeout_seconds" data-key="password_timeout_seconds" min="10" max="3600" />
+          <p class="hint">Max time to spend cracking a single file.</p>
+        </div>
+
+        <div class="form-group">
+          <label class="toggle-label">
+            <input type="checkbox" id="pref-password_hashcat_enabled" data-key="password_hashcat_enabled" />
+            Use hashcat when available
+          </label>
+          <p class="hint">Enable GPU-accelerated cracking via hashcat (container NVIDIA or host worker).</p>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-password_hashcat_workload">Hashcat workload profile</label>
+          <select id="pref-password_hashcat_workload" data-key="password_hashcat_workload">
+            <option value="1">1 — Low (keep desktop responsive)</option>
+            <option value="2">2 — Default</option>
+            <option value="3">3 — High (dedicated machine)</option>
+            <option value="4">4 — Maximum (100% GPU)</option>
+          </select>
+        </div>
+
+        <!-- GPU Status Card -->
+        <div id="gpu-status-card" style="margin-top:1rem;padding:0.75rem 1rem;background:var(--surface-alt);border:1px solid var(--border);border-radius:var(--radius)">
+          <h4 style="margin-bottom:0.5rem">GPU Acceleration</h4>
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:0.25rem 1rem;font-size:0.85rem">
+            <span class="text-muted">Status</span><span id="gpu-status-pill">Detecting...</span>
+            <span class="text-muted">Execution Path</span><span id="gpu-path">--</span>
+            <span class="text-muted">GPU</span><span id="gpu-name">--</span>
+            <span class="text-muted">Backend</span><span id="gpu-backend">--</span>
+            <span class="text-muted">Memory</span><span id="gpu-vram">--</span>
+            <span class="text-muted">Host Worker</span><span id="gpu-host-worker">--</span>
+          </div>
+          <p class="hint" id="gpu-help" style="margin-top:0.5rem"></p>
+        </div>
+
+        <p class="text-sm text-muted" style="margin-top:0.75rem">
+          Password recovery is intended for documents owned by your organization.
+          Ensure compliance with your organization's data policies.
+        </p>
+      </div>
+
       <!-- AI Enhancement section -->
       <div class="section-title">AI Enhancement</div>
       <div class="card">
@@ -337,6 +429,125 @@
         </div>
       </div>
 
+      <!-- Auto-Conversion section -->
+      <div class="section-title" data-help="auto-conversion">Auto-Conversion</div>
+      <div class="card">
+        <p class="text-sm text-muted" style="margin:0 0 1rem">
+          Automatically convert new and modified files discovered by the lifecycle scanner.
+          The engine adapts worker count and batch size based on system load and historical patterns.
+        </p>
+
+        <div class="form-group">
+          <label for="pref-auto_convert_mode">Mode</label>
+          <select id="pref-auto_convert_mode" data-key="auto_convert_mode">
+            <option value="off">Off &mdash; Detect only, no conversion</option>
+            <option value="immediate">Immediate &mdash; Convert during the same scan cycle</option>
+            <option value="queued">Queued &mdash; Convert in background shortly after scan</option>
+            <option value="scheduled">Scheduled &mdash; Convert only during time windows</option>
+          </select>
+          <div class="inline-error" id="err-auto_convert_mode"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-auto_convert_workers">Workers</label>
+          <select id="pref-auto_convert_workers" data-key="auto_convert_workers">
+            <option value="auto">Auto (adjusts based on system load)</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="6">6</option>
+            <option value="8">8</option>
+          </select>
+          <div class="inline-error" id="err-auto_convert_workers"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-auto_convert_batch_size">Max batch size</label>
+          <select id="pref-auto_convert_batch_size" data-key="auto_convert_batch_size">
+            <option value="auto">Auto (adjusts based on load and time)</option>
+            <option value="25">25 files</option>
+            <option value="50">50 files</option>
+            <option value="100">100 files</option>
+            <option value="250">250 files</option>
+            <option value="500">500 files</option>
+            <option value="unlimited">Unlimited</option>
+          </select>
+          <div class="inline-error" id="err-auto_convert_batch_size"></div>
+        </div>
+
+        <div class="form-group" style="display:flex;gap:1rem">
+          <div style="flex:1">
+            <label for="pref-auto_convert_business_hours_start">Business hours start</label>
+            <select id="pref-auto_convert_business_hours_start" data-key="auto_convert_business_hours_start">
+              <option value="00:00">00:00</option><option value="01:00">01:00</option>
+              <option value="02:00">02:00</option><option value="03:00">03:00</option>
+              <option value="04:00">04:00</option><option value="05:00">05:00</option>
+              <option value="06:00">06:00</option><option value="07:00">07:00</option>
+              <option value="08:00">08:00</option><option value="09:00">09:00</option>
+              <option value="10:00">10:00</option><option value="11:00">11:00</option>
+              <option value="12:00">12:00</option>
+            </select>
+          </div>
+          <div style="flex:1">
+            <label for="pref-auto_convert_business_hours_end">Business hours end</label>
+            <select id="pref-auto_convert_business_hours_end" data-key="auto_convert_business_hours_end">
+              <option value="12:00">12:00</option><option value="13:00">13:00</option>
+              <option value="14:00">14:00</option><option value="15:00">15:00</option>
+              <option value="16:00">16:00</option><option value="17:00">17:00</option>
+              <option value="18:00">18:00</option><option value="19:00">19:00</option>
+              <option value="20:00">20:00</option><option value="21:00">21:00</option>
+              <option value="22:00">22:00</option><option value="23:00">23:00</option>
+            </select>
+          </div>
+        </div>
+        <p class="hint">Auto-conversion throttles during business hours and runs more aggressively after hours.</p>
+
+        <div class="form-group">
+          <label for="pref-auto_convert_conservative_factor">Conservatism factor</label>
+          <div class="range-group">
+            <input type="range" id="pref-auto_convert_conservative_factor" data-key="auto_convert_conservative_factor" min="0.3" max="1.0" step="0.05">
+            <output id="conservative-output">&mdash;</output>
+          </div>
+          <p class="hint">0.3 = very conservative, 1.0 = full utilization. Default: 0.7</p>
+          <div class="inline-error" id="err-auto_convert_conservative_factor"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-auto_convert_schedule_windows">Scheduled conversion windows (JSON)</label>
+          <textarea id="pref-auto_convert_schedule_windows" data-key="auto_convert_schedule_windows" rows="2" style="width:100%;font-family:var(--font-mono);font-size:0.85rem;resize:vertical" placeholder='[{"start":"00:00","end":"05:00","days":[0,1,2,3,4]}]'></textarea>
+          <p class="hint">Leave empty for auto-detection. Days: 0=Mon, 6=Sun.</p>
+          <div class="inline-error" id="err-auto_convert_schedule_windows"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-auto_convert_decision_log_level">Decision logging level</label>
+          <select id="pref-auto_convert_decision_log_level" data-key="auto_convert_decision_log_level">
+            <option value="normal">Normal &mdash; Minimal logging</option>
+            <option value="elevated">Elevated &mdash; Full reasoning for each decision</option>
+            <option value="developer">Developer &mdash; + Raw metric snapshots</option>
+          </select>
+          <div class="inline-error" id="err-auto_convert_decision_log_level"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-auto_metrics_retention_days">Metrics retention (days)</label>
+          <input type="number" id="pref-auto_metrics_retention_days" data-key="auto_metrics_retention_days" min="7" max="365">
+          <p class="hint">Longer retention = better pattern learning for auto decisions.</p>
+          <div class="inline-error" id="err-auto_metrics_retention_days"></div>
+        </div>
+
+        <!-- Engine status card -->
+        <div id="auto-convert-status" style="margin-top:1rem;padding:0.75rem 1rem;background:var(--surface-alt);border:1px solid var(--border);border-radius:var(--radius)">
+          <h4 style="margin-bottom:0.5rem">Engine Status</h4>
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:0.25rem 1rem;font-size:0.85rem">
+            <span class="text-muted">Effective Mode</span><span id="ac-effective-mode">Loading...</span>
+            <span class="text-muted">Override</span><span id="ac-override">None</span>
+            <span class="text-muted">Last Decision</span><span id="ac-last-decision">--</span>
+          </div>
+        </div>
+      </div>
+
       <!-- Advanced section -->
       <div class="section-title">Advanced</div>
       <div class="card">
@@ -431,6 +642,58 @@
         el.textContent = `${locs.length} location${locs.length !== 1 ? 's' : ''} configured: ${sourceCount} source · ${outputCount} output`;
       }
     } catch { document.getElementById('location-count').textContent = ''; }
+
+    // Load GPU status
+    try {
+      const health = await API.get('/api/health');
+      const gpu = health.components && health.components.gpu;
+      if (gpu) {
+        var pill = document.getElementById('gpu-status-pill');
+        var help = document.getElementById('gpu-help');
+        document.getElementById('gpu-path').textContent = gpu.execution_path || 'none';
+        document.getElementById('gpu-name').textContent = gpu.effective_gpu || '--';
+
+        // Backend display — translate to human-friendly labels
+        var backendLabels = { 'CUDA': 'NVIDIA CUDA', 'OpenCL': 'OpenCL', 'Metal': 'Apple Metal', 'ROCm': 'AMD ROCm', 'CPU': 'CPU' };
+        document.getElementById('gpu-backend').textContent = backendLabels[gpu.effective_backend] || gpu.effective_backend || '--';
+
+        // VRAM display — Apple Silicon uses unified memory
+        var hw = gpu.host_worker;
+        var cg = gpu.container_gpu;
+        var vramEl = document.getElementById('gpu-vram');
+        if (gpu.execution_path === 'host' && hw) {
+          if (hw.vendor === 'apple') {
+            vramEl.textContent = hw.vram_mb ? '~' + hw.vram_mb + ' MB (unified memory)' : '--';
+          } else {
+            vramEl.textContent = hw.vram_mb ? hw.vram_mb + ' MB' : '--';
+          }
+        } else if (gpu.execution_path === 'container' && cg) {
+          vramEl.textContent = cg.vram_mb ? cg.vram_mb + ' MB' : '--';
+        } else {
+          vramEl.textContent = 'N/A';
+        }
+
+        document.getElementById('gpu-host-worker').textContent = hw && hw.available
+          ? hw.name + ' (' + hw.vendor + ')' : 'Not connected';
+
+        if (gpu.execution_path === 'container') {
+          pill.textContent = 'NVIDIA (Container)';
+          pill.style.color = 'var(--ok)';
+        } else if (gpu.execution_path === 'host') {
+          var vendorLabel = (hw && hw.vendor || '').toUpperCase();
+          if (hw && hw.vendor === 'apple') vendorLabel = 'Apple Metal';
+          pill.textContent = vendorLabel + ' (Host Worker)';
+          pill.style.color = 'var(--ok)';
+        } else if (gpu.execution_path === 'container_cpu') {
+          pill.textContent = 'CPU Only';
+          pill.style.color = 'var(--warn)';
+        } else {
+          pill.textContent = 'No GPU / No Hashcat';
+          pill.style.color = 'var(--text-muted)';
+          help.textContent = 'Install hashcat or run the host worker for GPU cracking.';
+        }
+      }
+    } catch { /* GPU info is optional */ }
   })();
 
   function populateForm(prefs) {
@@ -737,6 +1000,32 @@
       document.getElementById('toggle-label-scanner').textContent = scannerToggle.checked ? 'ON' : 'OFF';
     });
   }
+
+  // ── Auto-Conversion conservatism slider ────────────────────────────────
+  const conservSlider = document.getElementById('pref-auto_convert_conservative_factor');
+  if (conservSlider) {
+    conservSlider.addEventListener('input', () => {
+      document.getElementById('conservative-output').textContent = conservSlider.value;
+    });
+    // Set initial label from loaded value
+    setTimeout(() => {
+      document.getElementById('conservative-output').textContent = conservSlider.value || '0.7';
+    }, 500);
+  }
+
+  // ── Auto-Conversion engine status ──────────────────────────────────────
+  (async () => {
+    try {
+      const data = await API.get('/api/auto-convert/status');
+      document.getElementById('ac-effective-mode').textContent =
+        data.override_active ? data.mode_override + ' (override)' : (data.configured_mode || 'off');
+      document.getElementById('ac-override').textContent =
+        data.override_active ? data.mode_override + ' until ' + data.override_expiry : 'None';
+      if (data.last_decision) {
+        document.getElementById('ac-last-decision').textContent = data.last_decision.reason;
+      }
+    } catch { /* optional */ }
+  })();
   </script>
 </body>
 </html>

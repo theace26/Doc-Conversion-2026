@@ -264,6 +264,18 @@ class SearchIndexer:
             else:
                 status.errors += 1
 
+        # Record activity event for index rebuild
+        try:
+            from core.metrics_collector import record_activity_event
+            total_indexed = status.documents_indexed + status.adobe_indexed
+            await record_activity_event("index_rebuild", f"Meilisearch index rebuild: {total_indexed} documents", {
+                "documents_indexed": status.documents_indexed,
+                "adobe_indexed": status.adobe_indexed,
+                "errors": status.errors,
+            })
+        except Exception:
+            pass
+
         return status
 
 

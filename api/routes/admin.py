@@ -150,7 +150,7 @@ async def system_info(
         meili_status = "unavailable"
 
     return {
-        "version": "0.9.6",
+        "version": "0.9.7",
         "auth_mode": "DEV_BYPASS" if dev_bypass else "JWT",
         "dev_bypass_active": dev_bypass,
         "meilisearch_status": meili_status,

@@ -165,14 +165,16 @@ async function populateLocationSelect(selectEl, type, selectedId = null) {
 // ── Role-aware navigation ────────────────────────────────────────────────────
 
 const NAV_ITEMS = [
-    { href: "/search.html",   label: "Search",   minRole: "search_user" },
-    { href: "/status.html",   label: "Status",   minRole: "search_user", badge: true },
-    { href: "/index.html",    label: "Convert",   minRole: "operator"    },
-    { href: "/history.html",  label: "History",   minRole: "operator"    },
-    { href: "/bulk.html",     label: "Bulk Jobs",  minRole: "manager"     },
-    { href: "/trash.html",    label: "Trash",     minRole: "manager"     },
-    { href: "/settings.html", label: "Settings",  minRole: "manager"     },
-    { href: "/admin.html",    label: "Admin",     minRole: "admin"       },
+    { href: "/search.html",     label: "Search",    minRole: "search_user" },
+    { href: "/status.html",     label: "Status",    minRole: "search_user", badge: true },
+    { href: "/index.html",      label: "Convert",   minRole: "operator"    },
+    { href: "/history.html",    label: "History",   minRole: "operator"    },
+    { href: "/bulk.html",       label: "Bulk Jobs", minRole: "manager"     },
+    { href: "/trash.html",      label: "Trash",     minRole: "manager"     },
+    { href: "/resources.html",  label: "Resources", minRole: "manager"     },
+    { href: "/settings.html",   label: "Settings",  minRole: "manager"     },
+    { href: "/admin.html",      label: "Admin",     minRole: "admin"       },
+    { href: "/help.html",       label: "Help",      minRole: "search_user" },
 ];
 
 const ROLE_HIERARCHY = ["search_user", "operator", "manager", "admin"];
@@ -220,6 +222,11 @@ async function buildNav() {
 
     // Load status badge script dynamically and init after it loads
     _loadStatusBadge();
+
+    // Load contextual help link component
+    var helpScript = document.createElement('script');
+    helpScript.src = '/static/js/help-link.js';
+    document.head.appendChild(helpScript);
 }
 
 function _loadStatusBadge() {

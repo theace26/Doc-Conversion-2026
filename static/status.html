@@ -22,7 +22,7 @@
     <!-- Page header -->
     <div class="status-header">
       <div>
-        <h1>Active Jobs</h1>
+        <h1 data-help="status-page">Active Jobs</h1>
         <p class="status-subtitle" id="status-subtitle">Loading...</p>
       </div>
       <button class="btn btn-danger" id="stop-all-btn">Stop All Jobs</button>
@@ -33,6 +33,38 @@
 
     <!-- Lifecycle scanner card -->
     <div id="lifecycle-container" style="margin-top:1.5rem"></div>
+
+    <!-- Auto-Conversion override card -->
+    <div id="auto-convert-container" style="margin-top:1.5rem">
+      <div class="job-card">
+        <div class="job-card__header">
+          <div class="job-card__title">
+            <span class="status-pill status-pill--done">AUTO-CONVERSION</span>
+            <span class="text-muted text-sm" id="ac-mode-label">Loading...</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;margin-top:0.5rem">
+          <label class="text-sm">Mode override:</label>
+          <select id="ac-override-select" style="font-size:0.85rem">
+            <option value="">Use setting (no override)</option>
+            <option value="off">Off</option>
+            <option value="immediate">Immediate</option>
+            <option value="queued">Queued</option>
+            <option value="scheduled">Scheduled</option>
+          </select>
+          <select id="ac-override-duration" style="font-size:0.85rem">
+            <option value="30">30 min</option>
+            <option value="60" selected>1 hour</option>
+            <option value="120">2 hours</option>
+            <option value="240">4 hours</option>
+            <option value="480">8 hours</option>
+          </select>
+          <button class="btn btn-sm btn-ghost" id="ac-override-apply">Apply</button>
+          <button class="btn btn-sm btn-ghost" id="ac-override-clear" hidden>Clear Override</button>
+        </div>
+        <div id="ac-last-decision" class="text-sm text-muted" style="margin-top:0.5rem"></div>
+      </div>
+    </div>
   </main>
 
   <script src="/static/app.js"></script>
@@ -321,6 +353,73 @@
     // ── Init ──────────────────────────────────────────────────────────────
     poll();
     startPolling();
+  })();
+
+  // ── Auto-Conversion Override ────────────────────────────────────────────
+  (function () {
+    async function loadAutoConvertStatus() {
+      try {
+        var res = await fetch('/api/auto-convert/status');
+        if (!res.ok) return;
+        var data = await res.json();
+
+        var modeLabel = document.getElementById('ac-mode-label');
+        var clearBtn  = document.getElementById('ac-override-clear');
+        var select    = document.getElementById('ac-override-select');
+
+        if (data.override_active) {
+          modeLabel.textContent = 'Override: ' + data.mode_override + ' (expires ' + data.override_expiry + ')';
+          modeLabel.style.color = 'var(--warn)';
+          clearBtn.hidden = false;
+          select.value = data.mode_override;
+        } else {
+          modeLabel.textContent = 'Mode: ' + (data.configured_mode || 'off');
+          modeLabel.style.color = '';
+          clearBtn.hidden = true;
+          select.value = '';
+        }
+
+        if (data.last_decision) {
+          document.getElementById('ac-last-decision').textContent =
+            'Last: ' + data.last_decision.reason;
+        }
+      } catch (e) {
+        document.getElementById('ac-mode-label').textContent = 'unavailable';
+      }
+    }
+
+    document.getElementById('ac-override-apply').addEventListener('click', async function () {
+      var mode = document.getElementById('ac-override-select').value;
+      var duration = parseInt(document.getElementById('ac-override-duration').value);
+      if (!mode) { showToast('Select a mode to override', 'info'); return; }
+      try {
+        var res = await fetch('/api/auto-convert/override', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: mode, duration_minutes: duration }),
+        });
+        if (res.ok) {
+          showToast('Mode override set: ' + mode + ' for ' + duration + ' min');
+          loadAutoConvertStatus();
+        } else {
+          var err = await res.json();
+          showToast(err.detail || 'Override failed', 'error');
+        }
+      } catch (e) { showToast('Override failed', 'error'); }
+    });
+
+    document.getElementById('ac-override-clear').addEventListener('click', async function () {
+      try {
+        var res = await fetch('/api/auto-convert/override', { method: 'DELETE' });
+        if (res.ok) {
+          showToast('Mode override cleared');
+          loadAutoConvertStatus();
+        }
+      } catch (e) { showToast('Failed to clear override', 'error'); }
+    });
+
+    loadAutoConvertStatus();
+    setInterval(loadAutoConvertStatus, 15000);
   })();
   </script>
 </body>

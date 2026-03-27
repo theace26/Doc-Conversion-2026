@@ -15,7 +15,7 @@
   <div class="container page-content">
     <div id="error-banner" role="alert" hidden></div>
 
-    <h1>Document Conversion</h1>
+    <h1 data-help="document-conversion">Document Conversion</h1>
     <p class="text-muted mb-2">Convert documents to and from Markdown. Supports DOCX, PDF, PPTX, XLSX, and CSV.</p>
 
     <!-- System status -->
@@ -69,6 +69,12 @@
       <div class="form-group mt-2">
         <label for="output-dir">Output Directory <span class="text-muted">(optional)</span></label>
         <input type="text" id="output-dir" name="output_dir" placeholder="/app/output">
+      </div>
+
+      <!-- Password (optional, for encrypted files) -->
+      <div class="form-group" id="password-row">
+        <label for="file-password">Password <span class="text-muted">(for encrypted files — optional)</span></label>
+        <input type="password" id="file-password" name="password" placeholder="Leave blank for auto-recovery" autocomplete="off">
       </div>
 
       <!-- Unattended mode -->
@@ -210,6 +216,8 @@
     fd.append('direction', document.querySelector('input[name=direction]:checked').value);
     fd.append('output_dir', document.getElementById('output-dir').value);
     fd.append('unattended', document.getElementById('unattended').checked);
+    const pw = document.getElementById('file-password').value;
+    if (pw) fd.append('password', pw);
     if (document.querySelector('input[name=direction]:checked').value === 'from_md') {
       fd.append('target_format', document.getElementById('target-format').value);
     }

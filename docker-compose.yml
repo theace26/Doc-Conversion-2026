@@ -13,6 +13,7 @@ services:
       - D:/Doc-Conv_Test:/mnt/output-repo                 # Bulk conversion output
       - C:/:/host/c:ro                                    # Drive browser — C:
       - D:/:/host/d:ro                                    # Drive browser — D:
+      - ${HASHCAT_QUEUE_DIR:-./hashcat-queue}:/mnt/hashcat-queue  # GPU cracking job queue
     environment:
       - DEBUG=false
       - WORKERS=1

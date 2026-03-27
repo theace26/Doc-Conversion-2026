@@ -90,6 +90,9 @@ class ConvertResult:
     fidelity_tier: int = 1
     warnings: list[str] = field(default_factory=list)
     duration_ms: int = 0
+    protection_type: str = "none"
+    password_method: str | None = None
+    password_attempts: int = 0
 
 
 @dataclass
@@ -194,15 +197,35 @@ def _convert_file_sync(
         size_bytes=file_path.stat().st_size if file_path.exists() else 0,
     )
 
+    pw_result = None
+    working_path = file_path
+
     try:
         # ── Get format handler ────────────────────────────────────────────
         handler = get_handler_for_path(file_path)
         if handler is None:
             raise ValueError(f"No handler registered for .{source_format}")
 
+        # ── Password handling (preprocess before ingest) ──────────────────
+        from core.password_handler import PasswordHandler, ProtectionType
+        pw_handler = options.get("_password_handler")
+        if pw_handler is None:
+            pw_handler = PasswordHandler(options.get("_password_settings", {}))
+        user_password = options.get("password")
+        pw_result = pw_handler.handle_sync(file_path, user_password=user_password)
+
+        if not pw_result.success:
+            raise ValueError(f"Password-protected file could not be unlocked: {pw_result.error}")
+        working_path = pw_result.output_path or file_path
+
+        if pw_result.protection_type == ProtectionType.RESTRICTION_ONLY:
+            warnings.append("Edit/print restrictions removed automatically")
+        elif pw_result.protection_type == ProtectionType.ENCRYPTED_DECRYPTED:
+            warnings.append(f"File decrypted via {pw_result.method.value} ({pw_result.attempts} attempts)")
+
         # ── Ingest ────────────────────────────────────────────────────────
         t_ingest = time.perf_counter()
-        model = handler.ingest(file_path)
+        model = handler.ingest(working_path)
         model.metadata.source_file = source_filename
         model.metadata.source_format = source_format
         model.metadata.converted_at = datetime.now(timezone.utc).isoformat()
@@ -220,7 +243,7 @@ def _convert_file_sync(
 
         # ── Extract styles ────────────────────────────────────────────────
         try:
-            style_data = handler.extract_styles(file_path)
+            style_data = handler.extract_styles(working_path)
             log.info(
                 "style_extraction_complete",
                 filename=source_filename,
@@ -357,7 +380,7 @@ def _convert_file_sync(
 
         duration_ms = int((time.perf_counter() - t_start) * 1000)
 
-        return ConvertResult(
+        result = ConvertResult(
             source_filename=source_filename,
             output_filename=output_filename,
             source_format=source_format,
@@ -371,7 +394,21 @@ def _convert_file_sync(
             fidelity_tier=model.metadata.fidelity_tier,
             warnings=warnings,
             duration_ms=duration_ms,
+            protection_type=pw_result.protection_type.value if pw_result else "none",
+            password_method=pw_result.method.value if pw_result and pw_result.method.value != "none" else None,
+            password_attempts=pw_result.attempts if pw_result else 0,
         )
+
+        # Cleanup decrypted temp file
+        if pw_result and working_path != file_path:
+            try:
+                from core.password_handler import PasswordHandler
+                pw_handler_obj = options.get("_password_handler") or PasswordHandler()
+                pw_handler_obj.cleanup_temp_file(pw_result)
+            except Exception:
+                pass
+
+        return result
 
     except Exception as exc:
         duration_ms = int((time.perf_counter() - t_start) * 1000)
@@ -382,6 +419,21 @@ def _convert_file_sync(
             error_msg=str(exc),
             duration_ms=duration_ms,
         )
+
+        # Determine status: password_locked if decryption failed
+        status = "error"
+        ptype = "none"
+        if pw_result and not pw_result.success:
+            status = "password_locked"
+            ptype = pw_result.protection_type.value
+
+        # Cleanup decrypted temp file on error too
+        if pw_result and working_path != file_path:
+            try:
+                working_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
         return ConvertResult(
             source_filename=source_filename,
             output_filename="",
@@ -389,12 +441,15 @@ def _convert_file_sync(
             output_format="",
             direction=direction,
             batch_id=batch_id,
-            status="error",
+            status=status,
             error_message=str(exc),
             source_path=str(file_path),
             file_size_bytes=file_path.stat().st_size if file_path.exists() else 0,
             warnings=warnings,
             duration_ms=duration_ms,
+            protection_type=ptype,
+            password_method=pw_result.method.value if pw_result and pw_result.method.value != "none" else None,
+            password_attempts=pw_result.attempts if pw_result else 0,
         )
 
 
@@ -596,6 +651,9 @@ class ConversionOrchestrator:
             "error_message": result.error_message,
             "duration_ms": result.duration_ms,
             "warnings": result.warnings,
+            "protection_type": result.protection_type,
+            "password_method": result.password_method,
+            "password_attempts": result.password_attempts,
         })
 
         # Record OCR confidence stats if OCR flags exist

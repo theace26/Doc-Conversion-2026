@@ -24,6 +24,11 @@ import aiosqlite
 _DEFAULT_DB = os.getenv("DB_PATH", "markflow.db")
 DB_PATH = Path(_DEFAULT_DB)
 
+
+def get_db_path() -> str:
+    """Return the database file path as a string."""
+    return str(DB_PATH)
+
 # ── Default preferences ───────────────────────────────────────────────────────
 DEFAULT_PREFERENCES: dict[str, str] = {
     "last_save_directory": "",
@@ -62,6 +67,25 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     "cpu_affinity_cores": "[]",
     "process_priority": "normal",
     "log_level": "normal",
+    # Password recovery
+    "password_dictionary_enabled": "true",
+    "password_brute_force_enabled": "false",
+    "password_brute_force_max_length": "6",
+    "password_brute_force_charset": "alphanumeric",
+    "password_timeout_seconds": "300",
+    "password_reuse_found": "true",
+    "password_hashcat_enabled": "true",
+    "password_hashcat_workload": "3",
+    # Auto-conversion
+    "auto_convert_mode": "off",
+    "auto_convert_workers": "auto",
+    "auto_convert_batch_size": "auto",
+    "auto_convert_schedule_windows": "",
+    "auto_convert_decision_log_level": "elevated",
+    "auto_metrics_retention_days": "30",
+    "auto_convert_business_hours_start": "06:00",
+    "auto_convert_business_hours_end": "18:00",
+    "auto_convert_conservative_factor": "0.7",
 }
 
 # ── Schema DDL ────────────────────────────────────────────────────────────────
@@ -306,6 +330,105 @@ CREATE TABLE IF NOT EXISTS api_keys (
     created_at  TEXT NOT NULL,
     last_used_at TEXT
 );
+
+-- v0.9.7: Resource monitoring — system metrics (collected every 30s)
+CREATE TABLE IF NOT EXISTS system_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    cpu_percent_total REAL NOT NULL,
+    cpu_percent_system REAL NOT NULL,
+    cpu_count INTEGER NOT NULL,
+    mem_rss_bytes INTEGER NOT NULL,
+    mem_rss_percent REAL NOT NULL,
+    mem_system_total_bytes INTEGER NOT NULL,
+    mem_system_used_percent REAL NOT NULL,
+    io_read_bytes INTEGER,
+    io_write_bytes INTEGER,
+    thread_count INTEGER NOT NULL,
+    active_bulk_jobs INTEGER NOT NULL DEFAULT 0,
+    active_lifecycle_scan INTEGER NOT NULL DEFAULT 0,
+    active_conversions INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_system_metrics_ts ON system_metrics(timestamp);
+
+-- v0.9.7: Resource monitoring — disk metrics (collected every 6h)
+CREATE TABLE IF NOT EXISTS disk_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    output_repo_bytes INTEGER NOT NULL DEFAULT 0,
+    output_repo_files INTEGER NOT NULL DEFAULT 0,
+    trash_bytes INTEGER NOT NULL DEFAULT 0,
+    trash_files INTEGER NOT NULL DEFAULT 0,
+    conversion_output_bytes INTEGER NOT NULL DEFAULT 0,
+    conversion_output_files INTEGER NOT NULL DEFAULT 0,
+    database_bytes INTEGER NOT NULL DEFAULT 0,
+    logs_bytes INTEGER NOT NULL DEFAULT 0,
+    meilisearch_bytes INTEGER NOT NULL DEFAULT 0,
+    total_bytes INTEGER NOT NULL DEFAULT 0,
+    volume_total_bytes INTEGER NOT NULL DEFAULT 0,
+    volume_used_bytes INTEGER NOT NULL DEFAULT 0,
+    volume_free_bytes INTEGER NOT NULL DEFAULT 0,
+    volume_used_percent REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_disk_metrics_ts ON disk_metrics(timestamp);
+
+-- v0.9.7: Activity event log
+CREATE TABLE IF NOT EXISTS activity_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    event_type TEXT NOT NULL,
+    description TEXT NOT NULL,
+    metadata TEXT,
+    duration_seconds REAL
+);
+CREATE INDEX IF NOT EXISTS idx_activity_events_ts ON activity_events(timestamp);
+CREATE INDEX IF NOT EXISTS idx_activity_events_type ON activity_events(event_type);
+
+-- v0.11.0: Auto-conversion historical metrics (hourly aggregates)
+CREATE TABLE IF NOT EXISTS auto_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hour_bucket TEXT NOT NULL,
+    day_of_week INTEGER NOT NULL,
+    cpu_avg REAL NOT NULL,
+    cpu_p95 REAL NOT NULL,
+    memory_avg REAL NOT NULL,
+    memory_peak REAL NOT NULL,
+    active_conversions_avg REAL NOT NULL DEFAULT 0,
+    files_converted INTEGER NOT NULL DEFAULT 0,
+    conversion_throughput REAL NOT NULL DEFAULT 0,
+    io_read_rate_avg REAL NOT NULL DEFAULT 0,
+    io_write_rate_avg REAL NOT NULL DEFAULT 0,
+    user_request_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_auto_metrics_bucket
+    ON auto_metrics(hour_bucket);
+CREATE INDEX IF NOT EXISTS idx_auto_metrics_dow_hour
+    ON auto_metrics(day_of_week, cast(strftime('%H', hour_bucket) as integer));
+
+-- v0.11.0: Auto-conversion decision/execution audit log
+CREATE TABLE IF NOT EXISTS auto_conversion_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scan_run_id TEXT,
+    mode TEXT NOT NULL,
+    was_override INTEGER NOT NULL DEFAULT 0,
+    files_discovered INTEGER NOT NULL DEFAULT 0,
+    files_queued INTEGER NOT NULL DEFAULT 0,
+    batch_size_chosen INTEGER NOT NULL DEFAULT 0,
+    workers_chosen INTEGER NOT NULL DEFAULT 0,
+    cpu_at_decision REAL,
+    memory_at_decision REAL,
+    cpu_hist_avg REAL,
+    reason TEXT,
+    bulk_job_id TEXT,
+    started_at TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at TEXT,
+    status TEXT NOT NULL DEFAULT 'pending'
+);
+CREATE INDEX IF NOT EXISTS idx_auto_runs_status
+    ON auto_conversion_runs(status);
+CREATE INDEX IF NOT EXISTS idx_auto_runs_started
+    ON auto_conversion_runs(started_at);
 """
 
 
@@ -372,6 +495,15 @@ async def init_db() -> None:
         await _add_column_if_missing(conn, "bulk_files", "moved_to_trash_at", "DATETIME")
         await _add_column_if_missing(conn, "bulk_files", "purged_at", "DATETIME")
         await _add_column_if_missing(conn, "bulk_files", "previous_path", "TEXT")
+        # Password handling columns
+        await _add_column_if_missing(conn, "conversion_history", "protection_type", "TEXT DEFAULT 'none'")
+        await _add_column_if_missing(conn, "conversion_history", "password_method", "TEXT")
+        await _add_column_if_missing(conn, "conversion_history", "password_attempts", "INTEGER DEFAULT 0")
+        await _add_column_if_missing(conn, "bulk_files", "protection_type", "TEXT DEFAULT 'none'")
+        await _add_column_if_missing(conn, "bulk_files", "password_method", "TEXT")
+        await _add_column_if_missing(conn, "bulk_files", "password_attempts", "INTEGER DEFAULT 0")
+        # v0.11.0: auto-triggered flag on bulk_jobs
+        await _add_column_if_missing(conn, "bulk_jobs", "auto_triggered", "INTEGER NOT NULL DEFAULT 0")
         await conn.commit()
         # Phase 9: WAL mode and pragmas
         await conn.execute("PRAGMA journal_mode = WAL")
@@ -454,8 +586,9 @@ async def record_conversion(record: dict[str, Any]) -> int:
         """INSERT INTO conversion_history
            (batch_id, source_filename, source_format, output_filename, output_format,
             direction, source_path, output_path, file_size_bytes, ocr_applied,
-            ocr_flags_total, ocr_flags_resolved, status, error_message, duration_ms, warnings)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            ocr_flags_total, ocr_flags_resolved, status, error_message, duration_ms, warnings,
+            protection_type, password_method, password_attempts)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             record.get("batch_id", ""),
             record.get("source_filename", ""),
@@ -473,6 +606,9 @@ async def record_conversion(record: dict[str, Any]) -> int:
             record.get("error_message"),
             record.get("duration_ms"),
             warnings,
+            record.get("protection_type", "none"),
+            record.get("password_method"),
+            record.get("password_attempts", 0),
         ),
     )
 

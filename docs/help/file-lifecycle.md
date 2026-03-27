@@ -1,0 +1,65 @@
+# File Lifecycle & Versioning
+
+MarkFlow doesn't just convert your documents once — it tracks them over time. When files in your source share change, get moved, or get deleted, MarkFlow detects it and keeps a history.
+
+## How Change Detection Works
+
+A background scanner runs every 15 minutes during business hours. It walks through your source document share and compares what it finds to its records:
+
+- **New files** are flagged for conversion on the next bulk job
+- **Modified files** (changed content or timestamp) trigger a re-conversion and a new version record
+- **Moved files** are detected by matching content — if the same content appears at a new path, MarkFlow links them
+- **Deleted files** enter a grace period before being trashed
+
+> **Tip:** The scanner only runs during business hours (Mon–Fri, 6 AM – 6 PM by default). You can change these hours in Settings.
+
+## The Soft-Delete Pipeline
+
+When a file disappears from the source share, MarkFlow doesn't immediately delete its converted output. Instead, it goes through a careful pipeline:
+
+| Stage | Duration | What Happens |
+|-------|----------|-------------|
+| **Active** | Normal state | File is in the source share and converted output is current |
+| **Marked for Deletion** | 36 hours (default) | File disappeared from source. Output kept in case it reappears |
+| **In Trash** | 60 days (default) | Grace period expired. Moved to the `.trash/` directory |
+| **Purged** | After trash retention | Permanently deleted from disk |
+
+If a file reappears during the grace period, it's automatically restored to active status.
+
+## Version History
+
+Every time MarkFlow detects a change in a source file, it records a new version:
+
+- The version number increments (1, 2, 3...)
+- A summary of what changed is generated
+- A unified diff patch is stored so you can see exactly what text changed
+- The content hash at each version is recorded
+
+You can view version history for any file by clicking it in the history page and looking at the version timeline.
+
+## Trash Management
+
+The Trash page shows all files currently in the trash:
+
+1. **Restore** — move a file back to active status
+2. **Purge** — permanently delete a file immediately
+3. **Empty Trash** — purge all trashed files at once
+
+> **Warning:** Purging is permanent. There is no undo.
+
+## Settings
+
+| Setting | Default | What It Does |
+|---------|---------|-------------|
+| Scanner enabled | On | Whether the background scanner runs |
+| Scan interval | 15 minutes | How often to scan during business hours |
+| Business hours start | 06:00 | When scanning begins each weekday |
+| Business hours end | 18:00 | When scanning stops each weekday |
+| Grace period | 36 hours | How long before a missing file moves to trash |
+| Trash retention | 60 days | How long files stay in trash before purging |
+
+## Related
+
+- [Bulk Repository Conversion](/help#bulk-conversion)
+- [Administration](/help#admin-tools)
+- [Settings Reference](/help#settings-guide)
