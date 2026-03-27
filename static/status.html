@@ -290,9 +290,19 @@
 
     // Reset stop
     document.getElementById('reset-stop-btn').addEventListener('click', async function () {
-      await fetch('/api/admin/reset-stop', { method: 'POST' });
-      showToast('Stop flag cleared');
-      poll();
+      var res = await fetch('/api/admin/reset-stop', { method: 'POST' });
+      if (res.ok) {
+        showToast('Stop flag cleared');
+        // Hide the banner immediately — don't wait for the next poll cycle
+        var banner = document.getElementById('stop-banner');
+        if (banner) banner.hidden = true;
+        document.getElementById('stop-all-btn').disabled = false;
+        // Also clear the nav badge immediately
+        if (typeof window.refreshStatusBadge === 'function') window.refreshStatusBadge();
+        poll();
+      } else {
+        showToast('Reset failed — check logs', 'error');
+      }
     });
 
     // ── Helpers ───────────────────────────────────────────────────────────

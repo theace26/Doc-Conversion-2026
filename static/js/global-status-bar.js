@@ -43,6 +43,9 @@ function initStatusBadge() {
     if (!document.hidden) poll();
   });
 
+  // Expose for immediate refresh from other scripts (e.g. status.html reset)
+  window.refreshStatusBadge = poll;
+
   poll();
   startPolling();
 }

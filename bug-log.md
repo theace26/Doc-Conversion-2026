@@ -54,3 +54,30 @@ correct in the current codebase. The FK error was a one-time boot issue. Current
 scans work correctly.
 
 **Files changed:** None (DB cleanup only via Python script in container)
+
+---
+
+## 2026-03-26 — "Stop Requested" Banner Never Clears
+
+**Symptom:** Clicking "Reset & allow new jobs" on `status.html` calls
+`POST /api/admin/reset-stop` successfully (returns `{ok: true}`) but the yellow
+"Stop requested — jobs are winding down" banner never disappears. The nav badge
+(showing `!`) also persists until the next poll cycle.
+
+**Root cause:** The reset handler called `poll()` immediately after the API call,
+but `poll()` re-fetches `/api/admin/active-jobs` and re-renders. If the backend
+hasn't fully committed the flag change before the poll response arrives, the banner
+reappears. There was no immediate UI feedback — the banner hide/show relied entirely
+on the next poll result.
+
+**Fix:**
+1. `static/status.html`: Hide the banner (`hidden = true`) and re-enable the Stop All
+   button immediately after the reset API returns `ok`, before calling `poll()`. Added
+   error handling for failed resets.
+2. `static/js/global-status-bar.js`: Exposed `window.refreshStatusBadge()` so the
+   status page can trigger an immediate badge refresh after reset, clearing the `!`
+   badge without waiting for the 5-second poll interval.
+
+**Files changed:**
+- `static/status.html` (reset handler, ~6 lines)
+- `static/js/global-status-bar.js` (1 line: expose `window.refreshStatusBadge`)
