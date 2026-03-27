@@ -1,0 +1,93 @@
+services:
+  markflow:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./input:/app/input        # Source files
+      - ./output:/app/output      # Converted files
+      - ./logs:/app/logs          # Log files
+      - markflow-db:/app/data     # SQLite DB (persistent volume)
+      # NOTE: /mnt/source must be mounted READ-ONLY on the host before starting.
+      # MarkFlow will never write to /mnt/source. Any write attempt is a bug.
+      # Mount example (host): sudo mount -t cifs //server/share /mnt/source -o ro,credentials=/etc/smbcredentials
+      - /mnt/source:/mnt/source:ro          # Source share — READ ONLY
+      # ---------------------------------------------------------------
+      # HOST DRIVE MOUNTS
+      # These make your Windows drives visible inside the container at
+      # /host/c, /host/d, etc. Add a line for each drive letter you
+      # want MarkFlow to be able to read from.
+      #
+      # Format: DriveLetter:/:/host/driveletter:ro
+      # Example for E: drive: E:/:/host/e:ro
+      #
+      # Docker Desktop must have file sharing enabled for each drive.
+      # Settings → Resources → File Sharing
+      # ---------------------------------------------------------------
+      - C:/:/host/c:ro
+      - D:/:/host/d:ro
+      # Output repo — read-write (user configures this path)
+      - C:/Users/${USERNAME:-user}/markflow-output:/mnt/output-repo
+    environment:
+      - DEBUG=false
+      - WORKERS=1
+      - DB_PATH=/app/data/markflow.db
+      - MEILI_HOST=http://meilisearch:7700
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-}
+      - BULK_WORKER_COUNT=${BULK_WORKER_COUNT:-4}
+      - BULK_SOURCE_PATH=/mnt/source
+      - BULK_OUTPUT_PATH=/mnt/output-repo
+      - MOUNTED_DRIVES=${MOUNTED_DRIVES:-c,d}
+      - SECRET_KEY=${SECRET_KEY:-}
+      - MCP_PORT=${MCP_PORT:-8001}
+      - UNIONCORE_JWT_SECRET=${UNIONCORE_JWT_SECRET:-}
+      - UNIONCORE_ORIGIN=${UNIONCORE_ORIGIN:-}
+      - DEV_BYPASS_AUTH=${DEV_BYPASS_AUTH:-true}
+      - API_KEY_SALT=${API_KEY_SALT:-}
+    depends_on:
+      meilisearch:
+        condition: service_healthy
+    restart: unless-stopped
+
+  markflow-mcp:
+    build: .
+    command: python -m mcp_server.server
+    ports:
+      - "8001:8001"
+    environment:
+      - DB_PATH=/app/data/markflow.db
+      - OUTPUT_DIR=/app/output
+      - MCP_PORT=8001
+      - MCP_AUTH_TOKEN=${MCP_AUTH_TOKEN:-}
+      - MEILI_HOST=${MEILI_HOST:-http://meilisearch:7700}
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-}
+      - SECRET_KEY=${SECRET_KEY:-}
+    volumes:
+      - markflow-db:/app/data
+      - ./output:/app/output
+      - C:/:/host/c:ro
+      - D:/:/host/d:ro
+      - C:/Users/${USERNAME:-user}/markflow-output:/mnt/output-repo
+    depends_on:
+      - markflow
+      - meilisearch
+    restart: unless-stopped
+
+  meilisearch:
+    image: getmeili/meilisearch:latest
+    ports:
+      - "7700:7700"
+    environment:
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-}
+      - MEILI_ENV=development
+    volumes:
+      - meilisearch-data:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  markflow-db:
+  meilisearch-data:
