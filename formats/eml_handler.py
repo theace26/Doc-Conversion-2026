@@ -5,6 +5,7 @@ Ingest:
   EML: Uses stdlib email module to parse headers and body.
   MSG: Uses compressed_rtf via olefile for Outlook .msg files.
   Extracts subject as heading, headers as metadata, body as paragraphs.
+  Recursively converts attachments via the format registry (depth-limited to 3).
 
 Export:
   Generates RFC 5322 compliant .eml from DocumentModel.
@@ -13,13 +14,14 @@ Export:
 import email
 import email.policy
 import re
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
 
 import structlog
 
-from formats.base import FormatHandler, register_handler
+from formats.base import FormatHandler, register_handler, get_handler
 from core.document_model import (
     DocumentModel,
     DocumentMetadata,
@@ -28,6 +30,29 @@ from core.document_model import (
 )
 
 log = structlog.get_logger(__name__)
+
+_MAX_ATTACHMENT_DEPTH = 3
+
+
+def _human_size(size_bytes: int) -> str:
+    """Format bytes as human-readable size."""
+    for unit in ("B", "KB", "MB", "GB"):
+        if size_bytes < 1024:
+            return f"{size_bytes:.1f} {unit}" if unit != "B" else f"{size_bytes} B"
+        size_bytes /= 1024
+    return f"{size_bytes:.1f} TB"
+
+
+def _model_to_markdown_body(model: DocumentModel) -> str:
+    """Convert a DocumentModel to markdown text without frontmatter."""
+    from formats.markdown_handler import MarkdownHandler, _render_element
+    parts: list[str] = []
+    footnotes: list[tuple[str, str]] = []
+    for elem in model.elements:
+        rendered = _render_element(elem, footnotes)
+        if rendered is not None:
+            parts.append(rendered)
+    return "\n\n".join(parts)
 
 
 @register_handler
@@ -38,7 +63,7 @@ class EmlHandler(FormatHandler):
 
     # ── Ingest ────────────────────────────────────────────────────────────────
 
-    def ingest(self, file_path: Path) -> DocumentModel:
+    def ingest(self, file_path: Path, **kwargs) -> DocumentModel:
         t_start = time.perf_counter()
         file_path = Path(file_path)
         ext = file_path.suffix.lower()
@@ -50,10 +75,12 @@ class EmlHandler(FormatHandler):
             source_format=ext.lstrip("."),
         )
 
+        depth = kwargs.get("depth", 0)
+
         if ext == ".msg":
-            self._ingest_msg(file_path, model)
+            self._ingest_msg(file_path, model, depth)
         else:
-            self._ingest_eml(file_path, model)
+            self._ingest_eml(file_path, model, depth)
 
         model.metadata.page_count = 1
 
@@ -62,7 +89,7 @@ class EmlHandler(FormatHandler):
                  element_count=len(model.elements), duration_ms=duration_ms)
         return model
 
-    def _ingest_eml(self, file_path: Path, model: DocumentModel) -> None:
+    def _ingest_eml(self, file_path: Path, model: DocumentModel, depth: int = 0) -> None:
         """Parse a standard .eml file."""
         raw = file_path.read_bytes()
         msg = email.message_from_bytes(raw, policy=email.policy.default)
@@ -118,17 +145,159 @@ class EmlHandler(FormatHandler):
         else:
             model.warnings.append("No readable text body found in email.")
 
-        # Attachment list
-        attachments = self._list_attachments(msg)
-        if attachments:
+        # ── Attachment conversion ──────────────────────────────────────────────
+        self._process_attachments_eml(msg, model, depth, file_path)
+
+    def _process_attachments_eml(
+        self, msg, model: DocumentModel, depth: int, parent_path: Path
+    ) -> None:
+        """Process EML attachments: convert if handler available, list otherwise."""
+        converted_sections: list[str] = []
+        unconverted_notes: list[str] = []
+        attachment_metadata: list[dict] = []
+        attachments_converted = 0
+
+        for part in msg.walk():
+            if part.get_content_maintype() == "multipart":
+                continue
+
+            filename = part.get_filename()
+            if not filename:
+                continue
+
+            content = part.get_payload(decode=True)
+            if content is None:
+                attachment_metadata.append({"filename": filename, "status": "empty"})
+                unconverted_notes.append(
+                    f"- **{filename}** (empty attachment)"
+                )
+                continue
+
+            md_content, meta = self._convert_attachment(
+                filename=filename,
+                content=content,
+                depth=depth,
+                parent_path=parent_path,
+            )
+            attachment_metadata.append(meta)
+
+            if md_content:
+                converted_sections.append(f"### Attachment: {filename}\n\n{md_content}")
+                attachments_converted += 1
+            else:
+                size = len(content)
+                status = meta.get("status", "unknown")
+                note = f"- **{filename}** ({_human_size(size)})"
+                if status == "no_handler":
+                    note += " — no conversion handler available"
+                elif status == "depth_limit":
+                    note += " — nested email depth limit reached"
+                elif status == "failed":
+                    error = meta.get("error", "unknown error")
+                    note += f" — conversion failed: {error}"
+                unconverted_notes.append(note)
+
+        total_attachments = len(attachment_metadata)
+        if total_attachments == 0:
+            return
+
+        # Store attachment stats in style_data for metadata
+        model.style_data["attachment_count"] = total_attachments
+        model.style_data["attachments_converted"] = attachments_converted
+        model.style_data["email_attachments"] = [m.get("filename", "") for m in attachment_metadata]
+
+        # Add Attachments section
+        model.add_element(Element(type=ElementType.HORIZONTAL_RULE, content=""))
+        model.add_element(Element(
+            type=ElementType.HEADING, content="Attachments", level=2,
+        ))
+
+        for section in converted_sections:
+            # Parse the section into heading + content
+            lines = section.split("\n", 2)
+            heading_text = lines[0].lstrip("# ").strip()
+            body = lines[2] if len(lines) > 2 else ""
+            model.add_element(Element(
+                type=ElementType.HEADING, content=heading_text, level=3,
+            ))
+            if body.strip():
+                model.add_element(Element(
+                    type=ElementType.PARAGRAPH, content=body.strip(),
+                ))
+
+        if unconverted_notes:
+            model.add_element(Element(
+                type=ElementType.HEADING,
+                content="Unconverted Attachments",
+                level=3,
+            ))
             model.add_element(Element(
                 type=ElementType.PARAGRAPH,
-                content="Attachments: " + ", ".join(attachments),
-                attributes={"role": "attachment_list"},
+                content="\n".join(unconverted_notes),
             ))
-            model.style_data["email_attachments"] = attachments
 
-    def _ingest_msg(self, file_path: Path, model: DocumentModel) -> None:
+    def _convert_attachment(
+        self,
+        filename: str,
+        content: bytes,
+        depth: int,
+        parent_path: Path,
+    ) -> tuple[str, dict]:
+        """
+        Attempt to convert an email attachment using the format registry.
+
+        Returns (markdown_content, metadata_dict). On failure, markdown_content
+        is empty and metadata has error info.
+        """
+        ext = Path(filename).suffix.lower().lstrip(".")
+        if not ext:
+            return ("", {"filename": filename, "status": "no_handler", "size": len(content)})
+
+        handler = get_handler(ext)
+        if handler is None:
+            return ("", {"filename": filename, "status": "no_handler", "size": len(content)})
+
+        # Depth limit for nested emails
+        if isinstance(handler, EmlHandler) and depth >= _MAX_ATTACHMENT_DEPTH:
+            log.warning("eml_depth_limit", filename=filename, depth=depth,
+                        msg=f"Skipping nested email at depth {depth} — recursion limit reached")
+            return ("", {"filename": filename, "status": "depth_limit", "depth": depth})
+
+        try:
+            # Write to temp file so handler can read it
+            suffix = f".{ext}"
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                tmp.write(content)
+                tmp_path = Path(tmp.name)
+
+            try:
+                if isinstance(handler, EmlHandler):
+                    result_model = handler.ingest(tmp_path, depth=depth + 1)
+                else:
+                    result_model = handler.ingest(tmp_path)
+
+                md_text = _model_to_markdown_body(result_model)
+                return (md_text, {
+                    "filename": filename,
+                    "status": "converted",
+                    "handler": type(handler).__name__,
+                })
+            finally:
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
+
+        except Exception as exc:
+            log.warning("attachment_conversion_failed",
+                        filename=filename, parent=parent_path.name, error=str(exc))
+            return ("", {
+                "filename": filename,
+                "status": "failed",
+                "error": str(exc),
+            })
+
+    def _ingest_msg(self, file_path: Path, model: DocumentModel, depth: int = 0) -> None:
         """Best-effort parse of Outlook .msg file."""
         try:
             import olefile
@@ -141,8 +310,6 @@ class EmlHandler(FormatHandler):
                         self._msg_read_stream(ole, "__substg1.0_0C1F001E") or ""
             body = self._msg_read_stream(ole, "__substg1.0_1000001F") or \
                    self._msg_read_stream(ole, "__substg1.0_1000001E") or ""
-
-            ole.close()
 
             model.metadata.title = subject
             model.metadata.author = from_addr
@@ -166,6 +333,11 @@ class EmlHandler(FormatHandler):
             else:
                 model.warnings.append("No readable text body found in .msg file.")
 
+            # Process MSG attachments
+            self._process_attachments_msg(ole, model, depth, file_path)
+
+            ole.close()
+
         except ImportError:
             model.warnings.append("olefile not installed — .msg parsing unavailable.")
             # Fallback: try reading as binary text
@@ -177,6 +349,114 @@ class EmlHandler(FormatHandler):
                 model.add_element(Element(type=ElementType.PARAGRAPH, content=chunk))
         except Exception as exc:
             model.warnings.append(f"MSG parse error: {exc}")
+
+    def _process_attachments_msg(
+        self, ole, model: DocumentModel, depth: int, parent_path: Path
+    ) -> None:
+        """Process MSG attachments via olefile streams."""
+        attachment_metadata: list[dict] = []
+        converted_sections: list[str] = []
+        unconverted_notes: list[str] = []
+        attachments_converted = 0
+
+        # MSG attachments are stored as __attach_version1.0_#XXXXXXXX substorages
+        try:
+            entries = ole.listdir()
+        except Exception:
+            return
+
+        # Find attachment directories
+        attach_dirs: set[str] = set()
+        for entry in entries:
+            if len(entry) >= 1 and entry[0].startswith("__attach"):
+                attach_dirs.add(entry[0])
+
+        for attach_dir in sorted(attach_dirs):
+            # Read filename
+            filename = None
+            for stream_suffix in ("__substg1.0_3707001F", "__substg1.0_3707001E",
+                                  "__substg1.0_3001001F", "__substg1.0_3001001E"):
+                fn = self._msg_read_stream(ole, f"{attach_dir}/{stream_suffix}")
+                if fn:
+                    filename = fn
+                    break
+
+            if not filename:
+                continue
+
+            # Read content
+            content = None
+            content_stream = f"{attach_dir}/__substg1.0_37010102"
+            try:
+                if ole.exists(content_stream):
+                    content = ole.openstream(content_stream).read()
+            except Exception:
+                pass
+
+            if content is None:
+                attachment_metadata.append({"filename": filename, "status": "empty"})
+                unconverted_notes.append(f"- **{filename}** (empty attachment)")
+                continue
+
+            md_content, meta = self._convert_attachment(
+                filename=filename,
+                content=content,
+                depth=depth,
+                parent_path=parent_path,
+            )
+            attachment_metadata.append(meta)
+
+            if md_content:
+                converted_sections.append(f"### Attachment: {filename}\n\n{md_content}")
+                attachments_converted += 1
+            else:
+                size = len(content)
+                status = meta.get("status", "unknown")
+                note = f"- **{filename}** ({_human_size(size)})"
+                if status == "no_handler":
+                    note += " — no conversion handler available"
+                elif status == "depth_limit":
+                    note += " — nested email depth limit reached"
+                elif status == "failed":
+                    error = meta.get("error", "unknown error")
+                    note += f" — conversion failed: {error}"
+                unconverted_notes.append(note)
+
+        total_attachments = len(attachment_metadata)
+        if total_attachments == 0:
+            return
+
+        model.style_data["attachment_count"] = total_attachments
+        model.style_data["attachments_converted"] = attachments_converted
+        model.style_data["email_attachments"] = [m.get("filename", "") for m in attachment_metadata]
+
+        model.add_element(Element(type=ElementType.HORIZONTAL_RULE, content=""))
+        model.add_element(Element(
+            type=ElementType.HEADING, content="Attachments", level=2,
+        ))
+
+        for section in converted_sections:
+            lines = section.split("\n", 2)
+            heading_text = lines[0].lstrip("# ").strip()
+            body = lines[2] if len(lines) > 2 else ""
+            model.add_element(Element(
+                type=ElementType.HEADING, content=heading_text, level=3,
+            ))
+            if body.strip():
+                model.add_element(Element(
+                    type=ElementType.PARAGRAPH, content=body.strip(),
+                ))
+
+        if unconverted_notes:
+            model.add_element(Element(
+                type=ElementType.HEADING,
+                content="Unconverted Attachments",
+                level=3,
+            ))
+            model.add_element(Element(
+                type=ElementType.PARAGRAPH,
+                content="\n".join(unconverted_notes),
+            ))
 
     @staticmethod
     def _msg_read_stream(ole, stream_name: str) -> str | None:

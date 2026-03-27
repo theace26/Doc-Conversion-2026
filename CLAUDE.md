@@ -26,10 +26,10 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.12.0
+## Current Status — v0.12.1
 
-All 10 phases complete + universal format support. Latest: expanded format handlers (25+ formats),
-unified scanning pipeline, folder drop UI, font recognition for reconstruction.
+All 10 phases complete + universal format support. Latest: data format handlers (JSON, YAML,
+INI/CFG), recursive email attachment conversion, 30+ format extensions supported.
 
 For full version-by-version changelog, see [`docs/version-history.md`](docs/version-history.md).
 
@@ -90,6 +90,9 @@ Critical files to know:
 | `formats/html_handler.py` | HTML/HTM with BeautifulSoup, font extraction |
 | `formats/odt_handler.py` | OpenDocument Text via odfpy |
 | `formats/adobe_handler.py` | PSD/AI/INDD/AEP/PRPROJ/XD — unified Adobe handler |
+| `formats/json_handler.py` | JSON ingest/export with summary + structure outline |
+| `formats/yaml_handler.py` | YAML/YML with multi-document support |
+| `formats/ini_handler.py` | INI/CFG/CONF/properties with section-aware parsing |
 | `static/app.js` | Shared JS: API helpers, dynamic nav, toast |
 | `static/markflow.css` | Design system: CSS variables, dark mode |
 | `docker-compose.yml` | Port 8000, MCP 8001, Meilisearch 7700 |
@@ -115,7 +118,7 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 
 ---
 
-## Supported Formats (v0.12.0)
+## Supported Formats (v0.12.1)
 
 | Category | Extensions | Handler |
 |----------|-----------|---------|
@@ -124,7 +127,8 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 | OpenDocument | .odt, .ods, .odp | OdtHandler, OdsHandler, OdpHandler |
 | Markdown & Text | .md, .txt, .log, .text | MarkdownHandler, TxtHandler |
 | Web & Data | .html, .htm, .xml, .epub | HtmlHandler, XmlHandler, EpubHandler |
-| Email | .eml, .msg | EmlHandler |
+| Data & Config | .json, .yaml, .yml, .ini, .cfg, .conf, .properties | JsonHandler, YamlHandler, IniHandler |
+| Email | .eml, .msg | EmlHandler (with recursive attachment conversion) |
 | Adobe | .psd, .ai, .indd, .aep, .prproj, .xd | AdobeHandler |
 | Media | .mp3, .mp4, .mov, .avi, .mkv, .wav, .flac, .ogg, .webm, .m4a, .m4v, .wmv, .aac, .wma | Indexed (metadata/scene detection); **TODO: add media conversion handlers** |
 

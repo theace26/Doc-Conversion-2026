@@ -62,6 +62,8 @@ ALLOWED_EXTENSIONS = {
     ".md", ".txt", ".log", ".text",
     # Web & data
     ".html", ".htm", ".xml", ".epub",
+    # Data & config
+    ".json", ".yaml", ".yml", ".ini", ".cfg", ".conf", ".properties",
     # Email
     ".eml", ".msg",
     # Adobe creative suite

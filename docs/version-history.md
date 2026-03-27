@@ -265,3 +265,18 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
   `core/bulk_scanner.py` refactored to use `list_supported_extensions()`
   instead of hardcoded extension sets. `core/converter.py` and
   `core/bulk_worker.py` updated for new handler lookup path.
+
+**v0.12.1** — Data format handlers + recursive email attachment conversion.
+  Three new handlers: `json_handler.py` (JSON with summary + structure outline +
+  secret redaction), `yaml_handler.py` (YAML/YML with multi-document support,
+  comments preservation in source block), `ini_handler.py` (INI/CFG/CONF/properties
+  with configparser + line-by-line fallback; `.conf` without sections treated as
+  plain text). All three produce Summary + Structure + Source markdown layout.
+  Secret value redaction (password, token, api_key, credential, auth key patterns).
+  EmlHandler upgraded with recursive attachment conversion — attachments with
+  registered handlers are converted and embedded inline under `## Attachments`.
+  Depth-limited to 3 for nested emails. Non-fatal failures. MSG attachments
+  supported via olefile stream traversal. 7 new extensions registered:
+  `.json`, `.yaml`, `.yml`, `.ini`, `.cfg`, `.conf`, `.properties`.
+  Total supported extensions: 33 across 19 handlers. Convert page and folder
+  drop UI updated for new extensions.

@@ -400,3 +400,31 @@ the relevant subsystem. Referenced from CLAUDE.md.
 - **`psutil.getloadavg()` not on all platforms**: Catch `AttributeError`.
 
 - **`GET /api/scanner/progress` uses `SEARCH_USER` role**: Lighter than `/api/scanner/status`.
+
+## Data Format Handlers
+
+- **YAML `safe_load` only**: Never use `yaml.load()` — it allows arbitrary code execution.
+  Always `yaml.safe_load()` or `yaml.safe_load_all()` for multi-document files.
+
+- **INI `interpolation=None`**: ConfigParser interpolation causes `%` chars in values to
+  raise errors. Always disable interpolation for raw config file reading.
+
+- **`.conf` is ambiguous**: Many apps use `.conf` for non-INI formats (nginx, Apache, systemd).
+  IniHandler detects this and falls back to plain text. Don't add special-case parsers for
+  specific config formats — that's an infinite rabbit hole.
+
+- **Secret redaction is best-effort**: The key-name heuristic catches common patterns but
+  won't catch `db_pw` or `cred_str`. That's acceptable — the original file is accessible
+  anyway. The redaction is a courtesy in the searchable summary, not a security boundary.
+
+## Email Attachments
+
+- **Recursion depth limit is 3**: Prevents infinite loops from circular email references.
+  If you see "depth limit reached" in logs, it's working correctly — don't increase the limit.
+
+- **Attachment conversion uses format registry**: If a new handler is added later (e.g.,
+  for .zip or .rar), email attachments of that type will automatically start converting.
+  No changes to EmlHandler needed.
+
+- **MSG library attachments**: The `olefile` library exposes MSG attachments differently than
+  stdlib `email`. Both code paths handle attachment conversion — check both when modifying.

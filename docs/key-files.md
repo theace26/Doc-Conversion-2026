@@ -52,6 +52,9 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `formats/pptx_handler.py` | PPTX ingest (slides→H2 sections) + export; Tier 3 text patching |
 | `formats/xlsx_handler.py` | XLSX ingest (sheets→H2+TABLE) + export; formula/merge/style restoration |
 | `formats/csv_handler.py` | CSV/TSV ingest (pandas + stdlib fallback) + export; delimiter/encoding preserved |
+| `formats/json_handler.py` | JSON ingest/export with summary + structure outline + secret redaction |
+| `formats/yaml_handler.py` | YAML/YML with multi-document support, comments preservation |
+| `formats/ini_handler.py` | INI/CFG/CONF/properties with section-aware parsing, .conf plain-text fallback |
 
 ## API Routes
 

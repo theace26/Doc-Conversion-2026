@@ -61,7 +61,7 @@
         <p style="font-size:1.5rem">&#128196;</p>
         <p>Drop files <em>or folders</em> here, or <strong>click to browse</strong></p>
         <p class="text-sm text-muted">Supports: DOCX, DOC, PDF, PPTX, XLSX, CSV, TSV, RTF, ODT, ODS, ODP, MD, TXT, HTML, XML, EPUB, EML, MSG, PSD, AI</p>
-        <input type="file" id="file-input" multiple accept=".docx,.doc,.pdf,.pptx,.xlsx,.csv,.tsv,.rtf,.odt,.ods,.odp,.md,.txt,.log,.text,.html,.htm,.xml,.epub,.eml,.msg,.psd,.ai,.indd,.aep,.prproj,.xd" style="display:none">
+        <input type="file" id="file-input" multiple accept=".docx,.doc,.pdf,.pptx,.xlsx,.csv,.tsv,.rtf,.odt,.ods,.odp,.md,.txt,.log,.text,.html,.htm,.xml,.epub,.json,.yaml,.yml,.ini,.cfg,.conf,.properties,.eml,.msg,.psd,.ai,.indd,.aep,.prproj,.xd" style="display:none">
         <input type="file" id="folder-input" webkitdirectory directory style="display:none">
       </div>
       <!-- Skipped files log (shown when folder drop contains unsupported files) -->
@@ -150,7 +150,9 @@
   const VALID_EXTENSIONS = new Set([
     '.docx', '.doc', '.pdf', '.pptx', '.ppt', '.xlsx', '.xls', '.csv', '.tsv', '.rtf',
     '.odt', '.ods', '.odp', '.md', '.txt', '.log', '.text',
-    '.html', '.htm', '.xml', '.epub', '.eml', '.msg',
+    '.html', '.htm', '.xml', '.epub',
+    '.json', '.yaml', '.yml', '.ini', '.cfg', '.conf', '.properties',
+    '.eml', '.msg',
     '.psd', '.ai', '.indd', '.aep', '.prproj', '.xd',
     '.mp3', '.mp4', '.mov', '.avi', '.mkv', '.wav', '.flac', '.ogg', '.webm', '.m4a', '.m4v',
     '.wmv', '.aac', '.wma',

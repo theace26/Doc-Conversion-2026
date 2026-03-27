@@ -23,3 +23,6 @@ from formats.epub_handler import EpubHandler  # noqa: F401
 from formats.eml_handler import EmlHandler  # noqa: F401
 from formats.xml_handler import XmlHandler  # noqa: F401
 from formats.adobe_handler import AdobeHandler  # noqa: F401
+from formats.json_handler import JsonHandler  # noqa: F401
+from formats.yaml_handler import YamlHandler  # noqa: F401
+from formats.ini_handler import IniHandler  # noqa: F401
