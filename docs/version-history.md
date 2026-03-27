@@ -244,3 +244,24 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
   resets on container restart). Settings page gains Auto-Conversion
   section. API: GET/POST/DELETE /api/auto-convert/override,
   GET /api/auto-convert/status, /history, /metrics.
+
+**v0.12.0** — Universal format support, unified scanning & folder drop UI.
+  10 new format handlers: RTF (`rtf_handler.py`, control-word parser with font
+  mapping), HTML/HTM (`html_handler.py`, BeautifulSoup + CSS font extraction),
+  ODT/ODS/ODP (`odt_handler.py`, `ods_handler.py`, `odp_handler.py` via odfpy),
+  TXT/LOG (`txt_handler.py`, encoding detection + heading heuristics),
+  XML (`xml_handler.py`, DOM traversal + element extraction),
+  EPUB (`epub_handler.py`, ebooklib chapter structure preservation),
+  EML/MSG (`eml_handler.py`, RFC 5322 + Outlook OLE via olefile),
+  Adobe unified handler (`adobe_handler.py`, PSD/AI/INDD/AEP/PRPROJ/XD
+  metadata extraction via exiftool). Total supported extensions: 26 across
+  16 handlers. Bulk scanner unified — no separate Adobe/convertible split;
+  all formats go through the same scanning pipeline with single-pass
+  extension lookup against the format registry. Font recognition added to
+  `extract_styles()` across handlers for Tier 2 reconstruction fidelity.
+  Convert page (`index.html`) gains folder drop: drag-and-drop entire
+  directories, auto-scans for valid formats, queues matching files for
+  conversion. `formats/__init__.py` imports all new handlers at module load.
+  `core/bulk_scanner.py` refactored to use `list_supported_extensions()`
+  instead of hardcoded extension sets. `core/converter.py` and
+  `core/bulk_worker.py` updated for new handler lookup path.
