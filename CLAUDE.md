@@ -143,6 +143,12 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
   with log file downloads. POST /api/log/client-event instruments ~15 JS actions in
   Developer mode (rate-limited, silently dropped at other levels).
   log_level is a system-level preference requiring Manager role.
+**v0.9.6** — Admin disk usage dashboard. `GET /api/admin/disk-usage` walks all
+  MarkFlow directories in a thread and reports per-directory byte counts, file
+  counts, and volume info. Trash excluded from output-repo total (no double-count).
+  DB + WAL reported separately in API, combined in UI. Admin page gains Disk Usage
+  section with volume progress bars, breakdown cards, and manual Refresh button.
+  No auto-polling — directory walks can take seconds on large repos.
 
 ---
 
@@ -324,7 +330,7 @@ Implement the full DOCX → Markdown pipeline end-to-end:
 | `static/db-health.html` | Admin database health dashboard |
 | `core/auth.py` | JWT validation, role hierarchy, API key verification, FastAPI dependencies |
 | `api/routes/auth.py` | GET /api/auth/me — current user identity and role |
-| `api/routes/admin.py` | API key CRUD, system info, resource controls, stats dashboard — admin only |
+| `api/routes/admin.py` | API key CRUD, system info, resource controls, stats dashboard, disk usage — admin only |
 | `core/resource_manager.py` | psutil wrapper: CPU affinity, process priority, live metrics |
 | `core/stop_controller.py` | Global stop flag, task registry, should_stop() / request_stop() / reset_stop() |
 | `static/js/global-status-bar.js` | Badge-only polling: updates nav badge with active-job count |
@@ -833,6 +839,15 @@ Implement the full DOCX → Markdown pipeline end-to-end:
   issue self-resolved when the first user-created bulk_job was added. Current
   scans work correctly (`errors=0`). Six stuck `scan_runs` with
   `status='running'` were cleaned up manually.
+
+- **Disk usage endpoint is not auto-polled**: `GET /api/admin/disk-usage` walks
+  directories in a thread. On large repos (100K+ files) this can take 5-10 seconds.
+  The admin UI fetches once on load and has a manual Refresh button — no interval
+  polling. Do not add setInterval for this endpoint.
+
+- **Trash is subtracted from output-repo total**: The `.trash/` directory lives
+  inside `/mnt/output-repo`. The disk usage endpoint reports them separately and
+  excludes `.trash/` from the output-repo walk to avoid double-counting.
 
 ---
 

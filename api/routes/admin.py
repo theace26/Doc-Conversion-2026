@@ -8,6 +8,7 @@ GET    /api/admin/system            — System info: version, env, auth mode, Me
 PUT    /api/admin/resources         — Apply CPU affinity, worker count, process priority
 GET    /api/admin/system/metrics    — Live CPU/memory/thread metrics
 GET    /api/admin/stats             — Aggregated repository statistics dashboard
+GET    /api/admin/disk-usage        — Disk usage breakdown by MarkFlow directory
 """
 
 import asyncio
@@ -16,6 +17,7 @@ import os
 import secrets
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 import psutil
 import structlog
@@ -148,7 +150,7 @@ async def system_info(
         meili_status = "unavailable"
 
     return {
-        "version": "0.9.2",
+        "version": "0.9.6",
         "auth_mode": "DEV_BYPASS" if dev_bypass else "JWT",
         "dev_bypass_active": dev_bypass,
         "meilisearch_status": meili_status,
@@ -481,3 +483,185 @@ async def admin_stats(
         "scheduler": scheduler_status,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+# ── GET /api/admin/disk-usage ─────────────────────────────────────────────
+
+def _human_bytes(n: int) -> str:
+    """Format bytes as human-readable string."""
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if abs(n) < 1024:
+            return f"{n:.2f} {unit}"
+        n /= 1024
+    return f"{n:.2f} PB"
+
+
+def _walk_dir(path: Path, exclude_parts: set[str] | None = None) -> tuple[int, int]:
+    """Walk directory tree, return (total_bytes, file_count). Runs in a thread."""
+    total = 0
+    count = 0
+    if not path.exists() or not path.is_dir():
+        return 0, 0
+    try:
+        for f in path.rglob("*"):
+            if not f.is_file():
+                continue
+            if exclude_parts and exclude_parts & set(f.parts):
+                continue
+            try:
+                total += f.stat().st_size
+                count += 1
+            except OSError:
+                continue
+    except OSError:
+        pass
+    return total, count
+
+
+def _stat_file(path: Path) -> tuple[int, int]:
+    """Stat a single file, return (bytes, 1) or (0, 0) if missing."""
+    try:
+        if path.exists() and path.is_file():
+            return path.stat().st_size, 1
+    except OSError:
+        pass
+    return 0, 0
+
+
+def _compute_disk_usage() -> dict:
+    """Compute disk usage for all MarkFlow directories. Runs in a thread."""
+    breakdown = []
+
+    output_repo = Path(os.environ.get("BULK_OUTPUT_PATH", "/mnt/output-repo"))
+    trash_path = output_repo / ".trash"
+
+    # Trash first (so we can exclude it from output-repo)
+    trash_bytes, trash_count = _walk_dir(trash_path)
+    breakdown.append({
+        "label": "Trash",
+        "path": str(trash_path),
+        "bytes": trash_bytes,
+        "human": _human_bytes(trash_bytes),
+        "file_count": trash_count,
+        "description": "Soft-deleted files awaiting purge",
+    })
+
+    # Output repo excluding .trash
+    repo_bytes, repo_count = _walk_dir(output_repo, exclude_parts={".trash"})
+    breakdown.insert(0, {
+        "label": "Output Repository",
+        "path": str(output_repo),
+        "bytes": repo_bytes,
+        "human": _human_bytes(repo_bytes),
+        "file_count": repo_count,
+        "description": "Bulk-converted Markdown knowledge base",
+    })
+
+    # Conversion output
+    conv_output = Path(os.environ.get("OUTPUT_DIR", "output"))
+    conv_bytes, conv_count = _walk_dir(conv_output)
+    breakdown.append({
+        "label": "Conversion Output",
+        "path": str(conv_output),
+        "bytes": conv_bytes,
+        "human": _human_bytes(conv_bytes),
+        "file_count": conv_count,
+        "description": "Single-file conversion results",
+    })
+
+    # Database file
+    db_path = Path(os.environ.get("DB_PATH", "/app/data/markflow.db"))
+    db_bytes, db_count = _stat_file(db_path)
+    breakdown.append({
+        "label": "Database",
+        "path": str(db_path),
+        "bytes": db_bytes,
+        "human": _human_bytes(db_bytes),
+        "file_count": db_count,
+        "description": "SQLite database (WAL mode)",
+    })
+
+    # WAL file
+    wal_path = db_path.parent / (db_path.name + "-wal")
+    wal_bytes, wal_count = _stat_file(wal_path)
+    breakdown.append({
+        "label": "Database WAL",
+        "path": str(wal_path),
+        "bytes": wal_bytes,
+        "human": _human_bytes(wal_bytes),
+        "file_count": wal_count,
+        "description": "SQLite write-ahead log",
+    })
+
+    # Logs
+    logs_dir = Path(os.environ.get("LOGS_DIR", "logs"))
+    logs_bytes, logs_count = _walk_dir(logs_dir)
+    breakdown.append({
+        "label": "Logs",
+        "path": str(logs_dir),
+        "bytes": logs_bytes,
+        "human": _human_bytes(logs_bytes),
+        "file_count": logs_count,
+        "description": "Operational and debug log files",
+    })
+
+    # Meilisearch data
+    meili_path = Path(os.environ.get("MEILI_DATA_PATH", "/meili_data"))
+    if meili_path.exists() and meili_path.is_dir():
+        meili_bytes, _ = _walk_dir(meili_path)
+        meili_count = None  # internal structure, count not meaningful
+    else:
+        meili_bytes = 0
+        meili_count = None
+    breakdown.append({
+        "label": "Meilisearch Data",
+        "path": str(meili_path),
+        "bytes": meili_bytes,
+        "human": _human_bytes(meili_bytes),
+        "file_count": meili_count,
+        "description": "Search index data",
+    })
+
+    total_bytes = sum(item["bytes"] for item in breakdown)
+
+    # Volume info
+    volume_info = None
+    try:
+        usage = psutil.disk_usage(str(output_repo) if output_repo.exists() else "/")
+        volume_info = {
+            "mount": str(output_repo) if output_repo.exists() else "/",
+            "total_bytes": usage.total,
+            "total_human": _human_bytes(usage.total),
+            "used_bytes": usage.used,
+            "used_human": _human_bytes(usage.used),
+            "free_bytes": usage.free,
+            "free_human": _human_bytes(usage.free),
+            "used_percent": usage.percent,
+        }
+    except OSError:
+        pass
+
+    return {
+        "total_bytes": total_bytes,
+        "total_human": _human_bytes(total_bytes),
+        "breakdown": breakdown,
+        "volume_info": volume_info,
+    }
+
+
+@router.get("/disk-usage")
+async def disk_usage(
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
+    """Disk usage breakdown for all MarkFlow directories."""
+    try:
+        return await asyncio.to_thread(_compute_disk_usage)
+    except Exception as exc:
+        log.error("admin.disk_usage_failed", error=str(exc))
+        return {
+            "total_bytes": 0,
+            "total_human": "0.00 B",
+            "breakdown": [],
+            "volume_info": None,
+            "error": str(exc),
+        }
