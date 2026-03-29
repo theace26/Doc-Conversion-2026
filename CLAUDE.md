@@ -26,11 +26,12 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.12.4
+## Current Status — v0.12.5
 
-All 10 phases complete + universal format support. Latest: archive password writeback
-(successful passwords saved to file and reused across session), session-level password
-reuse for faster batch processing of related encrypted archives.
+All 10 phases complete + universal format support. Latest: full password cracking cascade
+for encrypted archives (dictionary + mutations + brute-force), matching the existing
+PDF/Office password handler pattern. Respects user brute-force preferences (charset,
+max length, timeout). Successful passwords saved and reused across session.
 
 **Planned:** External log shipping to Grafana Loki / ELK stack. The current local log
 archive system is an interim solution — once external aggregation is in place, local
@@ -128,11 +129,11 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **File downloads**: Never use `fetch()` + blob for file downloads — use `window.location.href` or `<a>` tags. Backend must set explicit `Content-Length` header.
 - **Archive handler**: Follows EML handler pattern — `ingest()` produces a DocumentModel with summary + recursive inner content. Temp dirs cleaned in `finally` blocks. Max depth 20 (env: `ARCHIVE_MAX_DEPTH`).
 - **Compound extensions**: `.tar.gz`, `.tar.bz2`, `.tar.xz` require compound extension lookup in both `formats/base.py` and `core/bulk_scanner.py`. `Path.suffix` only returns `.gz` — use `_get_compound_extension()` / `_get_effective_extension()`.
-- **Archive passwords**: Loaded from `config/archive_passwords.txt`. Successful passwords are saved back to the file and reused session-wide (found passwords tried first). Empty password always tried first. Never log the actual password — log the index only.
+- **Archive passwords**: Full cracking cascade — known passwords, dictionary + mutations, brute-force. Uses same user preferences as PDF/Office handler (`password_brute_force_enabled`, `password_brute_force_charset`, `password_brute_force_max_length`, `password_timeout_seconds`). Successful passwords saved to `config/archive_passwords.txt` and reused session-wide. Never log actual passwords.
 
 ---
 
-## Supported Formats (v0.12.4)
+## Supported Formats (v0.12.5)
 
 | Category | Extensions | Handler |
 |----------|-----------|---------|

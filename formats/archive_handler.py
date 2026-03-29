@@ -10,7 +10,10 @@ Ingest:
     - Summary table (archive metadata, member listing)
     - Converted content for each inner file as subsections
 
-  Password-protected archives: tries passwords from config/archive_passwords.txt.
+  Password-protected archives — full cracking cascade:
+    1. Empty string + archive password file + session-found passwords
+    2. Dictionary attack (common.txt wordlist + mutations)
+    3. Brute-force (configurable charset/length/timeout from user preferences)
   Successful passwords are saved back to the file and reused across the session.
   Zip-bomb protection: per-entry ratio check, total size cap, quine detection.
 
@@ -20,8 +23,10 @@ Export:
 
 import hashlib
 import io
+import itertools
 import os
 import shutil
+import string
 import tempfile
 import threading
 import time
@@ -51,6 +56,7 @@ from formats.base import FormatHandler, get_handler, register_handler
 log = structlog.get_logger(__name__)
 
 _PASSWORD_FILE = os.environ.get("ARCHIVE_PASSWORD_FILE", "config/archive_passwords.txt")
+_WORDLIST_DIR = Path(__file__).parent.parent / "core" / "password_wordlists"
 
 # Session-level password reuse: passwords that worked during this process lifetime
 # are tried first on subsequent archives. Thread-safe via lock.
@@ -108,6 +114,47 @@ def _save_found_password(password: str) -> None:
                      password_count=len(existing) + 1)
     except Exception as exc:
         log.warning("archive_password_save_failed", error=str(exc))
+
+
+def _load_dictionary() -> list[str]:
+    """Load the bundled common password dictionary."""
+    dict_file = _WORDLIST_DIR / "common.txt"
+    if not dict_file.exists():
+        return []
+    try:
+        lines = dict_file.read_text(encoding="utf-8", errors="ignore").splitlines()
+        return [line.strip() for line in lines if line.strip()]
+    except Exception:
+        return []
+
+
+def _mutations(password: str) -> list[str]:
+    """Generate common password mutations."""
+    if not password:
+        return []
+    return [
+        password.capitalize(),
+        password.upper(),
+        password + "1",
+        password + "!",
+        password + "123",
+        password + "2024",
+        password + "2025",
+        password + "2026",
+    ]
+
+
+def _get_charset(charset_name: str) -> str:
+    """Get character set for brute-force based on config name."""
+    if charset_name == "numeric":
+        return string.digits
+    elif charset_name == "alpha":
+        return string.ascii_lowercase
+    elif charset_name == "alphanumeric":
+        return string.ascii_lowercase + string.digits
+    elif charset_name == "all_printable":
+        return string.printable.strip()
+    return string.ascii_lowercase + string.digits
 
 
 def _compute_hash(file_path: Path) -> str:
@@ -646,10 +693,17 @@ class ArchiveHandler(FormatHandler):
         return {"document_level": {"extension": f".{fmt}", "file_size": stat.st_size}}
 
     def _find_password(self, path: Path, fmt: str) -> str | None:
-        """Try passwords. Returns working password, "" if not encrypted, None if all fail.
+        """Try passwords via full cascade. Returns working password, "" if not
+        encrypted, None if all methods fail.
 
-        On success with a non-empty password, saves it to the session set and
-        appends it to the password file for future reuse.
+        Cascade order (matches core/password_handler.py):
+          1. Empty string + archive password file + session-found passwords
+          2. Dictionary attack (common.txt wordlist + mutations)
+          3. Brute-force (configurable charset/length/timeout)
+
+        On success, saves the password for session reuse and to the password file.
+        Respects user preferences for dictionary/brute-force enable, charset,
+        max length, and timeout.
         """
         detect_fn = _ENCRYPTED_FN.get(fmt)
         if not detect_fn:
@@ -657,24 +711,121 @@ class ArchiveHandler(FormatHandler):
         if not detect_fn(path):
             return ""  # Not encrypted
 
-        passwords = _load_passwords()
         list_fn = _LIST_FN.get(fmt)
         if not list_fn:
             return None
 
-        for i, pw in enumerate(passwords):
+        # Load user preferences (sync-safe — called from thread)
+        settings = self._load_password_settings()
+        timeout = settings["timeout"]
+        deadline = time.monotonic() + timeout
+        total_attempts = 0
+
+        def _try(pw: str) -> bool:
+            """Test a single password. Returns True if it works."""
             try:
                 list_fn(path, pw)
+                return True
+            except Exception:
+                return False
+
+        # Phase 1: Direct candidates (empty, file list, session-found)
+        passwords = _load_passwords()
+        for i, pw in enumerate(passwords):
+            if time.monotonic() > deadline:
+                break
+            total_attempts += 1
+            if _try(pw):
                 log.info("archive_password_found",
-                         archive=path.name, password_index=i)
+                         archive=path.name, method="known", attempt=total_attempts)
                 _save_found_password(pw)
                 return pw
-            except Exception:
-                continue
+
+        # Phase 2: Dictionary attack + mutations
+        if settings["dictionary_enabled"] and time.monotonic() < deadline:
+            dictionary = _load_dictionary()
+            for pw in dictionary:
+                if time.monotonic() > deadline:
+                    break
+                total_attempts += 1
+                if _try(pw):
+                    log.info("archive_password_found",
+                             archive=path.name, method="dictionary", attempt=total_attempts)
+                    _save_found_password(pw)
+                    return pw
+                # Try mutations of this dictionary word
+                for mut in _mutations(pw):
+                    if time.monotonic() > deadline:
+                        break
+                    total_attempts += 1
+                    if _try(mut):
+                        log.info("archive_password_found",
+                                 archive=path.name, method="dictionary_mutation",
+                                 attempt=total_attempts)
+                        _save_found_password(mut)
+                        return mut
+
+        # Phase 3: Brute-force
+        if settings["brute_force_enabled"] and time.monotonic() < deadline:
+            charset = _get_charset(settings["charset"])
+            max_len = settings["max_length"]
+            log.info("archive_brute_force_start",
+                     archive=path.name, charset=settings["charset"],
+                     max_length=max_len, timeout=timeout)
+            for length in range(1, max_len + 1):
+                if time.monotonic() > deadline:
+                    break
+                for combo in itertools.product(charset, repeat=length):
+                    if time.monotonic() > deadline:
+                        break
+                    pw = "".join(combo)
+                    total_attempts += 1
+                    if _try(pw):
+                        log.info("archive_password_found",
+                                 archive=path.name, method="brute_force",
+                                 attempt=total_attempts, length=length)
+                        _save_found_password(pw)
+                        return pw
 
         log.warning("archive_password_exhausted",
-                    archive=path.name, passwords_tried=len(passwords))
+                    archive=path.name, attempts=total_attempts,
+                    methods_tried=["known", "dictionary", "brute_force"])
         return None
+
+    @staticmethod
+    def _load_password_settings() -> dict:
+        """Load password-related preferences. Safe to call from sync context."""
+        # Read preferences directly from DB (sync-safe via new connection)
+        # Fall back to defaults if DB unavailable
+        defaults = {
+            "dictionary_enabled": True,
+            "brute_force_enabled": False,
+            "max_length": 6,
+            "charset": "alphanumeric",
+            "timeout": 300,
+        }
+        try:
+            import sqlite3
+            from core.database import get_db_path
+            conn = sqlite3.connect(get_db_path())
+            conn.row_factory = sqlite3.Row
+            cur = conn.execute("SELECT key, value FROM user_preferences WHERE key IN (?,?,?,?,?)",
+                               ("password_dictionary_enabled",
+                                "password_brute_force_enabled",
+                                "password_brute_force_max_length",
+                                "password_brute_force_charset",
+                                "password_timeout_seconds"))
+            prefs = {row["key"]: row["value"] for row in cur.fetchall()}
+            conn.close()
+            return {
+                "dictionary_enabled": prefs.get("password_dictionary_enabled", "true") == "true",
+                "brute_force_enabled": prefs.get("password_brute_force_enabled", "false") == "true",
+                "max_length": int(prefs.get("password_brute_force_max_length", "6")),
+                "charset": prefs.get("password_brute_force_charset", "alphanumeric"),
+                "timeout": int(prefs.get("password_timeout_seconds", "300")),
+            }
+        except Exception:
+            return defaults
 
 
 # ── Markdown helper ──────────────────────────────────────────────────────────
