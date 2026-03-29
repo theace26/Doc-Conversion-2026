@@ -73,6 +73,28 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 ## Format Handlers
 
+- **Archive handler follows EML pattern**: `ingest()` extracts to a per-archive temp dir,
+  recursively converts each inner file via the format registry, and returns a single
+  `DocumentModel` with summary table + subsections. Temp dir is always cleaned in `finally`.
+
+- **Compound extensions (.tar.gz etc.)**: `Path.suffix` returns only `.gz`. Both
+  `formats/base.py:_get_compound_extension()` and `core/bulk_scanner.py:_get_effective_extension()`
+  check the last two suffixes for registered compound forms. If adding new compound
+  extensions, update both functions AND add to `SUPPORTED_EXTENSIONS` / `ALLOWED_EXTENSIONS`.
+
+- **Archive zip-bomb protection**: `core/archive_safety.py` — ratio check (200:1 per entry),
+  total size cap (50 GB default), entry count cap (100K), depth limit (20), quine detection.
+  `ExtractionTracker` accumulates across the entire recursion chain.
+
+- **Archive passwords**: Loaded from `config/archive_passwords.txt`. Empty string always tried
+  first. Never log actual passwords — log the index. `.tar` and `.cab` are never encrypted.
+
+- **py7zr + p7zip-full**: py7zr handles most .7z natively in Python. Some compression methods
+  (LZMA2 with BCJ filter) need the system `7z` binary. Both are installed for coverage.
+
+- **rarfile needs unrar**: `unrar-free` is installed in the Dockerfile. RAR5 format may need
+  full `unrar` from non-free repos — `unrar-free` handles most cases.
+
 - **mistune v3 table plugin**: `create_markdown(renderer=None)` does NOT parse tables by default.
   Must pass `plugins=["table", "strikethrough", "footnotes"]` or tables silently become paragraphs.
 

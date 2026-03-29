@@ -35,8 +35,13 @@ SUPPORTED_EXTENSIONS = {
     ".md", ".txt", ".log", ".text",
     # Web & data
     ".html", ".htm", ".xml", ".epub",
+    # Data & config
+    ".json", ".yaml", ".yml", ".ini", ".cfg", ".conf", ".properties",
     # Email
     ".eml", ".msg",
+    # Archives
+    ".zip", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2",
+    ".tar.xz", ".txz", ".7z", ".rar", ".cab", ".iso",
     # Adobe creative suite
     ".psd", ".ai", ".indd", ".aep", ".prproj", ".xd",
     # Media (audio/video — indexed for metadata/scene detection)
@@ -48,6 +53,16 @@ SUPPORTED_EXTENSIONS = {
 CONVERTIBLE_EXTENSIONS = SUPPORTED_EXTENSIONS
 ADOBE_EXTENSIONS = {".ai", ".psd", ".indd", ".aep", ".prproj", ".xd"}
 ALL_SUPPORTED = SUPPORTED_EXTENSIONS
+
+
+def _get_effective_extension(file_path: Path) -> str:
+    """Get effective extension, handling compound extensions like .tar.gz."""
+    suffixes = file_path.suffixes
+    if len(suffixes) >= 2:
+        compound = "".join(suffixes[-2:]).lower()
+        if compound in SUPPORTED_EXTENSIONS:
+            return compound
+    return file_path.suffix.lower()
 
 
 @dataclass
@@ -149,7 +164,7 @@ class BulkScanner:
 
             for filename in filenames:
                 file_path = Path(dirpath) / filename
-                ext = file_path.suffix.lower()
+                ext = _get_effective_extension(file_path)
 
                 # Stat the file
                 try:

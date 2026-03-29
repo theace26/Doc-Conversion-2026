@@ -36,9 +36,26 @@ def get_handler(extension: str) -> "FormatHandler | None":
     return cls() if cls else None
 
 
+def _get_compound_extension(file_path: Path) -> str:
+    """Get effective extension, handling compound extensions like .tar.gz."""
+    suffixes = file_path.suffixes
+    if len(suffixes) >= 2:
+        compound = "".join(suffixes[-2:]).lower()
+        # Check if the compound extension is registered
+        key = compound.lstrip(".")
+        if key in _REGISTRY:
+            return compound
+    return file_path.suffix
+
+
 def get_handler_for_path(file_path: Path) -> "FormatHandler | None":
-    """Return an instance of the handler for the given file path."""
-    return get_handler(file_path.suffix)
+    """Return an instance of the handler for the given file path.
+
+    Handles compound extensions (e.g. .tar.gz) by checking the last two
+    suffixes first, falling back to the final suffix.
+    """
+    ext = _get_compound_extension(file_path)
+    return get_handler(ext)
 
 
 def list_supported_extensions() -> list[str]:

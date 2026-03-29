@@ -66,6 +66,9 @@ ALLOWED_EXTENSIONS = {
     ".json", ".yaml", ".yml", ".ini", ".cfg", ".conf", ".properties",
     # Email
     ".eml", ".msg",
+    # Archives
+    ".zip", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2",
+    ".tar.xz", ".txz", ".7z", ".rar", ".cab", ".iso",
     # Adobe creative suite
     ".psd", ".ai", ".indd", ".aep", ".prproj", ".xd",
     # Media (audio/video — indexed for metadata/scene detection)

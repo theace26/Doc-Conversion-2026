@@ -14,6 +14,7 @@ services:
       - C:/:/host/c:ro                                    # Drive browser — C:
       - D:/:/host/d:ro                                    # Drive browser — D:
       - ${HASHCAT_QUEUE_DIR:-./hashcat-queue}:/mnt/hashcat-queue  # GPU cracking job queue
+      - ./config:/app/config:ro                              # Config files (archive passwords, etc.)
     environment:
       - DEBUG=false
       - WORKERS=1
@@ -37,6 +38,11 @@ services:
       # - DEBUG_LOG_BACKUP_COUNT=3     # Debug log backup count (default: 3)
       # - LOG_DOWNLOAD_MAX_MB=500      # Max downloadable log file size (default: 500 MB)
       # - LOG_ARCHIVE_RETENTION_DAYS=90 # How long to keep compressed log archives (default: 90)
+      # Archive processing limits
+      # - ARCHIVE_MAX_DEPTH=20           # Max nesting depth for archives-in-archives
+      # - ARCHIVE_MAX_SIZE_GB=50         # Max total decompressed size per archive (GB)
+      # - ARCHIVE_MAX_ENTRIES=100000     # Max number of entries in a single archive
+      # - ARCHIVE_PASSWORD_FILE=config/archive_passwords.txt
     depends_on:
       meilisearch:
         condition: service_healthy

@@ -26,15 +26,16 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.12.2
+## Current Status — v0.12.3
 
-All 10 phases complete + universal format support. Latest: log rotation (size-based
-RotatingFileHandler on all log files), log archive (gzip compression of rotated files,
-90-day retention), settings download loop fix (size guard + explicit Content-Length header).
+All 10 phases complete + universal format support. Latest: compressed file scanning
+(.zip, .tar.gz, .7z, .rar, .cab, .iso), recursive archive extraction with conversion
+of inner documents, archive_members DB table for deduplication/change detection,
+zip-bomb protection, compound extension support in format registry.
 
-**Planned:** External log shipping to Grafana Loki / ELK stack. The current local archive
-system is an interim solution — once external aggregation is in place, local retention can
-be reduced and the archive scheduler retired.
+**Planned:** External log shipping to Grafana Loki / ELK stack. The current local log
+archive system is an interim solution — once external aggregation is in place, local
+retention can be reduced and the archive scheduler retired.
 
 For full version-by-version changelog, see [`docs/version-history.md`](docs/version-history.md).
 
@@ -96,6 +97,8 @@ Critical files to know:
 | `formats/html_handler.py` | HTML/HTM with BeautifulSoup, font extraction |
 | `formats/odt_handler.py` | OpenDocument Text via odfpy |
 | `formats/adobe_handler.py` | PSD/AI/INDD/AEP/PRPROJ/XD — unified Adobe handler |
+| `formats/archive_handler.py` | ZIP/TAR/7z/RAR/CAB/ISO — recursive extraction + conversion |
+| `core/archive_safety.py` | Zip-bomb protection: ratio, size, depth, quine checks |
 | `formats/json_handler.py` | JSON ingest/export with summary + structure outline |
 | `formats/yaml_handler.py` | YAML/YML with multi-document support |
 | `formats/ini_handler.py` | INI/CFG/CONF/properties with section-aware parsing |
@@ -124,10 +127,13 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **Log files**: Never use bare `FileHandler` or `TimedRotatingFileHandler` — always `RotatingFileHandler` (size-based). Defaults: 50 MB main, 100 MB debug. Configurable via `LOG_MAX_SIZE_MB` / `DEBUG_LOG_MAX_SIZE_MB` env vars.
 - **Log archives**: Rotated files are auto-compressed to `logs/archive/*.gz` every 6 hours. 90-day retention (configurable via `LOG_ARCHIVE_RETENTION_DAYS`). Interim solution — planned migration to Grafana Loki / ELK.
 - **File downloads**: Never use `fetch()` + blob for file downloads — use `window.location.href` or `<a>` tags. Backend must set explicit `Content-Length` header.
+- **Archive handler**: Follows EML handler pattern — `ingest()` produces a DocumentModel with summary + recursive inner content. Temp dirs cleaned in `finally` blocks. Max depth 20 (env: `ARCHIVE_MAX_DEPTH`).
+- **Compound extensions**: `.tar.gz`, `.tar.bz2`, `.tar.xz` require compound extension lookup in both `formats/base.py` and `core/bulk_scanner.py`. `Path.suffix` only returns `.gz` — use `_get_compound_extension()` / `_get_effective_extension()`.
+- **Archive passwords**: Loaded from `config/archive_passwords.txt`. Empty password always tried first. Never log the actual password — log the index only.
 
 ---
 
-## Supported Formats (v0.12.2)
+## Supported Formats (v0.12.3)
 
 | Category | Extensions | Handler |
 |----------|-----------|---------|
@@ -138,6 +144,7 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 | Web & Data | .html, .htm, .xml, .epub | HtmlHandler, XmlHandler, EpubHandler |
 | Data & Config | .json, .yaml, .yml, .ini, .cfg, .conf, .properties | JsonHandler, YamlHandler, IniHandler |
 | Email | .eml, .msg | EmlHandler (with recursive attachment conversion) |
+| Archives | .zip, .tar, .tar.gz, .tgz, .tar.bz2, .7z, .rar, .cab, .iso | ArchiveHandler |
 | Adobe | .psd, .ai, .indd, .aep, .prproj, .xd | AdobeHandler |
 | Media | .mp3, .mp4, .mov, .avi, .mkv, .wav, .flac, .ogg, .webm, .m4a, .m4v, .wmv, .aac, .wma | Indexed (metadata/scene detection); **TODO: add media conversion handlers** |
 

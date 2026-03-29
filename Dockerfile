@@ -37,6 +37,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ocl-icd-libopencl1 \
     clinfo \
     perl-base \
+    # Archive extraction tools
+    cabextract \
+    unrar-free \
+    p7zip-full \
     # curl for healthchecks
     curl \
     # Misc build tools

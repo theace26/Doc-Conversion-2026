@@ -429,6 +429,30 @@ CREATE INDEX IF NOT EXISTS idx_auto_runs_status
     ON auto_conversion_runs(status);
 CREATE INDEX IF NOT EXISTS idx_auto_runs_started
     ON auto_conversion_runs(started_at);
+
+-- v0.12.3: Archive member tracking (files inside compressed archives)
+CREATE TABLE IF NOT EXISTS archive_members (
+    id              TEXT PRIMARY KEY,
+    bulk_file_id    TEXT NOT NULL REFERENCES bulk_files(id),
+    member_path     TEXT NOT NULL,
+    member_ext      TEXT NOT NULL,
+    member_size     INTEGER,
+    member_modified_at TEXT,
+    member_hash     TEXT,
+    is_directory    INTEGER NOT NULL DEFAULT 0,
+    is_archive      INTEGER NOT NULL DEFAULT 0,
+    nesting_depth   INTEGER NOT NULL DEFAULT 0,
+    parent_member_id TEXT,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    output_path     TEXT,
+    error_msg       TEXT,
+    converted_at    TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_archive_members_bulk_file ON archive_members(bulk_file_id);
+CREATE INDEX IF NOT EXISTS idx_archive_members_hash ON archive_members(member_hash);
+CREATE INDEX IF NOT EXISTS idx_archive_members_status ON archive_members(bulk_file_id, status);
 """
 
 
@@ -504,6 +528,10 @@ async def init_db() -> None:
         await _add_column_if_missing(conn, "bulk_files", "password_attempts", "INTEGER DEFAULT 0")
         # v0.11.0: auto-triggered flag on bulk_jobs
         await _add_column_if_missing(conn, "bulk_jobs", "auto_triggered", "INTEGER NOT NULL DEFAULT 0")
+        # v0.12.3: archive tracking columns on bulk_files
+        await _add_column_if_missing(conn, "bulk_files", "is_archive", "INTEGER NOT NULL DEFAULT 0")
+        await _add_column_if_missing(conn, "bulk_files", "archive_member_count", "INTEGER")
+        await _add_column_if_missing(conn, "bulk_files", "archive_total_uncompressed", "INTEGER")
         await conn.commit()
         # Phase 9: WAL mode and pragmas
         await conn.execute("PRAGMA journal_mode = WAL")
@@ -1749,3 +1777,89 @@ async def get_unrecognized_stats(job_id: str | None = None) -> dict[str, Any]:
         "total_bytes": total_bytes,
         "job_ids": job_ids,
     }
+
+
+# ── Archive member helpers ──────────────────────────────────────────────
+
+async def upsert_archive_member(
+    bulk_file_id: str,
+    member_path: str,
+    member_ext: str,
+    member_size: int | None = None,
+    member_modified_at: str | None = None,
+    member_hash: str | None = None,
+    is_directory: bool = False,
+    is_archive: bool = False,
+    nesting_depth: int = 0,
+    parent_member_id: str | None = None,
+) -> str:
+    """Insert an archive_members record. Returns member id."""
+    member_id = uuid.uuid4().hex
+    now = _now_iso()
+    async with get_db() as conn:
+        await conn.execute(
+            """INSERT INTO archive_members
+               (id, bulk_file_id, member_path, member_ext, member_size,
+                member_modified_at, member_hash, is_directory, is_archive,
+                nesting_depth, parent_member_id, status, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                member_id, bulk_file_id, member_path, member_ext,
+                member_size, member_modified_at, member_hash,
+                int(is_directory), int(is_archive),
+                nesting_depth, parent_member_id, "pending", now, now,
+            ),
+        )
+        await conn.commit()
+    return member_id
+
+
+async def update_archive_member(member_id: str, **fields) -> None:
+    """Update any combination of archive_members fields."""
+    if not fields:
+        return
+    fields["updated_at"] = _now_iso()
+    sets = [f"{k}=?" for k in fields]
+    values = list(fields.values()) + [member_id]
+    async with get_db() as conn:
+        await conn.execute(
+            f"UPDATE archive_members SET {', '.join(sets)} WHERE id=?", values
+        )
+        await conn.commit()
+
+
+async def get_archive_members(
+    bulk_file_id: str,
+    status: str | None = None,
+) -> list[dict[str, Any]]:
+    """Return archive members for a bulk file, optionally filtered by status."""
+    sql = "SELECT * FROM archive_members WHERE bulk_file_id=?"
+    params: list[Any] = [bulk_file_id]
+    if status:
+        sql += " AND status=?"
+        params.append(status)
+    sql += " ORDER BY member_path"
+    return await db_fetch_all(sql, tuple(params))
+
+
+async def get_archive_member_by_hash(content_hash: str) -> dict[str, Any] | None:
+    """Find a converted archive member by content hash (for deduplication)."""
+    return await db_fetch_one(
+        """SELECT * FROM archive_members
+           WHERE member_hash=? AND status='converted' AND output_path IS NOT NULL
+           LIMIT 1""",
+        (content_hash,),
+    )
+
+
+async def get_archive_member_count(bulk_file_id: str) -> dict[str, int]:
+    """Return {pending, converted, error, total} counts for an archive's members."""
+    rows = await db_fetch_all(
+        "SELECT status, COUNT(*) AS cnt FROM archive_members WHERE bulk_file_id=? GROUP BY status",
+        (bulk_file_id,),
+    )
+    counts: dict[str, int] = {}
+    for row in rows:
+        counts[row["status"]] = row["cnt"]
+    counts["total"] = sum(counts.values())
+    return counts

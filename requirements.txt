@@ -82,6 +82,11 @@ apscheduler>=3.10.0
 # MCP server
 mcp
 
+# Archive processing
+py7zr>=0.21.0
+rarfile>=4.1
+pycdlib>=1.14.0
+
 # Testing
 pytest
 pytest-asyncio

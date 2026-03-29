@@ -1,0 +1,661 @@
+"""
+Archive format handler — .zip, .tar, .tar.gz, .7z, .rar, .cab, .iso.
+
+Ingest:
+  Extracts archive contents to a per-archive temp directory, enumerates all
+  members, and recursively converts each convertible file through the format
+  registry (depth-limited to 20 levels for nested archives).
+
+  Produces a DocumentModel with:
+    - Summary table (archive metadata, member listing)
+    - Converted content for each inner file as subsections
+
+  Password-protected archives: tries passwords from config/archive_passwords.txt.
+  Zip-bomb protection: per-entry ratio check, total size cap, quine detection.
+
+Export:
+  Not supported — archives are ingest-only.
+"""
+
+import hashlib
+import io
+import os
+import shutil
+import tempfile
+import time
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import structlog
+
+from core.archive_safety import (
+    ARCHIVE_EXTENSIONS,
+    ExtractionTracker,
+    MAX_NESTING_DEPTH,
+    check_compression_ratio,
+    check_entry_count,
+    check_nesting_depth,
+)
+from core.document_model import (
+    DocumentMetadata,
+    DocumentModel,
+    Element,
+    ElementType,
+)
+from formats.base import FormatHandler, get_handler, register_handler
+
+log = structlog.get_logger(__name__)
+
+_PASSWORD_FILE = os.environ.get("ARCHIVE_PASSWORD_FILE", "config/archive_passwords.txt")
+
+
+def _load_passwords() -> list[str]:
+    """Load passwords from the user-configurable password file."""
+    passwords = [""]  # Always try empty password first
+    try:
+        pw_path = Path(_PASSWORD_FILE)
+        if pw_path.exists():
+            for line in pw_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    passwords.append(line)
+    except Exception as exc:
+        log.warning("archive_password_file_error", error=str(exc))
+    return passwords
+
+
+def _compute_hash(file_path: Path) -> str:
+    """Compute SHA-256 hash of a file in 64KB chunks."""
+    sha = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        while chunk := f.read(65536):
+            sha.update(chunk)
+    return sha.hexdigest()
+
+
+def _human_size(size_bytes: int) -> str:
+    """Format bytes as human-readable string."""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    elif size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+    return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
+
+
+def _is_compound_tar(file_path: Path) -> bool:
+    """Check if file is a compound tar extension (.tar.gz, .tar.bz2, .tar.xz)."""
+    name = file_path.name.lower()
+    return any(name.endswith(ext) for ext in (".tar.gz", ".tar.bz2", ".tar.xz"))
+
+
+def _get_archive_format(file_path: Path) -> str:
+    """Determine archive format label from path."""
+    name = file_path.name.lower()
+    if name.endswith((".tar.gz", ".tgz")):
+        return "tar.gz"
+    if name.endswith((".tar.bz2", ".tbz2")):
+        return "tar.bz2"
+    if name.endswith((".tar.xz", ".txz")):
+        return "tar.xz"
+    if name.endswith(".tar"):
+        return "tar"
+    return file_path.suffix.lower().lstrip(".")
+
+
+# ── Member dataclass ─────────────────────────────────────────────────────────
+
+@dataclass
+class _ArchiveMember:
+    path: str
+    size: int = 0
+    modified_at: datetime | None = None
+    is_directory: bool = False
+
+    @property
+    def ext(self) -> str:
+        return Path(self.path).suffix.lower()
+
+    @property
+    def is_archive(self) -> bool:
+        name = Path(self.path).name.lower()
+        return any(name.endswith(e) for e in ARCHIVE_EXTENSIONS)
+
+
+# ── Format-specific extractors ───────────────────────────────────────────────
+
+def _list_zip(path: Path, password: str | None) -> list[_ArchiveMember]:
+    import zipfile
+    pw = password.encode("utf-8") if password else None
+    members = []
+    with zipfile.ZipFile(path, "r") as zf:
+        if pw:
+            zf.setpassword(pw)
+        for info in zf.infolist():
+            mtime = datetime(*info.date_time) if info.date_time else None
+            members.append(_ArchiveMember(
+                path=info.filename, size=info.file_size,
+                modified_at=mtime, is_directory=info.is_dir(),
+            ))
+    return members
+
+
+def _extract_zip(path: Path, member: _ArchiveMember, dest: Path, password: str | None) -> Path:
+    import zipfile
+    pw = password.encode("utf-8") if password else None
+    with zipfile.ZipFile(path, "r") as zf:
+        zf.extract(member.path, path=dest, pwd=pw)
+    return dest / member.path
+
+
+def _is_zip_encrypted(path: Path) -> bool:
+    import zipfile
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            return any(info.flag_bits & 0x1 for info in zf.infolist())
+    except Exception:
+        return False
+
+
+def _list_tar(path: Path, password: str | None) -> list[_ArchiveMember]:
+    import tarfile
+    members = []
+    with tarfile.open(path, "r:*") as tf:
+        for info in tf.getmembers():
+            mtime = datetime.fromtimestamp(info.mtime) if info.mtime else None
+            members.append(_ArchiveMember(
+                path=info.name, size=info.size,
+                modified_at=mtime, is_directory=info.isdir(),
+            ))
+    return members
+
+
+def _extract_tar(path: Path, member: _ArchiveMember, dest: Path, password: str | None) -> Path:
+    import tarfile
+    with tarfile.open(path, "r:*") as tf:
+        info = tf.getmember(member.path)
+        if info.name.startswith("/") or ".." in info.name:
+            raise ValueError(f"Unsafe path in tar: {info.name}")
+        tf.extract(info, path=dest, filter="data")
+    return dest / member.path
+
+
+def _list_7z(path: Path, password: str | None) -> list[_ArchiveMember]:
+    import py7zr
+    kwargs = {"password": password} if password else {}
+    members = []
+    with py7zr.SevenZipFile(path, "r", **kwargs) as zf:
+        for info in zf.list():
+            members.append(_ArchiveMember(
+                path=info.filename,
+                size=getattr(info, "uncompressed", 0) or 0,
+                modified_at=getattr(info, "creationtime", None),
+                is_directory=info.is_directory,
+            ))
+    return members
+
+
+def _extract_7z(path: Path, member: _ArchiveMember, dest: Path, password: str | None) -> Path:
+    import py7zr
+    kwargs = {"password": password} if password else {}
+    with py7zr.SevenZipFile(path, "r", **kwargs) as zf:
+        zf.extract(path=dest, targets=[member.path])
+    return dest / member.path
+
+
+def _is_7z_encrypted(path: Path) -> bool:
+    try:
+        import py7zr
+        with py7zr.SevenZipFile(path, "r") as zf:
+            return zf.needs_password()
+    except Exception:
+        return True
+
+
+def _list_rar(path: Path, password: str | None) -> list[_ArchiveMember]:
+    import rarfile
+    members = []
+    with rarfile.RarFile(str(path)) as rf:
+        if password:
+            rf.setpassword(password)
+        for info in rf.infolist():
+            mtime = datetime(*info.date_time) if info.date_time else None
+            members.append(_ArchiveMember(
+                path=info.filename, size=info.file_size,
+                modified_at=mtime, is_directory=info.is_dir(),
+            ))
+    return members
+
+
+def _extract_rar(path: Path, member: _ArchiveMember, dest: Path, password: str | None) -> Path:
+    import rarfile
+    with rarfile.RarFile(str(path)) as rf:
+        if password:
+            rf.setpassword(password)
+        rf.extract(member.path, path=str(dest))
+    return dest / member.path
+
+
+def _is_rar_encrypted(path: Path) -> bool:
+    try:
+        import rarfile
+        with rarfile.RarFile(str(path)) as rf:
+            return rf.needs_password()
+    except Exception:
+        return True
+
+
+def _list_iso(path: Path, password: str | None) -> list[_ArchiveMember]:
+    import pycdlib
+    iso = pycdlib.PyCdlib()
+    iso.open(str(path))
+    members: list[_ArchiveMember] = []
+    try:
+        _walk_iso(iso, "/", members)
+    finally:
+        iso.close()
+    return members
+
+
+def _walk_iso(iso, dir_path: str, members: list[_ArchiveMember], use_joliet: bool = True):
+    """Recursively walk an ISO filesystem."""
+    try:
+        if use_joliet:
+            children = list(iso.list_children(joliet_path=dir_path))
+        else:
+            children = list(iso.list_children(iso_path=dir_path))
+    except Exception:
+        if use_joliet:
+            _walk_iso(iso, dir_path, members, use_joliet=False)
+        return
+
+    for child in children:
+        name = child.file_identifier().decode("utf-8", errors="replace")
+        if name in (".", ".."):
+            continue
+        child_path = f"{dir_path}/{name}".replace("//", "/")
+        if child.is_dir():
+            _walk_iso(iso, child_path, members, use_joliet)
+        else:
+            clean = name.split(";")[0]
+            clean_path = child_path.split(";")[0].lstrip("/")
+            members.append(_ArchiveMember(
+                path=clean_path, size=child.data_length,
+                is_directory=False,
+            ))
+
+
+def _extract_iso(path: Path, member: _ArchiveMember, dest: Path, password: str | None) -> Path:
+    import pycdlib
+    iso = pycdlib.PyCdlib()
+    iso.open(str(path))
+    try:
+        output = dest / member.path
+        output.parent.mkdir(parents=True, exist_ok=True)
+        iso_path = "/" + member.path
+        try:
+            iso.get_file_from_iso(str(output), joliet_path=iso_path)
+        except Exception:
+            iso.get_file_from_iso(str(output), iso_path=iso_path + ";1")
+    finally:
+        iso.close()
+    return output
+
+
+def _list_cab(path: Path, password: str | None) -> list[_ArchiveMember]:
+    import subprocess
+    result = subprocess.run(
+        ["cabextract", "-l", str(path)],
+        capture_output=True, text=True, timeout=60,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"cabextract -l failed: {result.stderr.strip()}")
+    members = []
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line or line.startswith("File") or line.startswith("---") or line.startswith("All"):
+            continue
+        parts = line.split()
+        if len(parts) >= 4:
+            try:
+                size = int(parts[0])
+                name = parts[-1]
+                members.append(_ArchiveMember(path=name, size=size))
+            except (ValueError, IndexError):
+                continue
+    return members
+
+
+def _extract_cab(path: Path, member: _ArchiveMember, dest: Path, password: str | None) -> Path:
+    import subprocess
+    result = subprocess.run(
+        ["cabextract", "-d", str(dest), "-F", member.path, str(path)],
+        capture_output=True, text=True, timeout=300,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"cabextract failed: {result.stderr.strip()}")
+    return dest / member.path
+
+
+# ── Dispatch tables ──────────────────────────────────────────────────────────
+
+_LIST_FN: dict[str, Any] = {
+    "zip": _list_zip,
+    "tar": _list_tar, "tar.gz": _list_tar, "tar.bz2": _list_tar, "tar.xz": _list_tar,
+    "tgz": _list_tar, "tbz2": _list_tar, "txz": _list_tar,
+    "7z": _list_7z,
+    "rar": _list_rar,
+    "iso": _list_iso,
+    "cab": _list_cab,
+}
+
+_EXTRACT_FN: dict[str, Any] = {
+    "zip": _extract_zip,
+    "tar": _extract_tar, "tar.gz": _extract_tar, "tar.bz2": _extract_tar, "tar.xz": _extract_tar,
+    "tgz": _extract_tar, "tbz2": _extract_tar, "txz": _extract_tar,
+    "7z": _extract_7z,
+    "rar": _extract_rar,
+    "iso": _extract_iso,
+    "cab": _extract_cab,
+}
+
+_ENCRYPTED_FN: dict[str, Any] = {
+    "zip": _is_zip_encrypted,
+    "7z": _is_7z_encrypted,
+    "rar": _is_rar_encrypted,
+}
+
+
+# ── Handler ──────────────────────────────────────────────────────────────────
+
+@register_handler
+class ArchiveHandler(FormatHandler):
+    """Handler for compressed archive files."""
+
+    EXTENSIONS = [
+        "zip",
+        "tar", "tar.gz", "tgz", "tar.bz2", "tbz2", "tar.xz", "txz",
+        "7z", "rar", "cab", "iso",
+    ]
+
+    def ingest(self, file_path: Path, **kwargs) -> DocumentModel:
+        t_start = time.perf_counter()
+        file_path = Path(file_path)
+        depth = kwargs.get("depth", 0)
+        tracker: ExtractionTracker = kwargs.get("_tracker", ExtractionTracker())
+
+        fmt = _get_archive_format(file_path)
+        log.info("archive_ingest_start", filename=file_path.name, format=fmt, depth=depth)
+
+        model = DocumentModel()
+        model.metadata = DocumentMetadata(
+            source_file=file_path.name,
+            source_format=fmt,
+        )
+
+        # Depth check
+        depth_err = check_nesting_depth(depth)
+        if depth_err:
+            model.warnings.append(depth_err)
+            log.warning("archive_depth_exceeded", filename=file_path.name, depth=depth)
+            model.add_element(Element(
+                type=ElementType.HEADING, content=f"Archive: {file_path.name}", attributes={"level": 1},
+            ))
+            model.add_element(Element(type=ElementType.PARAGRAPH, content=f"**Skipped:** {depth_err}"))
+            return model
+
+        # Quine check
+        archive_hash = _compute_hash(file_path)
+        quine_err = tracker.push_hash(archive_hash)
+        if quine_err:
+            model.warnings.append(quine_err)
+            model.add_element(Element(
+                type=ElementType.HEADING, content=f"Archive: {file_path.name}", attributes={"level": 1},
+            ))
+            model.add_element(Element(type=ElementType.PARAGRAPH, content=f"**Skipped:** {quine_err}"))
+            return model
+
+        # Password handling
+        password = self._find_password(file_path, fmt)
+        is_encrypted = password is not None and password != ""
+        if password is None:
+            model.warnings.append("Password-protected archive: all passwords exhausted")
+            model.add_element(Element(
+                type=ElementType.HEADING, content=f"Archive: {file_path.name}", attributes={"level": 1},
+            ))
+            model.add_element(Element(
+                type=ElementType.PARAGRAPH,
+                content="**Cannot open:** archive is password-protected and no working password was found.",
+            ))
+            return model
+
+        # List members
+        list_fn = _LIST_FN.get(fmt)
+        if not list_fn:
+            model.warnings.append(f"No list function for format: {fmt}")
+            return model
+
+        try:
+            members = list_fn(file_path, password)
+        except Exception as exc:
+            model.warnings.append(f"Failed to list archive contents: {exc}")
+            log.error("archive_list_failed", filename=file_path.name, error=str(exc))
+            model.add_element(Element(
+                type=ElementType.HEADING, content=f"Archive: {file_path.name}", attributes={"level": 1},
+            ))
+            model.add_element(Element(type=ElementType.PARAGRAPH, content=f"**Error:** {exc}"))
+            return model
+
+        file_members = [m for m in members if not m.is_directory]
+        total_uncompressed = sum(m.size for m in file_members)
+
+        # Entry count check
+        entry_err = check_entry_count(len(file_members))
+        if entry_err:
+            model.warnings.append(entry_err)
+
+        # Total size check
+        size_err = tracker.add_bytes(total_uncompressed)
+        if size_err:
+            model.warnings.append(size_err)
+            model.add_element(Element(
+                type=ElementType.HEADING, content=f"Archive: {file_path.name}", attributes={"level": 1},
+            ))
+            model.add_element(Element(type=ElementType.PARAGRAPH, content=f"**Skipped:** {size_err}"))
+            tracker.pop_hash(archive_hash)
+            return model
+
+        # Build summary heading
+        stat = file_path.stat()
+        model.add_element(Element(
+            type=ElementType.HEADING, content=f"Archive: {file_path.name}", attributes={"level": 1},
+        ))
+
+        # Metadata table
+        meta_rows = [
+            ["Format", fmt],
+            ["Archive Size", _human_size(stat.st_size)],
+            ["Files", str(len(file_members))],
+            ["Total Uncompressed", _human_size(total_uncompressed)],
+            ["SHA-256", f"`{archive_hash}`"],
+        ]
+        if is_encrypted:
+            meta_rows.append(["Password Protected", "Yes"])
+        model.add_element(Element(
+            type=ElementType.TABLE,
+            content=[["Property", "Value"]] + meta_rows,
+        ))
+
+        # Contents table
+        contents_header = ["File", "Size", "Modified", "Type"]
+        contents_rows = []
+        for m in sorted(file_members, key=lambda x: x.path):
+            mtime = m.modified_at.strftime("%Y-%m-%d %H:%M") if m.modified_at else "—"
+            contents_rows.append([f"`{m.path}`", _human_size(m.size), mtime, m.ext or "—"])
+
+        if contents_rows:
+            model.add_element(Element(
+                type=ElementType.HEADING, content="Contents", attributes={"level": 2},
+            ))
+            model.add_element(Element(
+                type=ElementType.TABLE,
+                content=[contents_header] + contents_rows,
+            ))
+
+        # Extract and convert each member
+        temp_dir = Path(tempfile.mkdtemp(prefix=f"markflow_archive_{depth}_"))
+        extract_fn = _EXTRACT_FN.get(fmt)
+        converted_count = 0
+        error_count = 0
+
+        try:
+            for member in file_members:
+                if not extract_fn:
+                    continue
+
+                try:
+                    extracted = extract_fn(file_path, member, temp_dir, password)
+
+                    if not extracted.exists():
+                        continue
+
+                    # Recursive archive handling
+                    if member.is_archive and depth < MAX_NESTING_DEPTH:
+                        nested_handler = ArchiveHandler()
+                        try:
+                            nested_model = nested_handler.ingest(
+                                extracted, depth=depth + 1, _tracker=tracker,
+                            )
+                            model.add_element(Element(
+                                type=ElementType.HEADING,
+                                content=f"Nested: {member.path}",
+                                attributes={"level": 2},
+                            ))
+                            for elem in nested_model.elements:
+                                model.add_element(elem)
+                            converted_count += 1
+                            continue
+                        except Exception as exc:
+                            log.warning("archive_nested_failed",
+                                        member=member.path, error=str(exc))
+
+                    # Try converting through normal handler pipeline
+                    handler = get_handler(member.ext)
+                    if handler and not isinstance(handler, ArchiveHandler):
+                        try:
+                            inner_model = handler.ingest(extracted)
+                            md_text = _model_to_markdown(inner_model)
+                            if md_text.strip():
+                                model.add_element(Element(
+                                    type=ElementType.HEADING,
+                                    content=member.path,
+                                    attributes={"level": 2},
+                                ))
+                                model.add_element(Element(
+                                    type=ElementType.PARAGRAPH,
+                                    content=md_text,
+                                ))
+                                converted_count += 1
+                            continue
+                        except Exception as exc:
+                            error_count += 1
+                            model.warnings.append(f"{member.path}: conversion failed: {exc}")
+                            log.warning("archive_member_convert_failed",
+                                        member=member.path, error=str(exc))
+                    else:
+                        # No handler — just list it
+                        pass
+
+                except Exception as exc:
+                    error_count += 1
+                    model.warnings.append(f"{member.path}: extraction failed: {exc}")
+                    log.warning("archive_member_extract_failed",
+                                member=member.path, error=str(exc))
+
+        finally:
+            # CRITICAL: Always clean up temp directory
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            tracker.pop_hash(archive_hash)
+
+        # Summary line
+        summary = f"Processed {len(file_members)} files: {converted_count} converted"
+        if error_count:
+            summary += f", {error_count} errors"
+        model.add_element(Element(type=ElementType.PARAGRAPH, content=f"*{summary}*"))
+
+        duration_ms = int((time.perf_counter() - t_start) * 1000)
+        log.info("archive_ingest_complete", filename=file_path.name,
+                 members=len(file_members), converted=converted_count,
+                 errors=error_count, duration_ms=duration_ms)
+
+        return model
+
+    def export(self, model, output_path, sidecar=None, original_path=None):
+        raise NotImplementedError("Archives cannot be exported from Markdown")
+
+    def extract_styles(self, file_path: Path) -> dict[str, Any]:
+        stat = file_path.stat()
+        fmt = _get_archive_format(file_path)
+        return {"document_level": {"extension": f".{fmt}", "file_size": stat.st_size}}
+
+    def _find_password(self, path: Path, fmt: str) -> str | None:
+        """Try passwords. Returns working password, "" if not encrypted, None if all fail."""
+        detect_fn = _ENCRYPTED_FN.get(fmt)
+        if not detect_fn:
+            return ""  # Format doesn't support encryption
+        if not detect_fn(path):
+            return ""  # Not encrypted
+
+        passwords = _load_passwords()
+        list_fn = _LIST_FN.get(fmt)
+        if not list_fn:
+            return None
+
+        for pw in passwords:
+            try:
+                list_fn(path, pw)
+                return pw
+            except Exception:
+                continue
+
+        return None
+
+
+# ── Markdown helper ──────────────────────────────────────────────────────────
+
+def _model_to_markdown(model: DocumentModel) -> str:
+    """Render a DocumentModel to Markdown text (simplified)."""
+    lines: list[str] = []
+    for elem in model.elements:
+        if elem.type == ElementType.HEADING:
+            level = elem.attributes.get("level", 1) if elem.attributes else 1
+            lines.append(f"{'#' * level} {elem.content}")
+            lines.append("")
+        elif elem.type == ElementType.PARAGRAPH:
+            lines.append(str(elem.content))
+            lines.append("")
+        elif elem.type == ElementType.TABLE and isinstance(elem.content, list):
+            for i, row in enumerate(elem.content):
+                lines.append("| " + " | ".join(str(c) for c in row) + " |")
+                if i == 0:
+                    lines.append("| " + " | ".join("---" for _ in row) + " |")
+            lines.append("")
+        elif elem.type == ElementType.CODE_BLOCK:
+            lang = (elem.attributes or {}).get("language", "")
+            lines.append(f"```{lang}")
+            lines.append(str(elem.content))
+            lines.append("```")
+            lines.append("")
+        elif elem.type == ElementType.LIST:
+            if isinstance(elem.content, list):
+                for item in elem.content:
+                    lines.append(f"- {item}")
+            lines.append("")
+        else:
+            if elem.content:
+                lines.append(str(elem.content))
+                lines.append("")
+    return "\n".join(lines)

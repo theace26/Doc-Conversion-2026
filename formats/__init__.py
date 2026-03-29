@@ -26,3 +26,4 @@ from formats.adobe_handler import AdobeHandler  # noqa: F401
 from formats.json_handler import JsonHandler  # noqa: F401
 from formats.yaml_handler import YamlHandler  # noqa: F401
 from formats.ini_handler import IniHandler  # noqa: F401
+from formats.archive_handler import ArchiveHandler  # noqa: F401
