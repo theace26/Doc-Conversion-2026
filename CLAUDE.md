@@ -26,12 +26,11 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.12.3
+## Current Status — v0.12.4
 
-All 10 phases complete + universal format support. Latest: compressed file scanning
-(.zip, .tar.gz, .7z, .rar, .cab, .iso), recursive archive extraction with conversion
-of inner documents, archive_members DB table for deduplication/change detection,
-zip-bomb protection, compound extension support in format registry.
+All 10 phases complete + universal format support. Latest: archive password writeback
+(successful passwords saved to file and reused across session), session-level password
+reuse for faster batch processing of related encrypted archives.
 
 **Planned:** External log shipping to Grafana Loki / ELK stack. The current local log
 archive system is an interim solution — once external aggregation is in place, local
@@ -129,11 +128,11 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **File downloads**: Never use `fetch()` + blob for file downloads — use `window.location.href` or `<a>` tags. Backend must set explicit `Content-Length` header.
 - **Archive handler**: Follows EML handler pattern — `ingest()` produces a DocumentModel with summary + recursive inner content. Temp dirs cleaned in `finally` blocks. Max depth 20 (env: `ARCHIVE_MAX_DEPTH`).
 - **Compound extensions**: `.tar.gz`, `.tar.bz2`, `.tar.xz` require compound extension lookup in both `formats/base.py` and `core/bulk_scanner.py`. `Path.suffix` only returns `.gz` — use `_get_compound_extension()` / `_get_effective_extension()`.
-- **Archive passwords**: Loaded from `config/archive_passwords.txt`. Empty password always tried first. Never log the actual password — log the index only.
+- **Archive passwords**: Loaded from `config/archive_passwords.txt`. Successful passwords are saved back to the file and reused session-wide (found passwords tried first). Empty password always tried first. Never log the actual password — log the index only.
 
 ---
 
-## Supported Formats (v0.12.3)
+## Supported Formats (v0.12.4)
 
 | Category | Extensions | Handler |
 |----------|-----------|---------|

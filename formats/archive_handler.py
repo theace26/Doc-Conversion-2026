@@ -11,6 +11,7 @@ Ingest:
     - Converted content for each inner file as subsections
 
   Password-protected archives: tries passwords from config/archive_passwords.txt.
+  Successful passwords are saved back to the file and reused across the session.
   Zip-bomb protection: per-entry ratio check, total size cap, quine detection.
 
 Export:
@@ -22,6 +23,7 @@ import io
 import os
 import shutil
 import tempfile
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -50,20 +52,62 @@ log = structlog.get_logger(__name__)
 
 _PASSWORD_FILE = os.environ.get("ARCHIVE_PASSWORD_FILE", "config/archive_passwords.txt")
 
+# Session-level password reuse: passwords that worked during this process lifetime
+# are tried first on subsequent archives. Thread-safe via lock.
+_found_passwords: set[str] = set()
+_password_lock = threading.Lock()
+
 
 def _load_passwords() -> list[str]:
-    """Load passwords from the user-configurable password file."""
+    """Load passwords: found passwords first, then static file, always try empty first."""
     passwords = [""]  # Always try empty password first
+
+    # Found passwords from this session go right after empty (most likely to work)
+    with _password_lock:
+        for pw in _found_passwords:
+            if pw and pw not in passwords:
+                passwords.append(pw)
+
+    # Then the static file
     try:
         pw_path = Path(_PASSWORD_FILE)
         if pw_path.exists():
             for line in pw_path.read_text(encoding="utf-8").splitlines():
                 line = line.strip()
-                if line and not line.startswith("#"):
+                if line and not line.startswith("#") and line not in passwords:
                     passwords.append(line)
     except Exception as exc:
         log.warning("archive_password_file_error", error=str(exc))
     return passwords
+
+
+def _save_found_password(password: str) -> None:
+    """Persist a successful password to session memory and the password file."""
+    if not password:
+        return
+
+    # Add to session set
+    with _password_lock:
+        if password in _found_passwords:
+            return  # Already known
+        _found_passwords.add(password)
+
+    # Append to the password file (if not already present)
+    try:
+        pw_path = Path(_PASSWORD_FILE)
+        existing = set()
+        if pw_path.exists():
+            for line in pw_path.read_text(encoding="utf-8").splitlines():
+                existing.add(line.strip())
+
+        if password not in existing:
+            pw_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(pw_path, "a", encoding="utf-8") as f:
+                f.write(f"\n{password}\n")
+            log.info("archive_password_saved",
+                     password_count=len(existing) + 1)
+    except Exception as exc:
+        log.warning("archive_password_save_failed", error=str(exc))
 
 
 def _compute_hash(file_path: Path) -> str:
@@ -602,7 +646,11 @@ class ArchiveHandler(FormatHandler):
         return {"document_level": {"extension": f".{fmt}", "file_size": stat.st_size}}
 
     def _find_password(self, path: Path, fmt: str) -> str | None:
-        """Try passwords. Returns working password, "" if not encrypted, None if all fail."""
+        """Try passwords. Returns working password, "" if not encrypted, None if all fail.
+
+        On success with a non-empty password, saves it to the session set and
+        appends it to the password file for future reuse.
+        """
         detect_fn = _ENCRYPTED_FN.get(fmt)
         if not detect_fn:
             return ""  # Format doesn't support encryption
@@ -614,13 +662,18 @@ class ArchiveHandler(FormatHandler):
         if not list_fn:
             return None
 
-        for pw in passwords:
+        for i, pw in enumerate(passwords):
             try:
                 list_fn(path, pw)
+                log.info("archive_password_found",
+                         archive=path.name, password_index=i)
+                _save_found_password(pw)
                 return pw
             except Exception:
                 continue
 
+        log.warning("archive_password_exhausted",
+                    archive=path.name, passwords_tried=len(passwords))
         return None
 
 
