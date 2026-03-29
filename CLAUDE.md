@@ -26,12 +26,12 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.12.5
+## Current Status — v0.12.6
 
-All 10 phases complete + universal format support. Latest: full password cracking cascade
-for encrypted archives (dictionary + mutations + brute-force), matching the existing
-PDF/Office password handler pattern. Respects user brute-force preferences (charset,
-max length, timeout). Successful passwords saved and reused across session.
+All 10 phases complete + universal format support. Latest: fixed brute-force charset to
+use all printable characters (letters + digits + punctuation, no control chars) by default
+for both archive and PDF/Office password crackers. Nested encrypted archives get the full
+cracking cascade automatically.
 
 **Planned:** External log shipping to Grafana Loki / ELK stack. The current local log
 archive system is an interim solution — once external aggregation is in place, local
@@ -133,7 +133,7 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 
 ---
 
-## Supported Formats (v0.12.5)
+## Supported Formats (v0.12.6)
 
 | Category | Extensions | Handler |
 |----------|-----------|---------|

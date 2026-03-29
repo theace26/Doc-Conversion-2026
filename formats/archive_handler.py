@@ -145,7 +145,11 @@ def _mutations(password: str) -> list[str]:
 
 
 def _get_charset(charset_name: str) -> str:
-    """Get character set for brute-force based on config name."""
+    """Get character set for brute-force based on config name.
+
+    'all_printable' includes uppercase, lowercase, digits, and all standard
+    punctuation/symbols — but NOT whitespace or control characters.
+    """
     if charset_name == "numeric":
         return string.digits
     elif charset_name == "alpha":
@@ -153,8 +157,8 @@ def _get_charset(charset_name: str) -> str:
     elif charset_name == "alphanumeric":
         return string.ascii_lowercase + string.digits
     elif charset_name == "all_printable":
-        return string.printable.strip()
-    return string.ascii_lowercase + string.digits
+        return string.ascii_letters + string.digits + string.punctuation
+    return string.ascii_letters + string.digits + string.punctuation
 
 
 def _compute_hash(file_path: Path) -> str:
@@ -801,7 +805,7 @@ class ArchiveHandler(FormatHandler):
             "dictionary_enabled": True,
             "brute_force_enabled": False,
             "max_length": 6,
-            "charset": "alphanumeric",
+            "charset": "all_printable",
             "timeout": 300,
         }
         try:

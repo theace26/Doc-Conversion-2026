@@ -583,7 +583,11 @@ class PasswordHandler:
         return mutations
 
     def _get_charset(self) -> str:
-        """Get character set for brute-force based on config."""
+        """Get character set for brute-force based on config.
+
+        'all_printable' includes uppercase, lowercase, digits, and all standard
+        punctuation/symbols — but NOT whitespace or control characters.
+        """
         if self.brute_force_charset == "numeric":
             return string.digits
         elif self.brute_force_charset == "alpha":
@@ -591,8 +595,8 @@ class PasswordHandler:
         elif self.brute_force_charset == "alphanumeric":
             return string.ascii_lowercase + string.digits
         elif self.brute_force_charset == "all_printable":
-            return string.printable.strip()
-        return string.ascii_lowercase + string.digits
+            return string.ascii_letters + string.digits + string.punctuation
+        return string.ascii_letters + string.digits + string.punctuation
 
     def _try_john(self, path: Path, deadline: float) -> str | None:
         """Try John the Ripper for PDF password cracking."""
