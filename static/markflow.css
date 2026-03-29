@@ -1123,6 +1123,9 @@ small, .text-sm { font-size: 0.85rem; }
   justify-content: space-between;
   gap: 12px;
 }
+.stop-banner[hidden] {
+  display: none !important;
+}
 .stop-banner__text { font-weight: 600; color: #e65100; font-size: 0.9rem; }
 .stop-banner__reset {
   background: none; border: none; color: var(--accent);

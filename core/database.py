@@ -550,6 +550,39 @@ async def init_db() -> None:
         await _init_preferences(conn)
 
 
+async def cleanup_orphaned_jobs() -> None:
+    """Clean up jobs stuck in active states from a previous container run.
+
+    Called once at startup. Any job in scanning/running/pending state when the
+    container starts is by definition orphaned — the workers that owned them
+    no longer exist.
+    """
+    _log = structlog.get_logger(__name__)
+    async with get_db() as conn:
+        # Cancel stuck bulk jobs
+        cursor = await conn.execute(
+            """UPDATE bulk_jobs SET status='cancelled', completed_at=datetime('now')
+               WHERE status IN ('scanning', 'running', 'pending')"""
+        )
+        cancelled_jobs = cursor.rowcount
+
+        # Interrupt stuck scan runs
+        cursor = await conn.execute(
+            """UPDATE scan_runs SET status='interrupted', finished_at=datetime('now')
+               WHERE status='running' AND finished_at IS NULL"""
+        )
+        interrupted_scans = cursor.rowcount
+
+        await conn.commit()
+
+    if cancelled_jobs or interrupted_scans:
+        _log.warning("startup.orphan_cleanup",
+                     cancelled_jobs=cancelled_jobs,
+                     interrupted_scans=interrupted_scans)
+    else:
+        _log.info("startup.orphan_cleanup", msg="No orphaned jobs found")
+
+
 async def _init_preferences(conn: aiosqlite.Connection) -> None:
     """Insert default preferences that don't already exist."""
     for key, value in DEFAULT_PREFERENCES.items():

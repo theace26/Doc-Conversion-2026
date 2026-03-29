@@ -1,4 +1,4 @@
-"""Tests for v0.12.0a bugfix patch.
+"""Tests for v0.12.1 bugfix + stability patch.
 
 Validates fixes for:
 - Bug 2: structlog double event argument
@@ -6,8 +6,12 @@ Validates fixes for:
 - Bug 4: collect_metrics interval and timeout
 - Bug 5: DB compaction no longer deferred by scan_running guard
 - Bug 6: MCP connection uses Docker service name
+- Fix 8: Startup orphan job recovery
+- Fix 9: Stop banner CSS specificity
+- Fix 10: Progress tracker (already existed, validated here)
 """
 import ast
+import time
 
 import pytest
 
@@ -76,7 +80,6 @@ class TestSQLiteWALMode:
         """Verify metrics_collector.py does not use bare aiosqlite.connect(DB_PATH)."""
         with open("core/metrics_collector.py", "r") as f:
             source = f.read()
-        # The _db() helper should exist and set busy_timeout
         assert "PRAGMA busy_timeout" in source, (
             "metrics_collector.py must set busy_timeout on connections"
         )
@@ -110,7 +113,6 @@ class TestCompactionNoScanGuard:
         with open("core/scheduler.py", "r") as f:
             source = f.read()
 
-        # Extract just the run_db_compaction function
         tree = ast.parse(source)
         for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "run_db_compaction":
@@ -181,3 +183,142 @@ class TestLogDownload:
         response = await client.get("/api/logs/download/nonexistent.log")
         # nonexistent.log is not in the whitelist, so should be 400
         assert response.status_code in (400, 404)
+
+
+class TestOrphanCleanup:
+    """Fix 8: Startup orphan job recovery."""
+
+    @pytest.mark.asyncio
+    async def test_cleanup_orphaned_jobs(self):
+        """Verify cleanup_orphaned_jobs cancels stuck jobs."""
+        import aiosqlite
+        from core.database import DB_PATH, cleanup_orphaned_jobs
+
+        # Insert a fake stuck job
+        async with aiosqlite.connect(DB_PATH) as conn:
+            await conn.execute("PRAGMA busy_timeout=10000")
+            await conn.execute(
+                """INSERT OR IGNORE INTO bulk_jobs
+                   (id, status, source_path, output_path, created_at)
+                   VALUES ('test_orphan_1', 'running', '/test', '/out', datetime('now'))"""
+            )
+            await conn.commit()
+
+        # Run cleanup
+        await cleanup_orphaned_jobs()
+
+        # Verify it was cancelled
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.execute(
+                "SELECT status FROM bulk_jobs WHERE id='test_orphan_1'"
+            )
+            row = await cursor.fetchone()
+            assert row is not None
+            assert row[0] == "cancelled"
+
+            # Clean up test data
+            await conn.execute("DELETE FROM bulk_jobs WHERE id='test_orphan_1'")
+            await conn.commit()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_does_not_touch_completed_jobs(self):
+        """Verify cleanup leaves completed/cancelled jobs alone."""
+        import aiosqlite
+        from core.database import DB_PATH, cleanup_orphaned_jobs
+
+        async with aiosqlite.connect(DB_PATH) as conn:
+            await conn.execute("PRAGMA busy_timeout=10000")
+            await conn.execute(
+                """INSERT OR IGNORE INTO bulk_jobs
+                   (id, status, source_path, output_path, created_at)
+                   VALUES ('test_complete_1', 'completed', '/test', '/out', datetime('now'))"""
+            )
+            await conn.commit()
+
+        await cleanup_orphaned_jobs()
+
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.execute(
+                "SELECT status FROM bulk_jobs WHERE id='test_complete_1'"
+            )
+            row = await cursor.fetchone()
+            assert row[0] == "completed"
+
+            await conn.execute("DELETE FROM bulk_jobs WHERE id='test_complete_1'")
+            await conn.commit()
+
+
+class TestStopBannerCSS:
+    """Fix 9: Stop banner CSS specificity fix."""
+
+    def test_stop_banner_hidden_override(self):
+        """Verify .stop-banner[hidden] has display:none !important."""
+        with open("static/markflow.css", "r") as f:
+            source = f.read()
+        assert ".stop-banner[hidden]" in source, (
+            "markflow.css must have .stop-banner[hidden] rule"
+        )
+        assert "display: none !important" in source, (
+            "markflow.css must override display with !important for hidden banner"
+        )
+
+    def test_stop_banner_js_uses_style_display(self):
+        """Verify status.html uses style.display, not .hidden attribute."""
+        with open("static/status.html", "r") as f:
+            source = f.read()
+        assert "style.display" in source, (
+            "status.html should use style.display for stop banner toggle"
+        )
+
+
+class TestProgressTracker:
+    """Fix 10: Rolling window ETA estimation (pre-existing, validated here)."""
+
+    def test_progress_tracking_basic(self):
+        """Completed count should track record_completion_sync calls."""
+        from core.progress_tracker import RollingWindowETA
+        tracker = RollingWindowETA(total=100)
+        for _ in range(50):
+            tracker.record_completion_sync()
+        snap = tracker.snapshot_sync()
+        assert snap.completed == 50
+
+    def test_zero_total_no_crash(self):
+        """Zero total should not cause divide-by-zero."""
+        from core.progress_tracker import RollingWindowETA
+        tracker = RollingWindowETA(total=0)
+        snap = tracker.snapshot_sync()
+        d = snap.to_dict()
+        # percent is None when total is 0 (falsy)
+        assert d.get("percent") is None or d["percent"] == 0.0
+
+    def test_snapshot_to_dict(self):
+        """Snapshot to_dict should return a JSON-serializable dict."""
+        from core.progress_tracker import RollingWindowETA
+        tracker = RollingWindowETA(total=100)
+        snap = tracker.snapshot_sync()
+        d = snap.to_dict()
+        assert isinstance(d, dict)
+        assert "completed" in d
+        assert "total" in d
+        assert d["total"] == 100
+        assert d["completed"] == 0
+
+    def test_rate_calculation(self):
+        """Rate should be positive after enough ticks."""
+        from core.progress_tracker import RollingWindowETA
+        tracker = RollingWindowETA(total=1000)
+        for _ in range(5):
+            tracker.record_completion_sync()
+            time.sleep(0.01)
+        snap = tracker.snapshot_sync()
+        assert snap.files_per_second is not None
+        assert snap.files_per_second > 0
+
+    def test_format_eta(self):
+        """format_eta should return human-readable strings."""
+        from core.progress_tracker import format_eta
+        assert format_eta(None) is None
+        assert "remaining" in format_eta(30)
+        assert "remaining" in format_eta(90)
+        assert "h" in format_eta(7200)

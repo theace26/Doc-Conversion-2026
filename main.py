@@ -65,6 +65,14 @@ async def lifespan(app: FastAPI):
     await init_db()
     log.info("markflow.db_ready")
 
+    # Clean up any jobs stuck from a previous container run
+    from core.database import cleanup_orphaned_jobs
+    await cleanup_orphaned_jobs()
+
+    # Clear in-memory stop flag so the banner doesn't stick after restart
+    from core.stop_controller import reset_stop
+    reset_stop()
+
     # Apply saved log level preference
     from core.database import get_preference
     from core.logging_config import update_log_level
@@ -130,7 +138,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(collect_disk_snapshot())
         # Record startup event
         await record_activity_event("startup", "MarkFlow started", {
-            "version": "0.12.8",
+            "version": "0.12.1",
             "cpu_count": psutil.cpu_count(logical=True),
             "ram_total": psutil.virtual_memory().total,
         })

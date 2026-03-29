@@ -285,6 +285,15 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 - **Nav is dynamic**: `app.js::buildNav()` fetches `/api/auth/me` and filters nav items by role.
 
+## Startup & Lifecycle
+
+- **Orphan cleanup runs at startup**: `cleanup_orphaned_jobs()` in `core/database.py` cancels
+  any bulk_jobs in scanning/running/pending and interrupts any scan_runs still in running state.
+  Runs before the scheduler starts. This is why the stop banner doesn't stick after restarts.
+
+- **Stop banner CSS**: `.stop-banner[hidden] { display: none !important; }` in markflow.css.
+  JS uses `style.display` not `.hidden` attribute because CSS `display:flex` overrides `hidden`.
+
 ## Scheduler & Metrics
 
 - **collect_metrics interval**: 120s with `coalesce=True`, `misfire_grace_time=60`.

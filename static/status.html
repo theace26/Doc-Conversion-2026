@@ -107,7 +107,7 @@
       var stopBanner = document.getElementById('stop-banner');
 
       // Stop state
-      stopBanner.hidden = !data.stop_requested;
+      stopBanner.style.display = data.stop_requested ? 'flex' : 'none';
       stopBtn.disabled  = data.stop_requested;
 
       // Subtitle
@@ -327,7 +327,7 @@
         showToast('Stop flag cleared');
         // Hide the banner immediately — don't wait for the next poll cycle
         var banner = document.getElementById('stop-banner');
-        if (banner) banner.hidden = true;
+        if (banner) banner.style.display = 'none';
         document.getElementById('stop-all-btn').disabled = false;
         // Also clear the nav badge immediately
         if (typeof window.refreshStatusBadge === 'function') window.refreshStatusBadge();

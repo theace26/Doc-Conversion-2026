@@ -26,14 +26,14 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.12.8 (patch v0.12.0a)
+## Current Status — v0.12.1
 
 All 10 phases complete + universal format support. Latest: progress tracking and ETA
 for scan and bulk conversion jobs. Concurrent fast-walk file counter (non-blocking),
 rolling-window ETA (last 100 items), progress SSE events, ETA display in bulk UI.
 ZIP, 7z, and RAR archives — including nested ones — get the full cracking cascade.
-Bugfix patch v0.12.0a applied: SQLite WAL on all connections, metrics interval tuning,
-compaction guard removal, MCP Docker hostname fix, structlog double-event fix.
+v0.12.1 stability patch: startup orphan job recovery, stop banner CSS fix, SQLite WAL
+on all connections, metrics interval tuning, compaction guard removal, MCP hostname fix.
 
 **Planned:** External log shipping to Grafana Loki / ELK stack. The current local log
 archive system is an interim solution — once external aggregation is in place, local

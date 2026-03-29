@@ -330,7 +330,8 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
   `conversion_history`. UI: ETA display and speed indicator on bulk page,
   scan progress shows "X of Y files" with streaming count.
 
-**v0.12.0a** — Bugfix patch (2026-03-29).
+**v0.12.1** — Bugfix + Stability Patch (2026-03-29).
+**Bugfixes (from log analysis):**
 - Fixed: structlog double `event` argument in lifecycle_scanner (two instances)
 - Fixed: SQLite "database is locked" — all direct `aiosqlite.connect()` calls now use
   `get_db()` or set `PRAGMA busy_timeout=10000`; retry wrapper on metrics INSERT
@@ -340,3 +341,9 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
   concurrently with scans (safe in WAL mode)
 - Fixed: MCP server unreachable — health check now uses `MCP_HOST` env var (default
   `markflow-mcp` Docker service name) instead of hardcoded `localhost`
+**Stability improvements:**
+- Added: Startup orphan job recovery — auto-cancels stuck bulk_jobs and interrupts
+  stuck scan_runs on container start (before scheduler starts)
+- Fixed: Stop banner CSS — `.stop-banner[hidden]` override prevents `display:flex`
+  from overriding the HTML `hidden` attribute; JS uses `style.display` toggle
+- Note: Lifecycle scanner progress tracking + ETA already existed (v0.12.8)
