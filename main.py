@@ -73,12 +73,14 @@ async def lifespan(app: FastAPI):
     from core.stop_controller import reset_stop
     reset_stop()
 
-    # Apply saved log level preference
+    # Apply log level: DB preference wins, then DEFAULT_LOG_LEVEL env var, then "normal"
     from core.database import get_preference
     from core.logging_config import update_log_level
     pref_level = await get_preference("log_level")
-    if pref_level and pref_level != "normal":
-        update_log_level(pref_level)
+    env_level = os.getenv("DEFAULT_LOG_LEVEL", "").strip().lower()
+    effective_level = pref_level if pref_level and pref_level != "normal" else env_level
+    if effective_level in ("elevated", "developer"):
+        update_log_level(effective_level)
 
     # Verify system dependencies
     checker = HealthChecker()

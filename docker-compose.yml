@@ -28,6 +28,7 @@ services:
       - SECRET_KEY=${SECRET_KEY:-dev-secret-change-in-prod}
       - MCP_HOST=markflow-mcp
       - MCP_PORT=${MCP_PORT:-8001}
+      - DEFAULT_LOG_LEVEL=${DEFAULT_LOG_LEVEL:-normal}
       - DEV_BYPASS_AUTH=true
       - API_KEY_SALT=${API_KEY_SALT:-}
       - UNIONCORE_JWT_SECRET=${UNIONCORE_JWT_SECRET:-}
