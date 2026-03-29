@@ -192,7 +192,6 @@ async def _run_deferred_conversions() -> None:
                 from core.lifecycle_scanner import run_lifecycle_scan
                 log.info(
                     "deferred_conversion_triggered",
-                    event="deferred_conversion_triggered",
                     run_id=run["id"],
                     original_scan_run=run["scan_run_id"],
                 )
@@ -221,14 +220,15 @@ def start_scheduler() -> None:
     """Register all jobs and start the scheduler. Called from lifespan."""
     from core.metrics_collector import collect_metrics, collect_disk_snapshot, purge_old_metrics
 
-    # Resource metrics — every 30 seconds
+    # Resource metrics — every 60 seconds
     scheduler.add_job(
         collect_metrics,
-        trigger=IntervalTrigger(seconds=30),
+        trigger=IntervalTrigger(seconds=60),
         id="collect_metrics",
         replace_existing=True,
         max_instances=1,
-        misfire_grace_time=10,
+        coalesce=True,
+        misfire_grace_time=30,
     )
 
     # Disk metrics — every 6 hours

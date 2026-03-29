@@ -13,6 +13,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from sqlite3 import OperationalError
 from typing import Any
 
 import structlog
@@ -39,6 +40,24 @@ from core.database import (
 )
 
 log = structlog.get_logger(__name__)
+
+
+async def _db_write_with_retry(fn, retries=3, base_delay=0.5):
+    """Retry a DB write on lock contention with exponential backoff."""
+    for attempt in range(retries):
+        try:
+            return await fn()
+        except OperationalError as e:
+            if "database is locked" in str(e) and attempt < retries - 1:
+                delay = base_delay * (2 ** attempt)
+                log.warning("db_write_retry",
+                            attempt=attempt + 1,
+                            delay=delay,
+                            error=str(e))
+                await asyncio.sleep(delay)
+            else:
+                raise
+
 
 # ── SSE progress queues (per bulk job_id) ────────────────────────────────────
 _bulk_progress_queues: dict[str, asyncio.Queue] = {}
@@ -452,13 +471,13 @@ class BulkJob:
                     file_id=file_id,
                     error=str(exc),
                 )
-                await update_bulk_file(
+                await _db_write_with_retry(lambda: update_bulk_file(
                     file_id,
                     status="failed",
                     error_msg=str(exc),
-                )
+                ))
                 self._failed += 1
-                await increment_bulk_job_counter(self.job_id, "failed")
+                await _db_write_with_retry(lambda: increment_bulk_job_counter(self.job_id, "failed"))
 
                 _emit_bulk_event(self.job_id, "file_failed", {
                     "job_id": self.job_id,
@@ -592,17 +611,17 @@ class BulkJob:
                     actual_output.read_bytes()
                 ).hexdigest()
 
-            await update_bulk_file(
+            await _db_write_with_retry(lambda: update_bulk_file(
                 file_id,
                 status="converted",
                 output_path=result.output_path,
                 stored_mtime=source_mtime,
                 content_hash=content_hash,
                 converted_at=datetime.now(timezone.utc).isoformat(),
-            )
+            ))
             self._converted += 1
             self.dir_stats[top_dir]["converted"] += 1
-            await increment_bulk_job_counter(self.job_id, "converted")
+            await _db_write_with_retry(lambda: increment_bulk_job_counter(self.job_id, "converted"))
 
             _emit_bulk_event(self.job_id, "file_converted", {
                 "job_id": self.job_id,
@@ -626,14 +645,14 @@ class BulkJob:
                 log.warning("bulk_meili_index_fail", file_id=file_id, error=str(exc))
 
         else:
-            await update_bulk_file(
+            await _db_write_with_retry(lambda: update_bulk_file(
                 file_id,
                 status="failed",
                 error_msg=result.error_message,
-            )
+            ))
             self._failed += 1
             self.dir_stats[top_dir]["failed"] += 1
-            await increment_bulk_job_counter(self.job_id, "failed")
+            await _db_write_with_retry(lambda: increment_bulk_job_counter(self.job_id, "failed"))
 
             _emit_bulk_event(self.job_id, "file_failed", {
                 "job_id": self.job_id,

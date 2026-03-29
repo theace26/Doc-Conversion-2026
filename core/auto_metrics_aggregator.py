@@ -148,7 +148,6 @@ async def aggregate_hourly_metrics():
 
             logger.info(
                 "auto_metrics_aggregated",
-                event="auto_metrics_aggregated",
                 hour_bucket=bucket,
                 cpu_avg=round(r["cpu_avg"], 1),
                 cpu_p95=round(cpu_p95, 1),
@@ -188,7 +187,6 @@ async def purge_old_auto_metrics():
             if deleted > 0 or deleted_runs > 0:
                 logger.info(
                     "auto_metrics_purged",
-                    event="auto_metrics_purged",
                     metrics_deleted=deleted,
                     runs_deleted=deleted_runs,
                     retention_days=retention_days,

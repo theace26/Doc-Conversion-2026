@@ -315,11 +315,15 @@ class PdfHandler(FormatHandler):
         try:
             if not hasattr(page, "images") or not page.images:
                 return
-            for img_info in page.images:
+            for idx, img_info in enumerate(page.images):
                 if hasattr(img_info, "get") and "stream" in img_info:
                     raw = img_info["stream"].get_data()
                     if raw and len(raw) > 100:
-                        hash_name, png_data, meta = extract_image(raw, "png")
+                        hash_name, png_data, meta = extract_image(
+                            raw, "png",
+                            source_document=str(file_path),
+                            image_index=idx,
+                        )
                         model.images[hash_name] = ImageData(
                             data=png_data,
                             original_format="pdf_embedded",

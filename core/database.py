@@ -3,7 +3,7 @@ SQLite connection management, schema initialization, and query helpers.
 
 Connection settings:
   - WAL journal mode (concurrent reads + writes)
-  - busy_timeout = 5000ms
+  - busy_timeout = 10000ms
   - row_factory = aiosqlite.Row for dict-like access
 
 DB path: DB_PATH env var (default: data/markflow.db inside the container,
@@ -331,7 +331,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
     last_used_at TEXT
 );
 
--- v0.9.7: Resource monitoring — system metrics (collected every 30s)
+-- v0.9.7: Resource monitoring — system metrics (collected every 60s)
 CREATE TABLE IF NOT EXISTS system_metrics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
@@ -440,7 +440,7 @@ async def get_db():
     async with aiosqlite.connect(DB_PATH) as conn:
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA journal_mode=WAL")
-        await conn.execute("PRAGMA busy_timeout=5000")
+        await conn.execute("PRAGMA busy_timeout=10000")
         await conn.execute("PRAGMA foreign_keys=ON")
         yield conn
 

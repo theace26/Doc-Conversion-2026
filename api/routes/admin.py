@@ -265,7 +265,7 @@ async def _query_bulk_files() -> dict | None:
         "SELECT COUNT(*) as c FROM bulk_files WHERE ocr_skipped_reason='permanently_skipped'"
     )
     converted_bytes = await db_fetch_one(
-        "SELECT SUM(file_size) as total FROM bulk_files WHERE status='converted'"
+        "SELECT SUM(file_size_bytes) as total FROM bulk_files WHERE status='converted'"
     )
 
     return {
@@ -363,7 +363,7 @@ async def _query_meilisearch() -> dict:
 
 async def _query_llm_providers() -> list | None:
     rows = await db_fetch_all(
-        "SELECT name, provider_type as type, is_active, created_at "
+        "SELECT name, provider as type, is_active, created_at "
         "FROM llm_providers ORDER BY is_active DESC"
     )
     return [

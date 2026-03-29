@@ -26,6 +26,8 @@ _PASSTHROUGH_FORMATS = {"png", "jpeg", "jpg", "gif", "webp"}
 def extract_image(
     data: bytes,
     original_format: str,
+    source_document: str | None = None,
+    image_index: int | None = None,
 ) -> tuple[str, bytes, dict[str, Any]]:
     """
     Process raw image data from a document.
@@ -33,6 +35,8 @@ def extract_image(
     Args:
         data: Raw image bytes.
         original_format: Source format extension (e.g., "png", "emf", "jpeg").
+        source_document: Path of the document this image was extracted from.
+        image_index: Index of the image within the source document.
 
     Returns:
         (hash_filename, png_data, metadata)
@@ -55,7 +59,11 @@ def extract_image(
         else:
             png_data = _normalize_to_png(data)
     except Exception as exc:
-        log.warning("image_handler.convert_failed", format=fmt, error=str(exc))
+        log.warning("image_handler.convert_failed",
+                    format=fmt,
+                    source_document=source_document,
+                    image_index=image_index,
+                    error=str(exc))
         png_data = data  # Return as-is; downstream will handle gracefully
 
     # Extract dimensions from the result
