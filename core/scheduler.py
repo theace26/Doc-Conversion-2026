@@ -108,24 +108,8 @@ async def run_trash_expiry() -> None:
 
 
 async def run_db_compaction() -> None:
-    """Run DB compaction, deferring if a scan is running."""
+    """Run DB compaction. Safe to run alongside scans in WAL mode."""
     try:
-        from core.database import db_fetch_one
-        running = await db_fetch_one(
-            "SELECT id FROM scan_runs WHERE status='running' LIMIT 1"
-        )
-        if running:
-            log.warning("scheduler.compaction_deferred", reason="scan_running")
-            # Reschedule in 30 minutes
-            scheduler.add_job(
-                run_db_compaction,
-                trigger=IntervalTrigger(minutes=30),
-                id="db_compaction_retry",
-                replace_existing=True,
-                max_instances=1,
-            )
-            return
-
         from core.db_maintenance import run_compaction
         await run_compaction()
 
@@ -173,11 +157,9 @@ async def _run_deferred_conversions() -> None:
             return
 
         # Find pending deferred runs
-        import aiosqlite
-        from core.database import get_db_path
+        from core.database import get_db
 
-        async with aiosqlite.connect(get_db_path()) as conn:
-            conn.row_factory = aiosqlite.Row
+        async with get_db() as conn:
             rows = await conn.execute_fetchall(
                 """SELECT * FROM auto_conversion_runs
                    WHERE status = 'deferred'
@@ -200,7 +182,7 @@ async def _run_deferred_conversions() -> None:
                 await run_lifecycle_scan()
 
                 # Mark the deferred run as completed
-                async with aiosqlite.connect(get_db_path()) as conn:
+                async with get_db() as conn:
                     await conn.execute(
                         "UPDATE auto_conversion_runs SET status = 'completed' WHERE id = ?",
                         (run["id"],),
@@ -220,15 +202,15 @@ def start_scheduler() -> None:
     """Register all jobs and start the scheduler. Called from lifespan."""
     from core.metrics_collector import collect_metrics, collect_disk_snapshot, purge_old_metrics
 
-    # Resource metrics — every 60 seconds
+    # Resource metrics — every 120 seconds
     scheduler.add_job(
         collect_metrics,
-        trigger=IntervalTrigger(seconds=60),
+        trigger=IntervalTrigger(seconds=120),
         id="collect_metrics",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
-        misfire_grace_time=30,
+        misfire_grace_time=60,
     )
 
     # Disk metrics — every 6 hours

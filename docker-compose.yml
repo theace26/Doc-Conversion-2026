@@ -26,6 +26,7 @@ services:
       - BULK_OUTPUT_PATH=/mnt/output-repo
       - MOUNTED_DRIVES=c,d
       - SECRET_KEY=${SECRET_KEY:-dev-secret-change-in-prod}
+      - MCP_HOST=markflow-mcp
       - MCP_PORT=${MCP_PORT:-8001}
       - DEV_BYPASS_AUTH=true
       - API_KEY_SALT=${API_KEY_SALT:-}

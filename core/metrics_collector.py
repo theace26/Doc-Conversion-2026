@@ -10,6 +10,7 @@ Scheduled by APScheduler:
 import json
 import os
 import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
@@ -20,6 +21,18 @@ import structlog
 from core.database import DB_PATH
 
 log = structlog.get_logger(__name__)
+
+_MAX_RETRIES = 3
+_RETRY_DELAY = 1.0
+
+
+@asynccontextmanager
+async def _db():
+    """Metrics-local DB connection with busy_timeout for concurrent access."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute("PRAGMA busy_timeout=10000")
+        yield conn
+
 
 _process: psutil.Process | None = None
 
@@ -110,43 +123,58 @@ async def _get_active_task_counts() -> dict:
 
 
 async def _insert_system_metrics(snapshot: dict) -> None:
-    """Insert a system metrics row."""
-    async with aiosqlite.connect(DB_PATH) as conn:
-        await conn.execute(
-            """INSERT INTO system_metrics
-               (cpu_percent_total, cpu_percent_system, cpu_count,
-                mem_rss_bytes, mem_rss_percent, mem_system_total_bytes, mem_system_used_percent,
-                io_read_bytes, io_write_bytes, thread_count,
-                active_bulk_jobs, active_lifecycle_scan, active_conversions)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (
-                snapshot["cpu_percent_total"],
-                snapshot["cpu_percent_system"],
-                snapshot["cpu_count"],
-                snapshot["mem_rss_bytes"],
-                snapshot["mem_rss_percent"],
-                snapshot["mem_system_total_bytes"],
-                snapshot["mem_system_used_percent"],
-                snapshot["io_read_bytes"],
-                snapshot["io_write_bytes"],
-                snapshot["thread_count"],
-                snapshot["active_bulk_jobs"],
-                snapshot["active_lifecycle_scan"],
-                snapshot["active_conversions"],
-            ),
-        )
-        await conn.commit()
+    """Insert a system metrics row. Retries on 'database is locked'."""
+    for attempt in range(_MAX_RETRIES):
+        try:
+            async with _db() as conn:
+                await conn.execute(
+                    """INSERT INTO system_metrics
+                       (cpu_percent_total, cpu_percent_system, cpu_count,
+                        mem_rss_bytes, mem_rss_percent, mem_system_total_bytes, mem_system_used_percent,
+                        io_read_bytes, io_write_bytes, thread_count,
+                        active_bulk_jobs, active_lifecycle_scan, active_conversions)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        snapshot["cpu_percent_total"],
+                        snapshot["cpu_percent_system"],
+                        snapshot["cpu_count"],
+                        snapshot["mem_rss_bytes"],
+                        snapshot["mem_rss_percent"],
+                        snapshot["mem_system_total_bytes"],
+                        snapshot["mem_system_used_percent"],
+                        snapshot["io_read_bytes"],
+                        snapshot["io_write_bytes"],
+                        snapshot["thread_count"],
+                        snapshot["active_bulk_jobs"],
+                        snapshot["active_lifecycle_scan"],
+                        snapshot["active_conversions"],
+                    ),
+                )
+                await conn.commit()
+            return
+        except Exception as e:
+            if "database is locked" in str(e) and attempt < _MAX_RETRIES - 1:
+                await asyncio.sleep(_RETRY_DELAY * (attempt + 1))
+                continue
+            raise
 
 
 async def collect_metrics() -> None:
-    """Called by APScheduler every 30 seconds."""
+    """Called by APScheduler every 120 seconds."""
     try:
-        snapshot = await asyncio.to_thread(_collect_system_snapshot)
-        tasks = await _get_active_task_counts()
-        snapshot.update(tasks)
-        await _insert_system_metrics(snapshot)
+        await asyncio.wait_for(_do_collect_metrics(), timeout=30.0)
+    except asyncio.TimeoutError:
+        log.warning("metrics_collection_timeout", msg="Metrics collection timed out after 30s")
     except Exception:
         log.warning("metrics_collection_failed", exc_info=True)
+
+
+async def _do_collect_metrics() -> None:
+    """Inner metrics collection — separated for timeout wrapping."""
+    snapshot = await asyncio.to_thread(_collect_system_snapshot)
+    tasks = await _get_active_task_counts()
+    snapshot.update(tasks)
+    await _insert_system_metrics(snapshot)
 
 
 # ── Disk metrics collection ──────────────────────────────────────────────────
@@ -247,7 +275,7 @@ def _collect_disk_snapshot_impl() -> dict:
 
 async def _insert_disk_metrics(disk: dict) -> None:
     """Insert a disk metrics row."""
-    async with aiosqlite.connect(DB_PATH) as conn:
+    async with _db() as conn:
         await conn.execute(
             """INSERT INTO disk_metrics
                (output_repo_bytes, output_repo_files, trash_bytes, trash_files,
@@ -292,7 +320,7 @@ async def purge_old_metrics() -> None:
     """Called by APScheduler daily. Delete metrics older than 90 days."""
     cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
-        async with aiosqlite.connect(DB_PATH) as conn:
+        async with _db() as conn:
             await conn.execute("DELETE FROM system_metrics WHERE timestamp < ?", (cutoff,))
             await conn.execute("DELETE FROM disk_metrics WHERE timestamp < ?", (cutoff,))
             await conn.execute("DELETE FROM activity_events WHERE timestamp < ?", (cutoff,))
@@ -320,7 +348,7 @@ async def record_activity_event(
 ) -> None:
     """Record a notable activity event. Fire-and-forget — never raises."""
     try:
-        async with aiosqlite.connect(DB_PATH) as conn:
+        async with _db() as conn:
             await conn.execute(
                 """INSERT INTO activity_events
                    (event_type, description, metadata, duration_seconds)
@@ -414,7 +442,7 @@ async def query_system_metrics(range_str: str = "24h", resolution: str | None = 
             WHERE timestamp >= ?
             ORDER BY timestamp
         """
-        async with aiosqlite.connect(DB_PATH) as conn:
+        async with _db() as conn:
             conn.row_factory = aiosqlite.Row
             async with conn.execute(sql, (cutoff,)) as cur:
                 rows = await cur.fetchall()
@@ -442,7 +470,7 @@ async def query_system_metrics(range_str: str = "24h", resolution: str | None = 
         GROUP BY {bucket}
         ORDER BY {bucket}
     """
-    async with aiosqlite.connect(DB_PATH) as conn:
+    async with _db() as conn:
         conn.row_factory = aiosqlite.Row
         async with conn.execute(sql, (cutoff,)) as cur:
             rows = await cur.fetchall()
@@ -452,7 +480,7 @@ async def query_system_metrics(range_str: str = "24h", resolution: str | None = 
 async def query_disk_metrics(range_str: str = "30d") -> list[dict]:
     """Query disk_metrics within range."""
     cutoff = _range_to_cutoff(range_str)
-    async with aiosqlite.connect(DB_PATH) as conn:
+    async with _db() as conn:
         conn.row_factory = aiosqlite.Row
         async with conn.execute(
             "SELECT * FROM disk_metrics WHERE timestamp >= ? ORDER BY timestamp",
@@ -480,7 +508,7 @@ async def query_activity_events(
         params.extend(event_types)
 
     # Count total
-    async with aiosqlite.connect(DB_PATH) as conn:
+    async with _db() as conn:
         conn.row_factory = aiosqlite.Row
         async with conn.execute(
             f"SELECT COUNT(*) as c FROM activity_events {where}", tuple(params)
@@ -519,7 +547,7 @@ async def compute_summary(period_days: int = 30) -> dict:
         "period_end": now,
     }
 
-    async with aiosqlite.connect(DB_PATH) as conn:
+    async with _db() as conn:
         conn.row_factory = aiosqlite.Row
 
         # ── Uptime (count samples * 30s / 3600) ────────────────

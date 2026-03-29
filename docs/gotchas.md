@@ -14,12 +14,12 @@ the relevant subsystem. Referenced from CLAUDE.md.
 - **DB path**: `DB_PATH` env var (default `markflow.db` locally, `/app/data/markflow.db` in container).
   The Docker volume `markflow-db` mounts to `/app/data`.
 
-- **WAL mode set in `_ensure_schema()`**: After all table creation and
-  column additions, `init_db()` runs `PRAGMA journal_mode = WAL` and
-  `PRAGMA wal_autocheckpoint = 1000`. This is safe to run every startup.
+- **SQLite WAL mode**: Always enabled at connection time. `get_db()` in `database.py`
+  sets `PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout=10000`. All code that opens
+  DB connections should use `get_db()` or set these PRAGMAs manually.
 
-- **VACUUM defers if scan running**: `run_db_compaction()` checks `scan_runs`
-  for any `status='running'` row. If found, it reschedules itself +30 minutes.
+- **DB compaction runs concurrently**: No scan-running guard. Uses `PRAGMA optimize` +
+  `incremental_vacuum`, not full VACUUM (unless freelist > 25%). Safe in WAL mode.
 
 - **DB repair acquires exclusive lock**: All in-flight requests will wait during a
   dump-and-restore repair. The repair endpoint checks `stop_controller.registered_tasks`
@@ -284,6 +284,20 @@ the relevant subsystem. Referenced from CLAUDE.md.
 - **Root redirect**: `/` → `/search.html`.
 
 - **Nav is dynamic**: `app.js::buildNav()` fetches `/api/auth/me` and filters nav items by role.
+
+## Scheduler & Metrics
+
+- **collect_metrics interval**: 120s with `coalesce=True`, `misfire_grace_time=60`.
+  Do not reduce below 60s — causes massive skip storms under bulk load.
+
+- **collect_metrics timeout**: Wrapped in `asyncio.wait_for(timeout=30)` to prevent
+  indefinite blocking when SQLite is locked during heavy writes.
+
+- **structlog event arg**: First positional arg IS the event. Never also pass `event=`
+  as kwarg. Use `msg=` for human-readable descriptions.
+
+- **Log download**: Uses `FileResponse` + `<a href=...>` tags, NOT fetch+blob.
+  The fetch+blob pattern causes download loops on large files.
 
 ## Scheduler & Stop Controls
 

@@ -37,18 +37,19 @@ async def mcp_connection_info(
     if auth_token:
         base_url += f"?token={auth_token}"
 
-    # Check if MCP server is running
+    # Check if MCP server is running (use Docker service name inside containers)
+    mcp_host = os.getenv("MCP_HOST", "markflow-mcp")
     mcp_running = False
     tool_count = 7  # We know our tool count statically
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(f"http://localhost:{mcp_port}/health")
+            resp = await client.get(f"http://{mcp_host}:{mcp_port}/health")
             mcp_running = resp.status_code == 200
     except Exception:
         # MCP server might not have a /health endpoint; try SSE endpoint
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:
-                resp = await client.get(f"http://localhost:{mcp_port}/sse")
+                resp = await client.get(f"http://{mcp_host}:{mcp_port}/sse")
                 mcp_running = resp.status_code in (200, 405)
         except Exception:
             pass

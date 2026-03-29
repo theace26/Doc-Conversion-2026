@@ -329,3 +329,14 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
   `total_files_counted`, `count_status` columns to `scan_runs`, `bulk_jobs`,
   `conversion_history`. UI: ETA display and speed indicator on bulk page,
   scan progress shows "X of Y files" with streaming count.
+
+**v0.12.0a** — Bugfix patch (2026-03-29).
+- Fixed: structlog double `event` argument in lifecycle_scanner (two instances)
+- Fixed: SQLite "database is locked" — all direct `aiosqlite.connect()` calls now use
+  `get_db()` or set `PRAGMA busy_timeout=10000`; retry wrapper on metrics INSERT
+- Fixed: collect_metrics interval increased from 60s to 120s with `misfire_grace_time=60`;
+  added 30s timeout wrapper via `asyncio.wait_for`
+- Fixed: DB compaction always deferred — removed `scan_running` guard, compaction now runs
+  concurrently with scans (safe in WAL mode)
+- Fixed: MCP server unreachable — health check now uses `MCP_HOST` env var (default
+  `markflow-mcp` Docker service name) instead of hardcoded `localhost`

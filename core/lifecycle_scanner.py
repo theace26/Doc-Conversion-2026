@@ -485,7 +485,8 @@ async def _execute_auto_conversion(
         )
 
         # Mark it as auto-triggered
-        async with aiosqlite.connect(get_db_path()) as conn:
+        from core.database import get_db
+        async with get_db() as conn:
             await conn.execute(
                 "UPDATE bulk_jobs SET auto_triggered = 1 WHERE id = ?",
                 (new_job_id,),
@@ -494,7 +495,6 @@ async def _execute_auto_conversion(
 
         log.info(
             "auto_convert_job_created",
-            event="auto_convert_job_created",
             job_id=new_job_id,
             mode=decision.mode,
             workers=decision.workers,
@@ -504,7 +504,7 @@ async def _execute_auto_conversion(
 
         # Update the auto_conversion_runs record with the bulk_job_id
         try:
-            async with aiosqlite.connect(get_db_path()) as conn:
+            async with get_db() as conn:
                 await conn.execute(
                     """
                     UPDATE auto_conversion_runs
@@ -535,7 +535,6 @@ async def _execute_auto_conversion(
     except Exception as exc:
         log.error(
             "auto_convert_execution_failed",
-            event="auto_convert_execution_failed",
             error=str(exc),
             scan_run_id=scan_run_id,
         )

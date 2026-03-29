@@ -9,7 +9,7 @@ import aiosqlite
 import structlog
 from datetime import datetime, timedelta
 
-from core.database import get_db_path, get_preference
+from core.database import get_db, get_db_path, get_preference
 
 logger = structlog.get_logger(__name__)
 
@@ -27,9 +27,7 @@ async def aggregate_hourly_metrics():
     dow = hour_start.weekday()
 
     try:
-        async with aiosqlite.connect(get_db_path()) as conn:
-            conn.row_factory = aiosqlite.Row
-
+        async with get_db() as conn:
             # Idempotent — skip if already aggregated
             existing = await conn.execute_fetchall(
                 "SELECT id FROM auto_metrics WHERE hour_bucket = ?",
@@ -168,7 +166,7 @@ async def purge_old_auto_metrics():
     cutoff = (datetime.now() - timedelta(days=retention_days)).isoformat()
 
     try:
-        async with aiosqlite.connect(get_db_path()) as conn:
+        async with get_db() as conn:
             cursor = await conn.execute(
                 "DELETE FROM auto_metrics WHERE created_at < ?",
                 (cutoff,),

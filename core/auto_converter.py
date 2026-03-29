@@ -14,7 +14,7 @@ import aiosqlite
 import psutil
 import structlog
 
-from core.database import get_preference, get_db_path
+from core.database import get_preference, get_db, get_db_path
 
 logger = structlog.get_logger(__name__)
 
@@ -223,9 +223,7 @@ class AutoConversionEngine:
         dow = now.weekday()
 
         try:
-            async with aiosqlite.connect(get_db_path()) as conn:
-                conn.row_factory = aiosqlite.Row
-
+            async with get_db() as conn:
                 rows = await conn.execute_fetchall(
                     """
                     SELECT
@@ -500,7 +498,7 @@ class AutoConversionEngine:
         # Persist to auto_conversion_runs table
         try:
             ms = decision.metrics_snapshot or {}
-            async with aiosqlite.connect(get_db_path()) as conn:
+            async with get_db() as conn:
                 await conn.execute(
                     """
                     INSERT INTO auto_conversion_runs
