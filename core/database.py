@@ -532,6 +532,16 @@ async def init_db() -> None:
         await _add_column_if_missing(conn, "bulk_files", "is_archive", "INTEGER NOT NULL DEFAULT 0")
         await _add_column_if_missing(conn, "bulk_files", "archive_member_count", "INTEGER")
         await _add_column_if_missing(conn, "bulk_files", "archive_total_uncompressed", "INTEGER")
+        # v0.12.8: progress tracking / ETA columns
+        await _add_column_if_missing(conn, "scan_runs", "total_files_counted", "INTEGER")
+        await _add_column_if_missing(conn, "scan_runs", "count_status", "TEXT NOT NULL DEFAULT 'counting'")
+        await _add_column_if_missing(conn, "scan_runs", "eta_seconds", "REAL")
+        await _add_column_if_missing(conn, "scan_runs", "files_per_second", "REAL")
+        await _add_column_if_missing(conn, "scan_runs", "eta_updated_at", "TEXT")
+        await _add_column_if_missing(conn, "bulk_jobs", "eta_seconds", "REAL")
+        await _add_column_if_missing(conn, "bulk_jobs", "files_per_second", "REAL")
+        await _add_column_if_missing(conn, "bulk_jobs", "eta_updated_at", "TEXT")
+        await _add_column_if_missing(conn, "conversion_history", "eta_seconds", "REAL")
         await conn.commit()
         # Phase 9: WAL mode and pragmas
         await conn.execute("PRAGMA journal_mode = WAL")

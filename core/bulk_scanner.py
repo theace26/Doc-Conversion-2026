@@ -14,6 +14,7 @@ from pathlib import Path
 
 import structlog
 
+from core.progress_tracker import RollingWindowETA, ETA_UPDATE_INTERVAL, format_eta
 from core.stop_controller import should_stop
 from core.database import get_preference, record_path_issue, update_bulk_file, update_bulk_job_status, upsert_bulk_file
 from core.path_utils import PathSafetyResult, run_path_safety_pass
@@ -120,15 +121,11 @@ class BulkScanner:
 
         log.info("bulk_scan_start", job_id=self.job_id, source_path=str(self.source_path))
 
-        # Pre-count files for progress estimation (capped at 10s)
-        total_estimate = 0
-        try:
-            total_estimate = await asyncio.wait_for(
-                asyncio.to_thread(self._count_files, self.source_path),
-                timeout=10.0,
-            )
-        except (asyncio.TimeoutError, Exception):
-            total_estimate = 0
+        # Concurrent fast-walk counter — starts immediately, runs in parallel with scan
+        tracker = RollingWindowETA(total=None)
+        fast_walk_task = asyncio.create_task(
+            self._fast_walk_counter(tracker)
+        )
 
         # Emit first progress event
         if on_progress:
@@ -136,12 +133,17 @@ class BulkScanner:
                 "event": "scan_progress",
                 "job_id": self.job_id,
                 "scanned": 0,
-                "total": total_estimate,
+                "total": None,
                 "current_file": "",
-                "pct": None if total_estimate == 0 else 0,
+                "pct": None,
+                "eta_seconds": None,
+                "eta_human": None,
+                "files_per_second": None,
+                "count_ready": False,
             })
 
         progress_interval = 50  # emit every N files
+        last_eta_write = time.monotonic()
 
         for dirpath, dirnames, filenames in os.walk(self.source_path):
             # Check global stop before each directory
@@ -194,35 +196,67 @@ class BulkScanner:
                     await self._record_unrecognized(file_path, ext, file_size, mtime)
 
                 file_count += 1
+                await tracker.record_completion()
 
-                # Emit progress every N files
+                # Emit progress every N files (with ETA)
                 if on_progress and (file_count % progress_interval == 0):
+                    snap = await tracker.snapshot()
                     try:
                         rel_path = file_path.relative_to(self.source_path)
                     except ValueError:
                         rel_path = file_path
-                    pct = min(99, int(file_count / total_estimate * 100)) if total_estimate > 0 else None
+                    pct = snap.to_dict()["percent"]
                     await on_progress({
                         "event": "scan_progress",
                         "job_id": self.job_id,
                         "scanned": file_count,
-                        "total": total_estimate,
+                        "total": snap.total,
                         "current_file": str(rel_path),
                         "pct": pct,
+                        "eta_seconds": snap.eta_seconds,
+                        "eta_human": format_eta(snap.eta_seconds),
+                        "files_per_second": round(snap.files_per_second, 1) if snap.files_per_second else None,
+                        "count_ready": snap.count_ready,
                     })
+
+                # Periodically log ETA (throttled)
+                now = time.monotonic()
+                if now - last_eta_write >= ETA_UPDATE_INTERVAL:
+                    snap = await tracker.snapshot()
+                    log.info("scan_progress",
+                             job_id=self.job_id,
+                             completed=snap.completed,
+                             total=snap.total,
+                             count_ready=snap.count_ready,
+                             eta_seconds=snap.eta_seconds,
+                             files_per_second=snap.files_per_second)
+                    last_eta_write = now
 
                 if file_count % self._yield_interval == 0:
                     await asyncio.sleep(0)
 
+        # Cancel fast-walk if still running
+        if not fast_walk_task.done():
+            fast_walk_task.cancel()
+            try:
+                await fast_walk_task
+            except asyncio.CancelledError:
+                pass
+
         # Emit final progress event
+        snap = await tracker.snapshot()
         if on_progress:
             await on_progress({
                 "event": "scan_progress",
                 "job_id": self.job_id,
                 "scanned": file_count,
-                "total": total_estimate if total_estimate > 0 else file_count,
+                "total": file_count,
                 "current_file": "",
                 "pct": 99,
+                "eta_seconds": 0,
+                "eta_human": None,
+                "files_per_second": round(snap.files_per_second, 1) if snap.files_per_second else None,
+                "count_ready": True,
             })
 
         # Count skipped (already converted, unchanged)
@@ -263,14 +297,38 @@ class BulkScanner:
 
         return result
 
-    @staticmethod
-    def _count_files(source_path: Path) -> int:
-        """Count files in the source directory (synchronous, for use in a thread)."""
-        count = 0
-        for _, dirnames, filenames in os.walk(source_path):
-            dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "_markflow"]
-            count += len(filenames)
-        return count
+    async def _fast_walk_counter(self, tracker: RollingWindowETA) -> int:
+        """Lightweight concurrent file counter — runs in parallel with the main scan.
+
+        Walks the directory tree counting files only (no stat calls, no DB writes).
+        Streams intermediate counts to the tracker so the UI can show "X of Y"
+        before the walk finishes. Returns total when complete.
+        """
+        total = 0
+        update_interval = 2000  # stream count to tracker every N files
+
+        def _walk_sync() -> int:
+            nonlocal total
+            for _, dirnames, filenames in os.walk(self.source_path):
+                dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "_markflow"]
+                total += len(filenames)
+            return total
+
+        try:
+            # Run the walk in a thread so we don't block the event loop
+            final_total = await asyncio.to_thread(_walk_sync)
+            await tracker.set_total(final_total)
+            log.info("fast_walk_complete", job_id=self.job_id, total=final_total)
+            return final_total
+        except asyncio.CancelledError:
+            # Scan finished before fast-walk — use whatever count we have
+            await tracker.set_total(total)
+            raise
+        except Exception as exc:
+            log.warning("fast_walk_error", job_id=self.job_id, error=str(exc))
+            if total > 0:
+                await tracker.set_total(total)
+            return total
 
     async def _record_unrecognized(
         self, path: Path, ext: str, file_size: int, mtime: float

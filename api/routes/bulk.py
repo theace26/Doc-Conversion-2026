@@ -170,10 +170,26 @@ async def job_status(
     job_id: str,
     user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
 ):
-    """Get bulk job status and counters."""
+    """Get bulk job status and counters, including progress/ETA."""
+    from core.progress_tracker import format_eta
+
     job = await get_bulk_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
+
+    # Build progress block from job fields
+    completed = (job.get("converted") or 0) + (job.get("failed") or 0) + (job.get("skipped") or 0)
+    total = job.get("total_files")
+    pct = round(min(100.0, completed / total * 100), 1) if total and total > 0 else None
+    job["progress"] = {
+        "completed": completed,
+        "total": total,
+        "count_ready": True,
+        "eta_seconds": job.get("eta_seconds"),
+        "files_per_second": job.get("files_per_second"),
+        "eta_human": format_eta(job.get("eta_seconds")),
+        "percent": pct,
+    }
     return job
 
 

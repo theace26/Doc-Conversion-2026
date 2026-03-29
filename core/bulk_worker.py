@@ -18,6 +18,7 @@ from typing import Any
 
 import structlog
 
+from core.progress_tracker import RollingWindowETA, ETA_UPDATE_INTERVAL, format_eta
 from core.stop_controller import should_stop, register_task, unregister_task
 from core.bulk_scanner import (
     ADOBE_EXTENSIONS,
@@ -332,6 +333,10 @@ class BulkJob:
             pending_files = await get_unprocessed_bulk_files(self.job_id)
             self._total_pending = len(pending_files)
 
+            # Initialize ETA tracker (total known at this point)
+            self._eta_tracker = RollingWindowETA(total=self._total_pending)
+            self._last_eta_write = time.monotonic()
+
             for file_dict in pending_files:
                 ext = file_dict["file_ext"]
                 is_adobe = ext in ADOBE_EXTENSIONS
@@ -490,6 +495,37 @@ class BulkJob:
             finally:
                 # Clear worker from current_files
                 self.current_files = [e for e in self.current_files if e["worker_id"] != worker_id + 1]
+
+                # Record completion for ETA tracking
+                await self._eta_tracker.record_completion()
+                now = time.monotonic()
+                if now - self._last_eta_write >= ETA_UPDATE_INTERVAL:
+                    snap = await self._eta_tracker.snapshot()
+                    _emit_bulk_event(self.job_id, "progress_update", {
+                        "job_id": self.job_id,
+                        "completed": snap.completed,
+                        "total": snap.total,
+                        "eta_seconds": round(snap.eta_seconds, 1) if snap.eta_seconds is not None else None,
+                        "eta_human": format_eta(snap.eta_seconds),
+                        "files_per_second": round(snap.files_per_second, 2) if snap.files_per_second else None,
+                        "percent": snap.to_dict()["percent"],
+                    })
+                    try:
+                        await _db_write_with_retry(lambda: update_bulk_job_status(
+                            self.job_id, "running",
+                            eta_seconds=snap.eta_seconds,
+                            files_per_second=snap.files_per_second,
+                            eta_updated_at=datetime.now(timezone.utc).isoformat(),
+                        ))
+                    except Exception:
+                        pass  # ETA DB write is non-critical
+                    log.info("bulk_progress",
+                             job_id=self.job_id,
+                             completed=snap.completed,
+                             total=snap.total,
+                             eta_seconds=snap.eta_seconds,
+                             files_per_second=snap.files_per_second)
+                    self._last_eta_write = now
 
                 # Check max_files limit (auto-conversion batch cap)
                 self._files_completed += 1
@@ -973,6 +1009,19 @@ async def get_all_active_jobs() -> list[dict]:
         else:
             status = "done"
 
+        # Build progress snapshot
+        completed = job._converted + job._failed + job._skipped
+        snap = job._eta_tracker.snapshot_sync() if hasattr(job, '_eta_tracker') else None
+        progress = {
+            "completed": completed,
+            "total": job._total_pending,
+            "count_ready": True,
+            "eta_seconds": round(snap.eta_seconds, 1) if snap and snap.eta_seconds is not None else None,
+            "files_per_second": round(snap.files_per_second, 2) if snap and snap.files_per_second else None,
+            "eta_human": format_eta(snap.eta_seconds) if snap else None,
+            "percent": round(min(100.0, completed / job._total_pending * 100), 1) if job._total_pending > 0 else None,
+        }
+
         results.append({
             "job_id":        job.job_id,
             "status":        status,
@@ -986,5 +1035,6 @@ async def get_all_active_jobs() -> list[dict]:
             "started_at":    job.started_at.isoformat() if job.started_at else None,
             "options":       job.options,
             "dir_stats":     dict(job.dir_stats),
+            "progress":      progress,
         })
     return results

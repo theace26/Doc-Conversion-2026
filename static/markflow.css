@@ -290,6 +290,26 @@ small, .text-sm { font-size: 0.85rem; }
 .progress-bar--ok .progress-bar__fill { background: var(--ok); }
 .progress-bar--error .progress-bar__fill { background: var(--error); }
 
+/* ── ETA Display ───────────────────────────────────────────────────────────── */
+.eta-display {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 4px 0 6px;
+  font-size: 0.82rem;
+}
+
+.eta-text {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.eta-speed {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
 /* ── Spinner ────────────────────────────────────────────────────────────────── */
 .spinner {
   display: inline-block;

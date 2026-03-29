@@ -26,11 +26,11 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.12.7
+## Current Status — v0.12.8
 
-All 10 phases complete + universal format support. Latest: brute-force charset expanded
-to full ASCII 0x01-0x7F (including control characters) as default for both archive and
-PDF/Office password crackers. New `all_ascii` charset option in Settings UI. Encrypted
+All 10 phases complete + universal format support. Latest: progress tracking and ETA
+for scan and bulk conversion jobs. Concurrent fast-walk file counter (non-blocking),
+rolling-window ETA (last 100 items), progress SSE events, ETA display in bulk UI.
 ZIP, 7z, and RAR archives — including nested ones — get the full cracking cascade.
 
 **Planned:** External log shipping to Grafana Loki / ELK stack. The current local log
@@ -91,6 +91,7 @@ Critical files to know:
 | `core/bulk_worker.py` | Worker pool: BulkJob, pause/resume/cancel, SSE |
 | `core/auth.py` | JWT validation, role hierarchy, API key verification |
 | `core/scheduler.py` | APScheduler: lifecycle scan, trash expiry, DB maintenance, log archive |
+| `core/progress_tracker.py` | RollingWindowETA, ProgressSnapshot, format_eta for all job types |
 | `core/log_archiver.py` | Compress rotated logs to gzip archives, purge old archives |
 | `core/auto_converter.py` | Auto-conversion decision engine |
 | `formats/rtf_handler.py` | RTF ingest/export with control-word parser |
@@ -133,7 +134,7 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 
 ---
 
-## Supported Formats (v0.12.7)
+## Supported Formats (v0.12.8)
 
 | Category | Extensions | Handler |
 |----------|-----------|---------|

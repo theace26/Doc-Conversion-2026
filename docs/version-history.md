@@ -316,3 +316,16 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
   New `all_ascii` charset option in Settings UI. Default for both archive
   and PDF/Office brute-force. Encrypted ZIP, 7z, and RAR archives —
   including nested ones — get the full cracking cascade at every depth.
+
+**v0.12.8** — Progress tracking and ETA for scan and bulk conversion jobs.
+  New `core/progress_tracker.py`: `RollingWindowETA` (last 100 items),
+  `ProgressSnapshot`, `format_eta()`, `estimate_single_file_eta()`.
+  Concurrent fast-walk counter in `bulk_scanner.py` via `asyncio.create_task`
+  — scan starts immediately, file count arrives in parallel (no blocking).
+  Bulk worker writes ETA to DB every 2s and emits `progress_update` SSE
+  events with `eta_human`, `files_per_second`, `percent`. All job status
+  API endpoints (`GET /api/bulk/jobs/{id}`, active jobs) return `progress`
+  block. DB: added `eta_seconds`, `files_per_second`, `eta_updated_at`,
+  `total_files_counted`, `count_status` columns to `scan_runs`, `bulk_jobs`,
+  `conversion_history`. UI: ETA display and speed indicator on bulk page,
+  scan progress shows "X of Y files" with streaming count.

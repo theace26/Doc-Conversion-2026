@@ -131,6 +131,7 @@
           <div id="scan-bar" class="progress-bar-fill" style="width:0%"></div>
         </div>
         <p id="scan-count" class="scan-meta text-sm text-muted"></p>
+        <p id="scan-eta" class="scan-meta text-sm eta-text" hidden></p>
         <p id="scan-file" class="scan-file-path text-muted"></p>
       </section>
 
@@ -138,6 +139,10 @@
         <div id="progress-text" class="text-sm text-muted">Scanning...</div>
         <div class="progress-bar-wrap">
           <div class="progress-bar-fill indeterminate" id="progress-bar">0%</div>
+        </div>
+        <div id="eta-display" class="eta-display" hidden>
+          <span id="eta-text" class="eta-text"></span>
+          <span id="eta-speed" class="eta-speed"></span>
         </div>
         <div class="counters mt-1" id="counters">
           <div class="counter"><span class="counter-value" id="c-converted">0</span><span class="counter-label">Converted</span></div>
@@ -364,9 +369,25 @@
         scanBar.style.width = '100%';
         scanBar.className = 'progress-bar-fill indeterminate';
       }
-      const pctStr = d.pct != null ? ` — ${d.pct}%` : '';
-      scanCount.textContent = `${(d.scanned || 0).toLocaleString()} files scanned${pctStr}`;
+      const total = d.total;
+      let countStr;
+      if (total != null && d.count_ready) {
+        countStr = `${(d.scanned || 0).toLocaleString()} of ${total.toLocaleString()} files scanned`;
+      } else if (total != null) {
+        countStr = `${(d.scanned || 0).toLocaleString()} files scanned — counting total\u2026`;
+      } else {
+        countStr = `${(d.scanned || 0).toLocaleString()} files scanned`;
+      }
+      if (d.pct != null) countStr += ` (${d.pct}%)`;
+      scanCount.textContent = countStr;
       scanFile.textContent = d.current_file || '';
+      // Show scan ETA
+      const scanEta = document.getElementById('scan-eta');
+      if (d.eta_human) {
+        scanEta.textContent = d.eta_human;
+        if (d.files_per_second) scanEta.textContent += ` \u00b7 ${d.files_per_second} files/sec`;
+        scanEta.hidden = false;
+      }
     });
 
     eventSource.addEventListener('scan_complete', e => {
@@ -426,6 +447,21 @@
       const d = JSON.parse(e.data);
       document.getElementById('c-failed').textContent = (d.failed || 0).toLocaleString();
       if (d.worker_id !== undefined) { activeWorkers[d.worker_id] = null; renderActiveWorkers(); }
+    });
+
+    eventSource.addEventListener('progress_update', e => {
+      const d = JSON.parse(e.data);
+      const etaEl = document.getElementById('eta-display');
+      const etaText = document.getElementById('eta-text');
+      const etaSpeed = document.getElementById('eta-speed');
+      if (d.eta_human || d.files_per_second) {
+        etaEl.hidden = false;
+        etaText.textContent = d.eta_human || '';
+        etaSpeed.textContent = d.files_per_second ? `${d.files_per_second} files/sec` : '';
+      }
+      if (d.percent != null) {
+        updateProgressBar(d.completed, d.total || totalPending);
+      }
     });
 
     eventSource.addEventListener('adobe_indexed', e => {
