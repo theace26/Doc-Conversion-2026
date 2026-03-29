@@ -26,12 +26,12 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.12.6
+## Current Status — v0.12.7
 
-All 10 phases complete + universal format support. Latest: fixed brute-force charset to
-use all printable characters (letters + digits + punctuation, no control chars) by default
-for both archive and PDF/Office password crackers. Nested encrypted archives get the full
-cracking cascade automatically.
+All 10 phases complete + universal format support. Latest: brute-force charset expanded
+to full ASCII 0x01-0x7F (including control characters) as default for both archive and
+PDF/Office password crackers. New `all_ascii` charset option in Settings UI. Encrypted
+ZIP, 7z, and RAR archives — including nested ones — get the full cracking cascade.
 
 **Planned:** External log shipping to Grafana Loki / ELK stack. The current local log
 archive system is an interim solution — once external aggregation is in place, local
@@ -133,7 +133,7 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 
 ---
 
-## Supported Formats (v0.12.6)
+## Supported Formats (v0.12.7)
 
 | Category | Extensions | Handler |
 |----------|-----------|---------|

@@ -582,11 +582,20 @@ class PasswordHandler:
             mutations.append(password + "2026")
         return mutations
 
+    # Full ASCII charset: all bytes 0x01–0x7F (excludes only NULL)
+    _ALL_ASCII = "".join(chr(i) for i in range(1, 128))
+
     def _get_charset(self) -> str:
         """Get character set for brute-force based on config.
 
-        'all_printable' includes uppercase, lowercase, digits, and all standard
-        punctuation/symbols — but NOT whitespace or control characters.
+        Charsets (from narrowest to widest):
+          numeric:       0-9 (10 chars)
+          alpha:         a-z (26 chars)
+          alphanumeric:  a-z + 0-9 (36 chars)
+          all_printable: letters + digits + punctuation + space (95 chars)
+          all_ascii:     every ASCII byte 0x01-0x7F including control chars (127 chars)
+
+        Default is all_ascii for maximum coverage.
         """
         if self.brute_force_charset == "numeric":
             return string.digits
@@ -595,8 +604,10 @@ class PasswordHandler:
         elif self.brute_force_charset == "alphanumeric":
             return string.ascii_lowercase + string.digits
         elif self.brute_force_charset == "all_printable":
-            return string.ascii_letters + string.digits + string.punctuation
-        return string.ascii_letters + string.digits + string.punctuation
+            return string.ascii_letters + string.digits + string.punctuation + " "
+        elif self.brute_force_charset == "all_ascii":
+            return self._ALL_ASCII
+        return self._ALL_ASCII
 
     def _try_john(self, path: Path, deadline: float) -> str | None:
         """Try John the Ripper for PDF password cracking."""
