@@ -130,7 +130,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(collect_disk_snapshot())
         # Record startup event
         await record_activity_event("startup", "MarkFlow started", {
-            "version": "0.12.1",
+            "version": "0.12.7",
             "cpu_count": psutil.cpu_count(logical=True),
             "ram_total": psutil.virtual_memory().total,
         })
@@ -157,7 +157,7 @@ app = FastAPI(
         "Convert documents bidirectionally between their original format "
         "and Markdown. OCR, batch processing, and style preservation."
     ),
-    version="0.12.1",
+    version="0.12.7",
     lifespan=lifespan,
 )
 

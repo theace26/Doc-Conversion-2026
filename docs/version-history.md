@@ -280,3 +280,39 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
   `.json`, `.yaml`, `.yml`, `.ini`, `.cfg`, `.conf`, `.properties`.
   Total supported extensions: 33 across 19 handlers. Convert page and folder
   drop UI updated for new extensions.
+
+**v0.12.2** — Size-based log rotation + settings download loop fix.
+  Replaced `TimedRotatingFileHandler` with `RotatingFileHandler` (50 MB main,
+  100 MB debug, configurable via `LOG_MAX_SIZE_MB` / `DEBUG_LOG_MAX_SIZE_MB`).
+  Log download endpoint gets size guard (HTTP 413 for files >500 MB) and
+  explicit `Content-Length` header to prevent browser download restart loops.
+
+**v0.12.3** — Compressed file scanning, archive extraction, file tracking.
+  New `ArchiveHandler` for ZIP, TAR, TAR.GZ, 7z, RAR, CAB, ISO. Recursive
+  extraction and conversion of inner documents (depth limit 20). Archive
+  summary markdown per file. Zip-bomb protection (`core/archive_safety.py`):
+  ratio check, total size cap, entry count cap, quine detection. Compound
+  extension support in format registry (`_get_compound_extension()`) and
+  bulk scanner (`_get_effective_extension()`). New `archive_members` DB table.
+  Dependencies: py7zr, rarfile, pycdlib, cabextract, unrar-free, p7zip-full.
+  Password file at `config/archive_passwords.txt`. 12 new extensions registered.
+  Total supported extensions: 45 across 20 handlers.
+
+**v0.12.4** — Archive password writeback and session-level reuse.
+  Successful archive passwords saved back to `archive_passwords.txt` and
+  cached in-memory for the process lifetime. Found passwords tried first
+  on subsequent archives. Thread-safe via lock.
+
+**v0.12.5** — Full password cracking cascade for encrypted archives.
+  Archive handler now mirrors the PDF/Office password handler cascade:
+  known passwords, dictionary attack (common.txt + mutations), brute-force.
+  Respects user preferences for charset, max length, timeout. Settings read
+  sync-safely via direct sqlite3 connection.
+
+**v0.12.6** — Brute-force charset fixed to all printable characters as default
+  for both archive and PDF/Office crackers. Fallback charset updated.
+
+**v0.12.7** — Full ASCII charset (0x01-0x7F) including control characters.
+  New `all_ascii` charset option in Settings UI. Default for both archive
+  and PDF/Office brute-force. Encrypted ZIP, 7z, and RAR archives —
+  including nested ones — get the full cracking cascade at every depth.
