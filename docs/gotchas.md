@@ -36,8 +36,12 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 - **Dual-file logging strategy**: `logs/markflow.log` (operational, always active)
   and `logs/markflow-debug.log` (debug trace, developer mode only). Both use
-  `TimedRotatingFileHandler` with daily rotation. Operational keeps 30 days,
-  debug keeps 7 days. Both write structlog JSON format.
+  `RotatingFileHandler` with size-based rotation. Operational: 50 MB / 5 backups,
+  debug: 100 MB / 3 backups. Configurable via `LOG_MAX_SIZE_MB`, `DEBUG_LOG_MAX_SIZE_MB`,
+  `LOG_BACKUP_COUNT`, `DEBUG_LOG_BACKUP_COUNT` env vars. Both write structlog JSON format.
+
+- **Never use TimedRotatingFileHandler or bare FileHandler**: A single day's debug log
+  can grow to 4 GB+. Always use size-based `RotatingFileHandler` to cap file growth.
 
 - **`log_level` preference maps to handler levels, not root level**: The `LEVEL_MAP`
   maps "normal"→WARNING, "elevated"→INFO, "developer"→DEBUG.
@@ -49,6 +53,14 @@ the relevant subsystem. Referenced from CLAUDE.md.
 - **Log file renamed from markflow.json to markflow.log**: v0.9.5 changed the extension.
 
 - **Log file download is whitelist-only**: Only `markflow.log` or `markflow-debug.log` accepted.
+
+- **Log download size guard**: Files over 500 MB (configurable via `LOG_DOWNLOAD_MAX_MB`)
+  return HTTP 413. The explicit `Content-Length` header is required — without it, browsers
+  can't track progress and may restart the download in a loop.
+
+- **File downloads must use native browser download**: Never use `fetch()` + blob URL for
+  file downloads — use `<a href="...">` or `window.location.href`. The `fetch` API can
+  silently retry on timeout, causing infinite download loops on large files.
 
 - **Client event endpoint never errors**: `POST /api/log/client-event` always returns 204.
 

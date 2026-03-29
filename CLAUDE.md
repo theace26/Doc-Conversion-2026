@@ -26,10 +26,11 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.12.1
+## Current Status — v0.12.2
 
-All 10 phases complete + universal format support. Latest: data format handlers (JSON, YAML,
-INI/CFG), recursive email attachment conversion, 30+ format extensions supported.
+All 10 phases complete + universal format support. Latest: log rotation (size-based
+RotatingFileHandler on all log files), settings download loop fix (size guard + explicit
+Content-Length header on log download endpoint).
 
 For full version-by-version changelog, see [`docs/version-history.md`](docs/version-history.md).
 
@@ -115,10 +116,12 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **Stop is cooperative**: Workers finish current file before stopping
 - **Password handling**: Preprocessing step before `handler.ingest()`, not a handler change
 - **MCP server is separate**: Port 8001, own process, no JWT auth (uses `MCP_AUTH_TOKEN`)
+- **Log files**: Never use bare `FileHandler` or `TimedRotatingFileHandler` — always `RotatingFileHandler` (size-based). Defaults: 50 MB main, 100 MB debug. Configurable via `LOG_MAX_SIZE_MB` / `DEBUG_LOG_MAX_SIZE_MB` env vars.
+- **File downloads**: Never use `fetch()` + blob for file downloads — use `window.location.href` or `<a>` tags. Backend must set explicit `Content-Length` header.
 
 ---
 
-## Supported Formats (v0.12.1)
+## Supported Formats (v0.12.2)
 
 | Category | Extensions | Handler |
 |----------|-----------|---------|

@@ -4,10 +4,16 @@ structlog configuration for MarkFlow.
 Dual-file JSON logging strategy:
   - Handler A: Operational log (logs/markflow.log)
     Always active. WARNING when normal, INFO when elevated/developer.
-    Daily rotation, 30-day retention.
+    Size-based rotation: 50 MB default, 5 backups.
   - Handler B: Debug trace log (logs/markflow-debug.log)
     Only active in developer mode. DEBUG level.
-    Daily rotation, 7-day retention.
+    Size-based rotation: 100 MB default, 3 backups.
+
+Max sizes are configurable via environment variables:
+  - LOG_MAX_SIZE_MB (default: 50)
+  - DEBUG_LOG_MAX_SIZE_MB (default: 100)
+  - LOG_BACKUP_COUNT (default: 5)
+  - DEBUG_LOG_BACKUP_COUNT (default: 3)
 
 Dynamic level switching via update_log_level() — no restart required.
 
@@ -29,6 +35,12 @@ import structlog
 
 _configured = False
 _current_level: str = "normal"
+
+# Size-based rotation settings (configurable via env vars)
+LOG_MAX_SIZE_MB = int(os.environ.get("LOG_MAX_SIZE_MB", "50"))
+DEBUG_LOG_MAX_SIZE_MB = int(os.environ.get("DEBUG_LOG_MAX_SIZE_MB", "100"))
+LOG_BACKUP_COUNT = int(os.environ.get("LOG_BACKUP_COUNT", "5"))
+DEBUG_LOG_BACKUP_COUNT = int(os.environ.get("DEBUG_LOG_BACKUP_COUNT", "3"))
 
 # Handler names for identification during hot-swap
 _OPERATIONAL_HANDLER_NAME = "markflow_operational"
@@ -62,13 +74,16 @@ def _get_json_formatter():
     )
 
 
-def _make_operational_handler(level: int) -> logging.handlers.TimedRotatingFileHandler:
-    """Create the operational log handler (logs/markflow.log)."""
+def _make_operational_handler(level: int) -> logging.handlers.RotatingFileHandler:
+    """Create the operational log handler (logs/markflow.log).
+
+    Size-based rotation: LOG_MAX_SIZE_MB (default 50 MB), LOG_BACKUP_COUNT (default 5).
+    """
     _logs_dir.mkdir(parents=True, exist_ok=True)
-    handler = logging.handlers.TimedRotatingFileHandler(
+    handler = logging.handlers.RotatingFileHandler(
         _logs_dir / "markflow.log",
-        when="midnight",
-        backupCount=30,
+        maxBytes=LOG_MAX_SIZE_MB * 1024 * 1024,
+        backupCount=LOG_BACKUP_COUNT,
         encoding="utf-8",
     )
     handler.setLevel(level)
@@ -77,13 +92,16 @@ def _make_operational_handler(level: int) -> logging.handlers.TimedRotatingFileH
     return handler
 
 
-def _make_debug_handler() -> logging.handlers.TimedRotatingFileHandler:
-    """Create the debug trace log handler (logs/markflow-debug.log)."""
+def _make_debug_handler() -> logging.handlers.RotatingFileHandler:
+    """Create the debug trace log handler (logs/markflow-debug.log).
+
+    Size-based rotation: DEBUG_LOG_MAX_SIZE_MB (default 100 MB), DEBUG_LOG_BACKUP_COUNT (default 3).
+    """
     _logs_dir.mkdir(parents=True, exist_ok=True)
-    handler = logging.handlers.TimedRotatingFileHandler(
+    handler = logging.handlers.RotatingFileHandler(
         _logs_dir / "markflow-debug.log",
-        when="midnight",
-        backupCount=7,
+        maxBytes=DEBUG_LOG_MAX_SIZE_MB * 1024 * 1024,
+        backupCount=DEBUG_LOG_BACKUP_COUNT,
         encoding="utf-8",
     )
     handler.setLevel(logging.DEBUG)

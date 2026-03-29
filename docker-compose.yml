@@ -30,6 +30,12 @@ services:
       - API_KEY_SALT=${API_KEY_SALT:-}
       - UNIONCORE_JWT_SECRET=${UNIONCORE_JWT_SECRET:-}
       - UNIONCORE_ORIGIN=${UNIONCORE_ORIGIN:-}
+      # Log rotation (size-based) — uncomment to override defaults
+      # - LOG_MAX_SIZE_MB=50           # Operational log max size (default: 50 MB)
+      # - DEBUG_LOG_MAX_SIZE_MB=100    # Debug log max size (default: 100 MB)
+      # - LOG_BACKUP_COUNT=5           # Operational log backup count (default: 5)
+      # - DEBUG_LOG_BACKUP_COUNT=3     # Debug log backup count (default: 3)
+      # - LOG_DOWNLOAD_MAX_MB=500      # Max downloadable log file size (default: 500 MB)
     depends_on:
       meilisearch:
         condition: service_healthy
