@@ -29,8 +29,12 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 ## Current Status — v0.12.2
 
 All 10 phases complete + universal format support. Latest: log rotation (size-based
-RotatingFileHandler on all log files), settings download loop fix (size guard + explicit
-Content-Length header on log download endpoint).
+RotatingFileHandler on all log files), log archive (gzip compression of rotated files,
+90-day retention), settings download loop fix (size guard + explicit Content-Length header).
+
+**Planned:** External log shipping to Grafana Loki / ELK stack. The current local archive
+system is an interim solution — once external aggregation is in place, local retention can
+be reduced and the archive scheduler retired.
 
 For full version-by-version changelog, see [`docs/version-history.md`](docs/version-history.md).
 
@@ -85,7 +89,8 @@ Critical files to know:
 | `core/converter.py` | Pipeline orchestrator (single-file conversion) |
 | `core/bulk_worker.py` | Worker pool: BulkJob, pause/resume/cancel, SSE |
 | `core/auth.py` | JWT validation, role hierarchy, API key verification |
-| `core/scheduler.py` | APScheduler: lifecycle scan, trash expiry, DB maintenance |
+| `core/scheduler.py` | APScheduler: lifecycle scan, trash expiry, DB maintenance, log archive |
+| `core/log_archiver.py` | Compress rotated logs to gzip archives, purge old archives |
 | `core/auto_converter.py` | Auto-conversion decision engine |
 | `formats/rtf_handler.py` | RTF ingest/export with control-word parser |
 | `formats/html_handler.py` | HTML/HTM with BeautifulSoup, font extraction |
@@ -117,6 +122,7 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **Password handling**: Preprocessing step before `handler.ingest()`, not a handler change
 - **MCP server is separate**: Port 8001, own process, no JWT auth (uses `MCP_AUTH_TOKEN`)
 - **Log files**: Never use bare `FileHandler` or `TimedRotatingFileHandler` — always `RotatingFileHandler` (size-based). Defaults: 50 MB main, 100 MB debug. Configurable via `LOG_MAX_SIZE_MB` / `DEBUG_LOG_MAX_SIZE_MB` env vars.
+- **Log archives**: Rotated files are auto-compressed to `logs/archive/*.gz` every 6 hours. 90-day retention (configurable via `LOG_ARCHIVE_RETENTION_DAYS`). Interim solution — planned migration to Grafana Loki / ELK.
 - **File downloads**: Never use `fetch()` + blob for file downloads — use `window.location.href` or `<a>` tags. Backend must set explicit `Content-Length` header.
 
 ---

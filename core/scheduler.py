@@ -314,8 +314,20 @@ def start_scheduler() -> None:
         max_instances=1,
     )
 
+    # v0.12.2: Log archive — compress rotated logs every 6 hours
+    from core.log_archiver import archive_rotated_logs
+    scheduler.add_job(
+        archive_rotated_logs,
+        trigger=IntervalTrigger(hours=6),
+        id="log_archive",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=300,
+    )
+
     scheduler.start()
-    log.info("scheduler.started", jobs=10)
+    log.info("scheduler.started", jobs=11)
 
 
 def get_scheduler_status() -> dict:
@@ -330,6 +342,7 @@ def get_scheduler_status() -> dict:
         "purge_old_metrics": "metrics_purge_next",
         "auto_metrics_aggregation": "auto_metrics_aggregation_next",
         "deferred_conversion_runner": "deferred_conversion_next",
+        "log_archive": "log_archive_next",
     }
     for job_id, key in job_names.items():
         try:

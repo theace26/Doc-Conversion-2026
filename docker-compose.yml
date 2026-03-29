@@ -36,6 +36,7 @@ services:
       # - LOG_BACKUP_COUNT=5           # Operational log backup count (default: 5)
       # - DEBUG_LOG_BACKUP_COUNT=3     # Debug log backup count (default: 3)
       # - LOG_DOWNLOAD_MAX_MB=500      # Max downloadable log file size (default: 500 MB)
+      # - LOG_ARCHIVE_RETENTION_DAYS=90 # How long to keep compressed log archives (default: 90)
     depends_on:
       meilisearch:
         condition: service_healthy
