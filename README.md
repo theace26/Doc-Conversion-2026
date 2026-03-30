@@ -4,8 +4,9 @@ Convert documents bidirectionally between their original format and Markdown (`.
 Runs OCR automatically on scanned content, supports batch processing, and persists
 all conversion history across restarts.
 
-**Supported formats:** DOCX, DOC, PDF (text + scanned), PPTX, XLSX, CSV → Markdown,
-and the reverse for all formats.
+**Supported formats:** DOCX, DOC, PDF, PPTX, XLSX, CSV, TSV, RTF, ODT, ODS, ODP, HTML,
+EPUB, EML, MSG, JSON, YAML, XML, INI, TXT, ZIP, TAR, 7z, RAR, and Adobe creative files
+(PSD, AI, INDD, AEP, PRPROJ, XD). Bidirectional conversion to/from Markdown.
 
 ---
 
@@ -165,13 +166,21 @@ Doc-Conversion-2026/
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| 0 | Docker scaffold | ✅ Complete |
-| 1 | DOCX → Markdown pipeline | Planned |
-| 2 | Markdown → DOCX round-trip | Planned |
-| 3 | OCR pipeline | Planned |
-| 4 | PDF, PPTX, XLSX handlers | Planned |
-| 5 | Testing & debug infrastructure | Planned |
-| 6 | Full UI, batch, history, polish | Planned |
+| 0 | Docker scaffold, project structure, DB schema | ✅ Complete |
+| 1 | DOCX → Markdown pipeline | ✅ Complete |
+| 2 | Markdown → DOCX round-trip with fidelity tiers | ✅ Complete |
+| 3 | OCR pipeline (multi-signal detection, review UI) | ✅ Complete |
+| 4 | PDF, PPTX, XLSX/CSV format handlers | ✅ Complete |
+| 4b | Universal format support (RTF, ODT, HTML, EPUB, EML, archives) | ✅ Complete |
+| 5 | Testing & debug infrastructure | ✅ Complete |
+| 6 | Full UI, batch progress, history, settings | ✅ Complete |
+| 7 | Bulk conversion, Adobe indexing, Meilisearch, Cowork | ✅ Complete |
+| 8b | Visual enrichment: scene detection, keyframe extraction | ✅ Complete |
+| 8c | Unknown & unrecognized file cataloging | ✅ Complete |
+| 9 | File lifecycle management, version tracking, DB health | ✅ Complete |
+| 10 | Auth layer, role guards, API keys, UnionCore integration | ✅ Complete |
+
+**Current version:** v0.12.1
 
 ---
 

@@ -41,6 +41,9 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `core/gpu_detector.py` | Dual-path GPU detection: container NVIDIA + host worker capabilities |
 | `core/auto_converter.py` | Auto-conversion decision engine: mode resolution, worker/batch sizing |
 | `core/auto_metrics_aggregator.py` | Hourly rollup of system_metrics into auto_metrics |
+| `core/progress_tracker.py` | RollingWindowETA, ProgressSnapshot, format_eta for scan/bulk jobs |
+| `core/log_archiver.py` | Compress rotated logs to gzip archives, purge old archives |
+| `core/archive_safety.py` | Zip-bomb protection: ratio, size, depth, quine checks |
 
 ## Format Handlers
 
@@ -55,6 +58,17 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `formats/json_handler.py` | JSON ingest/export with summary + structure outline + secret redaction |
 | `formats/yaml_handler.py` | YAML/YML with multi-document support, comments preservation |
 | `formats/ini_handler.py` | INI/CFG/CONF/properties with section-aware parsing, .conf plain-text fallback |
+| `formats/rtf_handler.py` | RTF ingest/export with control-word parser |
+| `formats/html_handler.py` | HTML/HTM ingest/export with BeautifulSoup, font extraction |
+| `formats/odt_handler.py` | OpenDocument Text via odfpy |
+| `formats/ods_handler.py` | OpenDocument Spreadsheet via odfpy |
+| `formats/odp_handler.py` | OpenDocument Presentation via odfpy |
+| `formats/xml_handler.py` | XML ingest/export with structure-aware parsing |
+| `formats/epub_handler.py` | EPUB ingest/export |
+| `formats/txt_handler.py` | Plain text / log file ingest/export |
+| `formats/eml_handler.py` | EML/MSG email with recursive attachment conversion |
+| `formats/adobe_handler.py` | PSD/AI/INDD/AEP/PRPROJ/XD — unified Adobe handler |
+| `formats/archive_handler.py` | ZIP/TAR/7z/RAR/CAB/ISO — recursive extraction + conversion |
 
 ## API Routes
 
@@ -84,7 +98,8 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `api/routes/help.py` | Help wiki API: index, article rendering (mistune), keyword search |
 | `api/routes/auto_convert.py` | Auto-conversion API: status, mode override, run history, metrics |
 | `api/routes/client_log.py` | POST /api/log/client-event — frontend action logging |
-| `api/routes/logs.py` | GET /api/logs/download/{filename} — log file downloads |
+| `api/routes/logs.py` | GET /api/logs/download/{filename} — log file downloads + archive endpoints |
+| `api/routes/mcp_info.py` | GET /api/mcp/connection-info — MCP server status for settings UI |
 
 ## Frontend
 
