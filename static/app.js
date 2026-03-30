@@ -220,6 +220,21 @@ async function buildNav() {
             nav.appendChild(a);
         });
 
+    // Inject version badge next to logo
+    const logo = document.querySelector('.nav-logo');
+    if (logo) {
+        try {
+            const vRes = await fetch('/api/version');
+            if (vRes.ok) {
+                const vData = await vRes.json();
+                const badge = document.createElement('span');
+                badge.className = 'version-badge';
+                badge.textContent = 'v' + vData.version;
+                logo.appendChild(badge);
+            }
+        } catch { /* version badge is non-critical */ }
+    }
+
     // Load status badge script dynamically and init after it loads
     _loadStatusBadge();
 

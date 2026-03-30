@@ -21,6 +21,8 @@ Routes mounted:
 import os
 from contextlib import asynccontextmanager
 
+from core.version import __version__
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
@@ -140,7 +142,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(collect_disk_snapshot())
         # Record startup event
         await record_activity_event("startup", "MarkFlow started", {
-            "version": "0.12.9",
+            "version": __version__,
             "cpu_count": psutil.cpu_count(logical=True),
             "ram_total": psutil.virtual_memory().total,
         })
@@ -167,7 +169,7 @@ app = FastAPI(
         "Convert documents bidirectionally between their original format "
         "and Markdown. OCR, batch processing, and style preservation."
     ),
-    version="0.12.9",
+    version=__version__,
     lifespan=lifespan,
 )
 
@@ -266,6 +268,12 @@ app.mount("/ocr-images", StaticFiles(directory=_output_dir), name="ocr-images")
 
 
 # ── Health endpoint ───────────────────────────────────────────────────────────
+@app.get("/api/version", tags=["system"])
+async def get_version():
+    """Return the current MarkFlow version."""
+    return {"version": __version__}
+
+
 @app.get("/api/health", tags=["system"])
 async def health_check():
     """System health check — Tesseract, LibreOffice, disk space, DB size."""

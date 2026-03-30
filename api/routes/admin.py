@@ -24,6 +24,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from core.version import __version__
 from core.auth import AuthenticatedUser, UserRole, require_role, hash_api_key
 from core.database import (
     create_api_key,
@@ -150,7 +151,7 @@ async def system_info(
         meili_status = "unavailable"
 
     return {
-        "version": "0.12.9",
+        "version": __version__,
         "auth_mode": "DEV_BYPASS" if dev_bypass else "JWT",
         "dev_bypass_active": dev_bypass,
         "meilisearch_status": meili_status,

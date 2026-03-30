@@ -110,6 +110,13 @@ small, .text-sm { font-size: 0.85rem; }
   letter-spacing: -0.01em;
 }
 .nav-logo:hover { text-decoration: none; color: var(--accent); }
+.version-badge {
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-left: 0.4rem;
+  vertical-align: middle;
+}
 
 .nav-links {
   display: flex;
