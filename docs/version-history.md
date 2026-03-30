@@ -347,3 +347,7 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 - Fixed: Stop banner CSS — `.stop-banner[hidden]` override prevents `display:flex`
   from overriding the HTML `hidden` attribute; JS uses `style.display` toggle
 - Note: Lifecycle scanner progress tracking + ETA already existed (v0.12.8)
+- Added: Mount-readiness guard — bulk scanner and lifecycle scanner verify source mount
+  is populated before scanning. Empty mountpoints (SMB not connected) abort gracefully.
+- Added: Static file `Cache-Control: no-cache, must-revalidate` headers via middleware
+- Added: `DEFAULT_LOG_LEVEL` env var for container-start log level override

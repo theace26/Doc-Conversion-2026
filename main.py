@@ -167,7 +167,7 @@ app = FastAPI(
         "Convert documents bidirectionally between their original format "
         "and Markdown. OCR, batch processing, and style preservation."
     ),
-    version="0.12.8",
+    version="0.12.1",
     lifespan=lifespan,
 )
 
@@ -182,6 +182,15 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Authorization", "X-API-Key", "Content-Type", "X-Request-ID"],
 )
+
+
+@app.middleware("http")
+async def add_static_cache_headers(request, call_next):
+    """Bust browser cache for static assets after deploys."""
+    response = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
 
 add_middleware(app)
 

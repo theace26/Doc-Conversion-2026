@@ -294,6 +294,15 @@ the relevant subsystem. Referenced from CLAUDE.md.
 - **Stop banner CSS**: `.stop-banner[hidden] { display: none !important; }` in markflow.css.
   JS uses `style.display` not `.hidden` attribute because CSS `display:flex` overrides `hidden`.
 
+## Scanner & Mount Readiness
+
+- **Source mount verification**: Both `BulkScanner.scan()` and `run_lifecycle_scan()` verify
+  the source path is populated before scanning. An empty mountpoint (SMB not connected) aborts
+  gracefully with status `failed`. Uses `os.scandir()` + `next()` to check for at least one entry.
+
+- **Static file cache headers**: Middleware in `main.py` adds `Cache-Control: no-cache, must-revalidate`
+  to all `/static/` responses. Prevents stale JS/CSS after deploys.
+
 ## Scheduler & Metrics
 
 - **collect_metrics interval**: 120s with `coalesce=True`, `misfire_grace_time=60`.

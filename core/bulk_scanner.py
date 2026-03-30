@@ -94,6 +94,22 @@ class BulkFileRecord:
     status: str = "pending"
 
 
+def _verify_source_mount(source_path: str) -> bool:
+    """Verify the source path is mounted and accessible.
+
+    Checks that the path exists, is a directory, and contains at least
+    one entry (to distinguish a live mount from an empty mountpoint).
+    """
+    if not os.path.isdir(source_path):
+        return False
+    try:
+        with os.scandir(source_path) as it:
+            next(it)
+            return True
+    except (StopIteration, PermissionError, OSError):
+        return False
+
+
 class BulkScanner:
     """Walks a source directory and upserts discovered files into bulk_files."""
 
@@ -118,6 +134,19 @@ class BulkScanner:
         result = ScanResult(job_id=self.job_id)
         file_count = 0
         self._convertible_paths: list[Path] = []
+
+        if not _verify_source_mount(str(self.source_path)):
+            log.error("bulk_scan_mount_not_ready",
+                      job_id=self.job_id,
+                      source_path=str(self.source_path),
+                      msg="Source path is empty or not mounted. Aborting scan.")
+            from core.database import get_db
+            async with get_db() as conn:
+                await conn.execute(
+                    "UPDATE bulk_jobs SET status='failed' WHERE id=?",
+                    (self.job_id,))
+                await conn.commit()
+            return result
 
         log.info("bulk_scan_start", job_id=self.job_id, source_path=str(self.source_path))
 

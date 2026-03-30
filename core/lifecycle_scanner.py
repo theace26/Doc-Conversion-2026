@@ -110,6 +110,21 @@ async def run_lifecycle_scan(
         log.error("lifecycle_scan.source_unavailable", path=str(source_root))
         return scan_run_id
 
+    # Verify the mount is actually populated (empty mountpoint = SMB not connected)
+    try:
+        with os.scandir(source_root) as it:
+            next(it)
+    except (StopIteration, PermissionError, OSError):
+        await create_scan_run(scan_run_id)
+        await update_scan_run(scan_run_id, {
+            "status": "failed",
+            "finished_at": _now_iso(),
+            "error_log": json.dumps([{"path": str(source_root), "error": "Source mount is empty — not mounted?"}]),
+        })
+        log.error("lifecycle_scan.mount_not_ready", path=str(source_root),
+                  msg="Source path is empty or not mounted. Skipping scan cycle.")
+        return scan_run_id
+
     await create_scan_run(scan_run_id)
 
     counters = {
