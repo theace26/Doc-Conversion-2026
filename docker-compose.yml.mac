@@ -1,0 +1,95 @@
+services:
+
+  # ── Main MarkFlow app ──────────────────────────────────────────────────────
+  markflow:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - markflow-db:/app/data                             # SQLite — persistent
+      - ./output:/app/output                              # Single-file conversion results
+      - ./logs:/app/logs                                  # Structured JSON logs
+      - C:/Users/Xerxes/T86_Work/k_drv_test:/mnt/source:ro  # Input — READ ONLY
+      - D:/Doc-Conv_Test:/mnt/output-repo                 # Bulk conversion output
+      - C:/:/host/c:ro                                    # Drive browser — C:
+      - D:/:/host/d:ro                                    # Drive browser — D:
+      - ${HASHCAT_QUEUE_DIR:-./hashcat-queue}:/mnt/hashcat-queue  # GPU cracking job queue
+      - ./config:/app/config:ro                              # Config files (archive passwords, etc.)
+    environment:
+      - DEBUG=false
+      - WORKERS=1
+      - DB_PATH=/app/data/markflow.db
+      - MEILI_HOST=http://meilisearch:7700
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-}
+      - BULK_WORKER_COUNT=${BULK_WORKER_COUNT:-4}
+      - BULK_SOURCE_PATH=/mnt/source
+      - BULK_OUTPUT_PATH=/mnt/output-repo
+      - MOUNTED_DRIVES=c,d
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-change-in-prod}
+      - MCP_HOST=markflow-mcp
+      - MCP_PORT=${MCP_PORT:-8001}
+      - DEFAULT_LOG_LEVEL=${DEFAULT_LOG_LEVEL:-normal}
+      - DEV_BYPASS_AUTH=true
+      - API_KEY_SALT=${API_KEY_SALT:-}
+      - UNIONCORE_JWT_SECRET=${UNIONCORE_JWT_SECRET:-}
+      - UNIONCORE_ORIGIN=${UNIONCORE_ORIGIN:-}
+      # Log rotation (size-based) — uncomment to override defaults
+      # - LOG_MAX_SIZE_MB=50           # Operational log max size (default: 50 MB)
+      # - DEBUG_LOG_MAX_SIZE_MB=100    # Debug log max size (default: 100 MB)
+      # - LOG_BACKUP_COUNT=5           # Operational log backup count (default: 5)
+      # - DEBUG_LOG_BACKUP_COUNT=3     # Debug log backup count (default: 3)
+      # - LOG_DOWNLOAD_MAX_MB=500      # Max downloadable log file size (default: 500 MB)
+      # - LOG_ARCHIVE_RETENTION_DAYS=90 # How long to keep compressed log archives (default: 90)
+      # Archive processing limits
+      # - ARCHIVE_MAX_DEPTH=20           # Max nesting depth for archives-in-archives
+      # - ARCHIVE_MAX_SIZE_GB=50         # Max total decompressed size per archive (GB)
+      # - ARCHIVE_MAX_ENTRIES=100000     # Max number of entries in a single archive
+      # - ARCHIVE_PASSWORD_FILE=config/archive_passwords.txt
+    depends_on:
+      meilisearch:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── MCP server (Claude.ai connector) ──────────────────────────────────────
+  markflow-mcp:
+    build: .
+    command: python -m mcp_server.server
+    ports:
+      - "8001:8001"
+    volumes:
+      - markflow-db:/app/data                             # Shared DB with main app
+      - ./output:/app/output                              # Same output dir as main app
+      - D:/Doc-Conv_Test:/mnt/output-repo                 # Read converted files
+    environment:
+      - DB_PATH=/app/data/markflow.db
+      - OUTPUT_DIR=/app/output
+      - MCP_PORT=8001
+      - MCP_AUTH_TOKEN=${MCP_AUTH_TOKEN:-}
+      - MEILI_HOST=http://meilisearch:7700
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-}
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-change-in-prod}
+    depends_on:
+      - markflow
+      - meilisearch
+    restart: unless-stopped
+
+  # ── Meilisearch (full-text search) ────────────────────────────────────────
+  meilisearch:
+    image: getmeili/meilisearch:latest
+    ports:
+      - "7700:7700"
+    environment:
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-}
+      - MEILI_ENV=development
+    volumes:
+      - meilisearch-data:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  markflow-db:        # SQLite database — survives container restarts
+  meilisearch-data:   # Meilisearch index — survives container restarts
