@@ -9,10 +9,10 @@ services:
       - markflow-db:/app/data                             # SQLite — persistent
       - ./output:/app/output                              # Single-file conversion results
       - ./logs:/app/logs                                  # Structured JSON logs
-      - C:/Users/Xerxes/T86_Work/k_drv_test:/mnt/source:ro  # Input — READ ONLY
-      - D:/Doc-Conv_Test:/mnt/output-repo                 # Bulk conversion output
-      - C:/:/host/c:ro                                    # Drive browser — C:
-      - D:/:/host/d:ro                                    # Drive browser — D:
+      - ${SOURCE_DIR}:/mnt/source:ro                        # Input — READ ONLY
+      - ${OUTPUT_DIR}:/mnt/output-repo                    # Bulk conversion output
+      - ${DRIVE_C:-C:/}:/host/c:ro                        # Drive browser — C:
+      - ${DRIVE_D:-D:/}:/host/d:ro                        # Drive browser — D:
       - ${HASHCAT_QUEUE_DIR:-./hashcat-queue}:/mnt/hashcat-queue  # GPU cracking job queue
       - ./config:/app/config:ro                              # Config files (archive passwords, etc.)
     environment:
@@ -59,7 +59,7 @@ services:
     volumes:
       - markflow-db:/app/data                             # Shared DB with main app
       - ./output:/app/output                              # Same output dir as main app
-      - D:/Doc-Conv_Test:/mnt/output-repo                 # Read converted files
+      - ${OUTPUT_DIR}:/mnt/output-repo                    # Read converted files
     environment:
       - DB_PATH=/app/data/markflow.db
       - OUTPUT_DIR=/app/output

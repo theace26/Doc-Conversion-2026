@@ -67,6 +67,7 @@ Phase 1 implementation instructions (historical): [`docs/phase-1-instructions.md
 
 ## Architecture Reminders
 
+- **Per-machine paths via `.env`** — `docker-compose.yml` uses `${SOURCE_DIR}`, `${OUTPUT_DIR}`, `${DRIVE_C}`, `${DRIVE_D}` variables. Each machine gets its own `.env` (gitignored). See `.env.example` for the template.
 - **No Pandoc** — library-level only
 - **No SPA** — vanilla HTML + fetch calls
 - **Fail gracefully** — one bad file never crashes a batch
