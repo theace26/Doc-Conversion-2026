@@ -7,7 +7,17 @@
       "Bash(curl -s http://localhost:8000/api/health)",
       "Bash(docker-compose logs:*)",
       "Bash(docker-compose down:*)",
-      "Bash(curl -s http://localhost:8000/api/preferences)"
+      "Bash(curl -s http://localhost:8000/api/preferences)",
+      "Bash(rm markflow-debug.log.2026-03-28)",
+      "Bash(mv markflow-debug.log.2026-03-28.cleaned markflow-debug.log.2026-03-28)",
+      "Bash(rm markflow-debug.log.2026-03-27)",
+      "Bash(mv markflow-debug.log.2026-03-27.cleaned markflow-debug.log.2026-03-27)",
+      "Bash(rm markflow-debug.log)",
+      "Bash(cd:*)",
+      "Bash(7z a:*)",
+      "Bash(powershell -Command 'Get-Command Compress-Archive')",
+      "Bash(mkdir -p archive)",
+      "Bash(tar czf:*)"
     ]
   }
 }

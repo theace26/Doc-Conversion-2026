@@ -258,7 +258,7 @@ def main():
     asyncio.run(init_db())
 
     log.info("mcp_server_start", port=port, tools=10)
-    mcp.run(transport="sse")
+    mcp.run(transport="sse", host="0.0.0.0", port=port)
 
 
 if __name__ == "__main__":
