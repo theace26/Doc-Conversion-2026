@@ -15,13 +15,18 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Container  = "markflow-markflow-1"
+$Container  = "doc-conversion-2026-markflow-1"
 $Timestamp  = Get-Date -Format "yyyyMMdd-HHmmss"
 $MainLog    = "markflow-${Timestamp}.log"
 $DebugLog   = "markflow-debug-${Timestamp}.log"
 $VmIp       = "192.168.1.208"
 $VmUser     = "xerxes"
-$HomeDir    = $env:USERPROFILE
+$HomeDir    = "D:\!!! TEMP\logs"
+
+# Ensure output directory exists
+if (-not (Test-Path $HomeDir)) {
+    New-Item -ItemType Directory -Path $HomeDir -Force | Out-Null
+}
 
 Write-Host "=========================================="
 Write-Host "  MarkFlow Log Extraction"
@@ -47,37 +52,27 @@ if (-not $running) {
 Write-Host ""
 Write-Host "[1/3] Copying logs from container..."
 
-$mainCopied = $false
-$debugCopied = $false
+$mainDest = Join-Path $HomeDir $MainLog
+$debugDest = Join-Path $HomeDir $DebugLog
 
-try {
-    docker cp "${Container}:/app/logs/markflow.log" (Join-Path $HomeDir $MainLog) 2>$null
+$ErrorActionPreference = "SilentlyContinue"
+docker cp "${Container}:/app/logs/markflow.log" $mainDest 2>&1 | Out-Null
+$ErrorActionPreference = "Stop"
+$mainCopied = Test-Path $mainDest
+if ($mainCopied) {
     Write-Host "  [OK] Main log copied" -ForegroundColor Green
-    $mainCopied = $true
-} catch {
+} else {
     Write-Host "  [!] Main log not found in container" -ForegroundColor Yellow
 }
 
-try {
-    docker cp "${Container}:/app/logs/markflow-debug.log" (Join-Path $HomeDir $DebugLog) 2>$null
+$ErrorActionPreference = "SilentlyContinue"
+docker cp "${Container}:/app/logs/markflow-debug.log" $debugDest 2>&1 | Out-Null
+$ErrorActionPreference = "Stop"
+$debugCopied = Test-Path $debugDest
+if ($debugCopied) {
     Write-Host "  [OK] Debug log copied" -ForegroundColor Green
-    $debugCopied = $true
-} catch {
+} else {
     Write-Host "  [!] Debug log not found in container" -ForegroundColor Yellow
-}
-
-# docker cp doesn't throw on missing files in all cases, check if files actually exist
-if (-not (Test-Path (Join-Path $HomeDir $MainLog))) {
-    if ($mainCopied) {
-        Write-Host "  [!] Main log not found in container" -ForegroundColor Yellow
-        $mainCopied = $false
-    }
-}
-if (-not (Test-Path (Join-Path $HomeDir $DebugLog))) {
-    if ($debugCopied) {
-        Write-Host "  [!] Debug log not found in container" -ForegroundColor Yellow
-        $debugCopied = $false
-    }
 }
 
 # ----------------------------------------------------------

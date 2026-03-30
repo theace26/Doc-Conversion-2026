@@ -45,8 +45,21 @@ try {
 }
 
 if (-not $SkipPrune) {
-    Write-Host "  Pruning all Docker build cache and images..."
-    docker system prune -a -f --volumes
+    Write-Host "  Pruning unused images and build cache (preserving markflow-base)..."
+    docker system prune -f --volumes
+    # Remove markflow app images but NOT the base image
+    docker images "markflow-*" --format "{{.Repository}}:{{.Tag}}" | Where-Object { $_ -ne "markflow-base:latest" } | ForEach-Object {
+        docker rmi $_ 2>$null
+    }
+}
+
+# Verify base image exists
+$baseExists = docker images markflow-base:latest --format "{{.ID}}" 2>$null
+if (-not $baseExists) {
+    Write-Host ""
+    Write-Host "  [!] markflow-base:latest not found -- building it now..." -ForegroundColor Yellow
+    Write-Host "  (This is the slow step -- only needed once)"  -ForegroundColor DarkGray
+    docker build -f (Join-Path $RepoDir "Dockerfile.base") -t markflow-base:latest $RepoDir
 }
 
 # ----------------------------------------------------------

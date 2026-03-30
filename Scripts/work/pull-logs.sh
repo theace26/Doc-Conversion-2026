@@ -10,7 +10,7 @@ set -euo pipefail
 #          ~/pull-logs.sh --tail 5000    (last N lines only)
 # ============================================================
 
-CONTAINER="markflow-markflow-1"
+CONTAINER="doc-conversion-2026-markflow-1"
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 MAIN_LOG="markflow-${TIMESTAMP}.log"
 DEBUG_LOG="markflow-debug-${TIMESTAMP}.log"

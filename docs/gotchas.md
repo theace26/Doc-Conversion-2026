@@ -34,6 +34,17 @@ the relevant subsystem. Referenced from CLAUDE.md.
   `structlog.get_logger(__name__)`, not `logging.getLogger(__name__)`. The stdlib `logging`
   import is only allowed in `core/logging_config.py`.
 
+- **structlog must be imported in every file that uses it**: If a module calls
+  `structlog.get_logger()`, it must `import structlog` at the top. Missing import in
+  `database.py` caused a startup crash loop (v0.12.3 fix — `cleanup_orphaned_jobs()`
+  called `structlog.get_logger()` without the import, crashing the lifespan handler).
+
+- **Noisy third-party loggers are suppressed**: `configure_logging()` sets WARNING level
+  on `uvicorn.access`, `aiosqlite`, `PIL`, `weasyprint`, and all `pdfminer.*` loggers.
+  pdfminer (used internally by pdfplumber) emits thousands of debug/info messages per PDF
+  page — including "Cannot set non-stroke color: 5 components" warnings for spot-color PDFs.
+  Without suppression, a single bulk job can inflate the debug log to 500+ MB.
+
 - **Dual-file logging strategy**: `logs/markflow.log` (operational, always active)
   and `logs/markflow-debug.log` (debug trace, developer mode only). Both use
   `RotatingFileHandler` with size-based rotation. Operational: 50 MB / 5 backups,

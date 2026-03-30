@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import aiosqlite
+import structlog
 
 # ── Path resolution ───────────────────────────────────────────────────────────
 _DEFAULT_DB = os.getenv("DB_PATH", "markflow.db")

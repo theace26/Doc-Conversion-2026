@@ -141,4 +141,18 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `tools/markflow-hashcat-worker.py` | Host-side hashcat worker for AMD/Intel GPU |
 | `docker-compose.yml` | Port 8000, MCP 8001, Meilisearch 7700, volumes |
 | `docker-compose.gpu.yml` | NVIDIA GPU overlay |
+| `Dockerfile` | App image — pip + code copy on top of markflow-base |
+| `Dockerfile.base` | Base image — all apt system deps (tesseract, ffmpeg, libreoffice, etc.) |
 | `pytest.ini` | Test config: asyncio_mode, custom markers |
+
+## Deployment Scripts
+
+| File | Purpose |
+|------|---------|
+| `Scripts/proxmox/setup-markflow.sh` | Fresh Ubuntu VM setup (Docker, NAS mounts, repo clone) |
+| `Scripts/proxmox/reset-markflow.sh` | Full teardown, git pull, docker-compose patch, rebuild |
+| `Scripts/work/build-base.ps1` | One-time base image builder (PowerShell) |
+| `Scripts/work/refresh-markflow.ps1` | Quick rebuild — git pull + build + restart, keeps volumes |
+| `Scripts/work/reset-markflow.ps1` | Full reset — git pull + prune + rebuild (preserves base image) |
+| `Scripts/work/pull-logs.ps1` | Extract logs from Docker container to local dir (PowerShell) |
+| `Scripts/work/pull-logs.sh` | Extract logs from Docker container (bash, for VM use) |

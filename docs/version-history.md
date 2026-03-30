@@ -330,6 +330,24 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
   `conversion_history`. UI: ETA display and speed indicator on bulk page,
   scan progress shows "X of Y files" with streaming count.
 
+**v0.12.9** — Startup crash fix, log noise suppression, Docker build optimization (2026-03-30).
+**Bugfixes:**
+- Fixed: `NameError: name 'structlog' is not defined` in `database.py` — missing
+  `import structlog` caused `cleanup_orphaned_jobs()` to crash on every startup,
+  putting the markflow container in a restart loop (exit code 3).
+- Suppressed pdfminer debug/info logging — pdfminer (used internally by pdfplumber)
+  emits thousands of per-token debug messages during PDF extraction. A single bulk job
+  was inflating the debug log to 500+ MB. All `pdfminer.*` loggers now set to WARNING
+  in `configure_logging()`, matching existing pattern for noisy third-party libraries.
+**Infrastructure:**
+- Split Dockerfile into `Dockerfile.base` (system deps, ~25-30 min on HDD) and
+  `Dockerfile` (pip + code copy, ~3-5 min). Daily rebuilds skip the heavy apt layer.
+- Added deployment scripts for Windows work machine: `build-base.ps1` (one-time base
+  image builder), `refresh-markflow.ps1` (quick code-only rebuild), `reset-markflow.ps1`
+  and `pull-logs.ps1` (PowerShell equivalents of the Proxmox bash scripts).
+- Updated reset scripts (both Proxmox and Windows) to preserve `markflow-base:latest`
+  during Docker prune, auto-building it if missing.
+
 **v0.12.1** — Bugfix + Stability Patch (2026-03-29).
 **Bugfixes (from log analysis):**
 - Fixed: structlog double `event` argument in lifecycle_scanner (two instances)

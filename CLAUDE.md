@@ -26,14 +26,16 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.12.1
+## Current Status — v0.12.9
 
 All 10 phases complete + universal format support. Latest: progress tracking and ETA
 for scan and bulk conversion jobs. Concurrent fast-walk file counter (non-blocking),
 rolling-window ETA (last 100 items), progress SSE events, ETA display in bulk UI.
 ZIP, 7z, and RAR archives — including nested ones — get the full cracking cascade.
-v0.12.1 stability patch: startup orphan job recovery, stop banner CSS fix, SQLite WAL
-on all connections, metrics interval tuning, compaction guard removal, MCP hostname fix.
+v0.12.9: fixed missing `import structlog` in database.py that crashed startup orphan
+cleanup (restart loop), suppressed pdfminer debug logging (500+ MB log bloat per bulk
+job), split Dockerfile into base + app layers for faster rebuilds, added PowerShell
+deployment scripts for Windows work machines.
 
 **Planned:** External log shipping to Grafana Loki / ELK stack. The current local log
 archive system is an interim solution — once external aggregation is in place, local
@@ -108,6 +110,8 @@ Critical files to know:
 | `formats/ini_handler.py` | INI/CFG/CONF/properties with section-aware parsing |
 | `static/app.js` | Shared JS: API helpers, dynamic nav, toast |
 | `static/markflow.css` | Design system: CSS variables, dark mode |
+| `Dockerfile.base` | Base image: all apt system deps (build once, ~25 min on HDD) |
+| `Dockerfile` | App image: pip + code copy on top of markflow-base (~3-5 min) |
 | `docker-compose.yml` | Port 8000, MCP 8001, Meilisearch 7700 |
 
 ---
@@ -119,7 +123,8 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 **Most commonly needed:**
 
 - **aiosqlite**: Always `async with aiosqlite.connect(path) as conn` — never `await` then `async with`
-- **structlog**: Use `structlog.get_logger(__name__)` everywhere, never `logging.getLogger()`
+- **structlog**: Use `structlog.get_logger(__name__)` everywhere, never `logging.getLogger()`. Must `import structlog` in every file that calls it.
+- **pdfminer logging suppressed**: All `pdfminer.*` loggers set to WARNING in `configure_logging()`. Without this, debug log grows 500+ MB per bulk job.
 - **mistune v3**: Must pass `plugins=["table", "strikethrough", "footnotes"]` or tables silently vanish
 - **DEV_BYPASS_AUTH=true** is the default — production must set to `false`
 - **`python-jose` not `PyJWT`** — they conflict
@@ -161,6 +166,10 @@ extraction summaries) are the next planned addition.
 ## Running the App
 
 ```bash
+# First time only -- build the base image (slow, ~25 min HDD / ~5 min SSD):
+docker build -f Dockerfile.base -t markflow-base:latest .
+
+# Normal operation:
 docker-compose up -d          # start
 docker-compose logs -f        # watch logs
 curl localhost:8000/api/health # verify
@@ -168,3 +177,4 @@ docker-compose down           # stop
 ```
 
 After code changes: `docker-compose build && docker-compose up -d`
+(Only rebuilds pip + code layer -- base image is cached.)

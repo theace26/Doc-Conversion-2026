@@ -24,7 +24,19 @@ echo "[1/5] Tearing down containers, volumes, and images..."
 cd "$REPO_DIR"
 
 docker compose down -v 2>/dev/null || true
-docker system prune -a -f --volumes
+docker system prune -f --volumes
+# Remove app images but preserve the base image
+docker images "markflow-*" --format "{{.Repository}}:{{.Tag}}" \
+    | grep -v "markflow-base:latest" \
+    | xargs -r docker rmi 2>/dev/null || true
+
+# Build base image if missing
+if ! docker images markflow-base:latest -q | grep -q .; then
+    echo ""
+    echo "  [!] markflow-base:latest not found -- building it now..."
+    echo "  (This is the slow step -- only needed once)"
+    docker build -f "$REPO_DIR/Dockerfile.base" -t markflow-base:latest "$REPO_DIR"
+fi
 
 # ----------------------------------------------------------
 #  2. Pull latest code

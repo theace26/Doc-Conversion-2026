@@ -193,7 +193,9 @@ def configure_logging(
         root.addHandler(h)
 
     # Silence noisy third-party loggers
-    for noisy in ("uvicorn.access", "aiosqlite", "PIL", "weasyprint"):
+    for noisy in ("uvicorn.access", "aiosqlite", "PIL", "weasyprint",
+                  "pdfminer", "pdfminer.pdfinterp", "pdfminer.psparser",
+                  "pdfminer.pdfpage", "pdfminer.pdfdocument"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
