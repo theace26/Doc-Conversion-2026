@@ -26,15 +26,19 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.13.1
+## Current Status — v0.13.2
 
-v0.13.1: Adaptive scan parallelism. Bulk scanner and lifecycle scanner now
-auto-detect storage type (SSD, HDD, NAS) via a latency probe before each scan.
-Network storage (NAS/SMB/NFS) gets parallel directory walkers (4-12 threads)
-to hide network latency; local disks stay serial to avoid HDD seek thrashing.
-The probe uses sequential-vs-random stat() timing ratios — stable even under
-background I/O load. New `scan_max_threads` preference (default: auto). New
-file: `core/storage_probe.py`. Settings page gains Scan Performance section.
+v0.13.2: Feedback-loop scan throttling. Parallel scan workers now report
+stat() latency in real-time to a ScanThrottler that dynamically parks/unparks
+threads based on congestion — like TCP congestion control for filesystem I/O.
+If NAS gets congested mid-scan, threads are shed; when latency recovers,
+threads are restored. 5-second cooldown prevents oscillation. Negligible
+overhead (<0.1% of stat call time). Both bulk and lifecycle scanners use this.
+
+Previous (v0.13.1): Adaptive scan parallelism. Auto-detect storage type
+(SSD/HDD/NAS) via sequential-vs-random stat() latency probe. Parallel
+directory walkers for NAS (4-12 threads); serial for local disks. New
+`scan_max_threads` preference. `core/storage_probe.py`.
 
 Previous (v0.13.0): Media transcription pipeline. Audio/video files convert to
 Markdown transcripts with timestamped segments. Local Whisper (GPU auto-detect)
@@ -172,6 +176,7 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **MediaHandler sync/async bridge**: `FormatHandler.ingest()` is synchronous but MediaOrchestrator is async. Handlers use `asyncio.run()` in a ThreadPoolExecutor when called from a running event loop.
 - **Adaptive scan parallelism**: `storage_probe.py` probes sequential-vs-random stat() latency before each scan. Ratio > 3x = HDD (stay serial), ratio < 2x + high latency = NAS (go parallel). Never parallelize HDD — causes seek thrashing. Default preference `scan_max_threads` = `"auto"`.
 - **Parallel scan architecture**: Thread workers walk subdirectories concurrently, push `(path, ext, size, mtime)` to `queue.Queue`. Single async consumer drains to SQLite. Both `BulkScanner` and lifecycle scanner use this pattern.
+- **Scan throttler (backpressure)**: `ScanThrottler` in `storage_probe.py` monitors rolling stat() latency during parallel scans. Workers call `should_pause(worker_id)` — if congested, higher-ID workers sleep. Consumer calls `check_and_adjust()` every 500 files. 5-second cooldown prevents oscillation. Overhead is negligible (~0.001ms per stat call).
 
 ---
 

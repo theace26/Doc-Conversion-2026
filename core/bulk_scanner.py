@@ -23,7 +23,7 @@ import structlog
 
 from core.progress_tracker import RollingWindowETA, ETA_UPDATE_INTERVAL, format_eta
 from core.stop_controller import should_stop
-from core.storage_probe import StorageProfile, probe_storage_latency
+from core.storage_probe import ScanThrottler, StorageProfile, probe_storage_latency
 from core.database import get_preference, record_path_issue, update_bulk_file, update_bulk_job_status, upsert_bulk_file
 from core.path_utils import PathSafetyResult, run_path_safety_pass
 
@@ -354,14 +354,23 @@ class BulkScanner:
         on_progress: Callable[[dict], Awaitable[None]] | None,
         progress_interval: int,
     ) -> int:
-        """Multi-threaded scan — parallel walkers feed an async DB writer.
+        """Multi-threaded scan with feedback-loop throttling.
 
         Thread workers walk subdirectories and stat files concurrently,
         pushing (path, ext, size, mtime) tuples into a thread-safe queue.
         A single async consumer drains the queue and writes to SQLite.
+
+        Workers report stat() latency to a ScanThrottler which monitors
+        congestion and parks/unparks workers dynamically — like TCP
+        congestion control for filesystem I/O.
         """
+        # Use probe baseline for throttler (sequential median is the "calm" baseline)
+        baseline_ms = result.storage_profile.sequential_median_ms if result.storage_profile else 1.0
+        throttler = ScanThrottler(baseline_ms=baseline_ms, max_threads=thread_count)
+
         log.info("parallel_scan_start",
-                 job_id=self.job_id, threads=thread_count)
+                 job_id=self.job_id, threads=thread_count,
+                 baseline_ms=round(baseline_ms, 2))
 
         # Thread-safe queue: walkers produce, async consumer consumes
         file_queue: queue.Queue[tuple[Path, str, int, float] | None] = queue.Queue(
@@ -383,19 +392,35 @@ class BulkScanner:
         except OSError as exc:
             log.warning("parallel_scan_root_error", error=str(exc))
 
-        def _walker_thread(dirs_to_walk: list[Path], root_files_subset: list[str]) -> None:
-            """Thread worker: walks assigned directories, stats files, pushes to queue."""
+        def _walker_thread(
+            worker_id: int,
+            dirs_to_walk: list[Path],
+            root_files_subset: list[str],
+        ) -> None:
+            """Thread worker: walks directories, stats files with latency tracking."""
+            import time as _time
+
+            def _stat_and_enqueue(file_path: Path) -> None:
+                t0 = _time.perf_counter()
+                try:
+                    st = file_path.stat()
+                except OSError:
+                    return
+                latency_ms = (_time.perf_counter() - t0) * 1000
+                throttler.record_latency(latency_ms)
+                ext = _get_effective_extension(file_path)
+                file_queue.put((file_path, ext, st.st_size, st.st_mtime))
+
             # Process root-level files assigned to this worker
             for filename in root_files_subset:
                 if should_stop():
                     return
-                file_path = self.source_path / filename
-                try:
-                    st = file_path.stat()
-                    ext = _get_effective_extension(file_path)
-                    file_queue.put((file_path, ext, st.st_size, st.st_mtime))
-                except OSError:
-                    continue
+                # Check if this worker is parked by the throttler
+                while throttler.should_pause(worker_id):
+                    _time.sleep(0.1)
+                    if should_stop():
+                        return
+                _stat_and_enqueue(self.source_path / filename)
 
             # Walk assigned subdirectories
             for subdir in dirs_to_walk:
@@ -409,13 +434,14 @@ class BulkScanner:
                         if not d.startswith(".") and d != "_markflow"
                     ]
                     for filename in filenames:
-                        file_path = Path(dirpath) / filename
-                        try:
-                            st = file_path.stat()
-                            ext = _get_effective_extension(file_path)
-                            file_queue.put((file_path, ext, st.st_size, st.st_mtime))
-                        except OSError:
-                            continue
+                        if should_stop():
+                            return
+                        # Throttle check — park if congested
+                        while throttler.should_pause(worker_id):
+                            _time.sleep(0.1)
+                            if should_stop():
+                                return
+                        _stat_and_enqueue(Path(dirpath) / filename)
 
         # Distribute subdirs across workers (round-robin)
         worker_dirs: list[list[Path]] = [[] for _ in range(thread_count)]
@@ -434,21 +460,20 @@ class BulkScanner:
         futures = []
         for i in range(thread_count):
             fut = executor.submit(
-                _walker_thread, worker_dirs[i], worker_root_files[i],
+                _walker_thread, i, worker_dirs[i], worker_root_files[i],
             )
             futures.append(fut)
 
-        # Async consumer: drain queue, write to DB
+        # Async consumer: drain queue, write to DB, periodically check throttle
         file_count = 0
         last_eta_write = time.monotonic()
+        last_throttle_check = 0
         last_progress_file: Path | None = None
         walkers_done = False
 
         while not walkers_done or not file_queue.empty():
-            # Check if all walkers have finished
             walkers_done = all(f.done() for f in futures)
 
-            # Drain available items (non-blocking batch)
             batch: list[tuple[Path, str, int, float]] = []
             try:
                 while len(batch) < 100:
@@ -459,7 +484,7 @@ class BulkScanner:
 
             if not batch:
                 if not walkers_done:
-                    await asyncio.sleep(0.01)  # yield, wait for producers
+                    await asyncio.sleep(0.01)
                 continue
 
             for file_path, ext, file_size, mtime in batch:
@@ -483,7 +508,11 @@ class BulkScanner:
                 await tracker.record_completion()
                 last_progress_file = file_path
 
-            # Emit progress after processing batch
+            # Periodically ask throttler to re-evaluate
+            if file_count - last_throttle_check >= 500:
+                throttler.check_and_adjust()
+                last_throttle_check = file_count
+
             if on_progress and last_progress_file and (file_count % progress_interval < len(batch)):
                 await self._emit_progress(
                     on_progress, tracker, file_count, last_progress_file,
@@ -504,7 +533,11 @@ class BulkScanner:
         executor.shutdown(wait=False)
 
         log.info("parallel_scan_complete",
-                 job_id=self.job_id, threads=thread_count, files=file_count)
+                 job_id=self.job_id,
+                 threads_initial=thread_count,
+                 threads_final=throttler.active_threads,
+                 throttle_adjustments=throttler.adjustment_count,
+                 files=file_count)
 
         return file_count
 

@@ -4,6 +4,29 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.13.2 — Feedback-Loop Scan Throttling (2026-03-31)
+
+**New features:**
+- `ScanThrottler` class provides TCP-style congestion control for parallel scan workers
+- Workers report stat() latency in real-time; throttler parks/unparks threads dynamically
+- If NAS latency exceeds 3x baseline: shed 2 threads. 2x baseline: shed 1. Below 1.5x: restore 1
+- 5-second cooldown between adjustments prevents oscillation
+- Both bulk scanner and lifecycle scanner use throttled parallel scanning
+- Completion logs show `threads_initial`, `threads_final`, and `throttle_adjustments` counts
+
+**Modified files:**
+- `core/storage_probe.py` — added `ScanThrottler` class
+- `core/bulk_scanner.py` — `_parallel_scan()` now creates throttler, workers report latency + check pause
+- `core/lifecycle_scanner.py` — `_parallel_lifecycle_walk()` same throttling integration
+
+**Design notes:**
+- `record_latency()` is ~0.001ms (deque append under lock) — negligible vs 3-10ms stat calls
+- `should_pause(worker_id)` reads a single int (no lock) — zero overhead for active workers
+- `check_and_adjust()` runs once per 500 files, computes median of last 100 latencies
+- Workers with higher IDs are parked first (clean priority ordering)
+
+---
+
 ## v0.13.1 — Adaptive Scan Parallelism (2026-03-31)
 
 **New features:**

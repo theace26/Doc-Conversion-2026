@@ -13,7 +13,9 @@ Usage:
 
 import os
 import statistics
+import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -55,6 +57,111 @@ class StorageProfile:
     variance_coefficient: float  # stddev / median (0-1+, higher = more jitter)
     sample_count: int
     probe_duration_ms: float
+
+
+# ── Feedback-loop throttler ──────────────────────────────────────────────
+
+# How often (in stat calls) the throttler re-evaluates
+THROTTLE_CHECK_INTERVAL = 500
+
+# Latency ratio thresholds for throttle decisions
+THROTTLE_CONGESTION_SEVERE = 3.0   # current / baseline → shed 2 threads
+THROTTLE_CONGESTION_MILD = 2.0     # current / baseline → shed 1 thread
+THROTTLE_RECOVERY = 1.5            # current / baseline → restore 1 thread
+
+# Minimum time between adjustments (seconds) to avoid oscillation
+THROTTLE_COOLDOWN_SECONDS = 5.0
+
+
+class ScanThrottler:
+    """Thread-safe backpressure controller for parallel scan workers.
+
+    Workers report stat() latencies as they go. The throttler periodically
+    compares rolling median latency to the initial probe baseline and adjusts
+    the active thread count up or down.
+
+    Workers call `should_pause(worker_id)` before each directory — workers
+    whose ID >= active_threads sleep until the throttler restores them.
+    """
+
+    def __init__(self, baseline_ms: float, max_threads: int):
+        self.baseline_ms = max(baseline_ms, 0.01)  # avoid div-by-zero
+        self.max_threads = max_threads
+        self.active_threads = max_threads
+        self._lock = threading.Lock()
+        self._recent: deque[float] = deque(maxlen=100)
+        self._stat_count = 0
+        self._last_adjust_time = time.monotonic()
+        self._adjustments: list[dict] = []  # log of throttle events
+
+    def record_latency(self, latency_ms: float) -> None:
+        """Called by walker threads after each stat() call."""
+        with self._lock:
+            self._recent.append(latency_ms)
+            self._stat_count += 1
+
+    def should_pause(self, worker_id: int) -> bool:
+        """Check if this worker should be parked (thread-safe, lock-free read)."""
+        return worker_id >= self.active_threads
+
+    def check_and_adjust(self) -> int:
+        """Evaluate latency and adjust active thread count. Called by consumer.
+
+        Returns current active_threads after any adjustment.
+        """
+        with self._lock:
+            if len(self._recent) < 20:
+                return self.active_threads
+
+            now = time.monotonic()
+            if now - self._last_adjust_time < THROTTLE_COOLDOWN_SECONDS:
+                return self.active_threads
+
+            current_median = statistics.median(self._recent)
+            ratio = current_median / self.baseline_ms
+
+            old_threads = self.active_threads
+
+            if ratio >= THROTTLE_CONGESTION_SEVERE and self.active_threads > 1:
+                # Heavy congestion — shed 2 threads
+                self.active_threads = max(1, self.active_threads - 2)
+            elif ratio >= THROTTLE_CONGESTION_MILD and self.active_threads > 2:
+                # Mild congestion — shed 1 thread
+                self.active_threads = max(2, self.active_threads - 1)
+            elif ratio < THROTTLE_RECOVERY and self.active_threads < self.max_threads:
+                # Latency recovered — restore 1 thread
+                self.active_threads = min(self.max_threads, self.active_threads + 1)
+
+            if self.active_threads != old_threads:
+                self._last_adjust_time = now
+                event = {
+                    "from": old_threads,
+                    "to": self.active_threads,
+                    "ratio": round(ratio, 2),
+                    "median_ms": round(current_median, 2),
+                    "baseline_ms": round(self.baseline_ms, 2),
+                    "time": now,
+                }
+                self._adjustments.append(event)
+                log.info(
+                    "scan_throttle_adjust",
+                    direction="down" if self.active_threads < old_threads else "up",
+                    from_threads=old_threads,
+                    to_threads=self.active_threads,
+                    latency_ratio=round(ratio, 2),
+                    current_median_ms=round(current_median, 2),
+                    baseline_ms=round(self.baseline_ms, 2),
+                )
+
+            return self.active_threads
+
+    @property
+    def adjustment_count(self) -> int:
+        return len(self._adjustments)
+
+    @property
+    def stat_count(self) -> int:
+        return self._stat_count
 
 
 def _collect_sample_files(source_path: Path, max_files: int = 20) -> tuple[list[Path], list[Path]]:

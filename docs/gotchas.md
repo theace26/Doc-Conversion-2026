@@ -345,6 +345,16 @@ the relevant subsystem. Referenced from CLAUDE.md.
   thrashing — the read head bounces between locations instead of streaming sequentially.
   The storage probe detects this via the random/sequential latency ratio and stays serial.
 
+- **Scan throttler (backpressure)**: `ScanThrottler` monitors rolling stat() latency during
+  parallel scans. If NAS gets congested (latency > 3x baseline), higher-ID workers are parked
+  via `should_pause(worker_id)`. When latency recovers below 1.5x baseline, workers are restored
+  one at a time. 5-second cooldown prevents oscillation. Overhead is negligible — `record_latency()`
+  is a deque append (~0.001ms), `should_pause()` is a lock-free int read.
+
+- **Throttler cooldown matters**: Without the 5-second cooldown, the throttler could oscillate:
+  shed threads → latency drops → restore threads → latency spikes → shed again. The cooldown
+  lets the system stabilize after each adjustment before re-evaluating.
+
 - **Static file cache headers**: Middleware in `main.py` adds `Cache-Control: no-cache, must-revalidate`
   to all `/static/` responses. Prevents stale JS/CSS after deploys.
 

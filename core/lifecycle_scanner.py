@@ -21,7 +21,7 @@ from pathlib import Path
 import structlog
 
 from core.stop_controller import should_stop
-from core.storage_probe import probe_storage_latency
+from core.storage_probe import ScanThrottler, probe_storage_latency
 from core.bulk_scanner import ALL_SUPPORTED, CONVERTIBLE_EXTENSIONS, ADOBE_EXTENSIONS
 from core.database import (
     create_scan_run,
@@ -213,6 +213,7 @@ async def run_lifecycle_scan(
             await _parallel_lifecycle_walk(
                 source_root, scan_threads, seen_paths, counters,
                 error_entries, job_id, scan_run_id, _started_at_dt,
+                baseline_ms=storage_profile.sequential_median_ms,
             )
         else:
             await _serial_lifecycle_walk(
@@ -469,14 +470,18 @@ async def _parallel_lifecycle_walk(
     job_id: str,
     scan_run_id: str,
     started_at_dt: datetime,
+    baseline_ms: float = 1.0,
 ) -> None:
-    """Parallel walk for NAS/SMB sources — threads handle stat, async consumer processes."""
+    """Parallel walk with feedback-loop throttling for NAS/SMB sources."""
     import asyncio
+    import time as _time
+
+    throttler = ScanThrottler(baseline_ms=baseline_ms, max_threads=thread_count)
 
     log.info("lifecycle_parallel_walk_start",
-             scan_run_id=scan_run_id, threads=thread_count)
+             scan_run_id=scan_run_id, threads=thread_count,
+             baseline_ms=round(baseline_ms, 2))
 
-    # Thread-safe queue: walkers push (path, ext, mtime, size) or error tuples
     file_queue: queue.Queue[tuple[Path, str, float, int] | None] = queue.Queue(maxsize=5000)
 
     # Discover top-level subdirs for distribution
@@ -494,18 +499,32 @@ async def _parallel_lifecycle_walk(
     except OSError as exc:
         log.warning("lifecycle_parallel_root_error", error=str(exc))
 
-    def _walker_thread(dirs_to_walk: list[Path], root_file_subset: list[str]) -> None:
-        """Thread worker: walks directories, stats files, pushes to queue."""
+    def _walker_thread(
+        worker_id: int,
+        dirs_to_walk: list[Path],
+        root_file_subset: list[str],
+    ) -> None:
+        """Thread worker: walks directories, stats files with latency tracking."""
+
+        def _stat_and_enqueue(file_path: Path) -> None:
+            t0 = _time.perf_counter()
+            try:
+                st = file_path.stat()
+            except OSError:
+                return
+            latency_ms = (_time.perf_counter() - t0) * 1000
+            throttler.record_latency(latency_ms)
+            ext = file_path.suffix.lower()
+            file_queue.put((file_path, ext, st.st_mtime, st.st_size))
+
         for filename in root_file_subset:
             if should_stop():
                 return
-            file_path = source_root / filename
-            try:
-                st = file_path.stat()
-                ext = file_path.suffix.lower()
-                file_queue.put((file_path, ext, st.st_mtime, st.st_size))
-            except OSError:
-                continue
+            while throttler.should_pause(worker_id):
+                _time.sleep(0.1)
+                if should_stop():
+                    return
+            _stat_and_enqueue(source_root / filename)
 
         for subdir in dirs_to_walk:
             if should_stop():
@@ -515,13 +534,13 @@ async def _parallel_lifecycle_walk(
                     return
                 dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "_markflow"]
                 for filename in filenames:
-                    file_path = Path(dirpath) / filename
-                    try:
-                        st = file_path.stat()
-                        ext = file_path.suffix.lower()
-                        file_queue.put((file_path, ext, st.st_mtime, st.st_size))
-                    except OSError:
-                        continue
+                    if should_stop():
+                        return
+                    while throttler.should_pause(worker_id):
+                        _time.sleep(0.1)
+                        if should_stop():
+                            return
+                    _stat_and_enqueue(Path(dirpath) / filename)
 
     # Distribute subdirs across workers (round-robin)
     worker_dirs: list[list[Path]] = [[] for _ in range(thread_count)]
@@ -537,12 +556,14 @@ async def _parallel_lifecycle_walk(
     futures = []
     for i in range(thread_count):
         fut = executor.submit(
-            _walker_thread, worker_dirs[i], worker_root_files[i],
+            _walker_thread, i, worker_dirs[i], worker_root_files[i],
         )
         futures.append(fut)
 
-    # Async consumer: drain queue, process files
+    # Async consumer: drain queue, process files, periodically check throttle
     walkers_done = False
+    last_throttle_check = 0
+
     while not walkers_done or not file_queue.empty():
         walkers_done = all(f.done() for f in futures)
 
@@ -581,11 +602,15 @@ async def _parallel_lifecycle_walk(
                 error_entries.append({"path": path_str, "error": str(exc)})
                 log.error("lifecycle_scan.file_error", path=path_str, error=str(exc))
 
-            # Update scan state every 25 files
             if counters["files_scanned"] % 25 == 0:
                 _update_scan_progress(
                     counters, file_path, source_root, started_at_dt,
                 )
+
+        # Periodically ask throttler to re-evaluate
+        if counters["files_scanned"] - last_throttle_check >= 500:
+            throttler.check_and_adjust()
+            last_throttle_check = counters["files_scanned"]
 
     # Check for walker exceptions
     for i, fut in enumerate(futures):
@@ -596,7 +621,10 @@ async def _parallel_lifecycle_walk(
     executor.shutdown(wait=False)
 
     log.info("lifecycle_parallel_walk_complete",
-             scan_run_id=scan_run_id, threads=thread_count,
+             scan_run_id=scan_run_id,
+             threads_initial=thread_count,
+             threads_final=throttler.active_threads,
+             throttle_adjustments=throttler.adjustment_count,
              scanned=counters["files_scanned"])
 
 
