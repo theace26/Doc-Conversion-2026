@@ -160,6 +160,12 @@ class ScanThrottler:
         return len(self._adjustments)
 
     @property
+    def adjustments(self) -> list[dict]:
+        """Return a copy of all throttle adjustment events."""
+        with self._lock:
+            return list(self._adjustments)
+
+    @property
     def stat_count(self) -> int:
         return self._stat_count
 

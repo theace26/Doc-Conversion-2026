@@ -192,7 +192,106 @@
     </section>
 
     <!-- ══════════════════════════════════════════════════════════════════════ -->
-    <!-- Section 6: Repository Overview (copied from Admin)                    -->
+    <!-- Section 6: OCR Quality Metrics                                        -->
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <section class="res-section" id="ocr-quality-section">
+      <div class="section-header">
+        <h2>OCR Quality</h2>
+        <div class="range-selector" id="ocr-range">
+          <button data-range="7d">7d</button>
+          <button data-range="30d" class="active">30d</button>
+          <button data-range="90d">90d</button>
+        </div>
+      </div>
+
+      <div id="ocr-loading" class="text-muted" style="padding:1rem 0">Loading OCR metrics...</div>
+      <div id="ocr-content" hidden>
+        <div class="summary-kpis">
+          <div class="summary-kpi">
+            <div class="summary-kpi__title">Avg Confidence</div>
+            <div class="summary-kpi__value" id="ocr-avg">--</div>
+            <div class="summary-kpi__sub" id="ocr-avg-sub">--</div>
+          </div>
+          <div class="summary-kpi">
+            <div class="summary-kpi__title">Highest</div>
+            <div class="summary-kpi__value" id="ocr-max" style="color:var(--ok)">--</div>
+            <div class="summary-kpi__sub">best file confidence</div>
+          </div>
+          <div class="summary-kpi">
+            <div class="summary-kpi__title">Lowest</div>
+            <div class="summary-kpi__value" id="ocr-min" style="color:var(--error)">--</div>
+            <div class="summary-kpi__sub">worst file confidence</div>
+          </div>
+          <div class="summary-kpi">
+            <div class="summary-kpi__title">Below Threshold</div>
+            <div class="summary-kpi__value" id="ocr-below" style="color:var(--warn)">--</div>
+            <div class="summary-kpi__sub" id="ocr-below-sub">--</div>
+          </div>
+        </div>
+
+        <!-- Confidence gauge -->
+        <div class="ocr-gauge-container">
+          <div class="ocr-gauge-track">
+            <div class="ocr-gauge-fill" id="ocr-gauge-fill"></div>
+            <div class="ocr-gauge-threshold" id="ocr-gauge-threshold"></div>
+          </div>
+          <div class="ocr-gauge-labels">
+            <span>0</span><span>25</span><span>50</span><span>75</span><span>100</span>
+          </div>
+        </div>
+
+        <div class="charts-grid" style="margin-top:1rem">
+          <div class="chart-container">
+            <h3>Confidence Timeline</h3>
+            <canvas id="ocr-timeline-chart"></canvas>
+          </div>
+          <div class="chart-container">
+            <h3>Confidence Distribution</h3>
+            <canvas id="ocr-dist-chart"></canvas>
+          </div>
+        </div>
+      </div>
+      <div id="ocr-empty" class="text-muted" style="text-align:center;padding:2rem 0" hidden>
+        No OCR data in this time range.
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <!-- Section 7: Scan Throttle History                                      -->
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <section class="res-section" id="throttle-section">
+      <div class="section-header">
+        <h2>Scan Throttle History</h2>
+        <div class="range-selector" id="throttle-range">
+          <button data-range="24h">24h</button>
+          <button data-range="7d" class="active">7d</button>
+          <button data-range="30d">30d</button>
+        </div>
+      </div>
+
+      <div id="throttle-loading" class="text-muted" style="padding:1rem 0">Loading...</div>
+      <div id="throttle-content" hidden>
+        <div id="throttle-summaries"></div>
+        <table class="table" id="throttle-table">
+          <thead>
+            <tr>
+              <th style="width:140px">Time</th>
+              <th style="width:80px">Direction</th>
+              <th style="width:120px">Threads</th>
+              <th style="width:100px">Latency Ratio</th>
+              <th>Type</th>
+            </tr>
+          </thead>
+          <tbody id="throttle-tbody"></tbody>
+        </table>
+      </div>
+      <div id="throttle-empty" class="text-muted" style="text-align:center;padding:2rem 0" hidden>
+        No throttle events in this time range. Events appear when parallel scans adjust thread count.
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <!-- Section 8: Repository Overview (copied from Admin)                    -->
     <!-- ══════════════════════════════════════════════════════════════════════ -->
     <section class="res-section" id="repo-section">
       <div class="section-header">
@@ -462,6 +561,62 @@
     .kpi-warn   .kpi-value { color: var(--warn); }
     .kpi-danger  .kpi-value { color: var(--error); }
     .kpi-info    .kpi-value { color: var(--info); }
+
+    /* OCR Gauge */
+    .ocr-gauge-container { margin: 0.5rem 0 0.5rem; }
+    .ocr-gauge-track {
+      position: relative;
+      height: 20px;
+      background: linear-gradient(to right, var(--error), var(--warn), var(--ok));
+      border-radius: 4px;
+      overflow: visible;
+    }
+    .ocr-gauge-fill {
+      position: absolute;
+      top: -3px;
+      width: 4px;
+      height: 26px;
+      background: var(--text);
+      border-radius: 2px;
+      transition: left 0.3s ease;
+      z-index: 2;
+    }
+    .ocr-gauge-threshold {
+      position: absolute;
+      top: 0;
+      width: 2px;
+      height: 20px;
+      background: rgba(255,255,255,0.7);
+      z-index: 1;
+    }
+    .ocr-gauge-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Throttle badges */
+    .throttle-dir { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.75rem; font-weight: 600; }
+    .throttle-dir--down { background: #fee2e2; color: #b91c1c; }
+    .throttle-dir--up   { background: #dcfce7; color: #166534; }
+    @media (prefers-color-scheme: dark) {
+      .throttle-dir--down { background: #450a0a; color: #fca5a5; }
+      .throttle-dir--up   { background: #052e16; color: #86efac; }
+    }
+    .throttle-summary-card {
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.75rem 1rem;
+      margin-bottom: 0.75rem;
+      font-size: 0.85rem;
+    }
+    .throttle-summary-card .throttle-badge-aborted {
+      color: var(--error);
+      font-weight: 600;
+    }
 
     /* Export dropdown */
     .dropdown { position: relative; }
@@ -939,6 +1094,223 @@
     document.getElementById('repo-refresh-btn').addEventListener('click', loadRepoOverview);
 
     /* ════════════════════════════════════════════════════════════════════════
+     *  Section 6: OCR Quality
+     * ════════════════════════════════════════════════════════════════════ */
+
+    var ocrTimelineChart = null;
+    var ocrDistChart = null;
+    var currentOcrRange = '30d';
+
+    async function loadOcrQuality(range) {
+      currentOcrRange = range || currentOcrRange;
+      document.getElementById('ocr-loading').hidden = false;
+      document.getElementById('ocr-content').hidden = true;
+      document.getElementById('ocr-empty').hidden = true;
+
+      try {
+        var d = await API.get('/api/resources/ocr-quality?range=' + currentOcrRange);
+        document.getElementById('ocr-loading').hidden = true;
+
+        if (!d.files_with_ocr) {
+          document.getElementById('ocr-empty').hidden = false;
+          return;
+        }
+
+        document.getElementById('ocr-content').hidden = false;
+
+        setText('ocr-avg', d.avg_confidence + '%');
+        setText('ocr-avg-sub', d.files_with_ocr + ' files analyzed');
+        setText('ocr-max', d.max_confidence + '%');
+        setText('ocr-min', d.min_confidence + '%');
+        setText('ocr-below', d.files_below_threshold);
+        setText('ocr-below-sub', 'below ' + d.threshold + '% threshold');
+
+        // Gauge
+        var gauge = document.getElementById('ocr-gauge-fill');
+        gauge.style.left = Math.min(d.avg_confidence, 100) + '%';
+        var thresh = document.getElementById('ocr-gauge-threshold');
+        thresh.style.left = d.threshold + '%';
+
+        // Color the avg KPI based on quality
+        var avgEl = document.getElementById('ocr-avg');
+        if (d.avg_confidence >= 80) avgEl.style.color = 'var(--ok)';
+        else if (d.avg_confidence >= 60) avgEl.style.color = 'var(--warn)';
+        else avgEl.style.color = 'var(--error)';
+
+        // Timeline chart
+        if (d.timeline && d.timeline.length > 0) {
+          renderOcrTimeline(d.timeline);
+        }
+
+        // Distribution chart
+        if (d.distribution) {
+          renderOcrDistribution(d.distribution);
+        }
+      } catch (e) {
+        document.getElementById('ocr-loading').textContent = 'Failed to load OCR metrics.';
+      }
+    }
+
+    function renderOcrTimeline(timeline) {
+      var labels = timeline.map(function(t) { return t.date; });
+      var avgData = timeline.map(function(t) { return t.avg; });
+      var minData = timeline.map(function(t) { return t.min; });
+      var maxData = timeline.map(function(t) { return t.max; });
+
+      var ctx = document.getElementById('ocr-timeline-chart').getContext('2d');
+      if (ocrTimelineChart) ocrTimelineChart.destroy();
+
+      ocrTimelineChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Avg',
+              data: avgData,
+              borderColor: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#4f5bd5',
+              borderWidth: 2,
+              pointRadius: 2,
+              tension: 0.3,
+              fill: false,
+            },
+            {
+              label: 'Max',
+              data: maxData,
+              borderColor: 'rgba(22, 163, 74, 0.5)',
+              borderWidth: 1,
+              borderDash: [4, 4],
+              pointRadius: 0,
+              tension: 0.3,
+              fill: false,
+            },
+            {
+              label: 'Min',
+              data: minData,
+              borderColor: 'rgba(220, 38, 38, 0.5)',
+              borderWidth: 1,
+              borderDash: [4, 4],
+              pointRadius: 0,
+              tension: 0.3,
+              fill: false,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          scales: {
+            y: { min: 0, max: 100, title: { display: true, text: 'Confidence %' } },
+            x: { grid: { display: false } },
+          },
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+          },
+        },
+      });
+    }
+
+    function renderOcrDistribution(dist) {
+      var labels = dist.map(function(d) { return d.range; });
+      var counts = dist.map(function(d) { return d.count; });
+      var colors = dist.map(function(d, i) {
+        if (i < 5) return 'rgba(220, 38, 38, 0.6)';
+        if (i < 7) return 'rgba(217, 119, 6, 0.6)';
+        return 'rgba(22, 163, 74, 0.6)';
+      });
+
+      var ctx = document.getElementById('ocr-dist-chart').getContext('2d');
+      if (ocrDistChart) ocrDistChart.destroy();
+
+      ocrDistChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Files',
+            data: counts,
+            backgroundColor: colors,
+            borderRadius: 3,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          scales: {
+            y: { beginAtZero: true, title: { display: true, text: 'Files' } },
+            x: { title: { display: true, text: 'Confidence Range' } },
+          },
+          plugins: {
+            legend: { display: false },
+          },
+        },
+      });
+    }
+
+    /* ════════════════════════════════════════════════════════════════════════
+     *  Section 7: Scan Throttle History
+     * ════════════════════════════════════════════════════════════════════ */
+
+    var currentThrottleRange = '7d';
+
+    async function loadThrottleHistory(range) {
+      currentThrottleRange = range || currentThrottleRange;
+      document.getElementById('throttle-loading').hidden = false;
+      document.getElementById('throttle-content').hidden = true;
+      document.getElementById('throttle-empty').hidden = true;
+
+      try {
+        var d = await API.get('/api/resources/scan-throttle?range=' + currentThrottleRange);
+        document.getElementById('throttle-loading').hidden = true;
+
+        if ((!d.adjustments || d.adjustments.length === 0) && (!d.summaries || d.summaries.length === 0)) {
+          document.getElementById('throttle-empty').hidden = false;
+          return;
+        }
+
+        document.getElementById('throttle-content').hidden = false;
+
+        // Render summaries
+        var sumDiv = document.getElementById('throttle-summaries');
+        if (d.summaries && d.summaries.length > 0) {
+          sumDiv.innerHTML = d.summaries.map(function(s) {
+            var abortTag = s.aborted ? ' <span class="throttle-badge-aborted">ABORTED</span>' : '';
+            return '<div class="throttle-summary-card">' +
+              '<strong>' + escapeHtml(s.scan_type || 'scan') + '</strong> ' +
+              formatEventTime(s.timestamp) + ' — ' +
+              s.adjustments + ' adjustments, ' +
+              'final ' + s.final_threads + '/' + s.max_threads + ' threads, ' +
+              s.total_errors + ' errors' +
+              abortTag +
+            '</div>';
+          }).join('');
+        } else {
+          sumDiv.innerHTML = '';
+        }
+
+        // Render adjustments table
+        var tbody = document.getElementById('throttle-tbody');
+        if (d.adjustments && d.adjustments.length > 0) {
+          document.getElementById('throttle-table').hidden = false;
+          tbody.innerHTML = d.adjustments.map(function(a) {
+            var dirClass = a.direction === 'down' ? 'throttle-dir--down' : 'throttle-dir--up';
+            return '<tr>' +
+              '<td class="text-sm">' + formatEventTime(a.timestamp) + '</td>' +
+              '<td><span class="throttle-dir ' + dirClass + '">' + escapeHtml(a.direction) + '</span></td>' +
+              '<td>' + a.from_threads + ' &rarr; ' + a.to_threads + '</td>' +
+              '<td>' + (a.latency_ratio || '--') + 'x</td>' +
+              '<td class="text-sm">' + escapeHtml(a.scan_type || '') + '</td>' +
+            '</tr>';
+          }).join('');
+        } else {
+          document.getElementById('throttle-table').hidden = true;
+        }
+      } catch (e) {
+        document.getElementById('throttle-loading').textContent = 'Failed to load throttle history.';
+      }
+    }
+
+    /* ════════════════════════════════════════════════════════════════════════
      *  Export CSV
      * ════════════════════════════════════════════════════════════════════ */
 
@@ -977,6 +1349,8 @@
     wireRangeSelector('metrics-range', loadMetricsCharts);
     wireRangeSelector('disk-range', loadDiskChart);
     wireRangeSelector('events-range', loadEvents);
+    wireRangeSelector('ocr-range', loadOcrQuality);
+    wireRangeSelector('throttle-range', loadThrottleHistory);
 
     /* ════════════════════════════════════════════════════════════════════════
      *  Init
@@ -988,6 +1362,8 @@
       loadDiskChart('30d');
       initLiveMetrics();
       loadEvents('7d');
+      loadOcrQuality('30d');
+      loadThrottleHistory('7d');
       loadRepoOverview();
     });
 

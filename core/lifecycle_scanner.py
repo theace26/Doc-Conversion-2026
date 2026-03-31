@@ -654,6 +654,15 @@ async def _parallel_lifecycle_walk(
              aborted=error_monitor.aborted,
              scanned=counters["files_scanned"])
 
+    # Persist throttle events for resources dashboard
+    try:
+        from core.bulk_scanner import _persist_throttle_events
+        await _persist_throttle_events(
+            scan_run_id, "lifecycle_scan", throttler, error_monitor,
+        )
+    except Exception:
+        pass
+
 
 async def _lifecycle_process_entry(
     file_path: Path,

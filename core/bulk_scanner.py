@@ -575,6 +575,11 @@ class BulkScanner:
                  aborted=error_monitor.aborted,
                  files=file_count)
 
+        # Persist throttle events for resources dashboard
+        await _persist_throttle_events(
+            self.job_id, "bulk_scan", throttler, error_monitor,
+        )
+
         return file_count
 
     # ── Shared helpers ───────────────────────────────────────────────────
@@ -816,3 +821,55 @@ class BulkScanner:
             collision_count=safety.collision_count,
             case_collision_count=safety.case_collision_count,
         )
+
+
+# ── Module-level helpers ────────────────────────────────────────────────────
+
+async def _persist_throttle_events(
+    job_id: str,
+    scan_type: str,
+    throttler: ScanThrottler,
+    error_monitor: ErrorRateMonitor,
+) -> None:
+    """Persist throttle adjustments and error-rate events to activity_events."""
+    try:
+        from core.metrics_collector import record_activity_event
+
+        # Record each throttle adjustment
+        for adj in throttler.adjustments:
+            await record_activity_event(
+                "scan_throttle",
+                f"Scan throttle {adj['direction']}: {adj['from']} -> {adj['to']} threads "
+                f"(latency ratio {adj['ratio']}x)",
+                metadata={
+                    "job_id": job_id,
+                    "scan_type": scan_type,
+                    "direction": adj.get("direction", "down" if adj["to"] < adj["from"] else "up"),
+                    "from_threads": adj["from"],
+                    "to_threads": adj["to"],
+                    "latency_ratio": adj["ratio"],
+                    "median_ms": adj["median_ms"],
+                    "baseline_ms": adj["baseline_ms"],
+                },
+            )
+
+        # Record summary if there were adjustments or errors
+        if throttler.adjustment_count > 0 or error_monitor.total_errors > 0:
+            await record_activity_event(
+                "scan_throttle_summary",
+                f"Scan {scan_type}: {throttler.adjustment_count} throttle adjustments, "
+                f"{error_monitor.total_errors} errors, "
+                f"final threads {throttler.active_threads}/{throttler.max_threads}",
+                metadata={
+                    "job_id": job_id,
+                    "scan_type": scan_type,
+                    "adjustments": throttler.adjustment_count,
+                    "max_threads": throttler.max_threads,
+                    "final_threads": throttler.active_threads,
+                    "total_errors": error_monitor.total_errors,
+                    "error_rate": round(error_monitor.error_rate, 3),
+                    "aborted": error_monitor.aborted,
+                },
+            )
+    except Exception:
+        log.warning("persist_throttle_events_failed", job_id=job_id)

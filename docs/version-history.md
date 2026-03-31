@@ -4,6 +4,24 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.13.4 — OCR Quality Dashboard & Scan Throttle History (2026-03-31)
+
+**New features:**
+- Resources page: OCR Quality section with avg/min/max confidence KPIs, color-coded gauge, confidence timeline chart, distribution histogram bar chart
+- Resources page: Scan Throttle History section with adjustment events table and scan summary cards
+- Throttle adjustment events persisted to `activity_events` table (event types: `scan_throttle`, `scan_throttle_summary`)
+- New API: `GET /api/resources/ocr-quality?range=30d` — returns confidence stats, distribution buckets, daily timeline
+- New API: `GET /api/resources/scan-throttle?range=7d` — returns throttle adjustments and scan summaries
+
+**Modified files:**
+- `api/routes/resources.py` — added 2 new endpoints
+- `static/resources.html` — added 2 new sections with Chart.js rendering
+- `core/bulk_scanner.py` — added `_persist_throttle_events()` helper
+- `core/lifecycle_scanner.py` — calls `_persist_throttle_events()` after parallel walk
+- `core/storage_probe.py` — added `adjustments` property to `ScanThrottler`
+
+---
+
 ## v0.13.3 — Error-Rate Monitoring & Abort (2026-03-31)
 
 **New features:**

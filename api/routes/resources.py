@@ -1,15 +1,19 @@
 """
-Resources API — historical metrics, disk history, activity events, executive summary, CSV export.
+Resources API — historical metrics, disk history, activity events, executive summary, CSV export,
+OCR quality metrics, scan throttle history.
 
-GET  /api/resources/metrics   — time-range-filtered, downsampled system metrics
-GET  /api/resources/disk      — historical disk usage
-GET  /api/resources/events    — activity event log
-GET  /api/resources/summary   — executive summary (the IT admin pitch card)
-GET  /api/resources/export    — CSV download of any metrics table
+GET  /api/resources/metrics          — time-range-filtered, downsampled system metrics
+GET  /api/resources/disk             — historical disk usage
+GET  /api/resources/events           — activity event log
+GET  /api/resources/summary          — executive summary (the IT admin pitch card)
+GET  /api/resources/export           — CSV download of any metrics table
+GET  /api/resources/ocr-quality      — OCR confidence avg / min / max / distribution
+GET  /api/resources/scan-throttle    — scan throttle adjustment history
 """
 
 import csv
 import io
+import json
 from datetime import datetime, timezone
 
 import structlog
@@ -17,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from core.auth import AuthenticatedUser, UserRole, require_role
+from core.database import db_fetch_all, get_preference
 from core.metrics_collector import (
     query_system_metrics,
     query_disk_metrics,
@@ -119,6 +124,163 @@ async def get_summary(
             "cpu": None, "memory": None, "disk": None,
             "io": None, "activity": None, "self_governance": None,
         }
+
+
+# ── GET /api/resources/ocr-quality ────────────────────────────────────────────
+
+@router.get("/ocr-quality")
+async def get_ocr_quality(
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+    range: str = Query("30d", alias="range"),
+):
+    """OCR confidence metrics — avg, min, max, distribution, files below threshold."""
+    range_str = _validate_range(range)
+
+    from core.metrics_collector import _range_to_cutoff
+    cutoff = _range_to_cutoff(range_str)
+
+    try:
+        rows = await db_fetch_all(
+            """SELECT ocr_confidence_mean, ocr_confidence_min, ocr_page_count,
+                      ocr_pages_below_threshold, created_at
+               FROM conversion_history
+               WHERE ocr_confidence_mean IS NOT NULL
+                 AND created_at >= ?
+               ORDER BY created_at ASC""",
+            (cutoff,),
+        )
+
+        if not rows:
+            return {
+                "range": range_str,
+                "files_with_ocr": 0,
+                "avg_confidence": None,
+                "min_confidence": None,
+                "max_confidence": None,
+                "threshold": None,
+                "files_below_threshold": 0,
+                "distribution": [],
+                "timeline": [],
+            }
+
+        confs = [r["ocr_confidence_mean"] for r in rows]
+        mins = [r["ocr_confidence_min"] for r in rows if r["ocr_confidence_min"] is not None]
+
+        avg_conf = round(sum(confs) / len(confs), 1)
+        min_conf = round(min(mins), 1) if mins else round(min(confs), 1)
+        max_conf = round(max(confs), 1)
+
+        threshold_str = await get_preference("ocr_confidence_threshold") or "70"
+        threshold = float(threshold_str)
+        below = sum(1 for c in confs if c < threshold)
+
+        # Distribution buckets (0-10, 10-20, ..., 90-100)
+        buckets = [0] * 10
+        for c in confs:
+            idx = min(int(c // 10), 9)
+            buckets[idx] += 1
+        distribution = [
+            {"range": f"{i*10}-{i*10+10}", "count": buckets[i]}
+            for i in range(10)
+        ]
+
+        # Timeline (for chart) — group by day
+        from collections import defaultdict
+        daily: dict[str, list[float]] = defaultdict(list)
+        for r in rows:
+            day = r["created_at"][:10] if r["created_at"] else "unknown"
+            daily[day].append(r["ocr_confidence_mean"])
+
+        timeline = [
+            {
+                "date": day,
+                "avg": round(sum(vals) / len(vals), 1),
+                "min": round(min(vals), 1),
+                "max": round(max(vals), 1),
+                "count": len(vals),
+            }
+            for day, vals in sorted(daily.items())
+        ]
+
+        return {
+            "range": range_str,
+            "files_with_ocr": len(confs),
+            "avg_confidence": avg_conf,
+            "min_confidence": min_conf,
+            "max_confidence": max_conf,
+            "threshold": threshold,
+            "files_below_threshold": below,
+            "distribution": distribution,
+            "timeline": timeline,
+        }
+    except Exception as exc:
+        log.error("resources.ocr_quality_failed", error=str(exc))
+        return {"range": range_str, "error": str(exc)}
+
+
+# ── GET /api/resources/scan-throttle ─────────────────────────────────────────
+
+@router.get("/scan-throttle")
+async def get_scan_throttle_history(
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+    range: str = Query("7d", alias="range"),
+    limit: int = Query(100, ge=1, le=500),
+):
+    """Scan throttle adjustment history from activity events."""
+    range_str = _validate_range(range)
+
+    try:
+        # Query both individual throttle events and summaries
+        events, total = await query_activity_events(
+            range_str,
+            event_types=["scan_throttle", "scan_throttle_summary"],
+            limit=limit,
+        )
+
+        adjustments = []
+        summaries = []
+        for ev in events:
+            meta = ev.get("metadata") or {}
+            if isinstance(meta, str):
+                try:
+                    meta = json.loads(meta)
+                except (json.JSONDecodeError, TypeError):
+                    meta = {}
+
+            if ev.get("event_type") == "scan_throttle":
+                adjustments.append({
+                    "timestamp": ev.get("timestamp"),
+                    "direction": meta.get("direction", "unknown"),
+                    "from_threads": meta.get("from_threads"),
+                    "to_threads": meta.get("to_threads"),
+                    "latency_ratio": meta.get("latency_ratio"),
+                    "median_ms": meta.get("median_ms"),
+                    "baseline_ms": meta.get("baseline_ms"),
+                    "scan_type": meta.get("scan_type"),
+                    "job_id": meta.get("job_id"),
+                })
+            else:
+                summaries.append({
+                    "timestamp": ev.get("timestamp"),
+                    "scan_type": meta.get("scan_type"),
+                    "adjustments": meta.get("adjustments", 0),
+                    "max_threads": meta.get("max_threads"),
+                    "final_threads": meta.get("final_threads"),
+                    "total_errors": meta.get("total_errors", 0),
+                    "error_rate": meta.get("error_rate", 0),
+                    "aborted": meta.get("aborted", False),
+                    "job_id": meta.get("job_id"),
+                })
+
+        return {
+            "range": range_str,
+            "adjustments": adjustments,
+            "summaries": summaries,
+            "total_events": total,
+        }
+    except Exception as exc:
+        log.error("resources.scan_throttle_failed", error=str(exc))
+        return {"range": range_str, "adjustments": [], "summaries": [], "error": str(exc)}
 
 
 # ── GET /api/resources/export ─────────────────────────────────────────────────

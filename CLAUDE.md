@@ -26,20 +26,17 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.13.3
+## Current Status — v0.13.4
 
-v0.13.3: Error-rate monitoring across all scanners and conversion workers.
-`ErrorRateMonitor` tracks rolling-window success/failure rates. If >50% of
-the last 100 operations fail (or 20 consecutive errors), the scan or
-conversion aborts early instead of churning through thousands of failures.
-Covers: bulk scanner (serial + parallel), lifecycle scanner (serial +
-parallel), and bulk conversion workers. SSE event `scan_aborted` /
-`job_error_rate_abort` emitted on trigger. Protects against NAS disconnects,
-mount failures, and source path issues mid-operation.
+v0.13.4: Resources page gains OCR Quality section (avg/min/max confidence,
+gauge, timeline chart, distribution histogram) and Scan Throttle History
+section (adjustment events table, scan summaries with thread counts and
+error rates). Throttle events now persisted to activity_events table for
+dashboard retrieval. Two new API endpoints: `/api/resources/ocr-quality`,
+`/api/resources/scan-throttle`.
 
-Previous (v0.13.2): Feedback-loop scan throttling — ScanThrottler dynamically
-parks/unparks threads based on congestion. (v0.13.1): Adaptive scan
-parallelism — auto-detect SSD/HDD/NAS, parallel walkers for NAS.
+Previous (v0.13.3): Error-rate monitoring — abort on NAS disconnect.
+(v0.13.2): Feedback-loop throttling. (v0.13.1): Adaptive scan parallelism.
 
 Previous (v0.13.0): Media transcription pipeline. Audio/video files convert to
 Markdown transcripts with timestamped segments. Local Whisper (GPU auto-detect)
