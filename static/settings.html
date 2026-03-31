@@ -370,12 +370,27 @@
           </div>
           <details style="margin-top:0.75rem">
             <summary class="text-sm" style="cursor:pointer;color:var(--accent)">Setup Instructions</summary>
-            <ol class="text-sm" style="margin:0.5rem 0 0 1.2rem;line-height:1.6">
-              <li>Open Claude.ai &rarr; Settings &rarr; Integrations</li>
-              <li>Click "Add Integration"</li>
-              <li>Paste the MCP Server URL above</li>
-              <li>Click Connect</li>
-            </ol>
+            <div class="text-sm" style="margin:0.5rem 0 0 0;line-height:1.6">
+              <p style="margin:0.5rem 0 0.25rem"><strong>Claude Code (recommended):</strong></p>
+              <pre style="background:var(--bg-secondary);padding:0.5rem;border-radius:4px;overflow-x:auto;font-size:0.8rem">claude mcp add markflow --transport sse http://localhost:8001/sse</pre>
+
+              <p style="margin:0.75rem 0 0.25rem"><strong>Claude Desktop</strong> &mdash; add to claude_desktop_config.json:</p>
+              <pre style="background:var(--bg-secondary);padding:0.5rem;border-radius:4px;overflow-x:auto;font-size:0.8rem">{
+  "mcpServers": {
+    "markflow": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://localhost:8001/sse"]
+    }
+  }
+}</pre>
+
+              <p style="margin:0.75rem 0 0.25rem"><strong>Claude.ai (web)</strong> &mdash; requires tunnel (ngrok/Cloudflare):</p>
+              <ol style="margin:0.25rem 0 0 1.2rem">
+                <li>Run: <code>ngrok http 8001</code></li>
+                <li>Go to Claude.ai &rarr; Settings &rarr; Integrations &rarr; Add Integration</li>
+                <li>Paste the ngrok URL + <code>/sse</code></li>
+              </ol>
+            </div>
           </details>
         </div>
       </div>
@@ -942,7 +957,7 @@
   (async () => {
     try {
       const data = await API.get('/api/mcp/connection-info');
-      document.getElementById('mcp-url').value = data.mcp_url || 'http://localhost:8001/mcp';
+      document.getElementById('mcp-url').value = data.mcp_url || 'http://localhost:8001/sse';
       const statusEl = document.getElementById('mcp-status');
       if (data.mcp_running) {
         statusEl.innerHTML = `<span style="color:var(--ok)">&#10003; MCP server running</span> &middot; ${data.tool_count || 0} tools`;
@@ -950,7 +965,7 @@
         statusEl.innerHTML = '<span style="color:var(--text-muted)">&mdash; MCP server not detected</span>';
       }
     } catch {
-      document.getElementById('mcp-url').value = 'http://localhost:8001/mcp';
+      document.getElementById('mcp-url').value = 'http://localhost:8001/sse';
       document.getElementById('mcp-status').innerHTML = '<span class="text-muted">&mdash; Could not check MCP status</span>';
     }
   })();

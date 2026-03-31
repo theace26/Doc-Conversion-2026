@@ -5,7 +5,6 @@ GET /api/mcp/connection-info — Returns MCP server URL and status.
 """
 
 import os
-import socket
 
 import httpx
 import structlog
@@ -25,15 +24,8 @@ async def mcp_connection_info(
     mcp_port = int(os.getenv("MCP_PORT", "8001"))
     auth_token = os.getenv("MCP_AUTH_TOKEN", "")
 
-    # Try to get local IP
-    try:
-        hostname = socket.gethostname()
-        local_ip = socket.gethostbyname(hostname)
-    except Exception:
-        local_ip = "localhost"
-
-    # Build URL
-    base_url = f"http://{local_ip}:{mcp_port}/mcp"
+    # Always use localhost — Docker internal IPs are unreachable from the host
+    base_url = f"http://localhost:{mcp_port}/sse"
     if auth_token:
         base_url += f"?token={auth_token}"
 
