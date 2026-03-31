@@ -35,6 +35,7 @@ _SYSTEM_PREF_KEYS: set[str] = {
     "auto_convert_schedule_windows", "auto_convert_decision_log_level",
     "auto_metrics_retention_days", "auto_convert_business_hours_start",
     "auto_convert_business_hours_end", "auto_convert_conservative_factor",
+    "scan_max_threads",
     "whisper_model", "whisper_language", "whisper_device",
     "transcription_cloud_fallback", "caption_file_extensions",
     "transcription_timeout_seconds",
@@ -323,6 +324,14 @@ _PREFERENCE_SCHEMA: dict[str, dict] = {
         "label": "Conservatism Factor",
         "description": "Resource usage caution level. 0.3 = very conservative, 1.0 = full utilization.",
         "section": "auto_conversion",
+    },
+    # ── Scan Performance ──
+    "scan_max_threads": {
+        "type": "select",
+        "options": ["auto", "1", "2", "4", "6", "8", "10", "12"],
+        "label": "Scan Thread Count",
+        "description": "Auto probes storage latency to choose optimal parallelism. Force '1' for serial scan.",
+        "section": "scan_performance",
     },
     # ── Transcription (v0.13.0) ──
     "whisper_model": {

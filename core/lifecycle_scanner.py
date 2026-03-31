@@ -12,13 +12,16 @@ Called by the scheduler. One scan cycle:
 import hashlib
 import json
 import os
+import queue
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
 
 from core.stop_controller import should_stop
+from core.storage_probe import probe_storage_latency
 from core.bulk_scanner import ALL_SUPPORTED, CONVERTIBLE_EXTENSIONS, ADOBE_EXTENSIONS
 from core.database import (
     create_scan_run,
@@ -182,73 +185,40 @@ async def run_lifecycle_scan(
             )
             log.info("lifecycle_scan.created_synthetic_job", job_id=job_id)
 
-    # ── Walk source share ────────────────────────────────────────────────────
+    # ── Storage probe for adaptive parallelism ─────────────────────────────
+    import asyncio as _aio
+    from core.database import get_preference as _get_pref
+    max_threads_pref = await _get_pref("scan_max_threads") or "auto"
+    if max_threads_pref == "auto":
+        _max_override = None
+    else:
+        try:
+            _max_override = int(max_threads_pref)
+        except ValueError:
+            _max_override = None
+
+    storage_profile = await probe_storage_latency(
+        source_root, max_threads_override=_max_override,
+    )
+    scan_threads = storage_profile.recommended_threads
+    log.info("lifecycle_scan.storage_probe",
+             storage_hint=storage_profile.storage_hint,
+             scan_threads=scan_threads,
+             ratio=storage_profile.ratio,
+             probe_ms=storage_profile.probe_duration_ms)
+
+    # ── Walk source share (adaptive: serial or parallel) ─────────────────
     try:
-        for dirpath, dirnames, filenames in os.walk(source_root):
-            # Check global stop
-            if should_stop():
-                log.warning("lifecycle_scan_stopped", scan_run_id=scan_run_id)
-                _scan_state["running"] = False
-                _scan_state["current_file"] = None
-                break
-
-            dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "_markflow"]
-
-            for filename in filenames:
-                file_path = Path(dirpath) / filename
-                ext = file_path.suffix.lower()
-                path_str = str(file_path)
-                seen_paths.add(path_str)
-                counters["files_scanned"] += 1
-
-                try:
-                    stat = file_path.stat()
-                    mtime = stat.st_mtime
-                    size = stat.st_size
-                except OSError as exc:
-                    counters["errors"] += 1
-                    error_entries.append({"path": path_str, "error": str(exc)})
-                    continue
-
-                # Only track files that the bulk pipeline would process
-                if ext not in ALL_SUPPORTED and ext not in CONVERTIBLE_EXTENSIONS and ext not in ADOBE_EXTENSIONS:
-                    # Check if this was previously tracked (e.g. unrecognized)
-                    existing = await get_bulk_file_by_path(path_str)
-                    if existing and existing.get("lifecycle_status") == "marked_for_deletion":
-                        # Reappeared during grace period
-                        await restore_file(existing["id"], scan_run_id)
-                        counters["files_restored"] += 1
-                    continue
-
-                try:
-                    await _process_file(
-                        file_path, path_str, ext, mtime, size,
-                        job_id, scan_run_id, counters,
-                    )
-                except Exception as exc:
-                    counters["errors"] += 1
-                    error_entries.append({"path": path_str, "error": str(exc)})
-                    log.error("lifecycle_scan.file_error", path=path_str, error=str(exc))
-
-                # Update scan state every 25 files
-                if counters["files_scanned"] % 25 == 0:
-                    _scan_state["scanned"] = counters["files_scanned"]
-                    try:
-                        _scan_state["current_file"] = str(file_path.relative_to(source_root))
-                    except ValueError:
-                        _scan_state["current_file"] = filename
-                    total_est = _scan_state["total"]
-                    if total_est > 0:
-                        _scan_state["pct"] = min(99, int(counters["files_scanned"] / total_est * 100))
-                    else:
-                        _scan_state["pct"] = None
-                    elapsed = (datetime.now(timezone.utc) - _started_at_dt).total_seconds()
-                    if elapsed > 5 and counters["files_scanned"] > 0:
-                        rate = counters["files_scanned"] / elapsed
-                        remaining = total_est - counters["files_scanned"] if total_est else 0
-                        _scan_state["eta_seconds"] = int(remaining / rate) if rate > 0 and remaining > 0 else None
-                    else:
-                        _scan_state["eta_seconds"] = None
+        if scan_threads > 1:
+            await _parallel_lifecycle_walk(
+                source_root, scan_threads, seen_paths, counters,
+                error_entries, job_id, scan_run_id, _started_at_dt,
+            )
+        else:
+            await _serial_lifecycle_walk(
+                source_root, seen_paths, counters,
+                error_entries, job_id, scan_run_id, _started_at_dt,
+            )
     except Exception as exc:
         await update_scan_run(scan_run_id, {
             "status": "failed",
@@ -461,6 +431,247 @@ async def _find_hash_match_in_seen(
         if row["source_path"] in seen_paths:
             return row["source_path"]
     return None
+
+
+async def _serial_lifecycle_walk(
+    source_root: Path,
+    seen_paths: set[str],
+    counters: dict,
+    error_entries: list[dict],
+    job_id: str,
+    scan_run_id: str,
+    started_at_dt: datetime,
+) -> None:
+    """Serial walk for local SSD/HDD sources."""
+    for dirpath, dirnames, filenames in os.walk(source_root):
+        if should_stop():
+            log.warning("lifecycle_scan_stopped", scan_run_id=scan_run_id)
+            _scan_state["running"] = False
+            _scan_state["current_file"] = None
+            break
+
+        dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "_markflow"]
+
+        for filename in filenames:
+            file_path = Path(dirpath) / filename
+            await _lifecycle_process_entry(
+                file_path, source_root, seen_paths, counters,
+                error_entries, job_id, scan_run_id, started_at_dt,
+            )
+
+
+async def _parallel_lifecycle_walk(
+    source_root: Path,
+    thread_count: int,
+    seen_paths: set[str],
+    counters: dict,
+    error_entries: list[dict],
+    job_id: str,
+    scan_run_id: str,
+    started_at_dt: datetime,
+) -> None:
+    """Parallel walk for NAS/SMB sources — threads handle stat, async consumer processes."""
+    import asyncio
+
+    log.info("lifecycle_parallel_walk_start",
+             scan_run_id=scan_run_id, threads=thread_count)
+
+    # Thread-safe queue: walkers push (path, ext, mtime, size) or error tuples
+    file_queue: queue.Queue[tuple[Path, str, float, int] | None] = queue.Queue(maxsize=5000)
+
+    # Discover top-level subdirs for distribution
+    subdirs: list[Path] = []
+    root_files: list[str] = []
+    try:
+        with os.scandir(source_root) as it:
+            for entry in it:
+                if entry.is_dir(follow_symlinks=False):
+                    name = entry.name
+                    if not name.startswith(".") and name != "_markflow":
+                        subdirs.append(Path(entry.path))
+                elif entry.is_file(follow_symlinks=False):
+                    root_files.append(entry.name)
+    except OSError as exc:
+        log.warning("lifecycle_parallel_root_error", error=str(exc))
+
+    def _walker_thread(dirs_to_walk: list[Path], root_file_subset: list[str]) -> None:
+        """Thread worker: walks directories, stats files, pushes to queue."""
+        for filename in root_file_subset:
+            if should_stop():
+                return
+            file_path = source_root / filename
+            try:
+                st = file_path.stat()
+                ext = file_path.suffix.lower()
+                file_queue.put((file_path, ext, st.st_mtime, st.st_size))
+            except OSError:
+                continue
+
+        for subdir in dirs_to_walk:
+            if should_stop():
+                return
+            for dirpath, dirnames, filenames in os.walk(subdir):
+                if should_stop():
+                    return
+                dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "_markflow"]
+                for filename in filenames:
+                    file_path = Path(dirpath) / filename
+                    try:
+                        st = file_path.stat()
+                        ext = file_path.suffix.lower()
+                        file_queue.put((file_path, ext, st.st_mtime, st.st_size))
+                    except OSError:
+                        continue
+
+    # Distribute subdirs across workers (round-robin)
+    worker_dirs: list[list[Path]] = [[] for _ in range(thread_count)]
+    for i, subdir in enumerate(subdirs):
+        worker_dirs[i % thread_count].append(subdir)
+    worker_root_files: list[list[str]] = [[] for _ in range(thread_count)]
+    worker_root_files[0] = root_files
+
+    executor = ThreadPoolExecutor(
+        max_workers=thread_count,
+        thread_name_prefix="lifecycle-walker",
+    )
+    futures = []
+    for i in range(thread_count):
+        fut = executor.submit(
+            _walker_thread, worker_dirs[i], worker_root_files[i],
+        )
+        futures.append(fut)
+
+    # Async consumer: drain queue, process files
+    walkers_done = False
+    while not walkers_done or not file_queue.empty():
+        walkers_done = all(f.done() for f in futures)
+
+        batch: list[tuple[Path, str, float, int]] = []
+        try:
+            while len(batch) < 100:
+                item = file_queue.get_nowait()
+                batch.append(item)
+        except queue.Empty:
+            pass
+
+        if not batch:
+            if not walkers_done:
+                await asyncio.sleep(0.01)
+            continue
+
+        for file_path, ext, mtime, size in batch:
+            path_str = str(file_path)
+            seen_paths.add(path_str)
+            counters["files_scanned"] += 1
+
+            if ext not in ALL_SUPPORTED and ext not in CONVERTIBLE_EXTENSIONS and ext not in ADOBE_EXTENSIONS:
+                existing = await get_bulk_file_by_path(path_str)
+                if existing and existing.get("lifecycle_status") == "marked_for_deletion":
+                    await restore_file(existing["id"], scan_run_id)
+                    counters["files_restored"] += 1
+                continue
+
+            try:
+                await _process_file(
+                    file_path, path_str, ext, mtime, size,
+                    job_id, scan_run_id, counters,
+                )
+            except Exception as exc:
+                counters["errors"] += 1
+                error_entries.append({"path": path_str, "error": str(exc)})
+                log.error("lifecycle_scan.file_error", path=path_str, error=str(exc))
+
+            # Update scan state every 25 files
+            if counters["files_scanned"] % 25 == 0:
+                _update_scan_progress(
+                    counters, file_path, source_root, started_at_dt,
+                )
+
+    # Check for walker exceptions
+    for i, fut in enumerate(futures):
+        exc = fut.exception()
+        if exc:
+            log.error("lifecycle_walker_error", worker=i, error=str(exc))
+
+    executor.shutdown(wait=False)
+
+    log.info("lifecycle_parallel_walk_complete",
+             scan_run_id=scan_run_id, threads=thread_count,
+             scanned=counters["files_scanned"])
+
+
+async def _lifecycle_process_entry(
+    file_path: Path,
+    source_root: Path,
+    seen_paths: set[str],
+    counters: dict,
+    error_entries: list[dict],
+    job_id: str,
+    scan_run_id: str,
+    started_at_dt: datetime,
+) -> None:
+    """Process a single discovered file in the lifecycle scan."""
+    ext = file_path.suffix.lower()
+    path_str = str(file_path)
+    seen_paths.add(path_str)
+    counters["files_scanned"] += 1
+
+    try:
+        stat = file_path.stat()
+        mtime = stat.st_mtime
+        size = stat.st_size
+    except OSError as exc:
+        counters["errors"] += 1
+        error_entries.append({"path": path_str, "error": str(exc)})
+        return
+
+    if ext not in ALL_SUPPORTED and ext not in CONVERTIBLE_EXTENSIONS and ext not in ADOBE_EXTENSIONS:
+        existing = await get_bulk_file_by_path(path_str)
+        if existing and existing.get("lifecycle_status") == "marked_for_deletion":
+            await restore_file(existing["id"], scan_run_id)
+            counters["files_restored"] += 1
+        return
+
+    try:
+        await _process_file(
+            file_path, path_str, ext, mtime, size,
+            job_id, scan_run_id, counters,
+        )
+    except Exception as exc:
+        counters["errors"] += 1
+        error_entries.append({"path": path_str, "error": str(exc)})
+        log.error("lifecycle_scan.file_error", path=path_str, error=str(exc))
+
+    if counters["files_scanned"] % 25 == 0:
+        _update_scan_progress(
+            counters, file_path, source_root, started_at_dt,
+        )
+
+
+def _update_scan_progress(
+    counters: dict,
+    file_path: Path,
+    source_root: Path,
+    started_at_dt: datetime,
+) -> None:
+    """Update the in-memory scan progress state."""
+    _scan_state["scanned"] = counters["files_scanned"]
+    try:
+        _scan_state["current_file"] = str(file_path.relative_to(source_root))
+    except ValueError:
+        _scan_state["current_file"] = file_path.name
+    total_est = _scan_state["total"]
+    if total_est > 0:
+        _scan_state["pct"] = min(99, int(counters["files_scanned"] / total_est * 100))
+    else:
+        _scan_state["pct"] = None
+    elapsed = (datetime.now(timezone.utc) - started_at_dt).total_seconds()
+    if elapsed > 5 and counters["files_scanned"] > 0:
+        rate = counters["files_scanned"] / elapsed
+        remaining = total_est - counters["files_scanned"] if total_est else 0
+        _scan_state["eta_seconds"] = int(remaining / rate) if rate > 0 and remaining > 0 else None
+    else:
+        _scan_state["eta_seconds"] = None
 
 
 def _count_files_sync(source_root: Path) -> int:

@@ -26,19 +26,23 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.13.0
+## Current Status — v0.13.1
 
-v0.13.0: Media transcription pipeline. Audio/video files now convert to Markdown
-transcripts with timestamped segments. Local Whisper (GPU auto-detect) with cloud
-fallback (OpenAI Whisper API, Gemini audio — tries all configured providers in
-priority order). Existing caption files (SRT/VTT/SBV) parsed automatically — no
-transcription cost. Three output files per media conversion: .md (timestamped
-transcript), .srt, .vtt. Meilisearch 'transcripts' index for full-text search
-across spoken content. Cowork search covers documents + transcripts. 2 new MCP
-tools: search_transcripts, read_transcript. Visual enrichment (existing scene
-detection + keyframe pipeline) optionally interleaved into video transcripts.
-Settings page gains Transcription section. History page shows media-specific
-metadata (duration, engine, language). Health check includes Whisper availability.
+v0.13.1: Adaptive scan parallelism. Bulk scanner and lifecycle scanner now
+auto-detect storage type (SSD, HDD, NAS) via a latency probe before each scan.
+Network storage (NAS/SMB/NFS) gets parallel directory walkers (4-12 threads)
+to hide network latency; local disks stay serial to avoid HDD seek thrashing.
+The probe uses sequential-vs-random stat() timing ratios — stable even under
+background I/O load. New `scan_max_threads` preference (default: auto). New
+file: `core/storage_probe.py`. Settings page gains Scan Performance section.
+
+Previous (v0.13.0): Media transcription pipeline. Audio/video files convert to
+Markdown transcripts with timestamped segments. Local Whisper (GPU auto-detect)
+with cloud fallback (OpenAI Whisper API, Gemini audio). Caption files
+(SRT/VTT/SBV) parsed automatically. Meilisearch transcript search. 2 MCP
+tools: search_transcripts, read_transcript. Visual enrichment interleaved
+into video transcripts. Transcription settings section. Health check includes
+Whisper availability.
 
 **Planned:** External log shipping to Grafana Loki / ELK stack. The current local log
 archive system is an interim solution — once external aggregation is in place, local
@@ -103,6 +107,7 @@ Critical files to know:
 | `core/progress_tracker.py` | RollingWindowETA, ProgressSnapshot, format_eta for all job types |
 | `core/log_archiver.py` | Compress rotated logs to gzip archives, purge old archives |
 | `core/auto_converter.py` | Auto-conversion decision engine |
+| `core/storage_probe.py` | Storage latency probe: auto-detects SSD/HDD/NAS for scan parallelism |
 | `formats/rtf_handler.py` | RTF ingest/export with control-word parser |
 | `formats/html_handler.py` | HTML/HTM with BeautifulSoup, font extraction |
 | `formats/odt_handler.py` | OpenDocument Text via odfpy |
@@ -165,6 +170,8 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **Whisper torch CPU index**: `Dockerfile.base` installs torch from `--index-url https://download.pytorch.org/whl/cpu` to avoid pulling CUDA packages (~2GB savings). GPU containers should override this.
 - **Transcription fallback chain**: caption file → local Whisper → cloud providers (in priority order). Caption files checked alongside media files using `caption_file_extensions` preference.
 - **MediaHandler sync/async bridge**: `FormatHandler.ingest()` is synchronous but MediaOrchestrator is async. Handlers use `asyncio.run()` in a ThreadPoolExecutor when called from a running event loop.
+- **Adaptive scan parallelism**: `storage_probe.py` probes sequential-vs-random stat() latency before each scan. Ratio > 3x = HDD (stay serial), ratio < 2x + high latency = NAS (go parallel). Never parallelize HDD — causes seek thrashing. Default preference `scan_max_threads` = `"auto"`.
+- **Parallel scan architecture**: Thread workers walk subdirectories concurrently, push `(path, ext, size, mtime)` to `queue.Queue`. Single async consumer drains to SQLite. Both `BulkScanner` and lifecycle scanner use this pattern.
 
 ---
 

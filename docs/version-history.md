@@ -4,6 +4,34 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.13.1 — Adaptive Scan Parallelism (2026-03-31)
+
+**New features:**
+- Storage latency probe auto-detects storage type (SSD, HDD, NAS) before each scan
+- Parallel directory walkers for NAS/SMB/NFS sources (4-12 threads hide network latency)
+- Serial scan preserved for local disks (avoids HDD seek thrashing)
+- Probe uses sequential-vs-random stat() timing ratio — stable even under background I/O load
+- Both bulk scanner and lifecycle scanner benefit from adaptive parallelism
+- New `scan_max_threads` preference: `"auto"` (default, probe decides) or manual override
+- Settings page gains Scan Performance section
+- SSE event `storage_probe_result` emitted so UI can display detected storage type
+
+**New files:**
+- `core/storage_probe.py` — `StorageProfile` dataclass, `probe_storage_latency()` async function
+
+**Modified files:**
+- `core/bulk_scanner.py` — integrated probe + `_parallel_scan()` / `_serial_scan()` split
+- `core/lifecycle_scanner.py` — integrated probe + `_parallel_lifecycle_walk()` / `_serial_lifecycle_walk()`
+- `core/database.py` — added `scan_max_threads` preference
+- `api/routes/preferences.py` — added schema + system key for scan_max_threads
+
+**Design notes:**
+- The sequential-vs-random stat ratio is the key discriminator: HDD shows ratio > 3x (seek penalty), NAS shows ratio < 2x (uniform network latency), SSD shows both fast + low ratio
+- A busy HDD under background I/O still shows the seek penalty ratio — avoids misclassification
+- Thread workers push `(path, ext, size, mtime)` tuples into a `queue.Queue`; a single async consumer drains to SQLite. DB writes never bottleneck because local SSD writes are ~100x faster than NAS reads
+
+---
+
 ## v0.13.0 — Media Transcription Pipeline (2026-03-30)
 
 **New features:**

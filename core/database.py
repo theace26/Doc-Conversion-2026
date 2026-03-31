@@ -87,6 +87,8 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     "auto_convert_business_hours_start": "06:00",
     "auto_convert_business_hours_end": "18:00",
     "auto_convert_conservative_factor": "0.7",
+    # Scan parallelism (v0.13.1)
+    "scan_max_threads": "auto",
     # Transcription (v0.13.0)
     "whisper_model": "base",
     "whisper_language": "auto",

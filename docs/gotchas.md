@@ -327,6 +327,24 @@ the relevant subsystem. Referenced from CLAUDE.md.
   the source path is populated before scanning. An empty mountpoint (SMB not connected) aborts
   gracefully with status `failed`. Uses `os.scandir()` + `next()` to check for at least one entry.
 
+- **Adaptive scan parallelism**: `storage_probe.py` runs a ~200ms latency probe before each
+  scan, measuring sequential vs random `stat()` times. The ratio discriminates storage types:
+  ratio > 3x = spinning disk (stay serial), ratio < 2x + high latency = NAS (go parallel).
+  This is load-invariant — a busy HDD still shows the seek penalty ratio even under contention.
+
+- **Parallel scan architecture**: For NAS/SMB sources, multiple thread workers walk different
+  subdirectories concurrently (hiding network latency), pushing `(path, ext, size, mtime)`
+  tuples into a `queue.Queue`. A single async consumer drains the queue and writes to SQLite.
+  SQLite is single-writer but local SSD writes are ~100x faster than NAS reads, so the
+  consumer never falls behind.
+
+- **scan_max_threads preference**: Defaults to `"auto"` (probe decides). Set to `"1"` to force
+  serial. The probe result is capped by this value. Max hard cap: 12 threads.
+
+- **Don't parallelize HDD scans**: Parallel `stat()` calls on a spinning disk cause seek
+  thrashing — the read head bounces between locations instead of streaming sequentially.
+  The storage probe detects this via the random/sequential latency ratio and stays serial.
+
 - **Static file cache headers**: Middleware in `main.py` adds `Cache-Control: no-cache, must-revalidate`
   to all `/static/` responses. Prevents stale JS/CSS after deploys.
 

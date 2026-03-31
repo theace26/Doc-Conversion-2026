@@ -3,19 +3,27 @@ Bulk file scanner — walks a source directory tree, discovers convertible and
 Adobe files, and records them into the bulk_files table with mtime tracking.
 
 Supports incremental processing: unchanged files (same mtime) are skipped.
+
+Adaptive parallelism: auto-probes storage latency at scan start and uses
+parallel directory walkers for network storage (NAS/SMB/NFS) while staying
+serial for local disks (HDD seek thrashing avoidance, SSD already fast).
 """
 
 import asyncio
 import os
+import queue
 import time
 from collections.abc import Awaitable, Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 import structlog
 
 from core.progress_tracker import RollingWindowETA, ETA_UPDATE_INTERVAL, format_eta
 from core.stop_controller import should_stop
+from core.storage_probe import StorageProfile, probe_storage_latency
 from core.database import get_preference, record_path_issue, update_bulk_file, update_bulk_job_status, upsert_bulk_file
 from core.path_utils import PathSafetyResult, run_path_safety_pass
 
@@ -80,6 +88,8 @@ class ScanResult:
     collision_count: int = 0
     case_collision_count: int = 0
     path_safety_result: "PathSafetyResult | None" = None
+    storage_profile: "StorageProfile | None" = None
+    scan_threads_used: int = 1
     scan_duration_ms: int = 0
 
 
@@ -129,6 +139,10 @@ class BulkScanner:
           2. Get mtime and size
           3. Upsert into bulk_files table
           4. Yield control every _yield_interval files
+
+        Adaptive parallelism: probes storage latency at scan start and uses
+        parallel directory walkers for network storage (NAS/SMB/NFS) while
+        staying serial for local disks.
         """
         t_start = time.perf_counter()
         result = ScanResult(job_id=self.job_id)
@@ -149,6 +163,36 @@ class BulkScanner:
             return result
 
         log.info("bulk_scan_start", job_id=self.job_id, source_path=str(self.source_path))
+
+        # ── Storage probe — auto-detect optimal parallelism ──────────────
+        max_threads_pref = await get_preference("scan_max_threads") or "auto"
+        if max_threads_pref == "auto":
+            max_override = None
+        else:
+            try:
+                max_override = int(max_threads_pref)
+            except ValueError:
+                max_override = None
+
+        storage_profile = await probe_storage_latency(
+            self.source_path, max_threads_override=max_override,
+        )
+        result.storage_profile = storage_profile
+        scan_threads = storage_profile.recommended_threads
+        result.scan_threads_used = scan_threads
+
+        # Emit storage probe result so UI can display it
+        if on_progress:
+            await on_progress({
+                "event": "storage_probe_result",
+                "job_id": self.job_id,
+                "storage_hint": storage_profile.storage_hint,
+                "scan_threads": scan_threads,
+                "sequential_ms": storage_profile.sequential_median_ms,
+                "random_ms": storage_profile.random_median_ms,
+                "ratio": storage_profile.ratio,
+                "probe_duration_ms": storage_profile.probe_duration_ms,
+            })
 
         # Concurrent fast-walk counter — starts immediately, runs in parallel with scan
         tracker = RollingWindowETA(total=None)
@@ -174,95 +218,16 @@ class BulkScanner:
         progress_interval = 50  # emit every N files
         last_eta_write = time.monotonic()
 
-        for dirpath, dirnames, filenames in os.walk(self.source_path):
-            # Check global stop before each directory
-            if should_stop():
-                log.warning("scan_stopped_early", job_id=self.job_id, scanned_so_far=file_count)
-                if on_progress:
-                    await on_progress({
-                        "event": "scan_stopped",
-                        "job_id": self.job_id,
-                        "scanned": file_count,
-                        "reason": "global_stop_requested",
-                    })
-                break
-
-            # Skip hidden directories and _markflow output dirs
-            dirnames[:] = [
-                d for d in dirnames
-                if not d.startswith(".") and d != "_markflow"
-            ]
-
-            for filename in filenames:
-                file_path = Path(dirpath) / filename
-                ext = _get_effective_extension(file_path)
-
-                # Stat the file
-                try:
-                    stat = file_path.stat()
-                    file_size = stat.st_size
-                    mtime = stat.st_mtime
-                except OSError as exc:
-                    log.warning("bulk_scan_stat_error", path=str(file_path), error=str(exc))
-                    continue
-
-                result.total_discovered += 1
-
-                if ext in SUPPORTED_EXTENSIONS:
-                    result.convertible_count += 1
-                    self._convertible_paths.append(file_path)
-
-                    file_id = await upsert_bulk_file(
-                        job_id=self.job_id,
-                        source_path=str(file_path),
-                        file_ext=ext,
-                        file_size_bytes=file_size,
-                        source_mtime=mtime,
-                    )
-                else:
-                    # Unrecognized file — catalog with MIME detection
-                    result.unrecognized_count += 1
-                    await self._record_unrecognized(file_path, ext, file_size, mtime)
-
-                file_count += 1
-                await tracker.record_completion()
-
-                # Emit progress every N files (with ETA)
-                if on_progress and (file_count % progress_interval == 0):
-                    snap = await tracker.snapshot()
-                    try:
-                        rel_path = file_path.relative_to(self.source_path)
-                    except ValueError:
-                        rel_path = file_path
-                    pct = snap.to_dict()["percent"]
-                    await on_progress({
-                        "event": "scan_progress",
-                        "job_id": self.job_id,
-                        "scanned": file_count,
-                        "total": snap.total,
-                        "current_file": str(rel_path),
-                        "pct": pct,
-                        "eta_seconds": snap.eta_seconds,
-                        "eta_human": format_eta(snap.eta_seconds),
-                        "files_per_second": round(snap.files_per_second, 1) if snap.files_per_second else None,
-                        "count_ready": snap.count_ready,
-                    })
-
-                # Periodically log ETA (throttled)
-                now = time.monotonic()
-                if now - last_eta_write >= ETA_UPDATE_INTERVAL:
-                    snap = await tracker.snapshot()
-                    log.info("scan_progress",
-                             job_id=self.job_id,
-                             completed=snap.completed,
-                             total=snap.total,
-                             count_ready=snap.count_ready,
-                             eta_seconds=snap.eta_seconds,
-                             files_per_second=snap.files_per_second)
-                    last_eta_write = now
-
-                if file_count % self._yield_interval == 0:
-                    await asyncio.sleep(0)
+        # ── Choose scan strategy based on probe result ───────────────────
+        if scan_threads > 1:
+            file_count = await self._parallel_scan(
+                scan_threads, tracker, result, on_progress,
+                progress_interval,
+            )
+        else:
+            file_count = await self._serial_scan(
+                tracker, result, on_progress, progress_interval,
+            )
 
         # Cancel fast-walk if still running
         if not fast_walk_task.done():
@@ -321,10 +286,305 @@ class BulkScanner:
             too_long=result.path_too_long_count,
             collisions=result.collision_count,
             case_collisions=result.case_collision_count,
+            scan_threads=result.scan_threads_used,
+            storage_hint=storage_profile.storage_hint,
             duration_ms=result.scan_duration_ms,
         )
 
         return result
+
+    # ── Serial scan (original path — SSD/HDD) ───────────────────────────
+
+    async def _serial_scan(
+        self,
+        tracker: RollingWindowETA,
+        result: ScanResult,
+        on_progress: Callable[[dict], Awaitable[None]] | None,
+        progress_interval: int,
+    ) -> int:
+        """Single-threaded scan — optimal for local SSD/HDD."""
+        file_count = 0
+        last_eta_write = time.monotonic()
+
+        for dirpath, dirnames, filenames in os.walk(self.source_path):
+            if should_stop():
+                log.warning("scan_stopped_early", job_id=self.job_id, scanned_so_far=file_count)
+                if on_progress:
+                    await on_progress({
+                        "event": "scan_stopped",
+                        "job_id": self.job_id,
+                        "scanned": file_count,
+                        "reason": "global_stop_requested",
+                    })
+                break
+
+            dirnames[:] = [
+                d for d in dirnames
+                if not d.startswith(".") and d != "_markflow"
+            ]
+
+            for filename in filenames:
+                file_path = Path(dirpath) / filename
+                file_count = await self._process_discovered_file(
+                    file_path, result, tracker, file_count,
+                )
+
+                if on_progress and (file_count % progress_interval == 0):
+                    await self._emit_progress(
+                        on_progress, tracker, file_count, file_path,
+                    )
+
+                now = time.monotonic()
+                if now - last_eta_write >= ETA_UPDATE_INTERVAL:
+                    await self._log_eta(tracker, last_eta_write)
+                    last_eta_write = now
+
+                if file_count % self._yield_interval == 0:
+                    await asyncio.sleep(0)
+
+        return file_count
+
+    # ── Parallel scan (network storage) ──────────────────────────────────
+
+    async def _parallel_scan(
+        self,
+        thread_count: int,
+        tracker: RollingWindowETA,
+        result: ScanResult,
+        on_progress: Callable[[dict], Awaitable[None]] | None,
+        progress_interval: int,
+    ) -> int:
+        """Multi-threaded scan — parallel walkers feed an async DB writer.
+
+        Thread workers walk subdirectories and stat files concurrently,
+        pushing (path, ext, size, mtime) tuples into a thread-safe queue.
+        A single async consumer drains the queue and writes to SQLite.
+        """
+        log.info("parallel_scan_start",
+                 job_id=self.job_id, threads=thread_count)
+
+        # Thread-safe queue: walkers produce, async consumer consumes
+        file_queue: queue.Queue[tuple[Path, str, int, float] | None] = queue.Queue(
+            maxsize=5000
+        )
+
+        # Discover top-level subdirectories to distribute across workers
+        root_files: list[str] = []
+        subdirs: list[Path] = []
+        try:
+            with os.scandir(self.source_path) as it:
+                for entry in it:
+                    if entry.is_dir(follow_symlinks=False):
+                        name = entry.name
+                        if not name.startswith(".") and name != "_markflow":
+                            subdirs.append(Path(entry.path))
+                    elif entry.is_file(follow_symlinks=False):
+                        root_files.append(entry.name)
+        except OSError as exc:
+            log.warning("parallel_scan_root_error", error=str(exc))
+
+        def _walker_thread(dirs_to_walk: list[Path], root_files_subset: list[str]) -> None:
+            """Thread worker: walks assigned directories, stats files, pushes to queue."""
+            # Process root-level files assigned to this worker
+            for filename in root_files_subset:
+                if should_stop():
+                    return
+                file_path = self.source_path / filename
+                try:
+                    st = file_path.stat()
+                    ext = _get_effective_extension(file_path)
+                    file_queue.put((file_path, ext, st.st_size, st.st_mtime))
+                except OSError:
+                    continue
+
+            # Walk assigned subdirectories
+            for subdir in dirs_to_walk:
+                if should_stop():
+                    return
+                for dirpath, dirnames, filenames in os.walk(subdir):
+                    if should_stop():
+                        return
+                    dirnames[:] = [
+                        d for d in dirnames
+                        if not d.startswith(".") and d != "_markflow"
+                    ]
+                    for filename in filenames:
+                        file_path = Path(dirpath) / filename
+                        try:
+                            st = file_path.stat()
+                            ext = _get_effective_extension(file_path)
+                            file_queue.put((file_path, ext, st.st_size, st.st_mtime))
+                        except OSError:
+                            continue
+
+        # Distribute subdirs across workers (round-robin)
+        worker_dirs: list[list[Path]] = [[] for _ in range(thread_count)]
+        for i, subdir in enumerate(subdirs):
+            worker_dirs[i % thread_count].append(subdir)
+
+        # Distribute root files to worker 0
+        worker_root_files: list[list[str]] = [[] for _ in range(thread_count)]
+        worker_root_files[0] = root_files
+
+        # Launch walker threads
+        executor = ThreadPoolExecutor(
+            max_workers=thread_count,
+            thread_name_prefix="scan-walker",
+        )
+        futures = []
+        for i in range(thread_count):
+            fut = executor.submit(
+                _walker_thread, worker_dirs[i], worker_root_files[i],
+            )
+            futures.append(fut)
+
+        # Async consumer: drain queue, write to DB
+        file_count = 0
+        last_eta_write = time.monotonic()
+        last_progress_file: Path | None = None
+        walkers_done = False
+
+        while not walkers_done or not file_queue.empty():
+            # Check if all walkers have finished
+            walkers_done = all(f.done() for f in futures)
+
+            # Drain available items (non-blocking batch)
+            batch: list[tuple[Path, str, int, float]] = []
+            try:
+                while len(batch) < 100:
+                    item = file_queue.get_nowait()
+                    batch.append(item)
+            except queue.Empty:
+                pass
+
+            if not batch:
+                if not walkers_done:
+                    await asyncio.sleep(0.01)  # yield, wait for producers
+                continue
+
+            for file_path, ext, file_size, mtime in batch:
+                result.total_discovered += 1
+
+                if ext in SUPPORTED_EXTENSIONS:
+                    result.convertible_count += 1
+                    self._convertible_paths.append(file_path)
+                    await upsert_bulk_file(
+                        job_id=self.job_id,
+                        source_path=str(file_path),
+                        file_ext=ext,
+                        file_size_bytes=file_size,
+                        source_mtime=mtime,
+                    )
+                else:
+                    result.unrecognized_count += 1
+                    await self._record_unrecognized(file_path, ext, file_size, mtime)
+
+                file_count += 1
+                await tracker.record_completion()
+                last_progress_file = file_path
+
+            # Emit progress after processing batch
+            if on_progress and last_progress_file and (file_count % progress_interval < len(batch)):
+                await self._emit_progress(
+                    on_progress, tracker, file_count, last_progress_file,
+                )
+
+            now = time.monotonic()
+            if now - last_eta_write >= ETA_UPDATE_INTERVAL:
+                await self._log_eta(tracker, last_eta_write)
+                last_eta_write = now
+
+        # Check for walker exceptions
+        for i, fut in enumerate(futures):
+            exc = fut.exception()
+            if exc:
+                log.error("parallel_scan_walker_error",
+                          job_id=self.job_id, worker=i, error=str(exc))
+
+        executor.shutdown(wait=False)
+
+        log.info("parallel_scan_complete",
+                 job_id=self.job_id, threads=thread_count, files=file_count)
+
+        return file_count
+
+    # ── Shared helpers ───────────────────────────────────────────────────
+
+    async def _process_discovered_file(
+        self,
+        file_path: Path,
+        result: ScanResult,
+        tracker: RollingWindowETA,
+        file_count: int,
+    ) -> int:
+        """Process a single discovered file — stat, classify, upsert. Returns updated count."""
+        ext = _get_effective_extension(file_path)
+
+        try:
+            stat = file_path.stat()
+            file_size = stat.st_size
+            mtime = stat.st_mtime
+        except OSError as exc:
+            log.warning("bulk_scan_stat_error", path=str(file_path), error=str(exc))
+            return file_count
+
+        result.total_discovered += 1
+
+        if ext in SUPPORTED_EXTENSIONS:
+            result.convertible_count += 1
+            self._convertible_paths.append(file_path)
+            await upsert_bulk_file(
+                job_id=self.job_id,
+                source_path=str(file_path),
+                file_ext=ext,
+                file_size_bytes=file_size,
+                source_mtime=mtime,
+            )
+        else:
+            result.unrecognized_count += 1
+            await self._record_unrecognized(file_path, ext, file_size, mtime)
+
+        file_count += 1
+        await tracker.record_completion()
+        return file_count
+
+    async def _emit_progress(
+        self,
+        on_progress: Callable[[dict], Awaitable[None]],
+        tracker: RollingWindowETA,
+        file_count: int,
+        current_file: Path,
+    ) -> None:
+        """Emit a scan progress SSE event."""
+        snap = await tracker.snapshot()
+        try:
+            rel_path = current_file.relative_to(self.source_path)
+        except ValueError:
+            rel_path = current_file
+        pct = snap.to_dict()["percent"]
+        await on_progress({
+            "event": "scan_progress",
+            "job_id": self.job_id,
+            "scanned": file_count,
+            "total": snap.total,
+            "current_file": str(rel_path),
+            "pct": pct,
+            "eta_seconds": snap.eta_seconds,
+            "eta_human": format_eta(snap.eta_seconds),
+            "files_per_second": round(snap.files_per_second, 1) if snap.files_per_second else None,
+            "count_ready": snap.count_ready,
+        })
+
+    async def _log_eta(self, tracker: RollingWindowETA, last_write: float) -> None:
+        """Log ETA progress (throttled)."""
+        snap = await tracker.snapshot()
+        log.info("scan_progress",
+                 job_id=self.job_id,
+                 completed=snap.completed,
+                 total=snap.total,
+                 count_ready=snap.count_ready,
+                 eta_seconds=snap.eta_seconds,
+                 files_per_second=snap.files_per_second)
 
     async def _fast_walk_counter(self, tracker: RollingWindowETA) -> int:
         """Lightweight concurrent file counter — runs in parallel with the main scan.
