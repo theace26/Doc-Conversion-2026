@@ -154,8 +154,9 @@ if command -v hashcat &>/dev/null; then
     HASHCAT_VERSION=$(hashcat --version 2>/dev/null | tr -d '\n' || echo "unknown")
     echo "  [OK] hashcat: $HASHCAT_VERSION"
 
-    # Probe backend
-    BACKEND_OUT=$(hashcat -I 2>&1 | tr '[:upper:]' '[:lower:]' || true)
+    # Probe backend (hashcat resolves OpenCL/ relative to cwd, so cd to its dir)
+    HASHCAT_DIR=$(dirname "$HASHCAT_PATH")
+    BACKEND_OUT=$(cd "$HASHCAT_DIR" && hashcat -I 2>&1 | tr '[:upper:]' '[:lower:]' || true)
     if echo "$BACKEND_OUT" | grep -q "metal"; then
         HASHCAT_BACKEND="Metal"
     elif echo "$BACKEND_OUT" | grep -q "cuda"; then

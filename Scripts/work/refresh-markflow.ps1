@@ -156,9 +156,13 @@ if ($hashcatCmd) {
     catch {
         $hashcatVersion = "unknown"
     }
-    # Probe backend
+    # Probe backend (hashcat resolves OpenCL/ relative to cwd, so cd to its dir)
     try {
+        $hashcatDir = Split-Path $hashcatPath -Parent
+        $savedDir = Get-Location
+        Set-Location $hashcatDir
         $backendOut = & hashcat -I 2>&1 | Out-String
+        Set-Location $savedDir
         $backendLower = $backendOut.ToLower()
         if ($backendLower -match "cuda")      { $hashcatBackend = "CUDA" }
         elseif ($backendLower -match "rocm")  { $hashcatBackend = "ROCm" }
