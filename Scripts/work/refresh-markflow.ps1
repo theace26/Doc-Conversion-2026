@@ -28,6 +28,22 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# ----------------------------------------------------------
+#  Admin check -- winget and some GPU tools need elevation
+# ----------------------------------------------------------
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    Write-Host ""
+    Write-Host "  [!] Not running as Administrator" -ForegroundColor Yellow
+    Write-Host "      Some features (hashcat auto-install, GPU toolkit) require elevation." -ForegroundColor Yellow
+    Write-Host ""
+    $choice = Read-Host "  Continue anyway? (Y/N)"
+    if ($choice -notmatch "^[Yy]") {
+        Write-Host "  Exiting. Re-run as Administrator for full functionality." -ForegroundColor DarkGray
+        exit 0
+    }
+}
+
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host "  MarkFlow Quick Refresh"                  -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
