@@ -4,37 +4,44 @@
 
 This document instructs Claude Code to generate **machine-specific deployment scripts**
 for a new MarkFlow user. The user already has the repo cloned. Claude Code should ask
-the necessary questions, then produce customized PowerShell scripts.
+the necessary questions, then produce customized scripts for their platform.
 
 ---
 
 ## What to generate
 
-Three PowerShell scripts in a user-chosen directory (default: a `my-scripts/` folder
-alongside the repo, NOT inside the repo -- so `git pull` doesn't overwrite them):
+Three scripts in a user-chosen directory (default: a `my-scripts/` folder alongside
+the repo, NOT inside the repo -- so `git pull` doesn't overwrite them).
 
-### 1. `setup-markflow.ps1`
+**For Windows users:** PowerShell scripts (`.ps1`)
+**For macOS users:** Bash scripts (`.sh`)
+
+If the platform is unknown, ask the user first.
+
+### 1. `setup-markflow.ps1` / `setup-markflow.sh`
 First-time setup script. Must:
-- Open a Windows folder-picker dialog for **Source Directory** (the folder of documents to convert)
-- Open a Windows folder-picker dialog for **Output Directory** (where converted files go)
+- Open a native folder-picker dialog for **Source Directory** (the folder of documents to convert)
+- Open a native folder-picker dialog for **Output Directory** (where converted files go)
 - Validate both paths exist (create output dir if needed, warn if source is empty)
 - Auto-detect the repo location (default: parent of the script, or ask the user)
-- Auto-detect GPU hardware (NVIDIA via nvidia-smi, AMD/Intel via WMI)
-- Auto-install hashcat via winget if missing
+- Auto-detect GPU hardware (platform-specific -- see GPU Detection below)
+- Install hashcat if missing (winget on Windows, brew on macOS, or skip with a message)
 - Write `worker_capabilities.json` to `hashcat-queue/`
-- Write `.env` with the user's chosen paths (use forward slashes for Docker compatibility)
+- Write `.env` with the user's chosen paths
 - Check if `markflow-base:latest` Docker image exists; build it if not
 - Build the app image and start all services (`docker compose up -d --build`)
-- Include NVIDIA GPU overlay (`docker-compose.gpu.yml`) automatically if NVIDIA detected
-- Start the hashcat host worker for non-NVIDIA GPUs
+- Include NVIDIA GPU overlay (`docker-compose.gpu.yml`) automatically if NVIDIA detected (Windows only)
+- Start the hashcat host worker for non-NVIDIA GPUs (or all GPUs on macOS)
 - Print service URLs and GPU status when done
 
-The folder-picker should use `System.Windows.Forms.FolderBrowserDialog` with:
-- A descriptive title ("Select your SOURCE directory - documents to convert")
-- Starting at the user's home directory or last-used path
-- Cancel = abort with a message, not silent failure
+**Folder picker implementation:**
 
-### 2. `refresh-markflow.ps1`
+| Platform | Method |
+|----------|--------|
+| **Windows** | `System.Windows.Forms.FolderBrowserDialog` with descriptive title, starting at user's home. Cancel = abort with message. |
+| **macOS** | `osascript -e 'choose folder with prompt "..." default location ...'` via AppleScript. Cancel = abort with message. |
+
+### 2. `refresh-markflow.ps1` / `refresh-markflow.sh`
 Quick update script (preserves data). Must:
 - Auto-detect the repo location
 - Force-pull latest code from GitHub (`git fetch origin && git reset --hard origin/main`)
@@ -42,14 +49,14 @@ Quick update script (preserves data). Must:
 - Rebuild Docker images with new code (`docker compose build`)
 - Restart containers (`docker compose up -d`)
 - Start hashcat host worker if applicable
-- Support a `-NoBuild` switch to skip the Docker rebuild
+- Support a skip-build flag (`-NoBuild` on Windows, `--no-build` on macOS)
 - Print service URLs and GPU status when done
 
-### 3. `build-base.ps1`
+### 3. `build-base.ps1` / `build-base.sh`
 Base image builder (run once). Must:
 - Build `markflow-base:latest` from `Dockerfile.base`
-- Show timing (start a stopwatch, print elapsed time)
-- Support a `-NoCache` switch for clean rebuild
+- Show timing (start a stopwatch/timer, print elapsed time)
+- Support a no-cache flag (`-NoCache` on Windows, `--no-cache` on macOS)
 - Print next-step instructions when done
 
 ---
@@ -58,32 +65,91 @@ Base image builder (run once). Must:
 
 Before generating scripts, ask:
 
-1. **Where is the repo cloned?** (e.g., `C:\Users\John\Projects\Doc-Conversion-2026`)
-   Use this as the default `$RepoDir` in all scripts.
+1. **What platform?** Windows or macOS. This determines script language and GPU detection method.
 
-2. **Where should the scripts live?** Recommend a folder OUTSIDE the repo so `git pull`
-   won't touch them. Default suggestion: `C:\Users\<username>\markflow-scripts\`
+2. **Where is the repo cloned?** (e.g., `C:\Users\John\Projects\Doc-Conversion-2026` or
+   `~/Projects/Doc-Conversion-2026`). Use this as the default repo path in all scripts.
 
-3. **Does the machine have a D: drive?** The drive browser mounts C: and D: into the
-   container. If no D: drive, omit it from `.env` and `docker-compose.yml` volume mounts.
-   Ask if they have other drives they want browsable.
+3. **Where should the scripts live?** Recommend a folder OUTSIDE the repo so `git pull`
+   won't touch them. Default suggestion:
+   - Windows: `C:\Users\<username>\markflow-scripts\`
+   - macOS: `~/markflow-scripts/`
 
-4. **Any custom port needs?** Default is 8000/8001/7700. If they have conflicts, adjust.
+4. **Drive mounts (Windows only):** The drive browser mounts C: and D: into the container.
+   Ask if they have a D: drive or other drives they want browsable. On macOS, drives are
+   not letter-based -- skip this question.
+
+5. **Any custom port needs?** Default is 8000/8001/7700. If they have conflicts, adjust.
+
+---
+
+## GPU Detection by Platform
+
+### Windows
+
+```
+NVIDIA detection:
+  1. nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader,nounits
+  2. Fallback: Get-CimInstance Win32_VideoController
+
+AMD/Intel detection:
+  Get-CimInstance Win32_VideoController | match "amd|radeon" or "intel" + "arc|iris|xe|uhd"
+
+NVIDIA overlay:
+  If NVIDIA detected AND nvidia-smi works AND docker-compose.gpu.yml exists,
+  include -f docker-compose.gpu.yml in compose args.
+  Non-NVIDIA GPUs use the host worker path.
+```
+
+### macOS
+
+```
+GPU detection:
+  system_profiler SPDisplaysDataType | grep "Chipset Model|VRAM"
+
+Apple Silicon:
+  gpu_vendor = "apple"
+  Unified memory reported via: sysctl -n hw.memsize
+  hashcat backend = "Metal"
+
+AMD (older Intel Macs):
+  gpu_vendor = "amd"
+  hashcat backend = "OpenCL" or "Metal" (newer hashcat versions)
+
+Intel integrated:
+  gpu_vendor = "intel"
+  Limited GPU benefit
+
+NVIDIA overlay:
+  NEVER used on macOS. NVIDIA container passthrough is not available.
+  All GPU cracking goes through the host worker path.
+```
+
+### hashcat Installation
+
+| Platform | Auto-install command | Backend probe |
+|----------|---------------------|---------------|
+| Windows | `winget install hashcat.hashcat` | `hashcat -I` (requires cd to hashcat dir) |
+| macOS | `brew install hashcat` | `hashcat -I` (Metal/OpenCL auto-detected) |
 
 ---
 
 ## Template patterns to follow
 
-Reference the existing scripts in `Scripts/work/` for:
-- GPU detection logic (NVIDIA via nvidia-smi, AMD/Intel via WMI fallback)
+Reference the existing scripts in `Scripts/friend-deploy/` for:
+- Windows: `setup-markflow.ps1`, `refresh-markflow.ps1`, `build-base.ps1`
+- macOS: `setup-markflow.sh`, `refresh-markflow.sh`, `build-base.sh`
+
+Key patterns from these scripts:
+- GPU detection logic (platform-specific)
 - hashcat auto-install and backend probing
 - `worker_capabilities.json` format
 - Docker compose argument construction
-- Colored output styling (`Write-Host ... -ForegroundColor`)
-- Error handling (`$ErrorActionPreference = "Stop"`)
-- Admin elevation check
+- Colored output styling
+- Error handling
+- Folder picker implementation
 
-Key differences from the `Scripts/work/` versions:
+Key principles for generated scripts:
 - **No hardcoded paths** -- everything derived from user input or auto-detected
 - **Folder picker dialogs** in setup script instead of parameter defaults
 - **Repo path auto-detected** or prompted
@@ -97,13 +163,15 @@ The setup script should write this `.env` file to the repo root:
 
 ```
 # MarkFlow Environment Configuration
-# Auto-generated by setup-markflow.ps1
+# Auto-generated by setup-markflow on {date}
 
 # Host paths - mounted into Docker containers
 SOURCE_DIR={user_source_dir}
 OUTPUT_DIR={user_output_dir}
-DRIVE_C=C:/
-# DRIVE_D=D:/    (include only if D: exists)
+
+# Drive mounts (Windows only -- omit on macOS)
+# DRIVE_C=C:/
+# DRIVE_D=D:/
 
 # Meilisearch
 MEILI_MASTER_KEY=
@@ -117,23 +185,48 @@ DEFAULT_LOG_LEVEL=normal
 DEV_BYPASS_AUTH=true
 ```
 
-Paths must use **forward slashes** (`C:/Users/John/Documents` not `C:\Users\John\Documents`).
+**Windows paths** must use **forward slashes** (`C:/Users/John/Documents` not
+`C:\Users\John\Documents`). macOS paths are already forward-slash native.
 
 ---
 
 ## Important gotchas for script generation
 
+### Both Platforms
+- **Docker must be running**: Check with `docker info` before proceeding.
+- **Base image is slow**: First build takes 5-40 min depending on disk speed. Warn the user.
+- **hashcat -I output**: hashcat writes diagnostic info to stderr. Suppress or handle it.
+- **NVIDIA overlay**: Only include `-f docker-compose.gpu.yml` if NVIDIA is detected AND
+  nvidia-smi works AND the gpu overlay file exists AND the platform is Windows. Never on macOS.
+
+### Windows-Specific
 - **PowerShell BOM**: Use `[IO.File]::WriteAllText()` for writing `.env` and JSON files.
-  `Set-Content -Encoding UTF8` writes a BOM on Windows PowerShell 5.x which breaks Python's `json.loads()`.
+  `Set-Content -Encoding UTF8` writes a BOM on Windows PowerShell 5.x which breaks
+  Python's `json.loads()`.
 - **hashcat -I requires cwd**: Must `Set-Location` to hashcat's install directory before
   running `hashcat -I`, or it fails with `./OpenCL/: No such file or directory`.
-- **PowerShell native stderr**: hashcat writes diagnostic info to stderr. Wrap calls with
-  `$ErrorActionPreference = 'SilentlyContinue'` to prevent PowerShell from treating stderr as exceptions.
-- **Docker path format**: All paths in `.env` must use forward slashes. Windows PowerShell
-  uses backslashes natively, so scripts must convert: `$path.Replace('\', '/')`
-- **Admin elevation**: hashcat install and some GPU tools need Administrator. Check at script
-  start and warn (don't block -- most functionality works without elevation).
-- **Base image is slow**: First build takes 25-40 min on HDD. The setup script should warn
-  the user and show progress. Subsequent builds use Docker cache and are fast.
-- **NVIDIA overlay**: Only include `-f docker-compose.gpu.yml` if NVIDIA is detected AND
-  nvidia-smi works AND the gpu overlay file exists. Non-NVIDIA GPUs use the host worker path.
+- **PowerShell native stderr**: hashcat writes to stderr. Wrap calls with
+  `$ErrorActionPreference = 'SilentlyContinue'` to prevent exceptions.
+- **Docker path format**: All paths in `.env` must use forward slashes. Convert with
+  `$path.Replace('\', '/')`.
+- **Admin elevation**: hashcat install and some GPU tools need Administrator. Check at
+  script start and warn (don't block).
+
+### macOS-Specific
+- **Script permissions**: Generated `.sh` files need `chmod +x` before first run. Include
+  this in the instructions to the user.
+- **AppleScript folder picker**: Requires Terminal to have Automation permissions in
+  System Settings > Privacy & Security > Automation. The first run may prompt the user.
+- **Apple Silicon Docker**: Docker Desktop uses Rosetta 2 transparently. If the base image
+  has platform issues, add `platform: linux/amd64` to docker-compose.yml services.
+- **No drive letters**: macOS doesn't have C:/D: drives. Skip the drive-mount section
+  entirely. The source and output directories are the only mounts needed.
+- **Homebrew path**: On Apple Silicon, Homebrew installs to `/opt/homebrew/bin`. On Intel
+  Macs, it's `/usr/local/bin`. The `brew` command handles this, but `hashcat` may not be
+  on PATH immediately after install. Suggest `eval "$(brew shellenv)"` or terminal restart.
+- **No WMI**: `Get-CimInstance` doesn't exist on macOS. Use `system_profiler` for hardware
+  detection and `sysctl` for memory info.
+- **File writes**: Use `cat > file << EOF ... EOF` (heredoc) for writing multi-line files.
+  No BOM issues on macOS.
+- **Background processes**: Use `nohup command &>/dev/null &` for the hashcat host worker.
+  On Windows, use `Start-Process -WindowStyle Hidden`.

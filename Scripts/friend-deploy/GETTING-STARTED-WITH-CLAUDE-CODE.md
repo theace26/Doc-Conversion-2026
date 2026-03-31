@@ -3,6 +3,8 @@
 This guide gets you from zero to a working Claude Code setup with MarkFlow deployed.
 Follow it top to bottom -- each step builds on the last.
 
+Covers both **Windows** and **macOS**.
+
 ---
 
 ## Part 1: Get Claude Code Installed
@@ -27,41 +29,49 @@ Sign up or upgrade at: https://claude.ai/pricing
 
 ### Install Claude Code
 
-Open **PowerShell** and run:
-
+**Windows (PowerShell):**
 ```powershell
 irm https://claude.ai/install.ps1 | iex
 ```
 
-That's it. No Node.js, no npm, no WSL. It runs natively on Windows.
+**macOS (Terminal):**
+```bash
+curl -fsSL https://claude.ai/install.sh | sh
+```
 
-**Alternative install via winget:**
-```powershell
+Alternative install methods:
+```bash
+# Windows via winget
 winget install Anthropic.ClaudeCode
+
+# macOS via Homebrew
+brew install claude-code
 ```
 
 ### Verify the Install
 
-```powershell
+```bash
 claude --version
 ```
 
 You should see a version number. If you get an error about `claude` not being found,
-close and reopen PowerShell so your PATH refreshes.
+close and reopen your terminal so your PATH refreshes.
 
 ### Prerequisites Check
 
-You need **Git for Windows** installed. Claude Code requires it.
+You need **Git** installed. Claude Code requires it.
 
+**Windows:**
 ```powershell
 git --version
+# If missing: winget install Git.Git
 ```
 
-If that doesn't work, install Git:
-```powershell
-winget install Git.Git
+**macOS:**
+```bash
+git --version
+# If missing: xcode-select --install
 ```
-Then restart PowerShell.
 
 ---
 
@@ -69,9 +79,9 @@ Then restart PowerShell.
 
 ### Start Claude Code
 
-Open PowerShell and type:
+Open your terminal and type:
 
-```powershell
+```bash
 claude
 ```
 
@@ -106,15 +116,19 @@ MarkFlow runs in Docker, so you need Docker Desktop installed and running.
 1. Download from: https://www.docker.com/products/docker-desktop/
 2. Install it (defaults are fine)
 3. Launch Docker Desktop
-4. Wait for it to finish starting (the whale icon in your system tray stops animating)
+4. Wait for it to finish starting (the whale icon in your system tray/menu bar stops animating)
 
 Verify Docker works:
-```powershell
+```bash
 docker --version
 docker compose version
 ```
 
 Both should return version numbers.
+
+**macOS note:** On Apple Silicon Macs (M1/M2/M3/M4), Docker Desktop uses Rosetta 2
+emulation transparently. No extra configuration needed. Consider increasing Docker's
+memory allocation to 4-8 GB in Settings > Resources for large bulk conversions.
 
 ---
 
@@ -122,34 +136,44 @@ Both should return version numbers.
 
 ### Clone the Repository
 
+**Windows (PowerShell):**
 ```powershell
 cd C:\Users\$env:USERNAME\Projects
 git clone https://github.com/theace26/Doc-Conversion-2026.git
 cd Doc-Conversion-2026
 ```
 
-If the `Projects` folder doesn't exist, create it first:
-```powershell
-mkdir C:\Users\$env:USERNAME\Projects
+**macOS (Terminal):**
+```bash
+mkdir -p ~/Projects
+cd ~/Projects
+git clone https://github.com/theace26/Doc-Conversion-2026.git
+cd Doc-Conversion-2026
 ```
 
 ### Run the Setup Script
 
-Open PowerShell **as Administrator** (right-click > Run as Administrator):
-
+**Windows** -- open PowerShell **as Administrator** (right-click > Run as Administrator):
 ```powershell
 cd C:\Users\$env:USERNAME\Projects\Doc-Conversion-2026\Scripts\friend-deploy
 .\setup-markflow.ps1
 ```
 
+**macOS:**
+```bash
+cd ~/Projects/Doc-Conversion-2026/Scripts/friend-deploy
+chmod +x setup-markflow.sh
+./setup-markflow.sh
+```
+
 **What happens:**
 
-1. Two folder-picker windows pop up:
+1. Two folder-picker dialogs pop up (native Windows dialog or macOS Finder dialog):
    - **First:** Pick the folder with documents you want to convert (your "source" -- MarkFlow only reads from this, never writes)
    - **Second:** Pick where you want converted output saved (any local folder with free space)
 2. The script auto-detects your GPU
 3. It writes the Docker configuration
-4. It builds the Docker base image (**this takes 25-40 minutes the first time** -- it's downloading LibreOffice, Tesseract OCR, ffmpeg, Whisper, and a bunch of other tools into the container)
+4. It builds the Docker base image (**this takes 25-40 minutes the first time on Windows/HDD, 5-15 min on macOS/SSD** -- it's downloading LibreOffice, Tesseract OCR, ffmpeg, Whisper, and a bunch of other tools into the container)
 5. It starts all three services
 
 When it finishes you'll see:
@@ -176,8 +200,15 @@ and connect to MarkFlow's MCP server to search and manage documents.
 
 ### Start a Claude Code Session in the Project
 
+**Windows:**
 ```powershell
 cd C:\Users\$env:USERNAME\Projects\Doc-Conversion-2026
+claude
+```
+
+**macOS:**
+```bash
+cd ~/Projects/Doc-Conversion-2026
 claude
 ```
 
@@ -225,7 +256,7 @@ Create a `.mcp.json` file in the repo root:
 ```
 
 Or use the CLI:
-```powershell
+```bash
 claude mcp add markflow --type http --url http://localhost:8001/sse
 ```
 
@@ -249,9 +280,16 @@ search my converted documents for "quarterly report"
 
 When there's new code (I'll let you know), run:
 
+**Windows:**
 ```powershell
 cd C:\Users\$env:USERNAME\Projects\Doc-Conversion-2026\Scripts\friend-deploy
 .\refresh-markflow.ps1
+```
+
+**macOS:**
+```bash
+cd ~/Projects/Doc-Conversion-2026/Scripts/friend-deploy
+./refresh-markflow.sh
 ```
 
 This pulls the latest code, rebuilds the app (fast -- only code layer, not the base image),
@@ -259,8 +297,8 @@ and restarts everything. Your database, search index, and converted files are pr
 
 ### Starting / Stopping MarkFlow
 
-```powershell
-cd C:\Users\$env:USERNAME\Projects\Doc-Conversion-2026
+```bash
+cd ~/Projects/Doc-Conversion-2026   # or your Windows equivalent
 
 # Stop everything
 docker compose down
@@ -321,7 +359,7 @@ The `!` prefix runs it in your terminal directly.
 
 ### Resuming Previous Conversations
 
-```powershell
+```bash
 claude -c    # continue most recent conversation
 claude -r    # pick from previous conversations
 ```
@@ -339,48 +377,49 @@ All share the same configuration and MCP servers.
 
 ## Troubleshooting
 
-### "claude: command not found"
-Close and reopen PowerShell. If still broken:
-```powershell
-# Check if it's installed
-Get-Command claude -ErrorAction SilentlyContinue
-```
-If not found, reinstall: `irm https://claude.ai/install.ps1 | iex`
+### General (Both Platforms)
 
-### "Claude Code on Windows requires git-bash"
-Install Git for Windows: `winget install Git.Git`, then restart PowerShell.
+| Problem | Solution |
+|---------|----------|
+| "claude: command not found" | Close and reopen terminal. If still broken, reinstall. |
+| Docker build fails | Make sure Docker Desktop is running and you have disk space (~3-4 GB). Try `docker system prune -f` then re-run setup. |
+| "Port 8000 already in use" | Something else is using that port. Stop it or change the port in docker-compose.yml. |
+| MCP server not connecting | 1. Make sure MarkFlow is running (`docker compose ps`). 2. Check port 8001 (`curl http://localhost:8001/sse`). 3. Verify `.mcp.json` is in the repo root. |
 
-### Docker build fails
-- Make sure Docker Desktop is running (check the system tray icon)
-- Make sure you have disk space (the base image is ~3-4 GB)
-- Try: `docker system prune -f` to free space, then run the setup script again
+### Windows-Specific
 
-### "Port 8000 already in use"
-Something else is using that port. Find out what:
-```powershell
-netstat -ano | findstr :8000
-```
-Either stop that process or edit `docker-compose.yml` to change the port.
+| Problem | Solution |
+|---------|----------|
+| "Claude Code on Windows requires git-bash" | Install Git for Windows: `winget install Git.Git`, restart PowerShell. |
+| Setup script doesn't open folder picker | Use PowerShell (not CMD). The picker needs .NET's System.Windows.Forms. |
 
-### Setup script doesn't open folder picker
-Make sure you're running PowerShell (not CMD). The folder picker uses .NET's
-`System.Windows.Forms` which requires PowerShell.
+### macOS-Specific
 
-### MCP server not connecting
-1. Make sure MarkFlow is running: `docker compose ps`
-2. Check that port 8001 is accessible: `curl http://localhost:8001/sse`
-3. Verify `.mcp.json` is in the repo root (not in a subfolder)
+| Problem | Solution |
+|---------|----------|
+| "permission denied" on .sh scripts | Run `chmod +x *.sh` on the scripts first. |
+| Folder picker doesn't appear | Grant Terminal accessibility/automation permissions in System Settings > Privacy. |
+| Slow Docker performance on Apple Silicon | Increase memory to 4-8 GB in Docker Desktop > Settings > Resources. |
+| "no matching manifest for linux/arm64" | Add `platform: linux/amd64` to services in docker-compose.yml. |
+| hashcat not found after `brew install` | Restart terminal, or run `eval "$(brew shellenv)"`. |
 
 ---
 
 ## Quick Reference Card
 
 ```
-INSTALL:        irm https://claude.ai/install.ps1 | iex
-START SESSION:  cd Doc-Conversion-2026 && claude
-DEPLOY:         Scripts\friend-deploy\setup-markflow.ps1
-UPDATE:         Scripts\friend-deploy\refresh-markflow.ps1
-MARKFLOW UI:    http://localhost:8000
-MCP SERVER:     http://localhost:8001/sse
-API DOCS:       http://localhost:8000/docs
+INSTALL (Windows):    irm https://claude.ai/install.ps1 | iex
+INSTALL (macOS):      curl -fsSL https://claude.ai/install.sh | sh
+
+START SESSION:        cd Doc-Conversion-2026 && claude
+
+DEPLOY (Windows):     Scripts\friend-deploy\setup-markflow.ps1
+DEPLOY (macOS):       Scripts/friend-deploy/setup-markflow.sh
+
+UPDATE (Windows):     Scripts\friend-deploy\refresh-markflow.ps1
+UPDATE (macOS):       Scripts/friend-deploy/refresh-markflow.sh
+
+MARKFLOW UI:          http://localhost:8000
+MCP SERVER:           http://localhost:8001/sse
+API DOCS:             http://localhost:8000/docs
 ```

@@ -1,14 +1,16 @@
 # MarkFlow Deployment Guide
 
-This guide walks you through deploying MarkFlow on your Windows machine from scratch.
-You'll have a fully working document conversion system in about 30-40 minutes (most of
-that is the one-time Docker base image build).
+This guide walks you through deploying MarkFlow on your machine from scratch.
+You'll have a fully working document conversion system in about 30-40 minutes
+(most of that is the one-time Docker base image build).
+
+Covers both **Windows** and **macOS** deployment.
 
 ---
 
 ## Prerequisites
 
-Install these before starting:
+### Windows
 
 | Requirement | How to get it | Verify with |
 |-------------|---------------|-------------|
@@ -16,13 +18,26 @@ Install these before starting:
 | **Git** | [git-scm.com](https://git-scm.com/download/win) or `winget install Git.Git` | `git --version` |
 | **PowerShell 5.1+** | Comes with Windows 11 | `$PSVersionTable.PSVersion` |
 
-**Optional (for GPU-accelerated password cracking):**
+### macOS
 
-| Requirement | How to get it |
-|-------------|---------------|
-| **hashcat** | `winget install hashcat.hashcat` (the setup script will try to install this automatically) |
-| **NVIDIA GPU drivers** | [nvidia.com/drivers](https://www.nvidia.com/Download/index.aspx) |
-| **NVIDIA Container Toolkit** | [docs.nvidia.com/datacenter/cloud-native](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (only if you want GPU passthrough into Docker) |
+| Requirement | How to get it | Verify with |
+|-------------|---------------|-------------|
+| **Docker Desktop** | [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/) | `docker --version` |
+| **Git** | `xcode-select --install` (includes Git) | `git --version` |
+| **Bash 3.2+** | Comes with macOS | `bash --version` |
+
+### Optional (for GPU-accelerated password cracking)
+
+| Platform | Requirement | How to get it |
+|----------|-------------|---------------|
+| **Windows** | hashcat | `winget install hashcat.hashcat` |
+| **Windows** | NVIDIA GPU drivers | [nvidia.com/drivers](https://www.nvidia.com/Download/index.aspx) |
+| **Windows** | NVIDIA Container Toolkit | [docs.nvidia.com](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (GPU passthrough into Docker) |
+| **macOS** | hashcat | `brew install hashcat` |
+
+**Note on macOS GPU:** NVIDIA container passthrough is not available on macOS. Apple
+Silicon and AMD GPUs use the host worker path (hashcat runs natively on the Mac, not
+inside Docker). Apple Silicon Macs use Metal via hashcat for GPU acceleration.
 
 Docker Desktop must be **running** before you execute any scripts.
 
@@ -30,7 +45,7 @@ Docker Desktop must be **running** before you execute any scripts.
 
 ## Step 1: Clone the Repository
 
-Open PowerShell and run:
+### Windows (PowerShell)
 
 ```powershell
 cd C:\Users\$env:USERNAME\Projects
@@ -38,7 +53,15 @@ git clone https://github.com/theace26/Doc-Conversion-2026.git
 cd Doc-Conversion-2026
 ```
 
-If you want to clone to a different location, that's fine -- just remember the path.
+### macOS (Terminal)
+
+```bash
+cd ~/Projects
+git clone https://github.com/theace26/Doc-Conversion-2026.git
+cd Doc-Conversion-2026
+```
+
+If the `Projects` folder doesn't exist, create it first (`mkdir ~/Projects`).
 
 ---
 
@@ -63,8 +86,10 @@ The setup script is your one-stop first-time deployment. It:
 - Auto-detects your GPU hardware
 - Installs hashcat if missing (optional, for password cracking)
 - Writes the `.env` configuration file
-- Builds the Docker base image (slow, ~25-40 min on HDD, ~5 min on SSD -- only once)
+- Builds the Docker base image (slow first time -- only once)
 - Builds the app image and starts all services
+
+### Windows
 
 **Run as Administrator** (right-click PowerShell > "Run as Administrator"):
 
@@ -73,7 +98,15 @@ cd C:\Users\$env:USERNAME\Projects\Doc-Conversion-2026\Scripts\friend-deploy
 .\setup-markflow.ps1
 ```
 
-The script will open folder-picker dialogs for your source and output directories.
+### macOS
+
+```bash
+cd ~/Projects/Doc-Conversion-2026/Scripts/friend-deploy
+chmod +x setup-markflow.sh
+./setup-markflow.sh
+```
+
+Both scripts open native folder-picker dialogs for your source and output directories.
 Follow the prompts.
 
 When it finishes, you'll see:
@@ -111,7 +144,8 @@ Open **http://localhost:8000** in your browser to verify.
 2. Type a keyword -- Meilisearch indexes everything automatically
 
 ### Health check
-```powershell
+
+```bash
 curl http://localhost:8000/api/health
 ```
 
@@ -122,23 +156,25 @@ curl http://localhost:8000/api/health
 After the initial setup, you only need two scripts:
 
 ### Refresh (pull latest code, rebuild, restart -- keeps your data)
+
+**Windows:**
 ```powershell
 .\refresh-markflow.ps1
 ```
 
-This is what you run when there's a new version. It:
-- Pulls the latest code from GitHub
-- Rebuilds the Docker image (fast -- only code + pip layer)
-- Restarts all containers
-- Preserves your database, search index, and converted files
-
-### Full Reset (tear down everything, start fresh)
-```powershell
-.\setup-markflow.ps1
+**macOS:**
+```bash
+./refresh-markflow.sh
 ```
 
-Re-run the setup script if you want to start completely fresh (new directories, clean database).
-It will prompt for directories again.
+This pulls the latest code from GitHub, rebuilds the Docker image (fast -- only the
+code + pip layer), and restarts all containers. Your database, search index, and
+converted files are preserved.
+
+### Full Reset (tear down everything, start fresh)
+
+Re-run the setup script if you want to start completely fresh (new directories, clean
+database). It will prompt for directories again.
 
 ---
 
@@ -152,10 +188,12 @@ MarkFlow deploys three Docker containers:
 | **markflow-mcp** | 8001 | MCP server (Claude.ai integration) |
 | **meilisearch** | 7700 | Full-text search engine |
 
-Plus optionally a **hashcat host worker** process (runs natively, not in Docker) for GPU password cracking.
+Plus optionally a **hashcat host worker** process (runs natively, not in Docker)
+for GPU password cracking. On macOS, this is the only GPU path -- NVIDIA container
+passthrough is not available.
 
 ### Useful Docker commands
-```powershell
+```bash
 docker compose ps                    # see running containers
 docker compose logs -f markflow      # watch app logs
 docker compose down                  # stop everything
@@ -164,28 +202,93 @@ docker compose up -d                 # start everything
 
 ---
 
+## macOS-Specific Notes
+
+### Apple Silicon (M1/M2/M3/M4)
+
+MarkFlow's Docker image is built for linux/amd64 by default. Docker Desktop on Apple
+Silicon uses Rosetta 2 emulation transparently -- no configuration needed. Performance
+is good for document conversion workloads.
+
+If you experience issues, you can force the platform in docker-compose.yml:
+```yaml
+services:
+  markflow:
+    platform: linux/amd64
+```
+
+### GPU Acceleration on macOS
+
+macOS does not support NVIDIA container passthrough. GPU password cracking uses the
+host worker pattern:
+
+- **Apple Silicon:** hashcat uses Metal backend natively
+- **AMD (older Macs):** hashcat uses OpenCL backend
+- **Intel integrated:** Limited GPU benefit; CPU cracking is usually faster
+
+The setup script auto-detects your GPU and configures the host worker accordingly.
+
+### Docker Resource Allocation
+
+Docker Desktop on macOS has conservative default memory limits. For large bulk
+conversions, increase the allocation:
+
+1. Open Docker Desktop > Settings > Resources
+2. Set Memory to at least **4 GB** (8 GB recommended for large repos)
+3. Set CPU to at least **4 cores**
+4. Click Apply & Restart
+
+### File Sharing
+
+Docker Desktop on macOS may prompt for file sharing permissions when mounting your
+source and output directories. Allow access when prompted. You can also pre-configure
+this in Docker Desktop > Settings > Resources > File sharing.
+
+### Network Share Access (SMB)
+
+To mount a network share as your source directory on macOS:
+
+1. In Finder, press Cmd+K
+2. Enter `smb://server-ip/share-name`
+3. The share mounts at `/Volumes/share-name`
+4. Use `/Volumes/share-name` as your source directory in the setup script
+
+Note: macOS SMB mounts can disconnect during sleep. For reliable bulk conversions,
+prevent sleep (`caffeinate -s`) or use a wired connection.
+
+---
+
 ## Troubleshooting
 
-### "Docker is not running"
-Start Docker Desktop and wait for it to finish loading before running scripts.
+### General
 
-### Build takes forever
-The base image build (~25-40 min on HDD) only happens once. After that, code rebuilds
-take 3-5 minutes. If your drive is slow, consider cloning the repo to an SSD.
+| Problem | Solution |
+|---------|----------|
+| "Docker is not running" | Start Docker Desktop and wait for it to finish loading |
+| Build takes forever | Base image build (~25-40 min HDD, ~5-15 min SSD) only happens once |
+| "Port 8000 already in use" | Stop whatever's using it, or change the port in docker-compose.yml |
+| Source directory shows 0 files | Check the path in `.env` -- it must point to the actual files |
+| GPU not detected | Make sure drivers are installed; restart terminal after installing hashcat |
 
-### "Port 8000 already in use"
-Something else is using that port. Either stop it or edit `docker-compose.yml` to change
-the port mapping (e.g., `"9000:8000"` to use port 9000 instead).
+### Windows-Specific
 
-### GPU not detected
-- Make sure your GPU drivers are installed
-- For NVIDIA: `nvidia-smi` should work in PowerShell
-- hashcat must be installed for GPU cracking: `winget install hashcat.hashcat`
-- Restart PowerShell after installing hashcat so PATH updates
+| Problem | Solution |
+|---------|----------|
+| Setup script doesn't open folder picker | Use PowerShell (not CMD). The picker needs .NET's System.Windows.Forms |
+| hashcat auto-install fails | Install manually: `winget install hashcat.hashcat`, restart PowerShell |
+| "Port already in use" | `netstat -ano \| findstr :8000` to find the process |
 
-### Source directory shows 0 files
-The source directory is mounted read-only. Make sure it actually contains files.
-Check the path in `.env` -- forward slashes required (`C:/Users/...` not `C:\Users\...`).
+### macOS-Specific
+
+| Problem | Solution |
+|---------|----------|
+| "permission denied" on script | Run `chmod +x setup-markflow.sh` first |
+| Folder picker doesn't appear | Make sure Terminal has accessibility permissions (System Settings > Privacy) |
+| Slow Docker performance | Increase Docker Desktop memory/CPU allocation (see macOS notes above) |
+| Network share disconnects | Use `caffeinate -s` to prevent sleep during bulk conversions |
+| "no matching manifest for linux/arm64" | Add `platform: linux/amd64` to docker-compose.yml services |
+| hashcat Metal not detected | Update macOS and hashcat (`brew upgrade hashcat`) |
+| `osascript` permission error | Grant Terminal "Automation" permission in System Settings > Privacy > Automation |
 
 ---
 
@@ -199,8 +302,12 @@ Doc-Conversion-2026/
   Dockerfile.base         # Base image (slow, built once)
   Scripts/
     friend-deploy/
-      setup-markflow.ps1    # First-time setup (you ran this)
-      refresh-markflow.ps1  # Pull + rebuild + restart
+      setup-markflow.ps1    # Windows setup
+      setup-markflow.sh     # macOS setup
+      refresh-markflow.ps1  # Windows refresh
+      refresh-markflow.sh   # macOS refresh
+      build-base.ps1        # Windows base image builder
+      build-base.sh         # macOS base image builder
       DEPLOY-GUIDE.md       # This file
       CLAUDE-INSTRUCTIONS.md # For Claude Code to generate custom scripts
 ```
