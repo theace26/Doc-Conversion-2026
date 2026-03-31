@@ -12,16 +12,19 @@
 
 .EXAMPLE
     .\reset-markflow.ps1
+    .\reset-markflow.ps1 -GPU                                        # rebuild with GPU passthrough
     .\reset-markflow.ps1 -SourceDir "C:\MyDocs" -OutputDir "D:\Output"
+    .\reset-markflow.ps1 -GPU -SkipPrune                             # GPU, keep cached images
 #>
 
 param(
-    [string]$RepoDir   = "C:\Users\Xerxes\Projects\Doc-Conversion-2026",
+    [string]$RepoDir = "C:\Users\Xerxes\Projects\Doc-Conversion-2026",
     [string]$SourceDir = "C:/Users/Xerxes/T86_Work/k_drv_test",
     [string]$OutputDir = "D:/Doc-Conv_Test",
-    [string]$DriveC    = "C:/",
-    [string]$DriveD    = "D:/",
-    [switch]$SkipPrune
+    [string]$DriveC = "C:/",
+    [string]$DriveD = "D:/",
+    [switch]$SkipPrune,
+    [switch]$GPU
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,6 +35,22 @@ Write-Host "  Machine: Work (Windows)"                -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
 # ----------------------------------------------------------
+#  Build compose args (base + optional GPU override)
+# ----------------------------------------------------------
+$composeArgs = @("-f", (Join-Path $RepoDir "docker-compose.yml"))
+
+if ($GPU) {
+    $gpuFile = Join-Path $RepoDir "docker-compose.gpu.yml"
+    if (Test-Path $gpuFile) {
+        $composeArgs += @("-f", $gpuFile)
+        Write-Host "  [GPU] Including GPU compose override" -ForegroundColor Magenta
+    }
+    else {
+        Write-Host "  [WARN] docker-compose.gpu.yml not found — falling back to CPU only" -ForegroundColor Red
+    }
+}
+
+# ----------------------------------------------------------
 #  1. Tear down everything
 # ----------------------------------------------------------
 Write-Host ""
@@ -39,8 +58,9 @@ Write-Host "[1/5] Tearing down containers, volumes, and images..." -ForegroundCo
 
 Push-Location $RepoDir
 try {
-    docker compose down -v 2>$null
-} catch {
+    docker compose @composeArgs down -v 2>$null
+}
+catch {
     Write-Host "  No existing containers to tear down" -ForegroundColor DarkGray
 }
 
@@ -130,13 +150,15 @@ Write-Host "[4/5] Verifying paths..." -ForegroundColor Yellow
 if (Test-Path $SourceDir) {
     $sourceCount = (Get-ChildItem $SourceDir -File -Recurse -ErrorAction SilentlyContinue | Measure-Object).Count
     Write-Host "  [OK] Source dir exists ($sourceCount files)" -ForegroundColor Green
-} else {
+}
+else {
     Write-Host "  [!] Source dir not found: $SourceDir" -ForegroundColor Red
 }
 
 if (Test-Path $OutputDir) {
     Write-Host "  [OK] Output dir exists" -ForegroundColor Green
-} else {
+}
+else {
     Write-Host "  [!] Output dir not found: $OutputDir - creating it..." -ForegroundColor Yellow
     New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
     Write-Host "  [OK] Output dir created" -ForegroundColor Green
@@ -148,8 +170,7 @@ if (Test-Path $OutputDir) {
 Write-Host ""
 Write-Host "[5/5] Building and starting MarkFlow..." -ForegroundColor Yellow
 
-$composeFile = Join-Path $RepoDir "docker-compose.yml"
-docker compose -f $composeFile up -d --build
+docker compose @composeArgs up -d --build
 
 Write-Host ""
 Write-Host "==========================================" -ForegroundColor Cyan
@@ -157,12 +178,15 @@ Write-Host "  Reset Complete!" -ForegroundColor Green
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host ""
 
-docker compose -f $composeFile ps
+docker compose @composeArgs ps
 
 Write-Host ""
 Write-Host "  MarkFlow UI:  http://localhost:8000"
 Write-Host "  Meilisearch:  http://localhost:7700"
 Write-Host "  MCP Server:   http://localhost:8001"
+if ($GPU) {
+    Write-Host "  GPU Mode:     ENABLED" -ForegroundColor Magenta
+}
 Write-Host "==========================================" -ForegroundColor Cyan
 
 Pop-Location
