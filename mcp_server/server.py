@@ -12,6 +12,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mcp.server.fastmcp import FastMCP
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 
 # Initialize logging
 from core.logging_config import configure_logging
@@ -267,7 +269,20 @@ def main():
     # FastMCP.run() ignores host/port — use uvicorn directly
     import uvicorn
 
-    uvicorn.run(mcp.sse_app(), host="0.0.0.0", port=port)
+    # Build the SSE app from FastMCP
+    app = mcp.sse_app()
+
+    # Add health check endpoint (FastMCP doesn't include one by default)
+    def health_check(request):
+        return JSONResponse({
+            "status": "ok",
+            "service": "markflow-mcp",
+            "port": port,
+        })
+
+    app.routes.append(Route("/health", health_check))
+
+    uvicorn.run(app, host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
     main()
