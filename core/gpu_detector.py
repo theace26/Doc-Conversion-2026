@@ -100,7 +100,7 @@ def detect_gpu() -> GPUInfo:
     # ── Host worker capabilities ─────────────────────────────────────────
     if _HOST_WORKER_REPORT.exists():
         try:
-            report = json.loads(_HOST_WORKER_REPORT.read_text())
+            report = json.loads(_HOST_WORKER_REPORT.read_text(encoding="utf-8-sig"))
             info.host_worker_available = report.get("available", False)
             info.host_worker_gpu_vendor = report.get("gpu_vendor", "none")
             info.host_worker_gpu_name = report.get("gpu_name", "")
@@ -155,7 +155,7 @@ def get_gpu_info_live() -> GPUInfo:
     # Re-read host worker report for live status
     if _HOST_WORKER_REPORT.exists():
         try:
-            report = json.loads(_HOST_WORKER_REPORT.read_text())
+            report = json.loads(_HOST_WORKER_REPORT.read_text(encoding="utf-8-sig"))
             info.host_worker_available = report.get("available", False)
             info.host_worker_gpu_vendor = report.get("gpu_vendor", "none")
             info.host_worker_gpu_name = report.get("gpu_name", "")

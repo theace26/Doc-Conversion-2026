@@ -198,7 +198,7 @@ $capabilities = @{
     timestamp        = (Get-Date -Format "o")
 } | ConvertTo-Json -Depth 2
 
-Set-Content -Path (Join-Path $queueDir "worker_capabilities.json") -Value $capabilities -Encoding UTF8
+[IO.File]::WriteAllText((Join-Path $queueDir "worker_capabilities.json"), $capabilities)
 Write-Host "  [OK] worker_capabilities.json written" -ForegroundColor Green
 
 # -- Summary --
