@@ -392,6 +392,25 @@
               </ol>
             </div>
           </details>
+
+          <!-- Config Generator -->
+          <div class="mcp-config-generator" style="margin-top:1rem">
+            <button type="button" id="btn-generate-config" class="btn btn-secondary btn-sm">Generate Config for Claude Desktop</button>
+            <div id="config-generator-panel" hidden style="margin-top:0.75rem">
+              <p class="text-sm">Paste your current <code>claude_desktop_config.json</code> below (or leave blank for a fresh config):</p>
+              <textarea id="config-input" rows="8" style="width:100%;font-family:var(--font-mono);font-size:0.8rem;margin:0.5rem 0" placeholder='{ "preferences": { ... }, "mcpServers": { ... } }'></textarea>
+              <div id="config-error" class="text-sm" style="color:var(--error);margin:0.25rem 0" hidden></div>
+              <button type="button" id="btn-merge-config" class="btn btn-primary btn-sm">Generate</button>
+              <div id="config-output-section" hidden style="margin-top:0.75rem">
+                <label class="text-sm">Updated config:</label>
+                <textarea id="config-output" rows="12" readonly style="width:100%;font-family:var(--font-mono);font-size:0.8rem;margin:0.5rem 0;background:var(--bg-secondary)"></textarea>
+                <div style="display:flex;align-items:center;gap:0.5rem">
+                  <button type="button" id="btn-copy-config" class="btn btn-secondary btn-sm">Copy to Clipboard</button>
+                  <span id="copy-confirm" class="text-sm" style="color:var(--ok)" hidden>Copied!</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -974,6 +993,68 @@
     const url = document.getElementById('mcp-url').value;
     navigator.clipboard.writeText(url).then(() => showToast('URL copied!', 'success'));
   }
+
+  // ── MCP Config Generator ─────────────────────────────────────────────────
+  (function() {
+    const MARKFLOW_MCP_ENTRY = {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://localhost:8001/sse"]
+    };
+
+    const btnShow = document.getElementById('btn-generate-config');
+    const panel = document.getElementById('config-generator-panel');
+    const input = document.getElementById('config-input');
+    const output = document.getElementById('config-output');
+    const outputSection = document.getElementById('config-output-section');
+    const errorDiv = document.getElementById('config-error');
+    const btnMerge = document.getElementById('btn-merge-config');
+    const btnCopy = document.getElementById('btn-copy-config');
+    const copyConfirm = document.getElementById('copy-confirm');
+
+    if (!btnShow) return;
+
+    btnShow.addEventListener('click', function() {
+      panel.hidden = !panel.hidden;
+      btnShow.textContent = panel.hidden
+        ? 'Generate Config for Claude Desktop'
+        : 'Hide Config Generator';
+    });
+
+    btnMerge.addEventListener('click', function() {
+      errorDiv.hidden = true;
+      outputSection.hidden = true;
+
+      const raw = input.value.trim();
+      let config;
+
+      if (raw === '') {
+        config = {};
+      } else {
+        try {
+          config = JSON.parse(raw);
+        } catch (e) {
+          errorDiv.textContent = 'Invalid JSON: ' + e.message;
+          errorDiv.hidden = false;
+          return;
+        }
+      }
+
+      if (!config.mcpServers || typeof config.mcpServers !== 'object') {
+        config.mcpServers = {};
+      }
+
+      config.mcpServers.markflow = MARKFLOW_MCP_ENTRY;
+      output.value = JSON.stringify(config, null, 2);
+      outputSection.hidden = false;
+    });
+
+    btnCopy.addEventListener('click', function() {
+      navigator.clipboard.writeText(output.value).then(function() {
+        copyConfirm.hidden = false;
+        setTimeout(function() { copyConfirm.hidden = true; }, 2000);
+      });
+    });
+  })();
 
   // ── Logging section ──────────────────────────────────────────────────────
   function updateDevWarning(level) {
