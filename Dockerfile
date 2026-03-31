@@ -21,6 +21,12 @@ COPY . .
 # Create directories that may not exist in the repo
 RUN mkdir -p input output logs data static
 
+# NVIDIA OpenCL ICD — tells the OpenCL loader about the NVIDIA GPU.
+# Docker --gpus mounts libnvidia-opencl.so at runtime, but the container
+# needs this vendor file for hashcat/clinfo to discover it. Harmless without GPU.
+RUN mkdir -p /etc/OpenCL/vendors \
+    && echo "libnvidia-opencl.so.1" > /etc/OpenCL/vendors/nvidia.icd
+
 # Expose FastAPI port + MCP server port
 EXPOSE 8000 8001
 
