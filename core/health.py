@@ -234,7 +234,10 @@ async def run_health_check() -> dict:
     try:
         from core.gpu_detector import get_gpu_info_live
         gpu = get_gpu_info_live()
+        gpu_ok = gpu.execution_path in ("container", "host")
         components["gpu"] = {
+            "ok": gpu_ok,
+            "version": f"{gpu.effective_gpu_name} ({gpu.effective_backend})" if gpu_ok else gpu.effective_backend or "none",
             "execution_path": gpu.execution_path,
             "container_gpu": {
                 "available": gpu.container_gpu_available,
@@ -254,7 +257,7 @@ async def run_health_check() -> dict:
             "effective_backend": gpu.effective_backend,
         }
     except Exception:
-        components["gpu"] = {"execution_path": "none", "error": "detection_failed"}
+        components["gpu"] = {"ok": False, "execution_path": "none", "error": "detection_failed"}
 
     all_ok = all(
         c.get("ok", False) for k, c in components.items()
