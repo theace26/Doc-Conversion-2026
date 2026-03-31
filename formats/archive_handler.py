@@ -30,6 +30,7 @@ import string
 import tempfile
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -45,6 +46,7 @@ from core.archive_safety import (
     check_entry_count,
     check_nesting_depth,
 )
+from core.storage_probe import ErrorRateMonitor
 from core.document_model import (
     DocumentMetadata,
     DocumentModel,
@@ -447,7 +449,93 @@ def _extract_cab(path: Path, member: _ArchiveMember, dest: Path, password: str |
     return dest / member.path
 
 
+# ── Batch extraction functions ────────────────────────────────────────────────
+# These extract all members at once — one archive open/parse cycle instead of N.
+# Much faster over NAS (one network read) and HDD (one sequential pass).
+
+def _batch_extract_zip(path: Path, dest: Path, password: str | None) -> None:
+    import zipfile
+    pw = password.encode("utf-8") if password else None
+    with zipfile.ZipFile(path, "r") as zf:
+        if pw:
+            zf.setpassword(pw)
+        zf.extractall(path=dest, pwd=pw)
+
+
+def _batch_extract_tar(path: Path, dest: Path, password: str | None) -> None:
+    import tarfile
+    with tarfile.open(path, "r:*") as tf:
+        # Filter out unsafe paths
+        safe_members = []
+        for info in tf.getmembers():
+            if info.name.startswith("/") or ".." in info.name:
+                log.warning("tar_unsafe_path_skipped", path=info.name)
+                continue
+            safe_members.append(info)
+        tf.extractall(path=dest, members=safe_members, filter="data")
+
+
+def _batch_extract_7z(path: Path, dest: Path, password: str | None) -> None:
+    import py7zr
+    kwargs = {"password": password} if password else {}
+    with py7zr.SevenZipFile(path, "r", **kwargs) as zf:
+        zf.extractall(path=dest)
+
+
+def _batch_extract_rar(path: Path, dest: Path, password: str | None) -> None:
+    import rarfile
+    with rarfile.RarFile(str(path)) as rf:
+        if password:
+            rf.setpassword(password)
+        rf.extractall(path=str(dest))
+
+
+def _batch_extract_iso(path: Path, dest: Path, password: str | None) -> None:
+    """ISO doesn't have extractall — extract members one by one but with a single open."""
+    import pycdlib
+    iso = pycdlib.PyCdlib()
+    iso.open(str(path))
+    try:
+        members: list[_ArchiveMember] = []
+        _walk_iso(iso, "/", members)
+        for m in members:
+            if m.is_directory:
+                continue
+            output = dest / m.path
+            output.parent.mkdir(parents=True, exist_ok=True)
+            iso_path = "/" + m.path
+            try:
+                iso.get_file_from_iso(str(output), joliet_path=iso_path)
+            except Exception:
+                try:
+                    iso.get_file_from_iso(str(output), iso_path=iso_path + ";1")
+                except Exception:
+                    log.warning("iso_extract_member_failed", member=m.path)
+    finally:
+        iso.close()
+
+
+def _batch_extract_cab(path: Path, dest: Path, password: str | None) -> None:
+    import subprocess
+    result = subprocess.run(
+        ["cabextract", "-d", str(dest), str(path)],
+        capture_output=True, text=True, timeout=300,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"cabextract batch failed: {result.stderr.strip()}")
+
+
 # ── Dispatch tables ──────────────────────────────────────────────────────────
+
+_BATCH_EXTRACT_FN: dict[str, Any] = {
+    "zip": _batch_extract_zip,
+    "tar": _batch_extract_tar, "tar.gz": _batch_extract_tar, "tar.bz2": _batch_extract_tar, "tar.xz": _batch_extract_tar,
+    "tgz": _batch_extract_tar, "tbz2": _batch_extract_tar, "txz": _batch_extract_tar,
+    "7z": _batch_extract_7z,
+    "rar": _batch_extract_rar,
+    "iso": _batch_extract_iso,
+    "cab": _batch_extract_cab,
+}
 
 _LIST_FN: dict[str, Any] = {
     "zip": _list_zip,
@@ -612,75 +700,173 @@ class ArchiveHandler(FormatHandler):
                 content=[contents_header] + contents_rows,
             ))
 
-        # Extract and convert each member
+        # ── Phase 1: Batch extraction ───────────────────────────────────
+        # Extract all files at once — one archive open/parse cycle.
+        # Much faster than per-member extraction over NAS or HDD.
         temp_dir = Path(tempfile.mkdtemp(prefix=f"markflow_archive_{depth}_"))
+        batch_fn = _BATCH_EXTRACT_FN.get(fmt)
         extract_fn = _EXTRACT_FN.get(fmt)
         converted_count = 0
         error_count = 0
 
         try:
+            # Try batch extraction first (single archive read)
+            batch_ok = False
+            if batch_fn:
+                try:
+                    t_extract = time.perf_counter()
+                    batch_fn(file_path, temp_dir, password)
+                    batch_ok = True
+                    extract_ms = int((time.perf_counter() - t_extract) * 1000)
+                    log.info("archive_batch_extract",
+                             filename=file_path.name, members=len(file_members),
+                             duration_ms=extract_ms)
+                except Exception as exc:
+                    log.warning("archive_batch_extract_failed",
+                                filename=file_path.name, error=str(exc),
+                                msg="Falling back to per-member extraction")
+
+            # ── Phase 2: Convert inner files ─────────────────────────────
+            # Separate members into archives (sequential, recursive) and
+            # regular files (parallelizable).
+            nested_members = []
+            convertible_members = []
             for member in file_members:
-                if not extract_fn:
-                    continue
+                if member.is_archive and depth < MAX_NESTING_DEPTH:
+                    nested_members.append(member)
+                else:
+                    handler = get_handler(member.ext)
+                    if handler and not isinstance(handler, ArchiveHandler):
+                        convertible_members.append((member, handler))
+
+            # Choose parallel thread count based on file count
+            # (CPU-bound conversion — use cores, not I/O threads)
+            inner_threads = min(max(len(convertible_members), 1), os.cpu_count() or 4, 8)
+
+            # Error rate monitor — abort if source becomes unreachable mid-extraction
+            error_monitor = ErrorRateMonitor(window_size=50, min_ops=10)
+
+            def _convert_member(member: _ArchiveMember, handler: FormatHandler) -> tuple[str, str | None, str | None]:
+                """Convert a single extracted file. Returns (member_path, md_text, error)."""
+                extracted = temp_dir / member.path
+                if not extracted.exists():
+                    # Batch failed for this file — try per-member extraction
+                    if extract_fn and not batch_ok:
+                        try:
+                            extracted = extract_fn(file_path, member, temp_dir, password)
+                        except Exception as exc:
+                            error_monitor.record_error(str(exc))
+                            return (member.path, None, f"extraction failed: {exc}")
+                    if not extracted.exists():
+                        return (member.path, None, None)  # skip silently
 
                 try:
-                    extracted = extract_fn(file_path, member, temp_dir, password)
+                    inner_model = handler.ingest(extracted)
+                    md_text = _model_to_markdown(inner_model)
+                    error_monitor.record_success()
+                    return (member.path, md_text if md_text.strip() else None, None)
+                except Exception as exc:
+                    error_monitor.record_error(str(exc))
+                    return (member.path, None, f"conversion failed: {exc}")
+
+            # Parallel conversion of regular files
+            results: list[tuple[str, str | None, str | None]] = []
+            if convertible_members and inner_threads > 1:
+                with ThreadPoolExecutor(
+                    max_workers=inner_threads,
+                    thread_name_prefix="archive-conv",
+                ) as executor:
+                    futures = {
+                        executor.submit(_convert_member, m, h): m.path
+                        for m, h in convertible_members
+                    }
+                    for future in as_completed(futures):
+                        try:
+                            results.append(future.result())
+                        except Exception as exc:
+                            results.append((futures[future], None, str(exc)))
+                        # Check error rate — cancel remaining futures if source is gone
+                        if error_monitor.should_abort():
+                            log.error("archive_error_rate_abort",
+                                      filename=file_path.name,
+                                      total_errors=error_monitor.total_errors)
+                            for f in futures:
+                                f.cancel()
+                            break
+            else:
+                # Single-threaded fallback (small archives or single file)
+                for m, h in convertible_members:
+                    results.append(_convert_member(m, h))
+                    if error_monitor.should_abort():
+                        log.error("archive_error_rate_abort",
+                                  filename=file_path.name,
+                                  total_errors=error_monitor.total_errors)
+                        break
+
+            # Sort results by original member path for deterministic output
+            results.sort(key=lambda r: r[0])
+
+            # Append converted content to model
+            for member_path, md_text, error in results:
+                if error:
+                    error_count += 1
+                    model.warnings.append(f"{member_path}: {error}")
+                    log.warning("archive_member_convert_failed",
+                                member=member_path, error=error)
+                elif md_text:
+                    model.add_element(Element(
+                        type=ElementType.HEADING,
+                        content=member_path,
+                        attributes={"level": 2},
+                    ))
+                    model.add_element(Element(
+                        type=ElementType.PARAGRAPH,
+                        content=md_text,
+                    ))
+                    converted_count += 1
+
+            # Handle nested archives sequentially (recursive, can't parallelize safely)
+            if not error_monitor.aborted:
+                for member in nested_members:
+                    if error_monitor.should_abort():
+                        log.error("archive_nested_abort",
+                                  filename=file_path.name,
+                                  remaining=len(nested_members))
+                        break
+
+                    extracted = temp_dir / member.path
+                    if not extracted.exists() and extract_fn and not batch_ok:
+                        try:
+                            extracted = extract_fn(file_path, member, temp_dir, password)
+                        except Exception as exc:
+                            error_count += 1
+                            error_monitor.record_error(str(exc))
+                            model.warnings.append(f"{member.path}: extraction failed: {exc}")
+                            continue
 
                     if not extracted.exists():
                         continue
 
-                    # Recursive archive handling
-                    if member.is_archive and depth < MAX_NESTING_DEPTH:
-                        nested_handler = ArchiveHandler()
-                        try:
-                            nested_model = nested_handler.ingest(
-                                extracted, depth=depth + 1, _tracker=tracker,
-                            )
-                            model.add_element(Element(
-                                type=ElementType.HEADING,
-                                content=f"Nested: {member.path}",
-                                attributes={"level": 2},
-                            ))
-                            for elem in nested_model.elements:
-                                model.add_element(elem)
-                            converted_count += 1
-                            continue
-                        except Exception as exc:
-                            log.warning("archive_nested_failed",
-                                        member=member.path, error=str(exc))
-
-                    # Try converting through normal handler pipeline
-                    handler = get_handler(member.ext)
-                    if handler and not isinstance(handler, ArchiveHandler):
-                        try:
-                            inner_model = handler.ingest(extracted)
-                            md_text = _model_to_markdown(inner_model)
-                            if md_text.strip():
-                                model.add_element(Element(
-                                    type=ElementType.HEADING,
-                                    content=member.path,
-                                    attributes={"level": 2},
-                                ))
-                                model.add_element(Element(
-                                    type=ElementType.PARAGRAPH,
-                                    content=md_text,
-                                ))
-                                converted_count += 1
-                            continue
-                        except Exception as exc:
-                            error_count += 1
-                            model.warnings.append(f"{member.path}: conversion failed: {exc}")
-                            log.warning("archive_member_convert_failed",
-                                        member=member.path, error=str(exc))
-                    else:
-                        # No handler — just list it
-                        pass
-
-                except Exception as exc:
-                    error_count += 1
-                    model.warnings.append(f"{member.path}: extraction failed: {exc}")
-                    log.warning("archive_member_extract_failed",
-                                member=member.path, error=str(exc))
+                    nested_handler = ArchiveHandler()
+                    try:
+                        nested_model = nested_handler.ingest(
+                            extracted, depth=depth + 1, _tracker=tracker,
+                        )
+                        model.add_element(Element(
+                            type=ElementType.HEADING,
+                            content=f"Nested: {member.path}",
+                            attributes={"level": 2},
+                        ))
+                        for elem in nested_model.elements:
+                            model.add_element(elem)
+                        converted_count += 1
+                        error_monitor.record_success()
+                    except Exception as exc:
+                        error_count += 1
+                        error_monitor.record_error(str(exc))
+                        model.warnings.append(f"{member.path}: nested archive failed: {exc}")
+                        log.warning("archive_nested_failed",
+                                    member=member.path, error=str(exc))
 
         finally:
             # CRITICAL: Always clean up temp directory
@@ -691,12 +877,19 @@ class ArchiveHandler(FormatHandler):
         summary = f"Processed {len(file_members)} files: {converted_count} converted"
         if error_count:
             summary += f", {error_count} errors"
+        if error_monitor.aborted:
+            summary += " **[ABORTED: high error rate — source may be unreachable]**"
+        extraction_mode = "batch" if batch_ok else "per-member"
+        parallel_note = f" ({inner_threads} threads)" if inner_threads > 1 else ""
+        summary += f" [{extraction_mode}{parallel_note}]"
         model.add_element(Element(type=ElementType.PARAGRAPH, content=f"*{summary}*"))
 
         duration_ms = int((time.perf_counter() - t_start) * 1000)
         log.info("archive_ingest_complete", filename=file_path.name,
                  members=len(file_members), converted=converted_count,
-                 errors=error_count, duration_ms=duration_ms)
+                 errors=error_count, extraction_mode=extraction_mode,
+                 inner_threads=inner_threads, aborted=error_monitor.aborted,
+                 duration_ms=duration_ms)
 
         return model
 

@@ -26,17 +26,19 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.13.4
+## Current Status — v0.13.5
 
-v0.13.4: Resources page gains OCR Quality section (avg/min/max confidence,
-gauge, timeline chart, distribution histogram) and Scan Throttle History
-section (adjustment events table, scan summaries with thread counts and
-error rates). Throttle events now persisted to activity_events table for
-dashboard retrieval. Two new API endpoints: `/api/resources/ocr-quality`,
-`/api/resources/scan-throttle`.
+v0.13.5: Archive handler optimization. Batch extraction (`extractall()`)
+replaces per-member open/seek/extract cycles — one archive read instead of N.
+Parallel inner-file conversion via ThreadPoolExecutor (up to 8 threads,
+CPU-bound). ErrorRateMonitor integrated — aborts gracefully on NAS disconnect
+mid-extraction, cleans up temp dir. Nested archives still processed
+sequentially (recursive depth tracking). Summary line shows extraction mode
+and thread count.
 
-Previous (v0.13.3): Error-rate monitoring — abort on NAS disconnect.
-(v0.13.2): Feedback-loop throttling. (v0.13.1): Adaptive scan parallelism.
+Previous (v0.13.4): OCR Quality dashboard + Scan Throttle History.
+(v0.13.3): Error-rate monitoring. (v0.13.2): Feedback-loop throttling.
+(v0.13.1): Adaptive scan parallelism.
 
 Previous (v0.13.0): Media transcription pipeline. Audio/video files convert to
 Markdown transcripts with timestamped segments. Local Whisper (GPU auto-detect)

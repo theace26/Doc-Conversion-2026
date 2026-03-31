@@ -360,6 +360,22 @@ the relevant subsystem. Referenced from CLAUDE.md.
   Once triggered, abort is sticky (idempotent) — prevents the scan from resuming in a broken state.
   Used by: bulk scanner serial/parallel, lifecycle scanner serial/parallel, bulk conversion workers.
 
+- **Archive batch extraction**: `extractall()` is used by default — falls back to per-member if it fails.
+  Batch is dramatically faster over NAS (one archive read vs N). The per-member functions are kept as
+  fallback for corrupted archives or selective extraction.
+
+- **Archive parallel conversion is CPU-bound**: Inner files are extracted to local temp dir first, so
+  conversion threads are CPU-bound (parsing), not I/O-bound. Thread count is `min(file_count, cpu_count, 8)`.
+  Don't increase above CPU count — it just adds context-switch overhead.
+
+- **Archive error-rate abort cleans up**: If `ErrorRateMonitor` triggers mid-archive (NAS disconnect),
+  the `finally` block still runs — temp dir is always removed. The model returned contains whatever
+  was converted before the abort, plus an `[ABORTED]` summary line.
+
+- **Nested archives are always sequential**: Recursive depth tracking via `ExtractionTracker` is not
+  thread-safe (quine detection, total size cap). Nested archives go through the serial path even when
+  regular files are parallelized.
+
 - **Bulk worker error-rate abort cancels the job**: When the error monitor triggers in a bulk worker,
   it sets `_cancel_event` which causes all workers to drain their queues and stop. The job is marked
   as cancelled, not failed — this is intentional because the files themselves aren't broken, the

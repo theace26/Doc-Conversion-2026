@@ -4,6 +4,28 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.13.5 — Archive Handler Optimization (2026-03-31)
+
+**New features:**
+- Batch extraction: `extractall()` for zip/tar/7z/rar/cab — one archive open/read cycle instead of N per-member cycles. Massive speedup over NAS (one network read vs hundreds)
+- Parallel inner-file conversion: after batch extraction, inner files converted via ThreadPoolExecutor (up to 8 threads, capped to CPU count)
+- ISO batch extraction: single `PyCdlib.open()` for all members instead of open/close per member
+- ErrorRateMonitor integrated: aborts archive processing gracefully if error rate spikes (NAS disconnect mid-extraction), cleans up temp directory
+- Nested archives processed sequentially after parallel files (recursive depth tracking requires serial)
+- Summary line now shows extraction mode (batch/per-member) and thread count used
+- Batch extraction falls back to per-member if `extractall()` fails (e.g., corrupted member)
+
+**Modified files:**
+- `formats/archive_handler.py` — batch extraction functions, parallel conversion, error-rate abort
+
+**Design notes:**
+- Batch vs per-member: batch is always tried first. If it fails (corrupted archive, partial password protection), falls back to the original per-member path
+- Thread count for conversion: `min(file_count, cpu_count, 8)` — conversion is CPU-bound, not I/O-bound (files are already on local temp dir)
+- Nested archives are NOT parallelized — each recursive call modifies the shared `ExtractionTracker` (quine detection, total size tracking)
+- Temp dir cleanup in `finally` block is preserved — even on error-rate abort, temp dir is always removed
+
+---
+
 ## v0.13.4 — OCR Quality Dashboard & Scan Throttle History (2026-03-31)
 
 **New features:**
