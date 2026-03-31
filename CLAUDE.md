@@ -26,9 +26,14 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.13.6
+## Current Status — v0.13.7
 
-v0.13.6: ErrorRateMonitor integrated across all I/O subsystems. Meilisearch
+v0.13.7: Legacy Office format support. `.xls` and `.ppt` files now
+convert via LibreOffice preprocessing → existing openpyxl/python-pptx
+pipelines. Shared `core/libreoffice_helper.py` replaces duplicated
+LibreOffice logic across all three legacy handlers.
+
+Previous (v0.13.6): ErrorRateMonitor integrated across all I/O subsystems. Meilisearch
 index rebuild aborts early if search service is unreachable. Cloud transcriber
 disables itself for the session after repeated API failures (expired key, rate
 limit, outage). EML/MSG attachment processing aborts on cascading failures.
@@ -105,6 +110,7 @@ Critical files to know:
 | `main.py` | FastAPI app, lifespan, mounts all routers |
 | `core/database.py` | SQLite connection, schema, all DB helpers |
 | `core/converter.py` | Pipeline orchestrator (single-file conversion) |
+| `core/libreoffice_helper.py` | Shared LibreOffice headless conversion for legacy formats (.doc/.xls/.ppt) |
 | `core/bulk_worker.py` | Worker pool: BulkJob, pause/resume/cancel, SSE |
 | `core/auth.py` | JWT validation, role hierarchy, API key verification |
 | `core/scheduler.py` | APScheduler: lifecycle scan, trash expiry, DB maintenance, log archive |
@@ -181,11 +187,11 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 
 ---
 
-## Supported Formats (v0.12.10)
+## Supported Formats (v0.13.7)
 
 | Category | Extensions | Handler |
 |----------|-----------|---------|
-| Office | .docx, .doc, .pdf, .pptx, .xlsx, .csv, .tsv | DocxHandler, PdfHandler, PptxHandler, XlsxHandler, CsvHandler |
+| Office | .docx, .doc, .pdf, .pptx, .ppt, .xlsx, .xls, .csv, .tsv | DocxHandler, PdfHandler, PptxHandler, XlsxHandler, CsvHandler |
 | Rich Text | .rtf | RtfHandler |
 | OpenDocument | .odt, .ods, .odp | OdtHandler, OdsHandler, OdpHandler |
 | Markdown & Text | .md, .txt, .log, .text | MarkdownHandler, TxtHandler |

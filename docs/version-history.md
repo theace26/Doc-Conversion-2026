@@ -4,6 +4,29 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.13.7 — Legacy Office Format Support + Scheduler Fix (2026-03-31)
+
+**New features:**
+- `.xls` files now convert to Markdown via LibreOffice → openpyxl pipeline (same as `.xlsx`)
+- `.ppt` files now convert to Markdown via LibreOffice → python-pptx pipeline (same as `.pptx`)
+- Shared `core/libreoffice_helper.py` extracts the LibreOffice headless conversion logic used by all three legacy format handlers (`.doc`, `.xls`, `.ppt`)
+- Lifecycle scan now yields to active bulk jobs — skips entirely if any bulk job is scanning/running/paused, preventing SQLite lock contention
+
+**Modified files:**
+- `core/libreoffice_helper.py` — new shared helper: `convert_with_libreoffice(source, target_format, timeout)`
+- `formats/xlsx_handler.py` — EXTENSIONS now includes "xls"; ingest + extract_styles preprocess via LibreOffice
+- `formats/pptx_handler.py` — EXTENSIONS now includes "ppt"; ingest + extract_styles preprocess via LibreOffice
+- `formats/docx_handler.py` — `_doc_to_docx()` now delegates to shared helper
+- `core/scheduler.py` — `run_lifecycle_scan()` checks `get_all_active_jobs()` before proceeding
+
+**Design notes:**
+- Same pattern as existing `.doc` → `.docx` preprocessing in DocxHandler
+- Temp files cleaned in `finally` blocks to avoid disk leaks on conversion errors
+- Default timeout increased to 120s (legacy files can be larger/slower to convert)
+- Bulk scanner already had `.xls` and `.ppt` in `SUPPORTED_EXTENSIONS` — files were being scanned but failing with "No handler registered"
+
+---
+
 ## v0.13.6 — ErrorRateMonitor Across All I/O Subsystems (2026-03-31)
 
 **New features:**

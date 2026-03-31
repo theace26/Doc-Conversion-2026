@@ -58,11 +58,12 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 
 | File | Purpose |
 |------|---------|
-| `formats/docx_handler.py` | DOCX ingest + export; `_add_inline_runs`, `_plain_text_hash`, `_patch_from_original` |
+| `core/libreoffice_helper.py` | Shared LibreOffice headless conversion (.doc→.docx, .xls→.xlsx, .ppt→.pptx) |
+| `formats/docx_handler.py` | DOCX/DOC ingest + export; .doc preprocessed via LibreOffice |
 | `formats/markdown_handler.py` | MD ingest + export; `_extract_formatted_text` for inline bold/italic/code |
 | `formats/pdf_handler.py` | PDF ingest (pdfplumber + OCR) + export (WeasyPrint); font-size heading detection |
-| `formats/pptx_handler.py` | PPTX ingest (slides→H2 sections) + export; Tier 3 text patching |
-| `formats/xlsx_handler.py` | XLSX ingest (sheets→H2+TABLE) + export; formula/merge/style restoration |
+| `formats/pptx_handler.py` | PPTX/PPT ingest (slides→H2 sections) + export; .ppt preprocessed via LibreOffice |
+| `formats/xlsx_handler.py` | XLSX/XLS ingest (sheets→H2+TABLE) + export; .xls preprocessed via LibreOffice |
 | `formats/csv_handler.py` | CSV/TSV ingest (pandas + stdlib fallback) + export; delimiter/encoding preserved |
 | `formats/json_handler.py` | JSON ingest/export with summary + structure outline + secret redaction |
 | `formats/yaml_handler.py` | YAML/YML with multi-document support, comments preservation |

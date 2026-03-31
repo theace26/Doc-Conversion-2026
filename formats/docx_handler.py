@@ -199,35 +199,10 @@ def _extract_para_images(para, doc) -> list[tuple[str, bytes, dict[str, Any]]]:
 # ── .doc → .docx conversion via LibreOffice ───────────────────────────────────
 
 def _doc_to_docx(doc_path: Path) -> Path:
-    """
-    Convert a .doc file to .docx using LibreOffice headless.
-    Returns path to the new .docx file (in a temp directory).
-    Raises RuntimeError if LibreOffice is not available or conversion fails.
-    """
-    for binary in ("libreoffice", "soffice"):
-        try:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                result = subprocess.run(
-                    [binary, "--headless", "--convert-to", "docx",
-                     "--outdir", tmpdir, str(doc_path)],
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                )
-                if result.returncode == 0:
-                    out_path = Path(tmpdir) / (doc_path.stem + ".docx")
-                    if out_path.exists():
-                        # Copy to a stable temp file outside tmpdir
-                        import shutil
-                        stable = Path(tempfile.mktemp(suffix=".docx"))
-                        shutil.copy2(out_path, stable)
-                        return stable
-        except FileNotFoundError:
-            continue
-    raise RuntimeError(
-        f"Cannot convert {doc_path.name}: LibreOffice not found. "
-        "Install libreoffice-headless."
-    )
+    """Convert a .doc file to .docx using LibreOffice headless."""
+    from core.libreoffice_helper import convert_with_libreoffice
+
+    return convert_with_libreoffice(doc_path, "docx")
 
 
 # ── Table extraction ──────────────────────────────────────────────────────────

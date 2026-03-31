@@ -1,10 +1,11 @@
 """
-XLSX format handler — spreadsheet extraction and reconstruction via openpyxl.
+XLSX/XLS format handler — spreadsheet extraction and reconstruction via openpyxl.
 
 Ingest:
   Each sheet → H2 section + TABLE element.
   Formulas captured from non-data_only workbook.
   Merged cells unmerged with duplicated values.
+  .xls files are first converted to .xlsx via LibreOffice headless.
 
 Export:
   Rebuilds workbook from H2-delimited TABLE elements.
@@ -32,98 +33,110 @@ log = structlog.get_logger(__name__)
 
 @register_handler
 class XlsxHandler(FormatHandler):
-    EXTENSIONS = ["xlsx"]
+    EXTENSIONS = ["xlsx", "xls"]
 
     # ── Ingest ────────────────────────────────────────────────────────────────
 
     def ingest(self, file_path: Path) -> DocumentModel:
         import openpyxl
 
+        file_path = Path(file_path)
         t_start = time.perf_counter()
         log.info("handler_ingest_start", filename=file_path.name, format="xlsx")
+        _tmp_xlsx: Path | None = None
 
-        model = DocumentModel()
-        model.metadata = DocumentMetadata(
-            source_file=file_path.name,
-            source_format="xlsx",
-        )
+        if file_path.suffix.lower() == ".xls":
+            from core.libreoffice_helper import convert_with_libreoffice
 
-        # Open with data_only=True to get computed values
-        wb_data = openpyxl.load_workbook(str(file_path), data_only=True)
-        # Also open without data_only to capture formulas
+            file_path = convert_with_libreoffice(file_path, "xlsx")
+            _tmp_xlsx = file_path
+
         try:
-            wb_formula = openpyxl.load_workbook(str(file_path), data_only=False)
-        except Exception:
-            wb_formula = None
-
-        sheet_count = len(wb_data.sheetnames)
-        model.metadata.page_count = sheet_count
-
-        for sheet_idx, sheet_name in enumerate(wb_data.sheetnames):
-            ws_data = wb_data[sheet_name]
-            ws_formula = wb_formula[sheet_name] if wb_formula else None
-
-            # Add separator between sheets (not before first)
-            if sheet_idx > 0:
-                model.add_element(Element(type=ElementType.HORIZONTAL_RULE, content=""))
-
-            # Sheet heading
-            model.add_element(
-                Element(type=ElementType.HEADING, content=sheet_name, level=2)
+            model = DocumentModel()
+            model.metadata = DocumentMetadata(
+                source_file=file_path.name,
+                source_format="xlsx",
             )
 
-            # Handle merged cells — unmerge and duplicate values
-            merged_cells_map = self._build_merged_cells_map(ws_data)
+            # Open with data_only=True to get computed values
+            wb_data = openpyxl.load_workbook(str(file_path), data_only=True)
+            # Also open without data_only to capture formulas
+            try:
+                wb_formula = openpyxl.load_workbook(str(file_path), data_only=False)
+            except Exception:
+                wb_formula = None
 
-            # Build table from used range
-            if ws_data.max_row is None or ws_data.max_column is None:
-                continue
-            if ws_data.max_row < 1 or ws_data.max_column < 1:
-                continue
+            sheet_count = len(wb_data.sheetnames)
+            model.metadata.page_count = sheet_count
 
-            rows: list[list[str]] = []
-            for row_idx in range(ws_data.min_row, ws_data.max_row + 1):
-                row_data: list[str] = []
-                for col_idx in range(ws_data.min_column, ws_data.max_column + 1):
-                    cell = ws_data.cell(row=row_idx, column=col_idx)
-                    value = cell.value
+            for sheet_idx, sheet_name in enumerate(wb_data.sheetnames):
+                ws_data = wb_data[sheet_name]
+                ws_formula = wb_formula[sheet_name] if wb_formula else None
 
-                    # Check merged cell map for duplicated values
-                    if value is None and (row_idx, col_idx) in merged_cells_map:
-                        value = merged_cells_map[(row_idx, col_idx)]
+                # Add separator between sheets (not before first)
+                if sheet_idx > 0:
+                    model.add_element(Element(type=ElementType.HORIZONTAL_RULE, content=""))
 
-                    row_data.append(self._format_cell_value(value))
-                rows.append(row_data)
+                # Sheet heading
+                model.add_element(
+                    Element(type=ElementType.HEADING, content=sheet_name, level=2)
+                )
 
-            # Trim trailing empty rows
-            while rows and all(c == "" for c in rows[-1]):
-                rows.pop()
+                # Handle merged cells — unmerge and duplicate values
+                merged_cells_map = self._build_merged_cells_map(ws_data)
 
-            # Trim trailing empty columns
-            if rows:
-                while rows[0] and all(row[-1] == "" for row in rows if row):
-                    for row in rows:
-                        if row:
-                            row.pop()
+                # Build table from used range
+                if ws_data.max_row is None or ws_data.max_column is None:
+                    continue
+                if ws_data.max_row < 1 or ws_data.max_column < 1:
+                    continue
 
-            if rows:
-                model.add_element(Element(type=ElementType.TABLE, content=rows))
+                rows: list[list[str]] = []
+                for row_idx in range(ws_data.min_row, ws_data.max_row + 1):
+                    row_data: list[str] = []
+                    for col_idx in range(ws_data.min_column, ws_data.max_column + 1):
+                        cell = ws_data.cell(row=row_idx, column=col_idx)
+                        value = cell.value
 
-            # Extract images
-            self._extract_sheet_images(ws_data, model)
+                        # Check merged cell map for duplicated values
+                        if value is None and (row_idx, col_idx) in merged_cells_map:
+                            value = merged_cells_map[(row_idx, col_idx)]
 
-        wb_data.close()
-        if wb_formula:
-            wb_formula.close()
+                        row_data.append(self._format_cell_value(value))
+                    rows.append(row_data)
 
-        duration_ms = int((time.perf_counter() - t_start) * 1000)
-        log.info(
-            "handler_ingest_complete",
-            filename=file_path.name,
-            element_count=len(model.elements),
-            duration_ms=duration_ms,
-        )
-        return model
+                # Trim trailing empty rows
+                while rows and all(c == "" for c in rows[-1]):
+                    rows.pop()
+
+                # Trim trailing empty columns
+                if rows:
+                    while rows[0] and all(row[-1] == "" for row in rows if row):
+                        for row in rows:
+                            if row:
+                                row.pop()
+
+                if rows:
+                    model.add_element(Element(type=ElementType.TABLE, content=rows))
+
+                # Extract images
+                self._extract_sheet_images(ws_data, model)
+
+            wb_data.close()
+            if wb_formula:
+                wb_formula.close()
+
+            duration_ms = int((time.perf_counter() - t_start) * 1000)
+            log.info(
+                "handler_ingest_complete",
+                filename=file_path.name,
+                element_count=len(model.elements),
+                duration_ms=duration_ms,
+            )
+            return model
+        finally:
+            if _tmp_xlsx and _tmp_xlsx.exists():
+                _tmp_xlsx.unlink(missing_ok=True)
 
     def _build_merged_cells_map(self, ws: Any) -> dict[tuple[int, int], Any]:
         """Build a map of merged cell coordinates to the merge's top-left value."""
@@ -440,6 +453,21 @@ class XlsxHandler(FormatHandler):
         import openpyxl
         from openpyxl.utils import get_column_letter
 
+        file_path = Path(file_path)
+        _tmp_xlsx: Path | None = None
+        if file_path.suffix.lower() == ".xls":
+            from core.libreoffice_helper import convert_with_libreoffice
+
+            file_path = convert_with_libreoffice(file_path, "xlsx")
+            _tmp_xlsx = file_path
+
+        try:
+            return self._extract_styles_impl(file_path, openpyxl, get_column_letter)
+        finally:
+            if _tmp_xlsx and _tmp_xlsx.exists():
+                _tmp_xlsx.unlink(missing_ok=True)
+
+    def _extract_styles_impl(self, file_path: Path, openpyxl: Any, get_column_letter: Any) -> dict[str, Any]:
         styles: dict[str, Any] = {"document_level": {}}
 
         wb_data = openpyxl.load_workbook(str(file_path), data_only=True)

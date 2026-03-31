@@ -49,7 +49,11 @@ def _is_business_hours() -> bool:
 
 
 async def run_lifecycle_scan(force: bool = False) -> None:
-    """Run lifecycle scan. Skips if outside business hours unless force=True."""
+    """Run lifecycle scan. Skips if outside business hours unless force=True.
+
+    Also skips if any bulk job is currently active (scanning, running, or
+    paused) — bulk jobs take priority over background lifecycle scans.
+    """
     if not force and not _is_business_hours():
         log.debug("scheduler.scan_skipped_outside_business_hours")
         return
@@ -60,6 +64,13 @@ async def run_lifecycle_scan(force: bool = False) -> None:
         enabled = await get_preference("scanner_enabled")
         if enabled == "false" and not force:
             log.debug("scheduler.scan_disabled")
+            return
+
+        # Yield to active bulk jobs — they hold the DB heavily
+        from core.bulk_worker import get_all_active_jobs
+        active = await get_all_active_jobs()
+        if any(j["status"] in ("scanning", "running", "paused") for j in active):
+            log.info("scheduler.scan_skipped_bulk_job_active")
             return
 
         from core.lifecycle_scanner import run_lifecycle_scan as _scan

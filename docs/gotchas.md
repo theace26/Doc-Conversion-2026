@@ -110,6 +110,11 @@ the relevant subsystem. Referenced from CLAUDE.md.
 - **rarfile needs unrar**: `unrar-free` is installed in the Dockerfile. RAR5 format may need
   full `unrar` from non-free repos — `unrar-free` handles most cases.
 
+- **Legacy Office format preprocessing**: `.doc`, `.xls`, `.ppt` files are converted to their
+  modern equivalents (`.docx`, `.xlsx`, `.pptx`) via LibreOffice headless before ingestion.
+  The shared helper is `core/libreoffice_helper.py:convert_with_libreoffice()`. Temp files
+  are cleaned in `finally` blocks. Default timeout is 120s (legacy files can be slow).
+
 - **mistune v3 table plugin**: `create_markdown(renderer=None)` does NOT parse tables by default.
   Must pass `plugins=["table", "strikethrough", "footnotes"]` or tables silently become paragraphs.
 
@@ -397,6 +402,12 @@ the relevant subsystem. Referenced from CLAUDE.md.
   to all `/static/` responses. Prevents stale JS/CSS after deploys.
 
 ## Scheduler & Metrics
+
+- **Lifecycle scan yields to bulk jobs**: `run_lifecycle_scan()` checks
+  `get_all_active_jobs()` and skips if any bulk job is scanning/running/paused.
+  Bulk jobs hold the DB heavily — running both concurrently causes "database is locked"
+  errors. The deferred conversion runner also inherits this guard since it calls
+  `run_lifecycle_scan()` internally.
 
 - **collect_metrics interval**: 120s with `coalesce=True`, `misfire_grace_time=60`.
   Do not reduce below 60s — causes massive skip storms under bulk load.

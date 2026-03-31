@@ -1,9 +1,10 @@
 """
-PPTX format handler — slide extraction and reconstruction via python-pptx.
+PPTX/PPT format handler — slide extraction and reconstruction via python-pptx.
 
 Ingest:
   Each slide → H2 section. Extracts titles, body text, tables, images, speaker notes.
   Charts/SmartArt logged as warnings. Grouped shapes recursed where possible.
+  .ppt files are first converted to .pptx via LibreOffice headless.
 
 Export:
   Rebuilds PPTX from H2-delimited sections.
@@ -32,7 +33,7 @@ log = structlog.get_logger(__name__)
 
 @register_handler
 class PptxHandler(FormatHandler):
-    EXTENSIONS = ["pptx"]
+    EXTENSIONS = ["pptx", "ppt"]
 
     # ── Ingest ────────────────────────────────────────────────────────────────
 
@@ -40,53 +41,65 @@ class PptxHandler(FormatHandler):
         from pptx import Presentation
         from pptx.enum.shapes import MSO_SHAPE_TYPE
 
+        file_path = Path(file_path)
         t_start = time.perf_counter()
         log.info("handler_ingest_start", filename=file_path.name, format="pptx")
+        _tmp_pptx: Path | None = None
 
-        model = DocumentModel()
-        model.metadata = DocumentMetadata(
-            source_file=file_path.name,
-            source_format="pptx",
-        )
+        if file_path.suffix.lower() == ".ppt":
+            from core.libreoffice_helper import convert_with_libreoffice
 
-        prs = Presentation(str(file_path))
-        slide_count = len(prs.slides)
-        model.metadata.page_count = slide_count
+            file_path = convert_with_libreoffice(file_path, "pptx")
+            _tmp_pptx = file_path
 
-        for idx, slide in enumerate(prs.slides):
-            # Add horizontal rule between slides (not before first)
-            if idx > 0:
-                model.add_element(Element(type=ElementType.HORIZONTAL_RULE, content=""))
-
-            # Slide title
-            title_text = self._get_slide_title(slide, idx + 1)
-            model.add_element(
-                Element(type=ElementType.HEADING, content=title_text, level=2)
+        try:
+            model = DocumentModel()
+            model.metadata = DocumentMetadata(
+                source_file=file_path.name,
+                source_format="pptx",
             )
 
-            # Walk shapes
-            for shape in slide.shapes:
-                self._process_shape(shape, model, file_path, idx + 1)
+            prs = Presentation(str(file_path))
+            slide_count = len(prs.slides)
+            model.metadata.page_count = slide_count
 
-            # Speaker notes
-            if slide.has_notes_slide and slide.notes_slide.notes_text_frame:
-                notes_text = slide.notes_slide.notes_text_frame.text.strip()
-                if notes_text:
-                    model.add_element(
-                        Element(
-                            type=ElementType.BLOCKQUOTE,
-                            content=f"Speaker Notes: {notes_text}",
+            for idx, slide in enumerate(prs.slides):
+                # Add horizontal rule between slides (not before first)
+                if idx > 0:
+                    model.add_element(Element(type=ElementType.HORIZONTAL_RULE, content=""))
+
+                # Slide title
+                title_text = self._get_slide_title(slide, idx + 1)
+                model.add_element(
+                    Element(type=ElementType.HEADING, content=title_text, level=2)
+                )
+
+                # Walk shapes
+                for shape in slide.shapes:
+                    self._process_shape(shape, model, file_path, idx + 1)
+
+                # Speaker notes
+                if slide.has_notes_slide and slide.notes_slide.notes_text_frame:
+                    notes_text = slide.notes_slide.notes_text_frame.text.strip()
+                    if notes_text:
+                        model.add_element(
+                            Element(
+                                type=ElementType.BLOCKQUOTE,
+                                content=f"Speaker Notes: {notes_text}",
+                            )
                         )
-                    )
 
-        duration_ms = int((time.perf_counter() - t_start) * 1000)
-        log.info(
-            "handler_ingest_complete",
-            filename=file_path.name,
-            element_count=len(model.elements),
-            duration_ms=duration_ms,
-        )
-        return model
+            duration_ms = int((time.perf_counter() - t_start) * 1000)
+            log.info(
+                "handler_ingest_complete",
+                filename=file_path.name,
+                element_count=len(model.elements),
+                duration_ms=duration_ms,
+            )
+            return model
+        finally:
+            if _tmp_pptx and _tmp_pptx.exists():
+                _tmp_pptx.unlink(missing_ok=True)
 
     def _get_slide_title(self, slide: Any, slide_num: int) -> str:
         """Extract slide title from the title placeholder, or generate one."""
@@ -486,6 +499,21 @@ class PptxHandler(FormatHandler):
         from pptx import Presentation
         from pptx.enum.shapes import MSO_SHAPE_TYPE
 
+        file_path = Path(file_path)
+        _tmp_pptx: Path | None = None
+        if file_path.suffix.lower() == ".ppt":
+            from core.libreoffice_helper import convert_with_libreoffice
+
+            file_path = convert_with_libreoffice(file_path, "pptx")
+            _tmp_pptx = file_path
+
+        try:
+            return self._extract_styles_impl(file_path, Presentation, MSO_SHAPE_TYPE)
+        finally:
+            if _tmp_pptx and _tmp_pptx.exists():
+                _tmp_pptx.unlink(missing_ok=True)
+
+    def _extract_styles_impl(self, file_path: Path, Presentation: Any, MSO_SHAPE_TYPE: Any) -> dict[str, Any]:
         styles: dict[str, Any] = {"document_level": {}}
 
         prs = Presentation(str(file_path))
