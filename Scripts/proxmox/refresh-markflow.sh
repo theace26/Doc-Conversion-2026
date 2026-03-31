@@ -1,45 +1,42 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
-# ============================================================
-#  MarkFlow Docker Reset & Rebuild Script (Proxmox VM)
-#  Tears down everything, force-pulls latest from GitHub,
-#  auto-detects GPU, writes .env for NAS mounts, rebuilds.
 #
-#  Usage:
-#    chmod +x ~/reset-markflow.sh && ~/reset-markflow.sh
-#    ./reset-markflow.sh --skip-prune
-#    ./reset-markflow.sh --source /mnt/custom --output /mnt/out
-# ============================================================
+# MarkFlow Quick Refresh (Proxmox VM)
+#
+# Unlike reset-markflow.sh, this keeps your database, Meilisearch index,
+# and converted output intact. It only:
+#   1. Force-pulls latest code from GitHub
+#   2. Auto-detects GPU hardware on the host
+#   3. Rebuilds the Docker images with the new code
+#   4. Restarts the containers (with NVIDIA passthrough if applicable)
+#   5. Starts the hashcat host worker for non-NVIDIA GPUs (if hashcat installed)
+#
+# Usage:
+#   ./refresh-markflow.sh                  # auto-detects GPU
+#   ./refresh-markflow.sh --no-build       # just restart, skip rebuild
+#   ./refresh-markflow.sh --repo /path     # custom repo location
+
+set -euo pipefail
 
 # ── Defaults ────────────────────────────────────────────────────
 REPO_DIR="/opt/markflow"
-SOURCE_DIR="/mnt/source-share"
-OUTPUT_DIR="/mnt/markflow-output"
-SKIP_PRUNE=false
+NO_BUILD=false
 
 # ── Parse args ──────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --repo)        REPO_DIR="$2"; shift 2 ;;
-        --source)      SOURCE_DIR="$2"; shift 2 ;;
-        --output)      OUTPUT_DIR="$2"; shift 2 ;;
-        --skip-prune)  SKIP_PRUNE=true; shift ;;
-        --gpu)         shift ;;  # legacy flag, ignored (auto-detect now)
-        *)             echo "Unknown arg: $1"; exit 1 ;;
+        --repo)      REPO_DIR="$2"; shift 2 ;;
+        --no-build)  NO_BUILD=true; shift ;;
+        --gpu)       shift ;;  # legacy flag, ignored (auto-detect now)
+        *)           echo "Unknown arg: $1"; exit 1 ;;
     esac
 done
 
-COMPOSE_FILE="$REPO_DIR/docker-compose.yml"
-
 echo "=========================================="
-echo "  MarkFlow Docker Reset & Rebuild"
+echo "  MarkFlow Quick Refresh"
 echo "  Machine: Proxmox VM (Linux)"
 echo "=========================================="
 
-# ----------------------------------------------------------
-#  GPU Auto-Detection
-# ----------------------------------------------------------
+# ── GPU Auto-Detection ──────────────────────────────────────────
 echo ""
 echo "[GPU] Detecting host GPU hardware..."
 
@@ -163,43 +160,15 @@ elif [[ "$GPU_VENDOR" != "none" ]]; then
 fi
 
 # ── Build compose args ──────────────────────────────────────────
-COMPOSE_ARGS=("-f" "$COMPOSE_FILE")
+COMPOSE_ARGS=("-f" "$REPO_DIR/docker-compose.yml")
 
 if $USE_NVIDIA_OVERLAY; then
     COMPOSE_ARGS+=("-f" "$REPO_DIR/docker-compose.gpu.yml")
 fi
 
-# ----------------------------------------------------------
-#  1. Tear down everything
-# ----------------------------------------------------------
+# ── 1. Pull latest code ────────────────────────────────────────
 echo ""
-echo "[1/5] Tearing down containers, volumes, and images..."
-cd "$REPO_DIR"
-
-docker compose "${COMPOSE_ARGS[@]}" down -v 2>/dev/null || true
-
-if ! $SKIP_PRUNE; then
-    echo "  Pruning unused images and build cache (preserving markflow-base)..."
-    docker system prune -f --volumes
-    # Remove app images but preserve the base image
-    docker images "markflow-*" --format "{{.Repository}}:{{.Tag}}" \
-        | grep -v "markflow-base:latest" \
-        | xargs -r docker rmi 2>/dev/null || true
-fi
-
-# Build base image if missing
-if ! docker images markflow-base:latest -q | grep -q .; then
-    echo ""
-    echo "  [!] markflow-base:latest not found -- building it now..."
-    echo "  (This is the slow step -- only needed once)"
-    docker build -f "$REPO_DIR/Dockerfile.base" -t markflow-base:latest "$REPO_DIR"
-fi
-
-# ----------------------------------------------------------
-#  2. Force-pull latest code from GitHub
-# ----------------------------------------------------------
-echo ""
-echo "[2/5] Force-pulling latest code from GitHub..."
+echo "[1/3] Pulling latest code from GitHub..."
 
 git -C "$REPO_DIR" fetch origin
 git -C "$REPO_DIR" reset --hard origin/main
@@ -207,72 +176,24 @@ git -C "$REPO_DIR" reset --hard origin/main
 COMMIT=$(git -C "$REPO_DIR" log -1 --format="%h %s")
 echo "  [OK] Now at: $COMMIT"
 
-# ----------------------------------------------------------
-#  3. Configure .env for Proxmox VM (NAS mounts)
-# ----------------------------------------------------------
+# ── 2. Rebuild (or skip) ───────────────────────────────────────
 echo ""
-echo "[3/5] Configuring .env for Proxmox VM..."
 
-ENV_FILE="$REPO_DIR/.env"
-
-cat > "$ENV_FILE" << ENV_CONTENT
-# MarkFlow Environment Configuration
-# Proxmox VM (Linux) - auto-generated by reset-markflow.sh
-
-# Host paths - mounted into Docker containers
-SOURCE_DIR=$SOURCE_DIR
-OUTPUT_DIR=$OUTPUT_DIR
-DRIVE_C=$SOURCE_DIR
-DRIVE_D=$OUTPUT_DIR
-
-# Meilisearch
-MEILI_MASTER_KEY=
-
-# Bulk conversion
-BULK_WORKER_COUNT=4
-
-# App
-SECRET_KEY=dev-secret-change-in-prod
-DEFAULT_LOG_LEVEL=normal
-DEV_BYPASS_AUTH=true
-ENV_CONTENT
-
-echo "  [OK] .env written"
-echo "    SOURCE_DIR = $SOURCE_DIR"
-echo "    OUTPUT_DIR = $OUTPUT_DIR"
-
-# ----------------------------------------------------------
-#  4. Verify paths exist
-# ----------------------------------------------------------
-echo ""
-echo "[4/5] Verifying paths..."
-
-if [[ -d "$SOURCE_DIR" ]]; then
-    SOURCE_COUNT=$(find "$SOURCE_DIR" -maxdepth 3 -type f 2>/dev/null | wc -l | xargs)
-    echo "  [OK] Source dir exists ($SOURCE_COUNT files in top 3 levels)"
+if $NO_BUILD; then
+    echo "[2/3] Skipping rebuild (--no-build flag)"
 else
-    echo "  [!] Source dir not found: $SOURCE_DIR"
-    echo "      Check NAS mount: mount -a"
+    echo "[2/3] Rebuilding Docker images..."
+    docker compose "${COMPOSE_ARGS[@]}" build
+    echo "  [OK] Build complete"
 fi
 
-if [[ -d "$OUTPUT_DIR" ]]; then
-    echo "  [OK] Output dir exists"
-else
-    echo "  [!] Output dir not found: $OUTPUT_DIR -- creating it..."
-    sudo mkdir -p "$OUTPUT_DIR"
-    echo "  [OK] Output dir created"
-fi
-
-# ----------------------------------------------------------
-#  5. Rebuild and start
-# ----------------------------------------------------------
+# ── 3. Restart containers ──────────────────────────────────────
 echo ""
-echo "[5/5] Building and starting MarkFlow..."
-docker compose "${COMPOSE_ARGS[@]}" up -d --build
+echo "[3/3] Restarting containers..."
 
-# ----------------------------------------------------------
-#  Auto-start hashcat host worker (non-NVIDIA or no toolkit)
-# ----------------------------------------------------------
+docker compose "${COMPOSE_ARGS[@]}" up -d
+
+# ── Auto-start hashcat host worker ─────────────────────────────
 if [[ -n "$HASHCAT_PATH" && "$GPU_VENDOR" != "none" && "$USE_NVIDIA_OVERLAY" == "false" ]]; then
     WORKER_SCRIPT="$REPO_DIR/tools/markflow-hashcat-worker.py"
     if [[ -f "$WORKER_SCRIPT" ]]; then
@@ -283,12 +204,10 @@ if [[ -n "$HASHCAT_PATH" && "$GPU_VENDOR" != "none" && "$USE_NVIDIA_OVERLAY" == 
     fi
 fi
 
-# ----------------------------------------------------------
-#  Done
-# ----------------------------------------------------------
+# ── Done ────────────────────────────────────────────────────────
 echo ""
 echo "=========================================="
-echo "  Reset Complete!"
+echo "  Refresh Complete!"
 echo "=========================================="
 echo ""
 
