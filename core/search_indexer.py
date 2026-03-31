@@ -1,10 +1,11 @@
 """
-Meilisearch index management — creates indexes, indexes documents/Adobe files,
-and provides rebuild functionality.
+Meilisearch index management — creates indexes, indexes documents/Adobe files/
+transcripts, and provides rebuild functionality.
 
-Two indexes:
+Three indexes:
   - 'documents': converted Markdown files
   - 'adobe-files': Adobe creative file index entries
+  - 'transcripts': media transcription content (v0.13.0)
 """
 
 import hashlib
@@ -51,6 +52,17 @@ DOCUMENTS_INDEX_SETTINGS = {
     ],
     "rankingRules": [
         "words", "typo", "proximity", "attribute", "sort", "exactness",
+    ],
+}
+
+TRANSCRIPTS_INDEX_SETTINGS = {
+    "searchableAttributes": ["title", "raw_text", "language", "source_path"],
+    "filterableAttributes": ["source_format", "engine", "language"],
+    "sortableAttributes": ["duration_seconds", "word_count", "created_at"],
+    "displayedAttributes": [
+        "id", "title", "raw_text", "source_path", "source_format",
+        "duration_seconds", "engine", "whisper_model", "language",
+        "word_count", "created_at",
     ],
 }
 
@@ -113,6 +125,9 @@ class SearchIndexer:
 
         await self.client.create_index("adobe-files", "id")
         await self.client.update_index_settings("adobe-files", ADOBE_INDEX_SETTINGS)
+
+        await self.client.create_index("transcripts", "id")
+        await self.client.update_index_settings("transcripts", TRANSCRIPTS_INDEX_SETTINGS)
 
         log.info("meilisearch_indexes_ready")
 
@@ -212,6 +227,36 @@ class SearchIndexer:
             entry = await get_adobe_index_entry(str(adobe_result.source_path))
             if entry:
                 await mark_adobe_meili_indexed(entry["id"])
+        return task_uid is not None
+
+    async def index_transcript(
+        self,
+        history_id: str,
+        title: str,
+        raw_text: str,
+        source_path: str,
+        source_format: str,
+        duration_seconds: float | None,
+        engine: str,
+        whisper_model: str | None,
+        language: str | None,
+        word_count: int,
+    ) -> bool:
+        """Index a media transcript in Meilisearch."""
+        doc = {
+            "id": history_id,
+            "title": title,
+            "raw_text": raw_text,
+            "source_path": source_path,
+            "source_format": source_format,
+            "duration_seconds": duration_seconds,
+            "engine": engine,
+            "whisper_model": whisper_model,
+            "language": language,
+            "word_count": word_count,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        task_uid = await self.client.add_documents("transcripts", [doc])
         return task_uid is not None
 
     async def remove_document(self, source_path: str) -> None:

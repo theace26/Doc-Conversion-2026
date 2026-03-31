@@ -87,6 +87,13 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     "auto_convert_business_hours_start": "06:00",
     "auto_convert_business_hours_end": "18:00",
     "auto_convert_conservative_factor": "0.7",
+    # Transcription (v0.13.0)
+    "whisper_model": "base",
+    "whisper_language": "auto",
+    "whisper_device": "auto",
+    "transcription_cloud_fallback": "true",
+    "caption_file_extensions": ".srt,.vtt,.sbv",
+    "transcription_timeout_seconds": "3600",
 }
 
 # ── Schema DDL ────────────────────────────────────────────────────────────────
@@ -454,6 +461,21 @@ CREATE TABLE IF NOT EXISTS archive_members (
 CREATE INDEX IF NOT EXISTS idx_archive_members_bulk_file ON archive_members(bulk_file_id);
 CREATE INDEX IF NOT EXISTS idx_archive_members_hash ON archive_members(member_hash);
 CREATE INDEX IF NOT EXISTS idx_archive_members_status ON archive_members(bulk_file_id, status);
+
+-- v0.13.0: Transcript segments for media transcription
+CREATE TABLE IF NOT EXISTS transcript_segments (
+    id              TEXT PRIMARY KEY,
+    history_id      TEXT NOT NULL,
+    segment_index   INTEGER NOT NULL,
+    start_seconds   REAL NOT NULL,
+    end_seconds     REAL NOT NULL,
+    text            TEXT NOT NULL,
+    speaker         TEXT,
+    confidence      REAL,
+    FOREIGN KEY(history_id) REFERENCES conversion_history(id)
+);
+CREATE INDEX IF NOT EXISTS idx_segments_history
+    ON transcript_segments(history_id, segment_index);
 """
 
 
@@ -543,6 +565,21 @@ async def init_db() -> None:
         await _add_column_if_missing(conn, "bulk_jobs", "files_per_second", "REAL")
         await _add_column_if_missing(conn, "bulk_jobs", "eta_updated_at", "TEXT")
         await _add_column_if_missing(conn, "conversion_history", "eta_seconds", "REAL")
+        # v0.13.0: media transcription columns on conversion_history
+        await _add_column_if_missing(conn, "conversion_history", "media_duration_seconds", "REAL")
+        await _add_column_if_missing(conn, "conversion_history", "media_engine", "TEXT")
+        await _add_column_if_missing(conn, "conversion_history", "media_whisper_model", "TEXT")
+        await _add_column_if_missing(conn, "conversion_history", "media_language", "TEXT")
+        await _add_column_if_missing(conn, "conversion_history", "media_word_count", "INTEGER")
+        await _add_column_if_missing(conn, "conversion_history", "media_speaker_count", "INTEGER")
+        await _add_column_if_missing(conn, "conversion_history", "media_caption_path", "TEXT")
+        await _add_column_if_missing(conn, "conversion_history", "media_vtt_path", "TEXT")
+        # v0.13.0: media columns on bulk_files
+        await _add_column_if_missing(conn, "bulk_files", "is_media", "INTEGER NOT NULL DEFAULT 0")
+        await _add_column_if_missing(conn, "bulk_files", "media_engine", "TEXT")
+        # v0.13.0: transcription counters on bulk_jobs
+        await _add_column_if_missing(conn, "bulk_jobs", "transcribed", "INTEGER NOT NULL DEFAULT 0")
+        await _add_column_if_missing(conn, "bulk_jobs", "transcript_failed", "INTEGER NOT NULL DEFAULT 0")
         await conn.commit()
         # Phase 9: WAL mode and pragmas
         await conn.execute("PRAGMA journal_mode = WAL")

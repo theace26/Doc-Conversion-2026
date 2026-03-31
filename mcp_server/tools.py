@@ -489,3 +489,104 @@ async def get_file_history(source_path: str) -> str:
     except Exception as exc:
         log.warning("mcp_file_history_error", error=str(exc))
         return f"Error getting file history: {exc}"
+
+
+async def search_transcripts(
+    query: str,
+    limit: int = 10,
+    language: str | None = None,
+    format: str | None = None,
+) -> str:
+    """
+    Search media transcripts by spoken content.
+    Returns matching transcripts with timestamps, duration, and source info.
+    """
+    try:
+        from core.search_client import MeilisearchClient
+
+        client = MeilisearchClient()
+        if not await client.health_check():
+            return "Search is unavailable — Meilisearch is not running."
+
+        options: dict = {"limit": min(limit, 25)}
+        filters = []
+        if language:
+            filters.append(f"language = '{language}'")
+        if format:
+            filters.append(f"source_format = '{format}'")
+        if filters:
+            options["filter"] = " AND ".join(filters)
+
+        result = await client.search("transcripts", query, options)
+
+        hits = result.get("hits", [])
+        if not hits:
+            return f'No transcript results found for "{query}".'
+
+        lines = [f'Found {len(hits)} transcript(s) matching "{query}":\n']
+        for i, hit in enumerate(hits, 1):
+            title = hit.get("title", "Untitled")
+            fmt = hit.get("source_format", "")
+            engine = hit.get("engine", "")
+            lang = hit.get("language", "")
+            duration = hit.get("duration_seconds")
+            words = hit.get("word_count", 0)
+            source = hit.get("source_path", "")
+
+            duration_str = ""
+            if duration:
+                h = int(duration // 3600)
+                m = int((duration % 3600) // 60)
+                s = int(duration % 60)
+                duration_str = f" ({h}:{m:02d}:{s:02d})"
+
+            lines.append(f"{i}. **{title}** ({fmt}){duration_str}")
+            lines.append(f"   Engine: {engine} | Language: {lang or 'auto'} | Words: {words}")
+            if source:
+                lines.append(f"   Source: {source}")
+
+            # Preview of spoken content
+            raw = hit.get("raw_text", "")
+            if raw:
+                preview = raw[:200].replace("\n", " ") + ("..." if len(raw) > 200 else "")
+                lines.append(f"   Transcript: {preview}")
+            lines.append("")
+
+        return "\n".join(lines)
+    except Exception as exc:
+        log.warning("mcp_search_transcripts_error", error=str(exc))
+        return f"Transcript search error: {exc}"
+
+
+async def read_transcript(
+    history_id: str,
+    include_timestamps: bool = True,
+) -> str:
+    """
+    Read the full transcript of a specific media file.
+    Returns the complete markdown transcript with timestamps.
+    """
+    import re
+
+    try:
+        from core.database import db_fetch_one
+
+        row = await db_fetch_one(
+            "SELECT * FROM conversion_history WHERE id = ?", (history_id,)
+        )
+        if not row:
+            return f"Transcript not found for history_id: {history_id}"
+
+        output_path = row.get("output_path")
+        if not output_path or not Path(output_path).exists():
+            return "Transcript file not found on disk."
+
+        content = Path(output_path).read_text(encoding="utf-8")
+
+        if not include_timestamps:
+            content = re.sub(r"\[\d{2}:\d{2}:\d{2}\]\s*", "", content)
+
+        return content
+    except Exception as exc:
+        log.warning("mcp_read_transcript_error", error=str(exc))
+        return f"Error reading transcript: {exc}"

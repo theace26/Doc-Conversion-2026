@@ -4,6 +4,43 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.13.0 — Media Transcription Pipeline (2026-03-30)
+
+**New features:**
+- Audio/video files (.mp3, .mp4, .wav, .mkv, etc.) now convert to Markdown transcripts with timestamped segments
+- Three output files per media conversion: `.md` (timestamped transcript), `.srt`, `.vtt`
+- Local Whisper transcription with GPU auto-detect (CUDA when available, CPU fallback)
+- Cloud transcription fallback — tries OpenAI Whisper API and Gemini audio in provider priority order
+- Existing caption files (SRT/VTT/SBV) detected alongside media files and parsed automatically (no transcription cost)
+- Meilisearch `transcripts` index for full-text search across spoken content
+- Cowork search extended to cover documents + transcripts
+- 2 new MCP tools: `search_transcripts`, `read_transcript`
+- Visual enrichment (scene detection + keyframe pipeline) optionally interleaved into video transcripts
+- Settings page gains Transcription section (Whisper model, device, language, cloud fallback, timeout, caption extensions)
+- History page shows media-specific metadata: duration, engine badge, language
+- Health check includes Whisper availability and device info
+- Bulk conversion counters include "Transcribed" count
+
+**New files (10 core + 2 handlers + 1 API route):**
+- `core/media_probe.py`, `core/audio_extractor.py`, `core/whisper_transcriber.py`
+- `core/cloud_transcriber.py`, `core/caption_ingestor.py`, `core/transcription_engine.py`
+- `core/transcript_formatter.py`, `core/media_orchestrator.py`
+- `formats/audio_handler.py`, `formats/media_handler.py`
+- `api/routes/media.py`
+
+**Database changes:**
+- New table: `transcript_segments` (history_id, segment_index, start/end seconds, text, speaker, confidence)
+- New columns on `conversion_history`: media_duration_seconds, media_engine, media_whisper_model, media_language, media_word_count, media_speaker_count, media_caption_path, media_vtt_path
+- New columns on `bulk_files`: is_media, media_engine
+- New columns on `bulk_jobs`: transcribed, transcript_failed
+
+**Dependencies:**
+- Added: `openai-whisper`, `ffmpeg-python`
+- `torch` (CPU) pre-installed in Dockerfile.base for faster rebuilds
+- `whisper-cache` Docker volume for persistent model storage
+
+---
+
 **Phase 0 complete** — Docker scaffold running. All system deps verified.
 
 **Phase 1 complete** — DOCX → Markdown pipeline fully implemented. 60 tests passing. Tagged v0.1.0.

@@ -250,6 +250,50 @@ async def get_file_history(
     return await _history(source_path)
 
 
+@mcp.tool()
+async def search_transcripts(
+    query: str,
+    limit: int = 10,
+    language: str | None = None,
+    format: str | None = None,
+) -> str:
+    """
+    Search media transcripts by spoken content.
+    Returns matching transcripts with timestamps, duration, and source info.
+
+    Use this when the user asks to find spoken content in audio or video files,
+    search for what was said in a recording, or find media by transcript content.
+
+    Args:
+        query: Search text (searches spoken content)
+        limit: Max results (1-25, default 10)
+        language: Filter by language code (e.g. 'en', 'es')
+        format: Filter by source format (e.g. 'mp4', 'mp3')
+    """
+    from mcp_server.tools import search_transcripts as _search
+    return await _search(query, limit, language, format)
+
+
+@mcp.tool()
+async def read_transcript(
+    history_id: str,
+    include_timestamps: bool = True,
+) -> str:
+    """
+    Read the full transcript of a specific media file.
+    Returns the complete markdown transcript with timestamps.
+
+    Use this when the user asks to read a specific transcript, or when
+    you need the full spoken content of a media file found via search_transcripts.
+
+    Args:
+        history_id: The conversion history ID of the transcript
+        include_timestamps: Include [HH:MM:SS] timestamps (default True)
+    """
+    from mcp_server.tools import read_transcript as _read
+    return await _read(history_id, include_timestamps)
+
+
 def main():
     """Run the MCP server."""
     port = int(os.getenv("MCP_PORT", "8001"))
@@ -259,7 +303,7 @@ def main():
     from core.database import init_db
     asyncio.run(init_db())
 
-    log.info("mcp_server_start", port=port, tools=10)
+    log.info("mcp_server_start", port=port, tools=12)
 
     # FastMCP.run() doesn't accept host/port kwargs in this version.
     # Set via environment variables that Uvicorn reads at startup.

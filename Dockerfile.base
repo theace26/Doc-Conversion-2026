@@ -54,4 +54,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Pre-install heavy Python dependencies in base image (torch ~2GB, whisper ~1GB)
+# These rarely change and are very slow to install on every rebuild.
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir openai-whisper
+
 WORKDIR /app

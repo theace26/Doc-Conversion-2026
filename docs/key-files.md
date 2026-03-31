@@ -44,6 +44,14 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `core/progress_tracker.py` | RollingWindowETA, ProgressSnapshot, format_eta for scan/bulk jobs |
 | `core/log_archiver.py` | Compress rotated logs to gzip archives, purge old archives |
 | `core/archive_safety.py` | Zip-bomb protection: ratio, size, depth, quine checks |
+| `core/media_probe.py` | ffprobe wrapper: codec detection, duration, transcode decision |
+| `core/audio_extractor.py` | Extract audio from video, convert to Whisper-compatible WAV |
+| `core/whisper_transcriber.py` | Local Whisper with GPU auto-detect, lazy model loading |
+| `core/cloud_transcriber.py` | Cloud fallback: OpenAI Whisper API, Gemini audio |
+| `core/transcription_engine.py` | Fallback orchestrator: caption → Whisper → cloud |
+| `core/caption_ingestor.py` | SRT/VTT/SBV caption file parser |
+| `core/transcript_formatter.py` | Output formatter: .md + .srt + .vtt generation |
+| `core/media_orchestrator.py` | Top-level media conversion coordinator |
 
 ## Format Handlers
 
@@ -69,6 +77,8 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `formats/eml_handler.py` | EML/MSG email with recursive attachment conversion |
 | `formats/adobe_handler.py` | PSD/AI/INDD/AEP/PRPROJ/XD — unified Adobe handler |
 | `formats/archive_handler.py` | ZIP/TAR/7z/RAR/CAB/ISO — recursive extraction + conversion |
+| `formats/audio_handler.py` | Audio file handler (.mp3, .wav, .flac, .ogg, .m4a, .wma, .aac) |
+| `formats/media_handler.py` | Video file handler (.mp4, .mov, .avi, .mkv, .webm, .m4v, .wmv) |
 
 ## API Routes
 
@@ -100,6 +110,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `api/routes/client_log.py` | POST /api/log/client-event — frontend action logging |
 | `api/routes/logs.py` | GET /api/logs/download/{filename} — log file downloads + archive endpoints |
 | `api/routes/mcp_info.py` | GET /api/mcp/connection-info — MCP server status for settings UI |
+| `api/routes/media.py` | Media transcript API: get transcript, segments, download |
 
 ## Frontend
 

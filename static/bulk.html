@@ -149,6 +149,7 @@
           <div class="counter"><span class="counter-value" id="c-failed">0</span><span class="counter-label">Failed</span></div>
           <div class="counter"><span class="counter-value" id="c-skipped">0</span><span class="counter-label">Skipped</span></div>
           <div class="counter"><span class="counter-value" id="c-adobe">0</span><span class="counter-label">Adobe</span></div>
+          <div class="counter" id="c-transcribed-wrap" style="display:none"><span class="counter-value" id="c-transcribed">0</span><span class="counter-label">Transcribed</span></div>
           <div class="counter" id="c-unrecognized-wrap" style="display:none"><a id="c-unrecognized-link" href="/unrecognized.html" style="text-decoration:none;color:inherit"><span class="counter-value" id="c-unrecognized">0</span><span class="counter-label">Unrecognized</span></a></div>
         </div>
         <div id="review-queue-counter" class="text-sm" style="margin-top:0.5rem;color:var(--warn)" hidden>
@@ -336,9 +337,10 @@
   });
 
   function resetCounters() {
-    ['c-converted', 'c-failed', 'c-skipped', 'c-adobe'].forEach(id => {
+    ['c-converted', 'c-failed', 'c-skipped', 'c-adobe', 'c-transcribed'].forEach(id => {
       document.getElementById(id).textContent = '0';
     });
+    document.getElementById('c-transcribed-wrap').style.display = 'none';
     const bar = document.getElementById('progress-bar');
     bar.className = 'progress-bar-fill indeterminate';
     bar.textContent = '';
@@ -501,6 +503,7 @@
       document.getElementById('c-failed').textContent = (d.failed || 0).toLocaleString();
       document.getElementById('c-skipped').textContent = (d.skipped || 0).toLocaleString();
       document.getElementById('c-adobe').textContent = (d.adobe_indexed || 0).toLocaleString();
+      if (d.transcribed) { document.getElementById('c-transcribed').textContent = d.transcribed.toLocaleString(); document.getElementById('c-transcribed-wrap').style.display = ''; }
       document.getElementById('active-status').textContent = 'COMPLETED';
       document.getElementById('active-status').className = 'job-status completed';
       document.getElementById('progress-bar').style.width = '100%';
@@ -619,6 +622,7 @@
         document.getElementById('c-failed').textContent = (running.failed || 0).toLocaleString();
         document.getElementById('c-skipped').textContent = (running.skipped || 0).toLocaleString();
         document.getElementById('c-adobe').textContent = (running.adobe_indexed || 0).toLocaleString();
+        if (running.transcribed) { document.getElementById('c-transcribed').textContent = running.transcribed.toLocaleString(); document.getElementById('c-transcribed-wrap').style.display = ''; }
         if (running.total_files) {
           totalPending = running.total_files - (running.skipped || 0);
           updateProgressBar(running.converted || 0, totalPending);

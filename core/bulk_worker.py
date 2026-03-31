@@ -680,6 +680,33 @@ class BulkJob:
             except Exception as exc:
                 log.warning("bulk_meili_index_fail", file_id=file_id, error=str(exc))
 
+            # Index transcript in Meilisearch if this was a media file (best-effort)
+            media_exts = {".mp3", ".mp4", ".mov", ".avi", ".mkv", ".wav", ".flac",
+                          ".ogg", ".webm", ".m4a", ".m4v", ".wmv", ".aac", ".wma"}
+            if source_path.suffix.lower() in media_exts:
+                try:
+                    from core.search_indexer import get_search_indexer
+                    indexer = get_search_indexer()
+                    if indexer and actual_output and actual_output.exists():
+                        md_content = actual_output.read_text(encoding="utf-8")
+                        await indexer.index_transcript(
+                            history_id=str(file_id),
+                            title=source_path.stem,
+                            raw_text=md_content,
+                            source_path=str(source_path),
+                            source_format=source_path.suffix.lstrip("."),
+                            duration_seconds=None,
+                            engine="unknown",
+                            whisper_model=None,
+                            language=None,
+                            word_count=len(md_content.split()),
+                        )
+                        await _db_write_with_retry(
+                            lambda: increment_bulk_job_counter(self.job_id, "transcribed")
+                        )
+                except Exception as exc:
+                    log.warning("bulk_meili_transcript_fail", file_id=file_id, error=str(exc))
+
         else:
             await _db_write_with_retry(lambda: update_bulk_file(
                 file_id,

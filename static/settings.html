@@ -595,6 +595,69 @@
         </div>
       </div>
 
+      <!-- Transcription section (v0.13.0) -->
+      <div class="section-title">Transcription</div>
+      <div class="card">
+        <p class="text-sm text-muted" style="margin:0 0 1rem">
+          Audio and video transcription settings. Media files are transcribed using local Whisper
+          (GPU-accelerated if available) with cloud provider fallback.
+        </p>
+
+        <div class="form-group">
+          <label for="pref-whisper_model">Whisper model</label>
+          <select id="pref-whisper_model" data-key="whisper_model">
+            <option value="tiny">Tiny &mdash; Fastest, ~1 GB RAM</option>
+            <option value="base">Base &mdash; Good default, ~1.5 GB RAM</option>
+            <option value="small">Small &mdash; Better accuracy, ~2.5 GB RAM</option>
+            <option value="medium">Medium &mdash; High accuracy, ~5 GB RAM</option>
+            <option value="large">Large &mdash; Best accuracy, ~10 GB RAM</option>
+          </select>
+          <p class="hint">Larger models are more accurate but slower and use more memory.</p>
+          <div class="inline-error" id="err-whisper_model"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-whisper_device">Compute device</label>
+          <select id="pref-whisper_device" data-key="whisper_device">
+            <option value="auto">Auto &mdash; GPU if available, otherwise CPU</option>
+            <option value="cpu">CPU only</option>
+            <option value="cuda">CUDA (GPU) &mdash; Requires NVIDIA GPU</option>
+          </select>
+          <div class="inline-error" id="err-whisper_device"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-whisper_language">Language</label>
+          <input type="text" id="pref-whisper_language" data-key="whisper_language" placeholder="auto">
+          <p class="hint">Leave as &lsquo;auto&rsquo; for auto-detection, or enter a language code (en, es, fr, de, ja, etc.).</p>
+          <div class="inline-error" id="err-whisper_language"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Cloud fallback</label>
+          <label class="toggle">
+            <input type="checkbox" id="pref-transcription_cloud_fallback" data-key="transcription_cloud_fallback">
+            <span class="toggle-track"></span>
+            <span class="toggle-label" id="toggle-label-cloud-fallback">OFF</span>
+          </label>
+          <p class="hint">Fall back to cloud provider (OpenAI or Gemini) if local Whisper fails. Note: Anthropic does not support audio transcription.</p>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-transcription_timeout_seconds">Timeout (seconds)</label>
+          <input type="number" id="pref-transcription_timeout_seconds" data-key="transcription_timeout_seconds" min="60" max="86400">
+          <p class="hint">Maximum time for transcribing a single file. Default: 3600 (1 hour).</p>
+          <div class="inline-error" id="err-transcription_timeout_seconds"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-caption_file_extensions">Caption file extensions</label>
+          <input type="text" id="pref-caption_file_extensions" data-key="caption_file_extensions" placeholder=".srt,.vtt,.sbv">
+          <p class="hint">Comma-separated. If a caption file with one of these extensions exists alongside a media file, it will be used instead of running transcription.</p>
+          <div class="inline-error" id="err-caption_file_extensions"></div>
+        </div>
+      </div>
+
       <!-- Advanced section -->
       <div class="section-title">Advanced</div>
       <div class="card">

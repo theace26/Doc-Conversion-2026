@@ -211,11 +211,16 @@
       const rowClass = r.status === 'error' ? 'clickable-row row-error' : 'clickable-row';
       const ocrBadge = renderOcrBadge(r.ocr);
       const ocrDetail = renderOcrDetail(r.ocr);
+      const isMedia = r.media_engine != null;
+      const mediaIcon = isMedia ? ((['mp4','mov','avi','mkv','wmv','m4v','webm'].includes(r.source_format)) ? '&#127916; ' : '&#127925; ') : '';
+      const engineLabels = {whisper_local:'Whisper',whisper_cloud_openai:'Cloud: OpenAI',whisper_cloud_gemini:'Cloud: Gemini',caption_ingest:'Caption'};
+      const mediaBadge = isMedia ? `<span class="text-sm" style="padding:2px 6px;border-radius:3px;background:var(--surface-alt);margin-left:4px">${engineLabels[r.media_engine] || r.media_engine}</span>` : '';
+      const mediaDuration = isMedia && r.media_duration_seconds ? (() => { const s=r.media_duration_seconds; return `${Math.floor(s/3600)}:${String(Math.floor((s%3600)/60)).padStart(2,'0')}:${String(Math.floor(s%60)).padStart(2,'0')}`; })() : '';
       return `<tr class="${rowClass}" data-id="${r.id}">
-        <td class="text-mono text-sm">${r.source_filename}</td>
-        <td>${formatBadge(r.source_format)}</td>
+        <td class="text-mono text-sm">${mediaIcon}${r.source_filename}</td>
+        <td>${formatBadge(r.source_format)}${mediaBadge}</td>
         <td>${statusBadge}</td>
-        <td class="text-mono text-sm">${formatDuration(r.duration_ms)}</td>
+        <td class="text-mono text-sm">${isMedia && mediaDuration ? mediaDuration : formatDuration(r.duration_ms)}</td>
         <td class="text-sm">${formatDate(r.created_at)}</td>
         <td>${ocrBadge}</td>
       </tr>
@@ -226,6 +231,11 @@
             <dt>Direction</dt><dd>${r.direction === 'to_md' ? 'Document &rarr; Markdown' : 'Markdown &rarr; Document'}</dd>
             <dt>Output</dt><dd class="text-mono">${r.output_filename || '—'} ${r.file_size_bytes ? '(' + formatBytes(r.file_size_bytes) + ')' : ''}</dd>
             <dt>Batch</dt><dd class="text-mono text-sm">${r.batch_id}</dd>
+            ${isMedia ? `<dt>Engine</dt><dd>${engineLabels[r.media_engine] || r.media_engine}</dd>` : ''}
+            ${isMedia && r.media_language ? `<dt>Language</dt><dd>${r.media_language}</dd>` : ''}
+            ${isMedia && r.media_word_count ? `<dt>Words</dt><dd>${r.media_word_count.toLocaleString()}</dd>` : ''}
+            ${isMedia && r.media_duration_seconds ? `<dt>Duration</dt><dd>${mediaDuration}</dd>` : ''}
+            ${isMedia && r.media_whisper_model ? `<dt>Model</dt><dd>${r.media_whisper_model}</dd>` : ''}
             <dt>OCR flags</dt><dd>${r.ocr_flags_total || 0} total, ${r.ocr_flags_resolved || 0} resolved</dd>
             ${ocrDetail}
             ${r.scene_count ? `<dt>Scenes</dt><dd>${r.scene_count} detected</dd>` : ''}

@@ -533,3 +533,19 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 - **MSG library attachments**: The `olefile` library exposes MSG attachments differently than
   stdlib `email`. Both code paths handle attachment conversion — check both when modifying.
+
+## Media & Transcription
+
+- **Whisper model is lazy-loaded**: Model loaded on first transcription call, not at startup. Uses `import whisper` inside `_load_model()` to avoid slow lifespan. Cached as class-level state — reloaded only if model name or device changes.
+- **torch CPU index in Dockerfile.base**: `pip install torch --index-url https://download.pytorch.org/whl/cpu` avoids pulling CUDA packages (~2GB savings). GPU containers should override with the CUDA index.
+- **Transcription fallback chain order**: caption file → local Whisper → cloud providers. Each step tried in order; first success wins. Cloud tries ALL configured providers in priority order (active first).
+- **Anthropic has no audio support**: `AUDIO_CAPABLE_PROVIDERS` map skips Anthropic. Only OpenAI (Whisper API) and Gemini (inline audio) are attempted for cloud fallback.
+- **MediaHandler sync/async bridge**: `FormatHandler.ingest()` is synchronous but `MediaOrchestrator` is async. Handlers use `asyncio.run()` inside a `ThreadPoolExecutor` when called from a running event loop (bulk worker context).
+- **Caption file encodings**: Try UTF-8-BOM → UTF-8 → latin-1 → cp1252 (same chain as CSV handler). Windows caption tools often produce latin-1.
+- **SRT HTML tags**: Some SRT files contain `<i>`, `<b>` tags. `CaptionIngestor._parse_srt()` strips all HTML tags via regex.
+- **Album art in ffprobe**: Video streams with `disposition.attached_pic == 1` (album art) are ignored by `MediaProbe`. Without this check, MP3 files with cover art are misclassified as video.
+- **ffprobe frame_rate is a fraction**: `r_frame_rate` from ffprobe is a string fraction like "30000/1001". Must parse as division, not float().
+- **Whisper device preference "auto"**: Resolves via `torch.cuda.is_available()` at runtime. Requesting "cuda" when CUDA is unavailable gracefully falls back to "cpu" with a warning log.
+- **Transcript segments stored in DB**: `transcript_segments` table stores individual timestamped segments for API access. The full `.md` file is the authoritative source for the formatted transcript.
+- **Three output files**: Every media conversion produces `.md` + `.srt` + `.vtt`. The `.srt` and `.vtt` paths are stored in `conversion_history.media_caption_path` and `media_vtt_path`.
+- **Meilisearch transcripts index**: Separate from `documents` index. `raw_text` is the full transcript content (searchable). Search API accepts `?index=transcripts`.

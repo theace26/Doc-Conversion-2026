@@ -15,6 +15,7 @@ services:
       - ${DRIVE_D:-D:/}:/host/d:ro                        # Drive browser — D:
       - ${HASHCAT_QUEUE_DIR:-./hashcat-queue}:/mnt/hashcat-queue  # GPU cracking job queue
       - ./config:/app/config:ro                              # Config files (archive passwords, etc.)
+      - whisper-cache:/root/.cache/whisper                     # Whisper model cache — persistent
     environment:
       - DEBUG=false
       - WORKERS=1
@@ -93,3 +94,4 @@ services:
 volumes:
   markflow-db:        # SQLite database — survives container restarts
   meilisearch-data:   # Meilisearch index — survives container restarts
+  whisper-cache:      # Whisper model files — survives container restarts

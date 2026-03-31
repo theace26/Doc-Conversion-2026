@@ -230,6 +230,19 @@ async def run_health_check() -> dict:
     checker = HealthChecker()
     components = await checker.check_all()
 
+    # Whisper transcription availability
+    try:
+        from core.whisper_transcriber import WhisperTranscriber
+        whisper_info = WhisperTranscriber.get_device_info()
+        components["whisper"] = {
+            "ok": whisper_info["whisper_available"],
+            "version": f"model: {whisper_info['model_loaded'] or 'not loaded'}",
+            "device": whisper_info["device"],
+            "cuda": whisper_info["cuda_available"],
+        }
+    except Exception:
+        components["whisper"] = {"ok": False, "version": "unavailable"}
+
     # GPU info (re-reads host worker capabilities for live status)
     try:
         from core.gpu_detector import get_gpu_info_live

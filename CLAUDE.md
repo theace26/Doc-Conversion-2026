@@ -26,17 +26,19 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.12.10
+## Current Status — v0.13.0
 
-All 10 phases complete + universal format support. v0.12.10: fixed MCP server crash
-loop (FastMCP.run() kwargs unsupported — now uses uvicorn.run() directly), fixed MCP
-info panel showing Docker-internal IP and wrong path, added /health endpoint to MCP
-server. Docker compose paths now use .env variables for multi-machine support (Windows
-workstation + MacBook). Settings page gains Claude Desktop config generator button and
-Developer Mode checkbox (toggles log_level + decision_log_level between developer/normal).
-PowerShell deployment scripts gain -GPU flag. Deployment defaults updated: auto-convert
-immediate with 10 workers, brute-force enabled (all_ascii, max 8), OCR threshold 70%,
-scan interval 30min, path length 250.
+v0.13.0: Media transcription pipeline. Audio/video files now convert to Markdown
+transcripts with timestamped segments. Local Whisper (GPU auto-detect) with cloud
+fallback (OpenAI Whisper API, Gemini audio — tries all configured providers in
+priority order). Existing caption files (SRT/VTT/SBV) parsed automatically — no
+transcription cost. Three output files per media conversion: .md (timestamped
+transcript), .srt, .vtt. Meilisearch 'transcripts' index for full-text search
+across spoken content. Cowork search covers documents + transcripts. 2 new MCP
+tools: search_transcripts, read_transcript. Visual enrichment (existing scene
+detection + keyframe pipeline) optionally interleaved into video transcripts.
+Settings page gains Transcription section. History page shows media-specific
+metadata (duration, engine, language). Health check includes Whisper availability.
 
 **Planned:** External log shipping to Grafana Loki / ELK stack. The current local log
 archive system is an interim solution — once external aggregation is in place, local
@@ -63,6 +65,7 @@ For full version-by-version changelog, see [`docs/version-history.md`](docs/vers
 | 8c | Unknown & unrecognized file cataloging with MIME detection | Done |
 | 9 | File lifecycle management, version tracking, DB health | Done |
 | 10 | Auth layer, role guards, API keys, UnionCore integration contract | Done |
+| 11 | Media transcription: Whisper + cloud fallback + caption ingest, transcript search | Done |
 
 Phase 1 implementation instructions (historical): [`docs/phase-1-instructions.md`](docs/phase-1-instructions.md)
 
@@ -109,6 +112,17 @@ Critical files to know:
 | `formats/json_handler.py` | JSON ingest/export with summary + structure outline |
 | `formats/yaml_handler.py` | YAML/YML with multi-document support |
 | `formats/ini_handler.py` | INI/CFG/CONF/properties with section-aware parsing |
+| `formats/audio_handler.py` | Audio file handler (.mp3, .wav, .flac, etc.) |
+| `formats/media_handler.py` | Video file handler (.mp4, .mov, .mkv, etc.) |
+| `core/media_probe.py` | ffprobe wrapper: codec detection, duration, transcode decision |
+| `core/audio_extractor.py` | Extract audio from video, convert to Whisper-compatible WAV |
+| `core/whisper_transcriber.py` | Local Whisper with GPU auto-detect, lazy model loading |
+| `core/cloud_transcriber.py` | Cloud fallback: OpenAI Whisper API, Gemini audio |
+| `core/transcription_engine.py` | Fallback orchestrator: caption → Whisper → cloud |
+| `core/caption_ingestor.py` | SRT/VTT/SBV caption file parser |
+| `core/transcript_formatter.py` | Output formatter: .md + .srt + .vtt generation |
+| `core/media_orchestrator.py` | Top-level media conversion coordinator |
+| `api/routes/media.py` | Media transcript API: get transcript, segments, download |
 | `static/app.js` | Shared JS: API helpers, dynamic nav, toast |
 | `static/markflow.css` | Design system: CSS variables, dark mode |
 | `Dockerfile.base` | Base image: all apt system deps (build once, ~25 min on HDD) |
@@ -147,6 +161,10 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **PowerShell Set-Content BOM**: `Set-Content -Encoding UTF8` writes a UTF-8 BOM on Windows PowerShell 5.x. Python's `json.loads()` rejects this. Use `[IO.File]::WriteAllText()` for BOM-free output. Python readers should use `encoding="utf-8-sig"` defensively.
 - **PowerShell stderr from native commands**: Native command stderr (e.g., hashcat's `nvmlDeviceGetFanSpeed(): Not Supported`) becomes a `RemoteException` via `2>&1`, caught by `try/catch` and silently aborting. Set `$ErrorActionPreference = 'SilentlyContinue'` around the call.
 - **GPU health component needs ok/version**: The convert page renders health components generically using `s.ok` and `s.version`. The GPU component in `health.py` must include both fields or it renders as FAIL with blank detail.
+- **Whisper model lazy-load**: Model is loaded on first transcription call, NOT at startup. Lazy import `import whisper` inside `_load_model()` to avoid slow lifespan. Model cached as class-level state.
+- **Whisper torch CPU index**: `Dockerfile.base` installs torch from `--index-url https://download.pytorch.org/whl/cpu` to avoid pulling CUDA packages (~2GB savings). GPU containers should override this.
+- **Transcription fallback chain**: caption file → local Whisper → cloud providers (in priority order). Caption files checked alongside media files using `caption_file_extensions` preference.
+- **MediaHandler sync/async bridge**: `FormatHandler.ingest()` is synchronous but MediaOrchestrator is async. Handlers use `asyncio.run()` in a ThreadPoolExecutor when called from a running event loop.
 
 ---
 
@@ -163,11 +181,9 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 | Email | .eml, .msg | EmlHandler (with recursive attachment conversion) |
 | Archives | .zip, .tar, .tar.gz, .tgz, .tar.bz2, .7z, .rar, .cab, .iso | ArchiveHandler |
 | Adobe | .psd, .ai, .indd, .aep, .prproj, .xd | AdobeHandler |
-| Media | .mp3, .mp4, .mov, .avi, .mkv, .wav, .flac, .ogg, .webm, .m4a, .m4v, .wmv, .aac, .wma | Indexed (metadata/scene detection); **TODO: add media conversion handlers** |
-
-**Note:** Media files are currently recognized and indexed during bulk scans (metadata extraction,
-scene detection for video). Full media-to-document conversion handlers (transcription, frame
-extraction summaries) are the next planned addition.
+| Media (audio) | .mp3, .wav, .m4a, .flac, .ogg, .aac, .wma | AudioHandler |
+| Media (video) | .mp4, .mov, .avi, .mkv, .webm, .m4v, .wmv | MediaHandler |
+| Captions | .srt, .vtt, .sbv | CaptionIngestor (via AudioHandler) |
 
 ---
 

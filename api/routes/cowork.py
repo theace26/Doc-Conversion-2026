@@ -46,6 +46,7 @@ async def cowork_search(
     max_tokens_per_doc: int = Query(5000, ge=1000, le=10000),
     format: str | None = None,
     path_prefix: str | None = None,
+    include_transcripts: bool = True,
     user: AuthenticatedUser = Depends(require_role(UserRole.SEARCH_USER)),
 ):
     """Search with full .md content inline for AI assistant consumption."""
@@ -110,8 +111,39 @@ async def cowork_search(
             "converted_at": hit.get("converted_at", ""),
             "content": content,
             "content_truncated": was_truncated,
+            "result_type": "document",
         })
         token_budget_used += token_estimate
+
+    # Also search transcripts if enabled
+    if include_transcripts and len(results) < max_results:
+        try:
+            tr_options: dict = {"limit": max_results}
+            tr_result = await client.search("transcripts", q, tr_options)
+            for hit in tr_result.get("hits", []):
+                if len(results) >= max_results:
+                    break
+                raw = hit.get("raw_text", "")
+                raw, was_truncated = _truncate_at_paragraph(raw, max_chars)
+                token_estimate = len(raw) // 4
+                results.append({
+                    "rank": len(results) + 1,
+                    "title": hit.get("title", ""),
+                    "source_filename": "",
+                    "source_format": hit.get("source_format", ""),
+                    "relative_path": "",
+                    "source_path": hit.get("source_path", ""),
+                    "converted_at": hit.get("created_at", ""),
+                    "content": raw,
+                    "content_truncated": was_truncated,
+                    "result_type": "transcript",
+                    "duration_seconds": hit.get("duration_seconds"),
+                    "engine": hit.get("engine"),
+                    "language": hit.get("language"),
+                })
+                token_budget_used += token_estimate
+        except Exception:
+            pass  # transcript search failure is non-fatal
 
     return {
         "query": q,

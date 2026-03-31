@@ -35,6 +35,9 @@ _SYSTEM_PREF_KEYS: set[str] = {
     "auto_convert_schedule_windows", "auto_convert_decision_log_level",
     "auto_metrics_retention_days", "auto_convert_business_hours_start",
     "auto_convert_business_hours_end", "auto_convert_conservative_factor",
+    "whisper_model", "whisper_language", "whisper_device",
+    "transcription_cloud_fallback", "caption_file_extensions",
+    "transcription_timeout_seconds",
 }
 
 # Valid preference keys (whitelist from defaults)
@@ -320,6 +323,47 @@ _PREFERENCE_SCHEMA: dict[str, dict] = {
         "label": "Conservatism Factor",
         "description": "Resource usage caution level. 0.3 = very conservative, 1.0 = full utilization.",
         "section": "auto_conversion",
+    },
+    # ── Transcription (v0.13.0) ──
+    "whisper_model": {
+        "type": "select",
+        "options": ["tiny", "base", "small", "medium", "large"],
+        "label": "Whisper Model Size",
+        "description": "Larger = more accurate, slower. 'base' is a good default.",
+        "section": "transcription",
+    },
+    "whisper_language": {
+        "type": "text",
+        "label": "Whisper Language",
+        "description": "Language code for Whisper (auto = auto-detect).",
+        "section": "transcription",
+    },
+    "whisper_device": {
+        "type": "select",
+        "options": ["auto", "cpu", "cuda"],
+        "label": "Whisper Compute Device",
+        "description": "auto = GPU if available, otherwise CPU.",
+        "section": "transcription",
+    },
+    "transcription_cloud_fallback": {
+        "type": "toggle",
+        "label": "Cloud Transcription Fallback",
+        "description": "Fall back to cloud provider if local Whisper fails.",
+        "section": "transcription",
+    },
+    "caption_file_extensions": {
+        "type": "text",
+        "label": "Caption File Extensions",
+        "description": "Caption file extensions to check alongside media files (comma-separated).",
+        "section": "transcription",
+    },
+    "transcription_timeout_seconds": {
+        "type": "number",
+        "min": 60,
+        "max": 86400,
+        "label": "Transcription Timeout (seconds)",
+        "description": "Max time for transcribing a single file.",
+        "section": "transcription",
     },
 }
 

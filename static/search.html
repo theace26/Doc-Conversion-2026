@@ -58,6 +58,7 @@
       <div class="radio-group">
         <label><input type="radio" name="index" value="documents" checked> Documents</label>
         <label><input type="radio" name="index" value="adobe-files"> Adobe</label>
+        <label><input type="radio" name="index" value="transcripts"> Transcripts</label>
       </div>
     </div>
 
@@ -160,13 +161,26 @@
 
     list.innerHTML = data.hits.map(hit => {
       const badge = formatBadge(hit.source_format || hit.file_ext || '');
-      const snippet = hit.highlight || hit.content_preview || hit.text_preview || '';
+      const snippet = hit.highlight || hit.content_preview || hit.text_preview || hit.raw_text?.substring(0,300) || '';
       const path = hit.relative_path || hit.source_path || '';
+      // Transcript-specific metadata
+      const isTranscript = data.index === 'transcripts';
+      let meta = '';
+      if (isTranscript) {
+        const dur = hit.duration_seconds;
+        const durStr = dur ? `${Math.floor(dur/3600)}:${String(Math.floor((dur%3600)/60)).padStart(2,'0')}:${String(Math.floor(dur%60)).padStart(2,'0')}` : '';
+        const engineLabels = {whisper_local:'Whisper',whisper_cloud_openai:'Cloud: OpenAI',whisper_cloud_gemini:'Cloud: Gemini',caption_ingest:'Caption'};
+        const eng = engineLabels[hit.engine] || hit.engine || '';
+        const lang = hit.language || '';
+        const parts = [durStr, eng, lang, hit.word_count ? hit.word_count+' words' : ''].filter(Boolean);
+        meta = parts.length ? `<div class="text-sm text-muted" style="margin-top:2px">${parts.join(' &middot; ')}</div>` : '';
+      }
       return `<div class="hit">
         <div class="hit-header">
-          <span class="hit-title">${escapeHtml(hit.title || hit.source_filename)}</span>
+          <span class="hit-title">${isTranscript ? '&#127925; ' : ''}${escapeHtml(hit.title || hit.source_filename)}</span>
           ${badge}
         </div>
+        ${meta}
         <div class="hit-path">${escapeHtml(path)}</div>
         <div class="hit-snippet">${snippet}</div>
         <div class="hit-actions">

@@ -25,7 +25,7 @@ router = APIRouter(prefix="/api/search", tags=["search"])
 @router.get("")
 async def search(
     q: str = Query(..., min_length=2),
-    index: str = Query("documents", pattern="^(documents|adobe-files)$"),
+    index: str = Query("documents", pattern="^(documents|adobe-files|transcripts)$"),
     format: str | None = None,
     path_prefix: str | None = None,
     page: int = Query(1, ge=1),
@@ -51,7 +51,10 @@ async def search(
     }
 
     if highlight:
-        options["attributesToHighlight"] = ["content", "title", "text_content"]
+        highlight_attrs = ["content", "title", "text_content"]
+        if index == "transcripts":
+            highlight_attrs = ["raw_text", "title"]
+        options["attributesToHighlight"] = highlight_attrs
         options["highlightPreTag"] = "<em>"
         options["highlightPostTag"] = "</em>"
 
@@ -112,7 +115,7 @@ async def autocomplete(
     seen_titles: set[str] = set()
     suggestions: list[dict] = []
 
-    for index_uid in ("documents", "adobe-files"):
+    for index_uid in ("documents", "adobe-files", "transcripts"):
         try:
             result = await client.search(index_uid, q.strip(), options)
             for hit in result.get("hits", []):
@@ -148,9 +151,11 @@ async def index_status(
 
     docs_stats = {}
     adobe_stats = {}
+    transcripts_stats = {}
     if available:
         docs_stats = await client.get_index_stats("documents")
         adobe_stats = await client.get_index_stats("adobe-files")
+        transcripts_stats = await client.get_index_stats("transcripts")
 
     return {
         "available": available,
@@ -163,6 +168,11 @@ async def index_status(
             "index": "adobe-files",
             "document_count": adobe_stats.get("numberOfDocuments", 0),
             "is_indexing": adobe_stats.get("isIndexing", False),
+        },
+        "transcripts": {
+            "index": "transcripts",
+            "document_count": transcripts_stats.get("numberOfDocuments", 0),
+            "is_indexing": transcripts_stats.get("isIndexing", False),
         },
     }
 
