@@ -21,7 +21,7 @@ from pathlib import Path
 import structlog
 
 from core.stop_controller import should_stop
-from core.storage_probe import ScanThrottler, probe_storage_latency
+from core.storage_probe import ErrorRateMonitor, ScanThrottler, probe_storage_latency
 from core.bulk_scanner import ALL_SUPPORTED, CONVERTIBLE_EXTENSIONS, ADOBE_EXTENSIONS
 from core.database import (
     create_scan_run,
@@ -443,10 +443,14 @@ async def _serial_lifecycle_walk(
     scan_run_id: str,
     started_at_dt: datetime,
 ) -> None:
-    """Serial walk for local SSD/HDD sources."""
+    """Serial walk for local SSD/HDD sources with error-rate abort."""
+    error_monitor = ErrorRateMonitor()
+
     for dirpath, dirnames, filenames in os.walk(source_root):
-        if should_stop():
-            log.warning("lifecycle_scan_stopped", scan_run_id=scan_run_id)
+        if should_stop() or error_monitor.should_abort():
+            log.warning("lifecycle_scan_stopped", scan_run_id=scan_run_id,
+                        aborted=error_monitor.aborted,
+                        errors=error_monitor.total_errors)
             _scan_state["running"] = False
             _scan_state["current_file"] = None
             break
@@ -455,10 +459,18 @@ async def _serial_lifecycle_walk(
 
         for filename in filenames:
             file_path = Path(dirpath) / filename
+            errors_before = counters["errors"]
             await _lifecycle_process_entry(
                 file_path, source_root, seen_paths, counters,
                 error_entries, job_id, scan_run_id, started_at_dt,
             )
+            if counters["errors"] > errors_before:
+                error_monitor.record_error(f"lifecycle entry: {file_path}")
+            else:
+                error_monitor.record_success()
+
+            if error_monitor.should_abort():
+                break
 
 
 async def _parallel_lifecycle_walk(
@@ -477,6 +489,7 @@ async def _parallel_lifecycle_walk(
     import time as _time
 
     throttler = ScanThrottler(baseline_ms=baseline_ms, max_threads=thread_count)
+    error_monitor = ErrorRateMonitor()
 
     log.info("lifecycle_parallel_walk_start",
              scan_run_id=scan_run_id, threads=thread_count,
@@ -510,35 +523,40 @@ async def _parallel_lifecycle_walk(
             t0 = _time.perf_counter()
             try:
                 st = file_path.stat()
-            except OSError:
+            except OSError as exc:
+                error_monitor.record_error(str(exc))
                 return
             latency_ms = (_time.perf_counter() - t0) * 1000
             throttler.record_latency(latency_ms)
+            error_monitor.record_success()
             ext = file_path.suffix.lower()
             file_queue.put((file_path, ext, st.st_mtime, st.st_size))
 
+        def _should_bail() -> bool:
+            return should_stop() or error_monitor.should_abort()
+
         for filename in root_file_subset:
-            if should_stop():
+            if _should_bail():
                 return
             while throttler.should_pause(worker_id):
                 _time.sleep(0.1)
-                if should_stop():
+                if _should_bail():
                     return
             _stat_and_enqueue(source_root / filename)
 
         for subdir in dirs_to_walk:
-            if should_stop():
+            if _should_bail():
                 return
             for dirpath, dirnames, filenames in os.walk(subdir):
-                if should_stop():
+                if _should_bail():
                     return
                 dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "_markflow"]
                 for filename in filenames:
-                    if should_stop():
+                    if _should_bail():
                         return
                     while throttler.should_pause(worker_id):
                         _time.sleep(0.1)
-                        if should_stop():
+                        if _should_bail():
                             return
                     _stat_and_enqueue(Path(dirpath) / filename)
 
@@ -620,11 +638,20 @@ async def _parallel_lifecycle_walk(
 
     executor.shutdown(wait=False)
 
+    if error_monitor.aborted:
+        log.error("lifecycle_parallel_walk_aborted",
+                  scan_run_id=scan_run_id,
+                  error_rate=round(error_monitor.error_rate, 2),
+                  total_errors=error_monitor.total_errors,
+                  scanned=counters["files_scanned"])
+
     log.info("lifecycle_parallel_walk_complete",
              scan_run_id=scan_run_id,
              threads_initial=thread_count,
              threads_final=throttler.active_threads,
              throttle_adjustments=throttler.adjustment_count,
+             stat_errors=error_monitor.total_errors,
+             aborted=error_monitor.aborted,
              scanned=counters["files_scanned"])
 
 

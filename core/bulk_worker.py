@@ -20,6 +20,7 @@ import structlog
 
 from core.progress_tracker import RollingWindowETA, ETA_UPDATE_INTERVAL, format_eta
 from core.stop_controller import should_stop, register_task, unregister_task
+from core.storage_probe import ErrorRateMonitor
 from core.bulk_scanner import (
     ADOBE_EXTENSIONS,
     CONVERTIBLE_EXTENSIONS,
@@ -227,6 +228,9 @@ class BulkJob:
         self._cancel_event = asyncio.Event()
         self._pause_event.set()  # not paused initially
 
+        # Error rate monitoring — abort early if source becomes unreachable
+        self._error_monitor = ErrorRateMonitor()
+
         # Counters for SSE events
         self._converted = 0
         self._skipped = 0
@@ -417,6 +421,21 @@ class BulkJob:
                     "job_id": self.job_id, "reason": "global_stop_requested"})
                 continue  # drain queue
 
+            # Check error rate — abort if source is unreachable
+            if self._error_monitor.should_abort():
+                log.error("bulk_worker_error_rate_abort",
+                          job_id=self.job_id, worker_id=worker_id,
+                          error_rate=round(self._error_monitor.error_rate, 2),
+                          total_errors=self._error_monitor.total_errors)
+                _emit_bulk_event(self.job_id, "job_error_rate_abort", {
+                    "job_id": self.job_id,
+                    "error_rate": round(self._error_monitor.error_rate, 2),
+                    "total_errors": self._error_monitor.total_errors,
+                })
+                self._cancel_event.set()
+                self._pause_event.set()
+                continue  # drain queue
+
             # Check cancel
             if self._cancel_event.is_set():
                 continue  # drain queue
@@ -469,7 +488,9 @@ class BulkJob:
                               reason=resolved[1])
                     continue
                 await self._process_convertible(file_dict, worker_id)
+                self._error_monitor.record_success()
             except Exception as exc:
+                self._error_monitor.record_error(str(exc))
                 log.error(
                     "bulk_worker_unhandled",
                     job_id=self.job_id,

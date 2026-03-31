@@ -26,19 +26,20 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.13.2
+## Current Status — v0.13.3
 
-v0.13.2: Feedback-loop scan throttling. Parallel scan workers now report
-stat() latency in real-time to a ScanThrottler that dynamically parks/unparks
-threads based on congestion — like TCP congestion control for filesystem I/O.
-If NAS gets congested mid-scan, threads are shed; when latency recovers,
-threads are restored. 5-second cooldown prevents oscillation. Negligible
-overhead (<0.1% of stat call time). Both bulk and lifecycle scanners use this.
+v0.13.3: Error-rate monitoring across all scanners and conversion workers.
+`ErrorRateMonitor` tracks rolling-window success/failure rates. If >50% of
+the last 100 operations fail (or 20 consecutive errors), the scan or
+conversion aborts early instead of churning through thousands of failures.
+Covers: bulk scanner (serial + parallel), lifecycle scanner (serial +
+parallel), and bulk conversion workers. SSE event `scan_aborted` /
+`job_error_rate_abort` emitted on trigger. Protects against NAS disconnects,
+mount failures, and source path issues mid-operation.
 
-Previous (v0.13.1): Adaptive scan parallelism. Auto-detect storage type
-(SSD/HDD/NAS) via sequential-vs-random stat() latency probe. Parallel
-directory walkers for NAS (4-12 threads); serial for local disks. New
-`scan_max_threads` preference. `core/storage_probe.py`.
+Previous (v0.13.2): Feedback-loop scan throttling — ScanThrottler dynamically
+parks/unparks threads based on congestion. (v0.13.1): Adaptive scan
+parallelism — auto-detect SSD/HDD/NAS, parallel walkers for NAS.
 
 Previous (v0.13.0): Media transcription pipeline. Audio/video files convert to
 Markdown transcripts with timestamped segments. Local Whisper (GPU auto-detect)
@@ -177,6 +178,7 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **Adaptive scan parallelism**: `storage_probe.py` probes sequential-vs-random stat() latency before each scan. Ratio > 3x = HDD (stay serial), ratio < 2x + high latency = NAS (go parallel). Never parallelize HDD — causes seek thrashing. Default preference `scan_max_threads` = `"auto"`.
 - **Parallel scan architecture**: Thread workers walk subdirectories concurrently, push `(path, ext, size, mtime)` to `queue.Queue`. Single async consumer drains to SQLite. Both `BulkScanner` and lifecycle scanner use this pattern.
 - **Scan throttler (backpressure)**: `ScanThrottler` in `storage_probe.py` monitors rolling stat() latency during parallel scans. Workers call `should_pause(worker_id)` — if congested, higher-ID workers sleep. Consumer calls `check_and_adjust()` every 500 files. 5-second cooldown prevents oscillation. Overhead is negligible (~0.001ms per stat call).
+- **Error-rate abort**: `ErrorRateMonitor` in `storage_probe.py` tracks rolling success/failure. If >50% of last 100 ops fail or 20 consecutive errors, triggers abort. Used by both scanners (stat failures) and bulk worker (conversion failures). Protects against NAS disconnects mid-operation.
 
 ---
 

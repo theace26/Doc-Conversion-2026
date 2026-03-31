@@ -164,6 +164,126 @@ class ScanThrottler:
         return self._stat_count
 
 
+# ── Error-rate monitor ───────────────────────────────────────────────────
+
+# Default: abort if >50% of the last 100 operations failed
+ERROR_RATE_WINDOW = 100
+ERROR_RATE_ABORT_THRESHOLD = 0.5
+
+# Minimum operations before error rate is evaluated (avoid false positives on startup)
+ERROR_RATE_MIN_OPS = 20
+
+
+class ErrorRateMonitor:
+    """Thread-safe rolling-window error rate tracker.
+
+    Tracks success/failure of recent operations. If the error rate in the
+    rolling window exceeds a threshold, signals abort. Usable by scanners
+    (stat failures) and conversion workers (I/O failures).
+
+    Usage:
+        monitor = ErrorRateMonitor()
+        monitor.record_success()
+        monitor.record_error("Connection reset")
+        if monitor.should_abort():
+            # stop the scan/conversion
+    """
+
+    def __init__(
+        self,
+        window_size: int = ERROR_RATE_WINDOW,
+        abort_threshold: float = ERROR_RATE_ABORT_THRESHOLD,
+        min_ops: int = ERROR_RATE_MIN_OPS,
+    ):
+        self.window_size = window_size
+        self.abort_threshold = abort_threshold
+        self.min_ops = min_ops
+        self._lock = threading.Lock()
+        # Rolling window: True = success, False = error
+        self._window: deque[bool] = deque(maxlen=window_size)
+        self._total_errors = 0
+        self._total_ops = 0
+        self._consecutive_errors = 0
+        self._last_error_msg: str = ""
+        self._abort_triggered = False
+
+    def record_success(self) -> None:
+        """Record a successful operation."""
+        with self._lock:
+            self._window.append(True)
+            self._total_ops += 1
+            self._consecutive_errors = 0
+
+    def record_error(self, error_msg: str = "") -> None:
+        """Record a failed operation."""
+        with self._lock:
+            self._window.append(False)
+            self._total_ops += 1
+            self._total_errors += 1
+            self._consecutive_errors += 1
+            if error_msg:
+                self._last_error_msg = error_msg
+
+    def should_abort(self) -> bool:
+        """Check if error rate exceeds threshold. Thread-safe."""
+        if self._abort_triggered:
+            return True  # once triggered, stays triggered
+
+        with self._lock:
+            if self._total_ops < self.min_ops:
+                return False  # not enough data yet
+
+            # Check consecutive errors (fast path — 20 in a row is almost certainly a mount failure)
+            if self._consecutive_errors >= 20:
+                self._abort_triggered = True
+                log.error(
+                    "error_rate_abort",
+                    reason="consecutive_errors",
+                    consecutive=self._consecutive_errors,
+                    last_error=self._last_error_msg,
+                )
+                return True
+
+            # Check rolling window rate
+            errors_in_window = sum(1 for ok in self._window if not ok)
+            rate = errors_in_window / len(self._window) if self._window else 0.0
+
+            if rate >= self.abort_threshold:
+                self._abort_triggered = True
+                log.error(
+                    "error_rate_abort",
+                    reason="high_error_rate",
+                    error_rate=round(rate, 2),
+                    threshold=self.abort_threshold,
+                    window_size=len(self._window),
+                    errors_in_window=errors_in_window,
+                    last_error=self._last_error_msg,
+                )
+                return True
+
+            return False
+
+    @property
+    def error_rate(self) -> float:
+        """Current error rate in rolling window."""
+        with self._lock:
+            if not self._window:
+                return 0.0
+            return sum(1 for ok in self._window if not ok) / len(self._window)
+
+    @property
+    def total_errors(self) -> int:
+        return self._total_errors
+
+    @property
+    def consecutive_errors(self) -> int:
+        return self._consecutive_errors
+
+    @property
+    def aborted(self) -> bool:
+        return self._abort_triggered
+
+
 def _collect_sample_files(source_path: Path, max_files: int = 20) -> tuple[list[Path], list[Path]]:
     """Collect files for sequential (same-dir) and random (cross-dir) stat tests.
 

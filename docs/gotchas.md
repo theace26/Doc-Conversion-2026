@@ -355,6 +355,16 @@ the relevant subsystem. Referenced from CLAUDE.md.
   shed threads → latency drops → restore threads → latency spikes → shed again. The cooldown
   lets the system stabilize after each adjustment before re-evaluating.
 
+- **Error-rate abort (NAS disconnect protection)**: `ErrorRateMonitor` tracks rolling success/failure
+  across scanners and workers. Triggers on >50% error rate in last 100 ops OR 20 consecutive errors.
+  Once triggered, abort is sticky (idempotent) — prevents the scan from resuming in a broken state.
+  Used by: bulk scanner serial/parallel, lifecycle scanner serial/parallel, bulk conversion workers.
+
+- **Bulk worker error-rate abort cancels the job**: When the error monitor triggers in a bulk worker,
+  it sets `_cancel_event` which causes all workers to drain their queues and stop. The job is marked
+  as cancelled, not failed — this is intentional because the files themselves aren't broken, the
+  source just became unreachable. Re-running the job after mount recovery will pick up where it left off.
+
 - **Static file cache headers**: Middleware in `main.py` adds `Cache-Control: no-cache, must-revalidate`
   to all `/static/` responses. Prevents stale JS/CSS after deploys.
 

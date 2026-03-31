@@ -23,7 +23,7 @@ import structlog
 
 from core.progress_tracker import RollingWindowETA, ETA_UPDATE_INTERVAL, format_eta
 from core.stop_controller import should_stop
-from core.storage_probe import ScanThrottler, StorageProfile, probe_storage_latency
+from core.storage_probe import ErrorRateMonitor, ScanThrottler, StorageProfile, probe_storage_latency
 from core.database import get_preference, record_path_issue, update_bulk_file, update_bulk_job_status, upsert_bulk_file
 from core.path_utils import PathSafetyResult, run_path_safety_pass
 
@@ -305,16 +305,20 @@ class BulkScanner:
         """Single-threaded scan — optimal for local SSD/HDD."""
         file_count = 0
         last_eta_write = time.monotonic()
+        error_monitor = ErrorRateMonitor()
 
         for dirpath, dirnames, filenames in os.walk(self.source_path):
-            if should_stop():
-                log.warning("scan_stopped_early", job_id=self.job_id, scanned_so_far=file_count)
+            if should_stop() or error_monitor.should_abort():
+                reason = "high_error_rate" if error_monitor.aborted else "global_stop_requested"
+                log.warning("scan_stopped_early", job_id=self.job_id,
+                            scanned_so_far=file_count, reason=reason)
                 if on_progress:
                     await on_progress({
-                        "event": "scan_stopped",
+                        "event": "scan_stopped" if not error_monitor.aborted else "scan_aborted",
                         "job_id": self.job_id,
                         "scanned": file_count,
-                        "reason": "global_stop_requested",
+                        "reason": reason,
+                        "total_errors": error_monitor.total_errors,
                     })
                 break
 
@@ -325,9 +329,18 @@ class BulkScanner:
 
             for filename in filenames:
                 file_path = Path(dirpath) / filename
+                old_count = file_count
                 file_count = await self._process_discovered_file(
                     file_path, result, tracker, file_count,
                 )
+                # Track success/error (if count didn't change, stat failed)
+                if file_count > old_count:
+                    error_monitor.record_success()
+                else:
+                    error_monitor.record_error(f"stat failed: {file_path}")
+
+                if error_monitor.should_abort():
+                    break
 
                 if on_progress and (file_count % progress_interval == 0):
                     await self._emit_progress(
@@ -367,6 +380,7 @@ class BulkScanner:
         # Use probe baseline for throttler (sequential median is the "calm" baseline)
         baseline_ms = result.storage_profile.sequential_median_ms if result.storage_profile else 1.0
         throttler = ScanThrottler(baseline_ms=baseline_ms, max_threads=thread_count)
+        error_monitor = ErrorRateMonitor()
 
         log.info("parallel_scan_start",
                  job_id=self.job_id, threads=thread_count,
@@ -404,42 +418,45 @@ class BulkScanner:
                 t0 = _time.perf_counter()
                 try:
                     st = file_path.stat()
-                except OSError:
+                except OSError as exc:
+                    error_monitor.record_error(str(exc))
                     return
                 latency_ms = (_time.perf_counter() - t0) * 1000
                 throttler.record_latency(latency_ms)
+                error_monitor.record_success()
                 ext = _get_effective_extension(file_path)
                 file_queue.put((file_path, ext, st.st_size, st.st_mtime))
 
+            def _should_bail() -> bool:
+                return should_stop() or error_monitor.should_abort()
+
             # Process root-level files assigned to this worker
             for filename in root_files_subset:
-                if should_stop():
+                if _should_bail():
                     return
-                # Check if this worker is parked by the throttler
                 while throttler.should_pause(worker_id):
                     _time.sleep(0.1)
-                    if should_stop():
+                    if _should_bail():
                         return
                 _stat_and_enqueue(self.source_path / filename)
 
             # Walk assigned subdirectories
             for subdir in dirs_to_walk:
-                if should_stop():
+                if _should_bail():
                     return
                 for dirpath, dirnames, filenames in os.walk(subdir):
-                    if should_stop():
+                    if _should_bail():
                         return
                     dirnames[:] = [
                         d for d in dirnames
                         if not d.startswith(".") and d != "_markflow"
                     ]
                     for filename in filenames:
-                        if should_stop():
+                        if _should_bail():
                             return
-                        # Throttle check — park if congested
                         while throttler.should_pause(worker_id):
                             _time.sleep(0.1)
-                            if should_stop():
+                            if _should_bail():
                                 return
                         _stat_and_enqueue(Path(dirpath) / filename)
 
@@ -532,11 +549,30 @@ class BulkScanner:
 
         executor.shutdown(wait=False)
 
+        # Emit abort event if error rate triggered early stop
+        if error_monitor.aborted:
+            if on_progress:
+                await on_progress({
+                    "event": "scan_aborted",
+                    "job_id": self.job_id,
+                    "reason": "high_error_rate",
+                    "error_rate": round(error_monitor.error_rate, 2),
+                    "total_errors": error_monitor.total_errors,
+                    "scanned": file_count,
+                })
+            log.error("parallel_scan_aborted",
+                      job_id=self.job_id,
+                      error_rate=round(error_monitor.error_rate, 2),
+                      total_errors=error_monitor.total_errors,
+                      files_before_abort=file_count)
+
         log.info("parallel_scan_complete",
                  job_id=self.job_id,
                  threads_initial=thread_count,
                  threads_final=throttler.active_threads,
                  throttle_adjustments=throttler.adjustment_count,
+                 stat_errors=error_monitor.total_errors,
+                 aborted=error_monitor.aborted,
                  files=file_count)
 
         return file_count

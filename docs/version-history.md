@@ -4,6 +4,30 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.13.3 — Error-Rate Monitoring & Abort (2026-03-31)
+
+**New features:**
+- `ErrorRateMonitor` class: rolling-window success/failure tracking with configurable thresholds
+- Abort triggers: >50% error rate in last 100 operations, or 20 consecutive errors
+- Integrated into all scanning paths: bulk serial, bulk parallel, lifecycle serial, lifecycle parallel
+- Integrated into bulk conversion workers: if conversion failure rate spikes, job auto-cancels
+- SSE events: `scan_aborted` (scanners), `job_error_rate_abort` (workers)
+- Once triggered, abort is sticky — prevents restart-and-fail loops within same job
+
+**Modified files:**
+- `core/storage_probe.py` — added `ErrorRateMonitor` class
+- `core/bulk_scanner.py` — both `_serial_scan()` and `_parallel_scan()` use error monitoring
+- `core/lifecycle_scanner.py` — both serial and parallel walks use error monitoring
+- `core/bulk_worker.py` — `_worker()` checks error rate before each file, records success/failure
+
+**Design notes:**
+- 20-consecutive-error fast path catches mount failures instantly (no need to wait for 100 ops)
+- Rolling window (deque) bounds memory regardless of scan size
+- `should_abort()` is idempotent — once triggered, always returns True (no flapping)
+- Walker threads check `error_monitor.should_abort()` alongside `should_stop()` via `_should_bail()`
+
+---
+
 ## v0.13.2 — Feedback-Loop Scan Throttling (2026-03-31)
 
 **New features:**
