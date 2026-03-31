@@ -265,7 +265,7 @@ _PREFERENCE_SCHEMA: dict[str, dict] = {
     },
     "auto_convert_workers": {
         "type": "select",
-        "options": ["auto", "1", "2", "3", "4", "6", "8"],
+        "options": ["auto", "1", "2", "3", "4", "6", "8", "10"],
         "label": "Auto-Conversion Workers",
         "description": "Parallel workers for auto-conversion jobs. Auto adjusts based on system load.",
         "section": "auto_conversion",

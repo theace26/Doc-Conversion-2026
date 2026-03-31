@@ -24,6 +24,18 @@
     <div id="loading" style="text-align:center;padding:2rem"><span class="spinner"></span> Loading settings...</div>
 
     <form id="settings-form" hidden>
+      <!-- Developer Mode toggle -->
+      <div class="card" style="margin-bottom:1.5rem;display:flex;align-items:center;gap:1rem;padding:0.75rem 1rem">
+        <label class="toggle" style="margin:0">
+          <input type="checkbox" id="developer-mode-toggle">
+          <span class="toggle-track"></span>
+        </label>
+        <div>
+          <strong>Developer Mode</strong>
+          <p class="text-sm text-muted" style="margin:0">Enable verbose logging (log level &amp; decision log → developer).</p>
+        </div>
+      </div>
+
       <!-- Locations section -->
       <div class="section-title">Locations</div>
       <div class="card">
@@ -659,6 +671,9 @@
       // Set dev logging flag for client event logging
       window._devLoggingEnabled = (prefs.log_level === 'developer');
       updateDevWarning(prefs.log_level);
+      // Sync developer mode toggle
+      const devToggle = document.getElementById('developer-mode-toggle');
+      devToggle.checked = (prefs.log_level === 'developer');
       document.getElementById('loading').hidden = true;
       document.getElementById('settings-form').hidden = false;
     } catch (e) {
@@ -1066,7 +1081,24 @@
   if (logLevelSelect) {
     logLevelSelect.addEventListener('change', () => {
       updateDevWarning(logLevelSelect.value);
+      // Sync developer toggle when log level dropdown changes
+      const devToggle = document.getElementById('developer-mode-toggle');
+      devToggle.checked = (logLevelSelect.value === 'developer');
       if (typeof logClientEvent === 'function') logClientEvent('log_level_change', 'pref-log_level', logLevelSelect.value);
+    });
+  }
+
+  // ── Developer Mode toggle ────────────────────────────────────────────────
+  const devModeToggle = document.getElementById('developer-mode-toggle');
+  if (devModeToggle) {
+    devModeToggle.addEventListener('change', () => {
+      const level = devModeToggle.checked ? 'developer' : 'normal';
+      // Update both log level and decision log level
+      const logSelect = document.getElementById('pref-log_level');
+      const decisionSelect = document.getElementById('pref-auto_convert_decision_log_level');
+      if (logSelect) logSelect.value = level;
+      if (decisionSelect) decisionSelect.value = level;
+      updateDevWarning(level);
     });
   }
 
