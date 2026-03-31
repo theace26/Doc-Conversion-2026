@@ -38,8 +38,9 @@ if ($GPU) {
     if (Test-Path $gpuFile) {
         $composeArgs += @("-f", $gpuFile)
         Write-Host "  [GPU] Including GPU compose override" -ForegroundColor Magenta
-    } else {
-        Write-Host "  [WARN] docker-compose.gpu.yml not found — falling back to CPU only" -ForegroundColor Red
+    }
+    else {
+        Write-Host "  [WARN] docker-compose.gpu.yml not found -- falling back to CPU only" -ForegroundColor Red
     }
 }
 
@@ -62,7 +63,8 @@ Write-Host ""
 
 if ($NoBuild) {
     Write-Host "[2/3] Skipping rebuild (-NoBuild flag)" -ForegroundColor DarkGray
-} else {
+}
+else {
     Write-Host "[2/3] Rebuilding Docker images..." -ForegroundColor Yellow
     docker compose @composeArgs build
     Write-Host "  [OK] Build complete" -ForegroundColor Green

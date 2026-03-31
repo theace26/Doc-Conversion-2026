@@ -46,7 +46,7 @@ if ($GPU) {
         Write-Host "  [GPU] Including GPU compose override" -ForegroundColor Magenta
     }
     else {
-        Write-Host "  [WARN] docker-compose.gpu.yml not found — falling back to CPU only" -ForegroundColor Red
+        Write-Host "  [WARN] docker-compose.gpu.yml not found -- falling back to CPU only" -ForegroundColor Red
     }
 }
 

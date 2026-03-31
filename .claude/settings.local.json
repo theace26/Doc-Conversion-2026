@@ -17,7 +17,17 @@
       "Bash(7z a:*)",
       "Bash(powershell -Command 'Get-Command Compress-Archive')",
       "Bash(mkdir -p archive)",
-      "Bash(tar czf:*)"
+      "Bash(tar czf:*)",
+      "Bash(mkdir -p \"C:/Users/Xerxes/Projects/Doc-Conversion-2026/.claude/docs\")",
+      "Bash(mv \"C:/Users/Xerxes/Projects/Doc-Conversion-2026/docs/gotchas.md\" \"C:/Users/Xerxes/Projects/Doc-Conversion-2026/.claude/docs/\")",
+      "Bash(mv \"C:/Users/Xerxes/Projects/Doc-Conversion-2026/docs/key-files.md\" \"C:/Users/Xerxes/Projects/Doc-Conversion-2026/.claude/docs/\")",
+      "Bash(mv \"C:/Users/Xerxes/Projects/Doc-Conversion-2026/docs/version-history.md\" \"C:/Users/Xerxes/Projects/Doc-Conversion-2026/.claude/docs/\")",
+      "Bash(mv \"C:/Users/Xerxes/Projects/Doc-Conversion-2026/docs/phase-1-instructions.md\" \"C:/Users/Xerxes/Projects/Doc-Conversion-2026/.claude/docs/\")",
+      "Bash(mv \"C:/Users/Xerxes/Projects/Doc-Conversion-2026/.claude/docs/gotchas.md\" \"C:/Users/Xerxes/Projects/Doc-Conversion-2026/docs/\")",
+      "Bash(mv \"C:/Users/Xerxes/Projects/Doc-Conversion-2026/.claude/docs/key-files.md\" \"C:/Users/Xerxes/Projects/Doc-Conversion-2026/docs/\")",
+      "Bash(mv \"C:/Users/Xerxes/Projects/Doc-Conversion-2026/.claude/docs/version-history.md\" \"C:/Users/Xerxes/Projects/Doc-Conversion-2026/docs/\")",
+      "Bash(mv \"C:/Users/Xerxes/Projects/Doc-Conversion-2026/.claude/docs/phase-1-instructions.md\" \"C:/Users/Xerxes/Projects/Doc-Conversion-2026/docs/\")",
+      "Bash(rmdir \"C:/Users/Xerxes/Projects/Doc-Conversion-2026/.claude/docs\")"
     ]
   }
 }
