@@ -1,12 +1,120 @@
-# MarkFlow — Document Conversion
+# MarkFlow — Enterprise Document Conversion
 
-Convert documents bidirectionally between their original format and Markdown (`.md`).
-Runs OCR automatically on scanned content, supports batch processing, and persists
-all conversion history across restarts.
+**MarkFlow** converts documents bidirectionally between their original format and Markdown.
+Drop in files — or point it at an entire repository — and MarkFlow handles the rest:
+format detection, OCR, password recovery, media transcription, full-text search,
+and version tracking. Everything runs inside Docker with a browser-based UI.
 
-**Supported formats:** DOCX, DOC, PDF, PPTX, XLSX, CSV, TSV, RTF, ODT, ODS, ODP, HTML,
-EPUB, EML, MSG, JSON, YAML, XML, INI, TXT, ZIP, TAR, 7z, RAR, and Adobe creative files
-(PSD, AI, INDD, AEP, PRPROJ, XD). Bidirectional conversion to/from Markdown.
+**Current version:** v0.13.7
+
+---
+
+## What It Does
+
+- **60+ file types in, Markdown out** — Office, PDF, email, archives, Adobe creative files, audio, video, config files, and more. Round-trip back to the original format when needed.
+- **Bulk conversion at scale** — Point MarkFlow at a network share with tens of thousands of files. It scans, classifies, and converts in parallel with adaptive throttling that adjusts to your storage (SSD, HDD, or NAS).
+- **OCR built in** — Scanned PDFs are automatically detected and OCR'd with per-page confidence scoring. Low-confidence pages get flagged for human review — or run fully unattended.
+- **Password-protected files handled automatically** — PDF encryption, Office passwords, and archive passwords are cracked via a cascade: known passwords, dictionary, brute-force, and GPU-accelerated hashcat (NVIDIA, AMD, Intel, Apple Silicon).
+- **Media transcription** — Audio and video files become timestamped Markdown transcripts. Local Whisper (GPU-accelerated) with cloud fallback (OpenAI, Gemini). Existing caption files (SRT/VTT/SBV) are detected and used automatically.
+- **Full-text search** — Meilisearch indexes every converted document and transcript. Search from the UI, the API, or via MCP tools in Claude.ai.
+- **File lifecycle management** — Tracks new, modified, moved, and deleted files across scans. Soft-delete pipeline with grace periods. Full version history with diffs.
+- **Visual enrichment** — Video conversions include scene detection, keyframe extraction, and AI-generated frame descriptions interleaved into transcripts.
+- **Role-based access** — JWT auth with four roles (search_user, operator, manager, admin). API key service accounts for system integrations. UnionCore-compatible.
+
+---
+
+## Supported Formats
+
+| Category | Formats |
+|----------|---------|
+| Office | .docx, .doc, .pdf, .pptx, .ppt, .xlsx, .xls, .csv, .tsv |
+| Rich Text | .rtf |
+| OpenDocument | .odt, .ods, .odp |
+| Markdown & Text | .md, .txt, .log |
+| Web | .html, .htm, .xml, .epub |
+| Data & Config | .json, .yaml, .yml, .ini, .cfg, .conf, .properties |
+| Email | .eml, .msg (with recursive attachment conversion) |
+| Archives | .zip, .tar, .tar.gz, .7z, .rar, .cab, .iso |
+| Adobe Creative | .psd, .ai, .indd, .aep, .prproj, .xd |
+| Audio | .mp3, .wav, .m4a, .flac, .ogg, .aac, .wma |
+| Video | .mp4, .mov, .avi, .mkv, .webm, .m4v, .wmv |
+| Captions | .srt, .vtt, .sbv |
+
+All document formats support bidirectional conversion (original → Markdown → original).
+Media files produce timestamped transcripts. Archives are recursively extracted and each inner file is converted.
+
+---
+
+## Key Features
+
+### Intelligent Bulk Processing
+- Adaptive scan parallelism — auto-detects storage type and adjusts thread count
+- Feedback-loop throttling — dynamically parks/restores workers based on real-time I/O latency
+- Error-rate monitoring — auto-aborts gracefully on NAS disconnects or cascading failures
+- Pause, resume, and cancel jobs at any time
+- Per-worker active file display with real-time SSE progress
+
+### OCR Pipeline
+- Multi-signal scanned-page detection (image-only pages, low text density, embedded font analysis)
+- Per-page confidence scoring with configurable thresholds
+- Batch review UI for bulk jobs — skip, convert anyway, or review page-by-page
+- Unattended mode for fully automated processing
+
+### Password Recovery
+- PDF owner/user passwords (pikepdf)
+- Office encryption — OOXML and legacy formats (msoffcrypto-tool)
+- Archive passwords — ZIP, 7z, RAR
+- Edit/print restrictions stripped automatically
+- GPU-accelerated hashcat cracking (NVIDIA CUDA, AMD ROCm, Intel OpenCL, Apple Metal)
+- Successful passwords cached and reused across the session
+
+### Media Transcription
+- Local Whisper with GPU auto-detect (CUDA when available, CPU fallback)
+- Cloud fallback chain: OpenAI Whisper API → Gemini audio
+- Three output formats per file: .md (timestamped), .srt, .vtt
+- Existing caption files detected and used without transcription cost
+- Full-text transcript search via Meilisearch
+
+### Search & Integration
+- Meilisearch full-text search across all documents, Adobe metadata, and transcripts
+- Search autocomplete with keyboard navigation
+- MCP server (port 8001) exposes 10 tools to Claude.ai / Cowork
+- REST API with interactive docs at `/docs`
+- API key service accounts for programmatic access
+
+### Admin & Monitoring
+- Status page with per-job cards, progress bars, and controls
+- Resources dashboard: CPU/memory charts, disk growth, activity log, OCR quality metrics
+- Admin panel: disk usage, DB health, integrity checks, resource controls
+- Configurable structured logging (three levels: Normal, Elevated, Developer)
+- Log rotation with automatic gzip archiving (90-day retention)
+- In-app help wiki with 19 searchable articles and contextual help links
+
+### File Lifecycle
+- Scheduled scans detect new, modified, moved, and deleted source files
+- Soft-delete pipeline: marked → trash (60-day hold) → purge
+- Full version history with unified diffs and change summaries
+- Unrecognized file cataloging with MIME detection and category breakdown
+
+---
+
+## Architecture
+
+MarkFlow uses a **format-agnostic intermediate representation** (`DocumentModel`).
+All format handlers convert to/from this model, reducing N x M format combinations to N + M handlers.
+
+```
+Source file (.docx / .pdf / .pptx / .xlsx / ...)
+         ↓  ingest()
+    DocumentModel
+         ↓  export()
+    Output file (.md / .docx / .pdf / .pptx / ...)
+```
+
+**Fidelity tiers** ensure nothing is silently lost:
+- **Tier 1** (guaranteed) — Headings, paragraphs, lists, tables, images. Structure always survives.
+- **Tier 2** (sidecar) — Fonts, spacing, colors. Restored from `.styles.json` when converting back.
+- **Tier 3** (original) — Complex layouts. Restored by patching against the preserved original file.
 
 ---
 
@@ -23,17 +131,28 @@ docker-compose up -d
 
 Open [http://localhost:8000](http://localhost:8000) in your browser.
 
+### First-time build
+
+The base image includes all system dependencies (Tesseract, LibreOffice, Poppler, WeasyPrint, ffmpeg, Whisper, hashcat). Build it once:
+
+```bash
+docker build -f Dockerfile.base -t markflow-base:latest .
+```
+
+After that, code changes only rebuild the lightweight app layer (~3-5 min).
+
 ---
 
 ## Usage
 
 ### Web UI
 
-1. Drop files onto the upload zone (or click to browse).
+1. Drop files or folders onto the upload zone (or click to browse).
 2. Select direction: **Document → Markdown** or **Markdown → Document**.
-3. Click **Preview** to inspect the file before converting.
-4. Click **Convert** — a batch progress page opens automatically.
-5. Review any OCR-flagged items (scanned PDFs), then download results.
+3. Click **Convert** — a batch progress page opens automatically.
+4. Review any OCR-flagged items, then download results.
+
+For bulk repositories, use the **Bulk** page to point at a source directory. MarkFlow scans, classifies, and converts everything it finds.
 
 ### API
 
@@ -48,11 +167,35 @@ curl -X POST http://localhost:8000/api/convert \
 # Check batch status
 curl http://localhost:8000/api/batch/<batch_id>/status
 
-# Download converted files
-curl -O http://localhost:8000/api/batch/<batch_id>/download
+# Search across all converted content
+curl "http://localhost:8000/api/search?q=quarterly+report"
+
+# Health check
+curl http://localhost:8000/api/health
 ```
 
-### Input / Output Volumes
+### MCP Integration
+
+MarkFlow exposes 10 MCP tools on port 8001 for use with Claude.ai, Cowork, or any MCP-compatible client:
+
+| Tool | Description |
+|------|-------------|
+| `search_documents` | Full-text search across converted documents |
+| `read_document` | Retrieve a specific converted document |
+| `list_documents` | Browse the document catalog |
+| `convert_document` | Trigger a conversion |
+| `search_adobe` | Search Adobe file metadata |
+| `get_summary` | Get document summary |
+| `conversion_status` | Check job status |
+| `list_unrecognized` | Browse unrecognized files |
+| `search_transcripts` | Search across media transcripts |
+| `read_transcript` | Retrieve a specific transcript |
+
+---
+
+## Configuration
+
+### Environment Variables
 
 Paths are configured per-machine in `.env` (see `.env.example`):
 
@@ -63,131 +206,35 @@ Paths are configured per-machine in `.env` (see `.env.example`):
 | `./output` | `/app/output` | Single-file conversion results |
 | `./logs` | `/app/logs` | Application logs (JSON structured) |
 
----
-
-## Configuration
-
-Environment variables (set in `docker-compose.yml` or `.env`):
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DEBUG` | `false` | Enable debug logging + intermediate file dumps |
-| `WORKERS` | `1` | Uvicorn worker count |
-| `DB_PATH` | `/app/data/markflow.db` | SQLite database path |
-
 ### User Preferences
 
-Adjust in the **Settings** page (`/settings.html`) or via the API:
+Adjust in **Settings** (`/settings.html`) or via the API. Key settings:
 
-```bash
-# Get all preferences
-curl http://localhost:8000/api/preferences
-
-# Change OCR confidence threshold
-curl -X PUT http://localhost:8000/api/preferences/ocr_confidence_threshold \
-  -H "Content-Type: application/json" \
-  -d '"75"'
-```
-
-Key preferences:
-
-| Key | Default | Description |
-|-----|---------|-------------|
+| Setting | Default | Description |
+|---------|---------|-------------|
 | `auto_convert_mode` | `immediate` | Auto-convert after scan (off / immediate / queued / scheduled) |
-| `auto_convert_workers` | `10` | Parallel workers for auto-conversion jobs |
-| `ocr_confidence_threshold` | `70` | Flag words below this % confidence |
-| `max_concurrent_conversions` | `10` | Max parallel single-file conversions |
-| `default_direction` | `to_md` | Default conversion direction |
-| `max_upload_size_mb` | `100` | Per-file upload limit |
-| `retention_days` | `30` | Days before auto-cleanup of output files |
+| `auto_convert_workers` | `10` | Parallel workers for auto-conversion |
+| `ocr_confidence_threshold` | `70` | Flag OCR words below this % confidence |
 | `pdf_engine` | `pymupdf` | PDF extraction engine (pymupdf / pdfplumber) |
-| `pdf_export_engine` | `weasyprint` | PDF export engine (weasyprint / fpdf2) |
-| `unattended_default` | `false` | Auto-accept all OCR without review |
+| `scan_max_threads` | `auto` | Scan parallelism (auto-detected or manual) |
+| `retention_days` | `30` | Days before auto-cleanup of output files |
+| `log_level` | `normal` | Logging verbosity (normal / elevated / developer) |
+
+GPU acceleration, password recovery, transcription, and visual enrichment each have dedicated settings sections.
 
 ---
 
-## Development Setup
+## System Requirements
 
-```bash
-# Install Python dependencies locally
-pip install -r requirements.txt
-
-# Run without Docker (requires Tesseract + LibreOffice + Poppler installed)
-uvicorn main:app --reload
-
-# Run tests
-pytest tests/
-
-# Build Docker image
-docker-compose build
-
-# View logs
-docker-compose logs -f markflow
-```
-
-### System Requirements (non-Docker)
+Runs entirely in Docker. For non-Docker development:
 
 - Python 3.12+
-- Tesseract OCR 5.x (`tesseract-ocr`, `tesseract-ocr-eng`)
-- Poppler utilities (`poppler-utils`)
-- LibreOffice headless (`libreoffice-writer`, `libreoffice-impress`)
-- WeasyPrint C libraries (`libpango`, `libcairo2`, `libgdk-pixbuf2.0-0`)
-
----
-
-## Architecture
-
-MarkFlow uses a **format-agnostic intermediate representation** (`DocumentModel`).
-All format handlers convert to/from this model, reducing N×M converters to N+M.
-
-```
-.docx / .pdf / .pptx / .xlsx
-         ↓  ingest()
-    DocumentModel
-         ↓  export()
-    .md / .docx / .pdf / .pptx / .xlsx
-```
-
-**Fidelity tiers:**
-- **Tier 1** (guaranteed): Headings, paragraphs, lists, tables, images — structure always survives.
-- **Tier 2** (sidecar): Fonts, spacing, colors — restored from `.styles.json` sidecar when available.
-- **Tier 3** (original): Complex layouts — restored by patching against the preserved original file.
-
----
-
-## Project Structure
-
-```
-Doc-Conversion-2026/
-├── main.py              # FastAPI app entry point
-├── api/                 # Route handlers + middleware
-├── core/                # Orchestration, OCR, DB, metadata
-├── formats/             # Per-format handlers (docx, pdf, pptx, xlsx, md)
-├── static/              # HTML/CSS/JS frontend
-└── tests/               # pytest test suite
-```
-
----
-
-## Phase Roadmap
-
-| Phase | Description | Status |
-|-------|-------------|--------|
-| 0 | Docker scaffold, project structure, DB schema | ✅ Complete |
-| 1 | DOCX → Markdown pipeline | ✅ Complete |
-| 2 | Markdown → DOCX round-trip with fidelity tiers | ✅ Complete |
-| 3 | OCR pipeline (multi-signal detection, review UI) | ✅ Complete |
-| 4 | PDF, PPTX, XLSX/CSV format handlers | ✅ Complete |
-| 4b | Universal format support (RTF, ODT, HTML, EPUB, EML, archives) | ✅ Complete |
-| 5 | Testing & debug infrastructure | ✅ Complete |
-| 6 | Full UI, batch progress, history, settings | ✅ Complete |
-| 7 | Bulk conversion, Adobe indexing, Meilisearch, Cowork | ✅ Complete |
-| 8b | Visual enrichment: scene detection, keyframe extraction | ✅ Complete |
-| 8c | Unknown & unrecognized file cataloging | ✅ Complete |
-| 9 | File lifecycle management, version tracking, DB health | ✅ Complete |
-| 10 | Auth layer, role guards, API keys, UnionCore integration | ✅ Complete |
-
-**Current version:** v0.12.10
+- Tesseract OCR 5.x
+- LibreOffice headless
+- Poppler utilities
+- WeasyPrint C libraries
+- ffmpeg + ffprobe
+- hashcat (optional, for GPU password cracking)
 
 ---
 
