@@ -25,6 +25,12 @@ the relevant subsystem. Referenced from CLAUDE.md.
   dump-and-restore repair. The repair endpoint checks `stop_controller.registered_tasks`
   and refuses to run if any tasks are active.
 
+- **bulk_files table duplicates across jobs**: `upsert_bulk_file()` is keyed by
+  `(job_id, source_path)`, so each new scan job inserts its own copy of every file.
+  12,847 distinct files → 34K+ rows after 5 jobs. Per-job counts are accurate, but
+  cross-job aggregation or total row count overcounts. Needs a dedup strategy or a
+  separate global file registry.
+
 ## Logging
 
 - **structlog + stdlib**: Call `configure_logging()` once at module level in `main.py` before

@@ -28,10 +28,20 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ## Current Status — v0.13.7
 
-v0.13.7: Legacy Office format support. `.xls` and `.ppt` files now
-convert via LibreOffice preprocessing → existing openpyxl/python-pptx
-pipelines. Shared `core/libreoffice_helper.py` replaces duplicated
-LibreOffice logic across all three legacy handlers.
+v0.13.7: Legacy Office format support + scheduler coordination.
+`.xls` and `.ppt` files now convert via LibreOffice preprocessing →
+existing openpyxl/python-pptx pipelines. Shared `core/libreoffice_helper.py`
+replaces duplicated LibreOffice logic across all three legacy handlers.
+Lifecycle scan now yields to active bulk jobs — prevents "database is locked"
+errors from concurrent DB access.
+
+**Known issues (v0.13.7):**
+- `bulk_files` table duplicates rows across jobs (keyed by `job_id + source_path`).
+  12,847 distinct source files → 34K+ rows after 5 scan jobs. Per-job counts are
+  accurate; cross-job aggregation overcounts. Needs a dedup or global file registry.
+- 4,237 unrecognized files in the source repo — mostly images (.jpg 4211, .png 1349,
+  .tif/.tiff 787, .eps 714, .gif 211, .bmp 75). Also .wpd (WordPerfect, 277),
+  .docm (macro Word, 20), .ait/.indt (Adobe templates, 115).
 
 Previous (v0.13.6): ErrorRateMonitor integrated across all I/O subsystems. Meilisearch
 index rebuild aborts early if search service is unreachable. Cloud transcriber
@@ -160,6 +170,7 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **`python-jose` not `PyJWT`** — they conflict
 - **Source share is read-only**: `/mnt/source` mounted `:ro`, never write to it
 - **Lifecycle scanner needs a `bulk_jobs` parent row**: Creates synthetic job if none exists
+- **Lifecycle scan yields to bulk jobs**: `run_lifecycle_scan()` checks `get_all_active_jobs()` and skips if any bulk job is scanning/running/paused. Prevents "database is locked" contention.
 - **Stop is cooperative**: Workers finish current file before stopping
 - **Password handling**: Preprocessing step before `handler.ingest()`, not a handler change
 - **MCP server is separate**: Port 8001, own process, no JWT auth (uses `MCP_AUTH_TOKEN`)

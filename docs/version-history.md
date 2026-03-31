@@ -24,6 +24,13 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 - Temp files cleaned in `finally` blocks to avoid disk leaks on conversion errors
 - Default timeout increased to 120s (legacy files can be larger/slower to convert)
 - Bulk scanner already had `.xls` and `.ppt` in `SUPPORTED_EXTENSIONS` — files were being scanned but failing with "No handler registered"
+- Lifecycle scan guard: checks in-memory `_active_jobs` registry (not DB) — zero overhead, instant check. Deferred conversion runner inherits the guard since it calls `run_lifecycle_scan()` internally
+- Root cause of "database is locked" errors: lifecycle scan (every 15 min) + metrics collector (every 2 min) + bulk workers all competing for SQLite. The lifecycle scan was the heaviest contender — scanning the entire source directory while bulk conversion was already doing the same
+
+**Known issues identified (not yet fixed):**
+- `bulk_files` table keyed by `(job_id, source_path)` — each new scan job inserts duplicate rows for the same files. 12,847 distinct source paths → 34K+ rows across 5 jobs. Per-job counts correct, but DB grows unbounded with repeated scans
+- 4,237 unrecognized files in source repo: mostly images (.jpg 4211, .png 1349, .tif/.tiff 787, .eps 714, .gif 211), plus .wpd (WordPerfect, 277), .docm (20), .ait/.indt (Adobe templates, 115)
+- LLM providers configured but not yet verified: Anthropic (529 overload, transient), OpenAI (429 rate limit, likely billing/quota)
 
 ---
 
