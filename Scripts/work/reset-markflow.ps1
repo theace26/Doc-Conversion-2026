@@ -168,7 +168,9 @@ if ($hashcatCmd) {
         $hashcatDir = Split-Path $hashcatPath -Parent
         $savedDir = Get-Location
         Set-Location $hashcatDir
+        $ErrorActionPreference = 'SilentlyContinue'
         $backendOut = & hashcat -I 2>&1 | Out-String
+        $ErrorActionPreference = 'Continue'
         Set-Location $savedDir
         $backendLower = $backendOut.ToLower()
         if ($backendLower -match "cuda")      { $hashcatBackend = "CUDA" }
