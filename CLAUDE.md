@@ -143,6 +143,10 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **Archive handler**: Follows EML handler pattern — `ingest()` produces a DocumentModel with summary + recursive inner content. Temp dirs cleaned in `finally` blocks. Max depth 20 (env: `ARCHIVE_MAX_DEPTH`).
 - **Compound extensions**: `.tar.gz`, `.tar.bz2`, `.tar.xz` require compound extension lookup in both `formats/base.py` and `core/bulk_scanner.py`. `Path.suffix` only returns `.gz` — use `_get_compound_extension()` / `_get_effective_extension()`.
 - **Archive passwords**: Full cracking cascade — known passwords, dictionary + mutations, brute-force. Uses same user preferences as PDF/Office handler (`password_brute_force_enabled`, `password_brute_force_charset`, `password_brute_force_max_length`, `password_timeout_seconds`). Successful passwords saved to `config/archive_passwords.txt` and reused session-wide. Never log actual passwords.
+- **hashcat -I requires cwd**: hashcat resolves its `OpenCL/` kernel directory relative to the current working directory, not its binary location. Scripts must `cd` to hashcat's install dir before running `hashcat -I`, or it fails silently with `./OpenCL/: No such file or directory`.
+- **PowerShell Set-Content BOM**: `Set-Content -Encoding UTF8` writes a UTF-8 BOM on Windows PowerShell 5.x. Python's `json.loads()` rejects this. Use `[IO.File]::WriteAllText()` for BOM-free output. Python readers should use `encoding="utf-8-sig"` defensively.
+- **PowerShell stderr from native commands**: Native command stderr (e.g., hashcat's `nvmlDeviceGetFanSpeed(): Not Supported`) becomes a `RemoteException` via `2>&1`, caught by `try/catch` and silently aborting. Set `$ErrorActionPreference = 'SilentlyContinue'` around the call.
+- **GPU health component needs ok/version**: The convert page renders health components generically using `s.ok` and `s.version`. The GPU component in `health.py` must include both fields or it renders as FAIL with blank detail.
 
 ---
 
