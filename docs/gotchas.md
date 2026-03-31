@@ -264,6 +264,18 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 - **FastMCP no longer accepts `description` kwarg**: Pass server name as first positional arg only.
 
+- **FastMCP.run() does not accept host/port kwargs**: Calling `mcp.run(transport="sse", host=..., port=...)`
+  crashes with TypeError. Setting `UVICORN_HOST`/`UVICORN_PORT` env vars before `mcp.run()` is also
+  ignored. The only working approach is to bypass `mcp.run()` entirely and call
+  `uvicorn.run(mcp.sse_app(), host="0.0.0.0", port=port)` directly.
+
+- **FastMCP.sse_app() has no /health route**: Must append one manually via
+  `app.routes.append(Route("/health", handler))` before passing to `uvicorn.run()`.
+
+- **MCP display URL must use localhost, not socket.gethostbyname()**: Inside a Docker container,
+  `socket.gethostbyname(hostname)` returns the Docker bridge IP (172.20.x.x), unreachable from
+  the host. Always use `localhost:{port}/sse`. The endpoint path is `/sse`, NOT `/mcp`.
+
 - **VisionAdapter uses active LLM provider**: No separate provider system. One provider, two uses.
 
 - **Vision preferences in existing system**: Stored in `user_preferences` via `_PREFERENCE_SCHEMA`.
@@ -420,6 +432,10 @@ the relevant subsystem. Referenced from CLAUDE.md.
 - **hashcat exit codes**: 0=cracked, 1=exhausted. Check output file, not exit code.
 
 - **docker-compose.gpu.yml is an overlay**: Use with `-f` flag.
+
+- **Host paths are per-machine via `.env`**: `docker-compose.yml` uses `${SOURCE_DIR}`,
+  `${OUTPUT_DIR}`, `${DRIVE_C}`, `${DRIVE_D}`. Each machine gets its own `.env` (gitignored).
+  See `.env.example` for the template. Never hardcode host paths in the compose file.
 
 - **No OpenCL on Apple Silicon**: Metal backend only for ARM Macs.
 

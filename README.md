@@ -17,6 +17,7 @@ EPUB, EML, MSG, JSON, YAML, XML, INI, TXT, ZIP, TAR, 7z, RAR, and Adobe creative
 ```bash
 git clone https://github.com/theace26/Doc-Conversion-2026.git
 cd Doc-Conversion-2026
+cp .env.example .env   # edit paths for your machine
 docker-compose up -d
 ```
 
@@ -53,11 +54,14 @@ curl -O http://localhost:8000/api/batch/<batch_id>/download
 
 ### Input / Output Volumes
 
-| Volume | Purpose |
-|--------|---------|
-| `./input` | Drop source files here for bulk processing |
-| `./output` | Converted files written here, organized by batch |
-| `./logs` | Application logs (JSON structured) |
+Paths are configured per-machine in `.env` (see `.env.example`):
+
+| Variable | Container Mount | Purpose |
+|----------|----------------|---------|
+| `SOURCE_DIR` | `/mnt/source` (read-only) | Source files for bulk processing |
+| `OUTPUT_DIR` | `/mnt/output-repo` | Bulk conversion output |
+| `./output` | `/app/output` | Single-file conversion results |
+| `./logs` | `/app/logs` | Application logs (JSON structured) |
 
 ---
 
@@ -180,7 +184,7 @@ Doc-Conversion-2026/
 | 9 | File lifecycle management, version tracking, DB health | ✅ Complete |
 | 10 | Auth layer, role guards, API keys, UnionCore integration | ✅ Complete |
 
-**Current version:** v0.12.1
+**Current version:** v0.12.10
 
 ---
 

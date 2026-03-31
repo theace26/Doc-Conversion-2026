@@ -348,6 +348,26 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 - Updated reset scripts (both Proxmox and Windows) to preserve `markflow-base:latest`
   during Docker prune, auto-building it if missing.
 
+**v0.12.10** — MCP server fixes, multi-machine Docker support, settings UI improvements (2026-03-30).
+**Bugfixes:**
+- Fixed: MCP server crash loop — `FastMCP.run()` does not accept `host` or `port` kwargs.
+  First attempted kwargs (TypeError crash), then UVICORN env vars (ignored). Final fix:
+  `uvicorn.run(mcp.sse_app(), host="0.0.0.0", port=port)` — bypass `mcp.run()` entirely.
+- Fixed: MCP info panel showed `http://172.20.0.3:8001/mcp` (Docker-internal IP, wrong
+  path). Replaced `socket.gethostbyname()` with hardcoded `localhost`, `/mcp` with `/sse`.
+- Fixed: MCP health check 404 — `FastMCP.sse_app()` has no `/health` route. Added
+  Starlette `Route("/health")` to the SSE app before passing to uvicorn.
+**Features:**
+- Multi-machine Docker support — `docker-compose.yml` volume paths now use `${SOURCE_DIR}`,
+  `${OUTPUT_DIR}`, `${DRIVE_C}`, `${DRIVE_D}` from `.env` (gitignored). Same compose file
+  works on Windows workstation and MacBook VM without edits. `.env.example` template added.
+- MCP settings panel: replaced generic setup instructions with connection methods for
+  Claude Code, Claude Desktop, and Claude.ai (web with ngrok tunnel).
+- "Generate Config for Claude Desktop" button — merges markflow MCP entry into user's
+  existing `claude_desktop_config.json` non-destructively (client-side JS, no backend).
+- PowerShell deployment scripts (`reset-markflow.ps1`, `refresh-markflow.ps1`) gain `-GPU`
+  switch to include `docker-compose.gpu.yml` override.
+
 **v0.12.1** — Bugfix + Stability Patch (2026-03-29).
 **Bugfixes (from log analysis):**
 - Fixed: structlog double `event` argument in lifecycle_scanner (two instances)

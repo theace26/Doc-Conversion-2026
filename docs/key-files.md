@@ -141,6 +141,8 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `tools/markflow-hashcat-worker.py` | Host-side hashcat worker for AMD/Intel GPU |
 | `docker-compose.yml` | Port 8000, MCP 8001, Meilisearch 7700, volumes |
 | `docker-compose.gpu.yml` | NVIDIA GPU overlay |
+| `docker-compose.yml.mac` | Mac compose template for VM/network share paths |
+| `.env.example` | Template for per-machine host paths and config |
 | `Dockerfile` | App image — pip + code copy on top of markflow-base |
 | `Dockerfile.base` | Base image — all apt system deps (tesseract, ffmpeg, libreoffice, etc.) |
 | `pytest.ini` | Test config: asyncio_mode, custom markers |

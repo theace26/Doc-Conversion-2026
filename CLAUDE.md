@@ -26,16 +26,14 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.12.9
+## Current Status — v0.12.10
 
-All 10 phases complete + universal format support. Latest: progress tracking and ETA
-for scan and bulk conversion jobs. Concurrent fast-walk file counter (non-blocking),
-rolling-window ETA (last 100 items), progress SSE events, ETA display in bulk UI.
-ZIP, 7z, and RAR archives — including nested ones — get the full cracking cascade.
-v0.12.9: fixed missing `import structlog` in database.py that crashed startup orphan
-cleanup (restart loop), suppressed pdfminer debug logging (500+ MB log bloat per bulk
-job), split Dockerfile into base + app layers for faster rebuilds, added PowerShell
-deployment scripts for Windows work machines.
+All 10 phases complete + universal format support. v0.12.10: fixed MCP server crash
+loop (FastMCP.run() kwargs unsupported — now uses uvicorn.run() directly), fixed MCP
+info panel showing Docker-internal IP and wrong path, added /health endpoint to MCP
+server. Docker compose paths now use .env variables for multi-machine support (Windows
+workstation + MacBook). Settings page gains Claude Desktop config generator button.
+PowerShell deployment scripts gain -GPU flag.
 
 **Planned:** External log shipping to Grafana Loki / ELK stack. The current local log
 archive system is an interim solution — once external aggregation is in place, local
@@ -135,6 +133,7 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **MCP server is separate**: Port 8001, own process, no JWT auth (uses `MCP_AUTH_TOKEN`)
 - **MCP server binding**: `FastMCP.run()` does NOT accept `host` or `port` kwargs. Use `uvicorn.run(mcp.sse_app(), host="0.0.0.0", port=port)` directly. Without this, Uvicorn defaults to 127.0.0.1:8000 which is unreachable from outside the Docker container.
 - **MCP display URL**: Always use `localhost:{port}/sse` — never `socket.gethostbyname()` (returns Docker-internal IP) and never `/mcp` (wrong path, endpoint is `/sse`).
+- **MCP health endpoint**: `FastMCP.sse_app()` has no `/health` route. Must append a Starlette `Route("/health", handler)` manually before passing to uvicorn.
 - **Log files**: Never use bare `FileHandler` or `TimedRotatingFileHandler` — always `RotatingFileHandler` (size-based). Defaults: 50 MB main, 100 MB debug. Configurable via `LOG_MAX_SIZE_MB` / `DEBUG_LOG_MAX_SIZE_MB` env vars.
 - **Log archives**: Rotated files are auto-compressed to `logs/archive/*.gz` every 6 hours. 90-day retention (configurable via `LOG_ARCHIVE_RETENTION_DAYS`). Interim solution — planned migration to Grafana Loki / ELK.
 - **File downloads**: Never use `fetch()` + blob for file downloads — use `window.location.href` or `<a>` tags. Backend must set explicit `Content-Length` header.
@@ -144,7 +143,7 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 
 ---
 
-## Supported Formats (v0.12.8)
+## Supported Formats (v0.12.10)
 
 | Category | Extensions | Handler |
 |----------|-----------|---------|

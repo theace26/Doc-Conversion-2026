@@ -187,3 +187,72 @@ wins if user set non-normal level; otherwise env var is applied.
 `core/scheduler.py`, `core/auto_converter.py`, `core/database.py`, `core/bulk_scanner.py`,
 `api/routes/mcp_info.py`, `main.py`, `static/markflow.css`, `static/status.html`,
 `docker-compose.yml`, `tests/test_bugfix_patch.py`, `tests/test_bugfix_v0121.py` (new)
+
+---
+
+## 2026-03-30 — MCP Server Fixes (3 bugs) + Multi-Machine Docker
+
+### Bug 11: MCP server crash — unsupported host/port kwargs
+
+**Symptom:** Container `markflow-mcp` crash-looping with:
+```
+TypeError: FastMCP.run() got an unexpected keyword argument 'host'
+```
+
+**Root cause:** `FastMCP.run()` does not accept `host` or `port` keyword arguments
+in the installed version. The previous code passed `mcp.run(transport="sse", host="0.0.0.0", port=port)`.
+
+**Investigation sequence:**
+1. First fix attempt: pass `host="0.0.0.0", port=port` kwargs to `mcp.run()` → TypeError crash
+2. Second fix attempt: set `os.environ["UVICORN_HOST"]` and `os.environ["UVICORN_PORT"]`
+   before `mcp.run(transport="sse")` → Uvicorn ignored the env vars, still bound to 127.0.0.1:8000
+3. Final fix: bypass `mcp.run()` entirely, call `uvicorn.run(mcp.sse_app(), host="0.0.0.0", port=port)` directly
+
+**Fix:** `mcp_server/server.py` — replaced `mcp.run()` with direct `uvicorn.run(mcp.sse_app(), ...)`.
+
+### Bug 12: MCP info panel shows Docker-internal IP and wrong path
+
+**Symptom:** Settings page MCP panel displayed `http://172.20.0.3:8001/mcp` — unreachable
+from the host and wrong endpoint path.
+
+**Root cause:** `api/routes/mcp_info.py` used `socket.gethostbyname(hostname)` which returns
+the Docker bridge network IP (172.20.x.x) inside the container. The path `/mcp` was wrong —
+FastMCP's SSE endpoint is at `/sse`.
+
+**Fix:** Replaced `socket.gethostbyname()` with hardcoded `localhost`, changed `/mcp` to `/sse`.
+Removed unused `socket` import. Updated JS fallback URLs in `settings.html`.
+
+**Files changed:** `api/routes/mcp_info.py`, `static/settings.html`
+
+### Bug 13: MCP health check returns 404
+
+**Symptom:** UI showed "MCP server not detected" even though the MCP container was running
+and serving SSE connections. The main app's backend health check hit `GET /health` which
+returned 404.
+
+**Root cause:** `FastMCP.sse_app()` does not include a `/health` endpoint. The main app's
+`mcp_info.py` route correctly pings `/health` using the Docker service name, but the MCP
+server had no route to handle it.
+
+**Fix:** `mcp_server/server.py` — build the SSE app via `mcp.sse_app()`, append a Starlette
+`Route("/health", health_check)` that returns `{"status": "ok", "service": "markflow-mcp", "port": 8001}`,
+then pass the app to `uvicorn.run()`.
+
+**Files changed:** `mcp_server/server.py`
+
+### Infrastructure: Multi-machine Docker support
+
+**Problem:** `docker-compose.yml` had hardcoded Windows paths (`C:/Users/Xerxes/T86_Work/...`,
+`D:/Doc-Conv_Test`). Working from a MacBook at home required local edits that couldn't be
+committed without breaking the work machine.
+
+**Fix:** Replaced hardcoded paths with environment variables (`${SOURCE_DIR}`, `${OUTPUT_DIR}`,
+`${DRIVE_C}`, `${DRIVE_D}`). Each machine gets its own `.env` (gitignored). Added `.env.example`
+template with Windows defaults.
+
+**Files changed:** `docker-compose.yml`, `.env.example`, `.env` (local, not committed)
+
+**All files changed across v0.12.10:**
+`mcp_server/server.py`, `api/routes/mcp_info.py`, `static/settings.html`,
+`docker-compose.yml`, `.env.example`, `CLAUDE.md`,
+`Scripts/work/reset-markflow.ps1`, `Scripts/work/refresh-markflow.ps1`
