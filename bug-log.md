@@ -254,5 +254,6 @@ template with Windows defaults.
 
 **All files changed across v0.12.10:**
 `mcp_server/server.py`, `api/routes/mcp_info.py`, `static/settings.html`,
-`docker-compose.yml`, `.env.example`, `CLAUDE.md`,
+`docker-compose.yml`, `.env.example`, `CLAUDE.md`, `core/database.py` (default preferences),
+`api/routes/preferences.py` (worker count options),
 `Scripts/work/reset-markflow.ps1`, `Scripts/work/refresh-markflow.ps1`

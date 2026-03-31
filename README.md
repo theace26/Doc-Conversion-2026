@@ -93,7 +93,10 @@ Key preferences:
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `ocr_confidence_threshold` | `80` | Flag words below this % confidence |
+| `auto_convert_mode` | `immediate` | Auto-convert after scan (off / immediate / queued / scheduled) |
+| `auto_convert_workers` | `10` | Parallel workers for auto-conversion jobs |
+| `ocr_confidence_threshold` | `70` | Flag words below this % confidence |
+| `max_concurrent_conversions` | `10` | Max parallel single-file conversions |
 | `default_direction` | `to_md` | Default conversion direction |
 | `max_upload_size_mb` | `100` | Per-file upload limit |
 | `retention_days` | `30` | Days before auto-cleanup of output files |

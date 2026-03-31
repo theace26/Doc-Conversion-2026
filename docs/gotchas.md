@@ -62,6 +62,10 @@ the relevant subsystem. Referenced from CLAUDE.md.
 - **`log_level` preference maps to handler levels, not root level**: The `LEVEL_MAP`
   maps "normal"→WARNING, "elevated"→INFO, "developer"→DEBUG.
 
+- **Developer Mode toggle is UI-only**: The checkbox at the top of Settings sets both
+  `log_level` and `auto_convert_decision_log_level` to `developer` or `normal`. It does NOT
+  create a separate preference — it modifies the existing ones. Must still click Save.
+
 - **`update_log_level()` is synchronous**: Safe to call from sync or async contexts.
 
 - **`configure_logging()` is idempotent**: The `_configured` flag prevents double init.
@@ -462,6 +466,9 @@ the relevant subsystem. Referenced from CLAUDE.md.
 - **Article slugs are validated**: Only lowercase alphanumeric + hyphens. Path traversal blocked.
 
 ## Auto-Conversion
+
+- **Default is `immediate` mode with 10 workers**: Fresh deployments auto-scan and auto-convert.
+  Existing installs keep their saved preferences — only a DB reset applies new defaults.
 
 - **Auto-conversion mode override is ephemeral**: Resets on container restart.
 

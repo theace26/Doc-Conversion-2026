@@ -1,6 +1,6 @@
 # MarkFlow — CLAUDE.md
 
-Auto-loaded by Claude Code at session start. Detailed references split into `.claude/docs/` files.
+Auto-loaded by Claude Code at session start. Detailed references split into `docs/` files.
 
 ### When to read the reference docs
 
@@ -8,9 +8,9 @@ Read these files **on demand** — they are not loaded automatically. Use your j
 
 | File | Read it when... |
 |------|-----------------|
-| [`.claude/docs/gotchas.md`](.claude/docs/gotchas.md) | You're modifying or debugging a subsystem (check its section before writing code) |
-| [`.claude/docs/key-files.md`](.claude/docs/key-files.md) | You need to locate a file by purpose, or understand what a file does |
-| [`.claude/docs/version-history.md`](.claude/docs/version-history.md) | You need context on why something was built, what changed in a version, or feature scope |
+| [`docs/gotchas.md`](docs/gotchas.md) | You're modifying or debugging a subsystem (check its section before writing code) |
+| [`docs/key-files.md`](docs/key-files.md) | You need to locate a file by purpose, or understand what a file does |
+| [`docs/version-history.md`](docs/version-history.md) | You need context on why something was built, what changed in a version, or feature scope |
 | [`docs/phase-1-instructions.md`](docs/phase-1-instructions.md) | Rarely — only if revisiting the original Phase 1 design spec |
 
 **Rule of thumb:** If a task touches bulk/lifecycle/auth/password/GPU/OCR/search, read the
@@ -32,14 +32,17 @@ All 10 phases complete + universal format support. v0.12.10: fixed MCP server cr
 loop (FastMCP.run() kwargs unsupported — now uses uvicorn.run() directly), fixed MCP
 info panel showing Docker-internal IP and wrong path, added /health endpoint to MCP
 server. Docker compose paths now use .env variables for multi-machine support (Windows
-workstation + MacBook). Settings page gains Claude Desktop config generator button.
-PowerShell deployment scripts gain -GPU flag.
+workstation + MacBook). Settings page gains Claude Desktop config generator button and
+Developer Mode checkbox (toggles log_level + decision_log_level between developer/normal).
+PowerShell deployment scripts gain -GPU flag. Deployment defaults updated: auto-convert
+immediate with 10 workers, brute-force enabled (all_ascii, max 8), OCR threshold 70%,
+scan interval 30min, path length 250.
 
 **Planned:** External log shipping to Grafana Loki / ELK stack. The current local log
 archive system is an interim solution — once external aggregation is in place, local
 retention can be reduced and the archive scheduler retired.
 
-For full version-by-version changelog, see [`.claude/docs/version-history.md`](.claude/docs/version-history.md).
+For full version-by-version changelog, see [`docs/version-history.md`](docs/version-history.md).
 
 ---
 
@@ -82,7 +85,7 @@ Phase 1 implementation instructions (historical): [`docs/phase-1-instructions.md
 
 ## Key Files
 
-Full file reference table: [`.claude/docs/key-files.md`](.claude/docs/key-files.md)
+Full file reference table: [`docs/key-files.md`](docs/key-files.md)
 
 Critical files to know:
 
@@ -116,7 +119,7 @@ Critical files to know:
 
 ## Gotchas & Fixes
 
-Full list (~90 items organized by subsystem): [`.claude/docs/gotchas.md`](.claude/docs/gotchas.md)
+Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.md)
 
 **Most commonly needed:**
 

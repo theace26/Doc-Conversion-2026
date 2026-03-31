@@ -367,6 +367,23 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
   existing `claude_desktop_config.json` non-destructively (client-side JS, no backend).
 - PowerShell deployment scripts (`reset-markflow.ps1`, `refresh-markflow.ps1`) gain `-GPU`
   switch to include `docker-compose.gpu.yml` override.
+- Developer Mode checkbox at top of Settings page — toggles both `log_level` and
+  `auto_convert_decision_log_level` between `developer` and `normal`. Syncs bidirectionally
+  with the log level dropdown.
+**Default preference changes (fresh deployments):**
+- `auto_convert_mode`: `off` → `immediate` (scan + convert automatically)
+- `auto_convert_workers`: `auto` → `10`
+- `worker_count`: `4` → `10`
+- `max_concurrent_conversions`: `3` → `10`
+- `ocr_confidence_threshold`: `80` → `70`
+- `max_output_path_length`: `240` → `250`
+- `scanner_interval_minutes`: `15` → `30`
+- `collision_strategy`: `rename` (unchanged, confirmed as desired default)
+- `bulk_active_files_visible`: `true` (unchanged, confirmed)
+- `password_brute_force_enabled`: `false` → `true`
+- `password_brute_force_max_length`: `6` → `8`
+- `password_brute_force_charset`: `alphanumeric` → `all_ascii`
+- Auto-conversion worker select gains "10" option in UI.
 
 **v0.12.1** — Bugfix + Stability Patch (2026-03-29).
 **Bugfixes (from log analysis):**
