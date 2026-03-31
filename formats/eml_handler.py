@@ -28,6 +28,7 @@ from core.document_model import (
     Element,
     ElementType,
 )
+from core.storage_probe import ErrorRateMonitor
 
 log = structlog.get_logger(__name__)
 
@@ -151,13 +152,24 @@ class EmlHandler(FormatHandler):
     def _process_attachments_eml(
         self, msg, model: DocumentModel, depth: int, parent_path: Path
     ) -> None:
-        """Process EML attachments: convert if handler available, list otherwise."""
+        """Process EML attachments: convert if handler available, list otherwise.
+
+        Uses ErrorRateMonitor to abort if source becomes unreachable mid-processing.
+        """
         converted_sections: list[str] = []
         unconverted_notes: list[str] = []
         attachment_metadata: list[dict] = []
         attachments_converted = 0
+        error_monitor = ErrorRateMonitor(window_size=20, min_ops=5)
 
         for part in msg.walk():
+            if error_monitor.should_abort():
+                model.warnings.append("Attachment processing aborted: high error rate")
+                log.error("eml_attachment_abort",
+                          parent=parent_path.name,
+                          errors=error_monitor.total_errors)
+                break
+
             if part.get_content_maintype() == "multipart":
                 continue
 
@@ -184,6 +196,7 @@ class EmlHandler(FormatHandler):
             if md_content:
                 converted_sections.append(f"### Attachment: {filename}\n\n{md_content}")
                 attachments_converted += 1
+                error_monitor.record_success()
             else:
                 size = len(content)
                 status = meta.get("status", "unknown")
@@ -195,6 +208,7 @@ class EmlHandler(FormatHandler):
                 elif status == "failed":
                     error = meta.get("error", "unknown error")
                     note += f" — conversion failed: {error}"
+                    error_monitor.record_error(error)
                 unconverted_notes.append(note)
 
         total_attachments = len(attachment_metadata)
@@ -353,11 +367,15 @@ class EmlHandler(FormatHandler):
     def _process_attachments_msg(
         self, ole, model: DocumentModel, depth: int, parent_path: Path
     ) -> None:
-        """Process MSG attachments via olefile streams."""
+        """Process MSG attachments via olefile streams.
+
+        Uses ErrorRateMonitor to abort if source becomes unreachable.
+        """
         attachment_metadata: list[dict] = []
         converted_sections: list[str] = []
         unconverted_notes: list[str] = []
         attachments_converted = 0
+        error_monitor = ErrorRateMonitor(window_size=20, min_ops=5)
 
         # MSG attachments are stored as __attach_version1.0_#XXXXXXXX substorages
         try:
@@ -372,6 +390,13 @@ class EmlHandler(FormatHandler):
                 attach_dirs.add(entry[0])
 
         for attach_dir in sorted(attach_dirs):
+            if error_monitor.should_abort():
+                model.warnings.append("MSG attachment processing aborted: high error rate")
+                log.error("msg_attachment_abort",
+                          parent=parent_path.name,
+                          errors=error_monitor.total_errors)
+                break
+
             # Read filename
             filename = None
             for stream_suffix in ("__substg1.0_3707001F", "__substg1.0_3707001E",
@@ -409,6 +434,7 @@ class EmlHandler(FormatHandler):
             if md_content:
                 converted_sections.append(f"### Attachment: {filename}\n\n{md_content}")
                 attachments_converted += 1
+                error_monitor.record_success()
             else:
                 size = len(content)
                 status = meta.get("status", "unknown")
@@ -420,6 +446,7 @@ class EmlHandler(FormatHandler):
                 elif status == "failed":
                     error = meta.get("error", "unknown error")
                     note += f" — conversion failed: {error}"
+                    error_monitor.record_error(error)
                 unconverted_notes.append(note)
 
         total_attachments = len(attachment_metadata)

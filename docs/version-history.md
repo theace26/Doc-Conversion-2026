@@ -4,6 +4,27 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.13.6 — ErrorRateMonitor Across All I/O Subsystems (2026-03-31)
+
+**New features:**
+- Meilisearch `rebuild_index()`: aborts early if search service unreachable (50% error rate in last 50 ops)
+- Cloud transcriber: session-level monitor disables cloud fallback after repeated API failures (60% rate in last 20 calls)
+- EML/MSG handler: attachment processing aborts if conversion failures cascade (50% rate in last 20 attachments)
+- Archive password cracking: distinguishes I/O errors (OSError = file unreadable) from wrong-password exceptions, aborts only on I/O failures (95% threshold — most attempts are expected to fail)
+
+**Modified files:**
+- `core/search_indexer.py` — `rebuild_index()` uses ErrorRateMonitor
+- `core/cloud_transcriber.py` — session-level `_cloud_error_monitor` with fast-fail
+- `formats/eml_handler.py` — both `_process_attachments_eml()` and `_process_attachments_msg()`
+- `formats/archive_handler.py` — `_find_password()` with I/O-specific error detection
+
+**Design notes:**
+- Cloud transcriber monitor is session-scoped (module-level singleton) — persists across files. Once cloud APIs are known-bad, skip immediately for all subsequent transcriptions
+- Password cracking monitor uses 95% threshold because wrong-password exceptions are normal. Only triggers on actual I/O failures (OSError, IOError)
+- EML/MSG monitors are per-email — each email gets a fresh monitor since attachments are independent
+
+---
+
 ## v0.13.5 — Archive Handler Optimization (2026-03-31)
 
 **New features:**

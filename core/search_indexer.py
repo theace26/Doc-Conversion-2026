@@ -17,6 +17,7 @@ from pathlib import Path
 import structlog
 
 from core.search_client import MeilisearchClient, get_meili_client
+from core.storage_probe import ErrorRateMonitor
 
 log = structlog.get_logger(__name__)
 
@@ -264,10 +265,15 @@ class SearchIndexer:
         await self.client.delete_document("documents", _doc_id(source_path))
 
     async def rebuild_index(self, job_id: str | None = None) -> RebuildStatus:
-        """Walk all converted files in bulk_files and re-index."""
+        """Walk all converted files in bulk_files and re-index.
+
+        Uses ErrorRateMonitor to detect Meilisearch unavailability and abort
+        early instead of spamming thousands of failed indexing calls.
+        """
         from core.database import get_bulk_files, get_unindexed_adobe_entries
 
         status = RebuildStatus()
+        error_monitor = ErrorRateMonitor(window_size=50, min_ops=10)
 
         # Re-index documents
         if job_id:
@@ -279,6 +285,13 @@ class SearchIndexer:
             )
 
         for f in files:
+            if error_monitor.should_abort():
+                log.error("index_rebuild_abort",
+                          reason="high_error_rate",
+                          indexed=status.documents_indexed,
+                          errors=status.errors)
+                break
+
             output_path = f.get("output_path")
             if not output_path:
                 continue
@@ -287,36 +300,52 @@ class SearchIndexer:
                 ok = await self.index_document(md_path, f.get("job_id", ""))
                 if ok:
                     status.documents_indexed += 1
+                    error_monitor.record_success()
                 else:
                     status.errors += 1
+                    error_monitor.record_error("index_document failed")
             else:
                 status.errors += 1
+                error_monitor.record_error(f"file not found: {output_path}")
 
-        # Re-index Adobe entries
-        adobe_entries = await get_unindexed_adobe_entries(limit=10000)
-        for entry in adobe_entries:
-            from core.adobe_indexer import AdobeIndexResult
-            result = AdobeIndexResult(
-                source_path=Path(entry["source_path"]),
-                file_ext=entry["file_ext"],
-                file_size_bytes=entry.get("file_size_bytes", 0),
-                metadata=entry.get("metadata") or {},
-                text_layers=entry.get("text_layers") or [],
-            )
-            ok = await self.index_adobe_file(result, "")
-            if ok:
-                status.adobe_indexed += 1
-            else:
-                status.errors += 1
+        # Re-index Adobe entries (skip if already aborted)
+        if not error_monitor.aborted:
+            adobe_entries = await get_unindexed_adobe_entries(limit=10000)
+            for entry in adobe_entries:
+                if error_monitor.should_abort():
+                    log.error("index_rebuild_adobe_abort",
+                              reason="high_error_rate",
+                              adobe_indexed=status.adobe_indexed)
+                    break
+
+                from core.adobe_indexer import AdobeIndexResult
+                result = AdobeIndexResult(
+                    source_path=Path(entry["source_path"]),
+                    file_ext=entry["file_ext"],
+                    file_size_bytes=entry.get("file_size_bytes", 0),
+                    metadata=entry.get("metadata") or {},
+                    text_layers=entry.get("text_layers") or [],
+                )
+                ok = await self.index_adobe_file(result, "")
+                if ok:
+                    status.adobe_indexed += 1
+                    error_monitor.record_success()
+                else:
+                    status.errors += 1
+                    error_monitor.record_error("index_adobe failed")
 
         # Record activity event for index rebuild
         try:
             from core.metrics_collector import record_activity_event
             total_indexed = status.documents_indexed + status.adobe_indexed
-            await record_activity_event("index_rebuild", f"Meilisearch index rebuild: {total_indexed} documents", {
+            desc = f"Meilisearch index rebuild: {total_indexed} documents"
+            if error_monitor.aborted:
+                desc += " [ABORTED: Meilisearch unreachable]"
+            await record_activity_event("index_rebuild", desc, {
                 "documents_indexed": status.documents_indexed,
                 "adobe_indexed": status.adobe_indexed,
                 "errors": status.errors,
+                "aborted": error_monitor.aborted,
             })
         except Exception:
             pass

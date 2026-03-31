@@ -930,44 +930,62 @@ class ArchiveHandler(FormatHandler):
         deadline = time.monotonic() + timeout
         total_attempts = 0
 
-        def _try(pw: str) -> bool:
-            """Test a single password. Returns True if it works."""
+        # Error monitor detects if the archive file becomes unreadable (NAS disconnect)
+        # Uses a high threshold since wrong-password exceptions are expected and normal
+        io_monitor = ErrorRateMonitor(window_size=30, abort_threshold=0.95, min_ops=10)
+
+        def _try(pw: str) -> bool | None:
+            """Test a single password. Returns True if it works, False if wrong
+            password, None if the file itself is unreadable."""
             try:
                 list_fn(path, pw)
+                io_monitor.record_success()
                 return True
+            except (OSError, IOError) as exc:
+                # I/O error = file unreadable, not a password issue
+                io_monitor.record_error(str(exc))
+                return None
             except Exception:
+                # Other exceptions = wrong password (expected)
                 return False
 
         # Phase 1: Direct candidates (empty, file list, session-found)
         passwords = _load_passwords()
         for i, pw in enumerate(passwords):
-            if time.monotonic() > deadline:
+            if time.monotonic() > deadline or io_monitor.should_abort():
                 break
             total_attempts += 1
-            if _try(pw):
+            result = _try(pw)
+            if result is True:
                 log.info("archive_password_found",
                          archive=path.name, method="known", attempt=total_attempts)
                 _save_found_password(pw)
                 return pw
+            if result is None and io_monitor.should_abort():
+                log.error("archive_password_io_abort", archive=path.name,
+                          attempts=total_attempts, msg="File unreadable mid-crack")
+                return None
 
         # Phase 2: Dictionary attack + mutations
-        if settings["dictionary_enabled"] and time.monotonic() < deadline:
+        if settings["dictionary_enabled"] and time.monotonic() < deadline and not io_monitor.aborted:
             dictionary = _load_dictionary()
             for pw in dictionary:
-                if time.monotonic() > deadline:
+                if time.monotonic() > deadline or io_monitor.should_abort():
                     break
                 total_attempts += 1
-                if _try(pw):
+                result = _try(pw)
+                if result is True:
                     log.info("archive_password_found",
                              archive=path.name, method="dictionary", attempt=total_attempts)
                     _save_found_password(pw)
                     return pw
                 # Try mutations of this dictionary word
                 for mut in _mutations(pw):
-                    if time.monotonic() > deadline:
+                    if time.monotonic() > deadline or io_monitor.should_abort():
                         break
                     total_attempts += 1
-                    if _try(mut):
+                    result = _try(mut)
+                    if result is True:
                         log.info("archive_password_found",
                                  archive=path.name, method="dictionary_mutation",
                                  attempt=total_attempts)
@@ -975,30 +993,35 @@ class ArchiveHandler(FormatHandler):
                         return mut
 
         # Phase 3: Brute-force
-        if settings["brute_force_enabled"] and time.monotonic() < deadline:
+        if settings["brute_force_enabled"] and time.monotonic() < deadline and not io_monitor.aborted:
             charset = _get_charset(settings["charset"])
             max_len = settings["max_length"]
             log.info("archive_brute_force_start",
                      archive=path.name, charset=settings["charset"],
                      max_length=max_len, timeout=timeout)
             for length in range(1, max_len + 1):
-                if time.monotonic() > deadline:
+                if time.monotonic() > deadline or io_monitor.should_abort():
                     break
                 for combo in itertools.product(charset, repeat=length):
-                    if time.monotonic() > deadline:
+                    if time.monotonic() > deadline or io_monitor.should_abort():
                         break
                     pw = "".join(combo)
                     total_attempts += 1
-                    if _try(pw):
+                    result = _try(pw)
+                    if result is True:
                         log.info("archive_password_found",
                                  archive=path.name, method="brute_force",
                                  attempt=total_attempts, length=length)
                         _save_found_password(pw)
                         return pw
 
-        log.warning("archive_password_exhausted",
-                    archive=path.name, attempts=total_attempts,
-                    methods_tried=["known", "dictionary", "brute_force"])
+        if io_monitor.aborted:
+            log.error("archive_password_io_abort", archive=path.name,
+                      attempts=total_attempts, io_errors=io_monitor.total_errors)
+        else:
+            log.warning("archive_password_exhausted",
+                        archive=path.name, attempts=total_attempts,
+                        methods_tried=["known", "dictionary", "brute_force"])
         return None
 
     @staticmethod

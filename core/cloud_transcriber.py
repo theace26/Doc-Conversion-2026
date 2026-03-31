@@ -16,9 +16,15 @@ import httpx
 import structlog
 from pathlib import Path
 
+from core.storage_probe import ErrorRateMonitor
 from core.whisper_transcriber import TranscriptionResult, TranscriptionSegment
 
 log = structlog.get_logger(__name__)
+
+# Session-level error monitor — shared across all cloud transcription calls.
+# If cloud APIs fail repeatedly (expired key, rate limit, service down),
+# disables cloud fallback for the rest of the session to avoid wasting time.
+_cloud_error_monitor = ErrorRateMonitor(window_size=20, abort_threshold=0.6, min_ops=5)
 
 # Provider audio support map
 AUDIO_CAPABLE_PROVIDERS = {
@@ -45,7 +51,19 @@ class CloudTranscriber:
     ) -> TranscriptionResult:
         """
         Try all configured cloud providers that support audio.
+
+        Uses a session-level ErrorRateMonitor — if cloud APIs fail repeatedly
+        (expired key, rate limit, service outage), raises immediately instead
+        of wasting time on providers that are known to be down.
         """
+        # Fast-fail if cloud has been unreliable this session
+        if _cloud_error_monitor.should_abort():
+            raise RuntimeError(
+                "Cloud transcription disabled for this session: too many recent failures "
+                f"({_cloud_error_monitor.total_errors} errors, "
+                f"{_cloud_error_monitor.consecutive_errors} consecutive)"
+            )
+
         from core.database import db_fetch_all
 
         # Get all configured providers sorted by is_active (active first)
@@ -74,10 +92,15 @@ class CloudTranscriber:
 
             try:
                 if provider_type == "openai":
-                    return await cls._transcribe_openai(audio_path, provider, language)
+                    result = await cls._transcribe_openai(audio_path, provider, language)
                 elif provider_type == "gemini":
-                    return await cls._transcribe_gemini(audio_path, provider, language)
+                    result = await cls._transcribe_gemini(audio_path, provider, language)
+                else:
+                    continue
+                _cloud_error_monitor.record_success()
+                return result
             except Exception as e:
+                _cloud_error_monitor.record_error(str(e))
                 log.warning(
                     "cloud_transcribe_provider_failed",
                     provider=provider_type,

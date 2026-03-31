@@ -376,6 +376,18 @@ the relevant subsystem. Referenced from CLAUDE.md.
   thread-safe (quine detection, total size cap). Nested archives go through the serial path even when
   regular files are parallelized.
 
+- **Cloud transcriber error monitor is session-scoped**: `_cloud_error_monitor` is a module-level
+  singleton in `cloud_transcriber.py`. Once it triggers (60% failure rate in last 20 calls), ALL
+  subsequent cloud transcription calls fast-fail without attempting the API. This is intentional —
+  if the API key is expired or the service is down, retrying per-file is wasteful.
+
+- **Password cracking error monitor uses 95% threshold**: Wrong-password exceptions are expected
+  (most attempts fail). The monitor only detects I/O errors (OSError/IOError = file unreadable)
+  vs password errors (other exceptions). This prevents false abort from normal cracking behavior.
+
+- **EML/MSG monitors are per-email**: Each email gets a fresh ErrorRateMonitor because attachments
+  are self-contained. One email with corrupted attachments shouldn't affect the next email.
+
 - **Bulk worker error-rate abort cancels the job**: When the error monitor triggers in a bulk worker,
   it sets `_cancel_event` which causes all workers to drain their queues and stop. The job is marked
   as cancelled, not failed — this is intentional because the files themselves aren't broken, the

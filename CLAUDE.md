@@ -26,19 +26,19 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.13.5
+## Current Status — v0.13.6
 
-v0.13.5: Archive handler optimization. Batch extraction (`extractall()`)
-replaces per-member open/seek/extract cycles — one archive read instead of N.
-Parallel inner-file conversion via ThreadPoolExecutor (up to 8 threads,
-CPU-bound). ErrorRateMonitor integrated — aborts gracefully on NAS disconnect
-mid-extraction, cleans up temp dir. Nested archives still processed
-sequentially (recursive depth tracking). Summary line shows extraction mode
-and thread count.
+v0.13.6: ErrorRateMonitor integrated across all I/O subsystems. Meilisearch
+index rebuild aborts early if search service is unreachable. Cloud transcriber
+disables itself for the session after repeated API failures (expired key, rate
+limit, outage). EML/MSG attachment processing aborts on cascading failures.
+Archive password cracking distinguishes I/O errors (file unreadable) from
+wrong-password exceptions and aborts only on the former.
 
-Previous (v0.13.4): OCR Quality dashboard + Scan Throttle History.
-(v0.13.3): Error-rate monitoring. (v0.13.2): Feedback-loop throttling.
-(v0.13.1): Adaptive scan parallelism.
+Previous (v0.13.5): Archive batch extraction + parallel conversion.
+(v0.13.4): OCR Quality dashboard + Scan Throttle History.
+(v0.13.3): Error-rate monitoring for scanners/workers.
+(v0.13.2): Feedback-loop throttling. (v0.13.1): Adaptive scan parallelism.
 
 Previous (v0.13.0): Media transcription pipeline. Audio/video files convert to
 Markdown transcripts with timestamped segments. Local Whisper (GPU auto-detect)
