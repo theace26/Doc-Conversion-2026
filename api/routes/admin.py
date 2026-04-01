@@ -242,38 +242,32 @@ async def _safe(coro):
 
 
 async def _query_bulk_files() -> dict | None:
-    rows = await db_fetch_all(
-        "SELECT status, COUNT(*) as count FROM bulk_files GROUP BY status"
-    )
-    by_status = {r["status"]: r["count"] for r in rows}
-    total = sum(by_status.values())
-
+    # Cross-job stats use source_files for accurate distinct file counts
     lifecycle_rows = await db_fetch_all(
-        "SELECT lifecycle_status, COUNT(*) as count FROM bulk_files GROUP BY lifecycle_status"
+        "SELECT lifecycle_status, COUNT(*) as count FROM source_files GROUP BY lifecycle_status"
     )
     by_lifecycle = {r["lifecycle_status"]: r["count"] for r in lifecycle_rows}
+    total = sum(by_lifecycle.values())
 
-    unrecognized_rows = await db_fetch_all(
-        "SELECT file_category, COUNT(*) as count FROM bulk_files "
-        "WHERE status='unrecognized' GROUP BY file_category"
+    category_rows = await db_fetch_all(
+        "SELECT file_category, COUNT(*) as count FROM source_files GROUP BY file_category"
     )
-    unrecognized_by_cat = {r["file_category"]: r["count"] for r in unrecognized_rows}
+    by_category = {r["file_category"]: r["count"] for r in category_rows}
 
     ocr_pending = await db_fetch_one(
-        "SELECT COUNT(*) as c FROM bulk_files WHERE ocr_skipped_reason='pending_review'"
+        "SELECT COUNT(*) as c FROM source_files WHERE ocr_skipped_reason='pending_review'"
     )
     ocr_skipped = await db_fetch_one(
-        "SELECT COUNT(*) as c FROM bulk_files WHERE ocr_skipped_reason='permanently_skipped'"
+        "SELECT COUNT(*) as c FROM source_files WHERE ocr_skipped_reason='permanently_skipped'"
     )
     converted_bytes = await db_fetch_one(
-        "SELECT SUM(file_size_bytes) as total FROM bulk_files WHERE status='converted'"
+        "SELECT SUM(file_size_bytes) as total FROM source_files WHERE lifecycle_status='active'"
     )
 
     return {
         "total": total,
-        "by_status": by_status,
         "by_lifecycle": by_lifecycle,
-        "unrecognized_by_category": unrecognized_by_cat,
+        "by_category": by_category,
         "ocr_review_pending": (ocr_pending or {}).get("c", 0),
         "ocr_permanently_skipped": (ocr_skipped or {}).get("c", 0),
         "total_converted_bytes": (converted_bytes or {}).get("total", 0),

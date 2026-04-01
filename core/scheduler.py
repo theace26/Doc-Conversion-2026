@@ -83,7 +83,7 @@ async def run_lifecycle_scan(force: bool = False) -> None:
 async def run_trash_expiry() -> None:
     """Move expired marked_for_deletion to trash, purge expired trash."""
     try:
-        from core.database import get_bulk_files_pending_trash, get_bulk_files_pending_purge, get_preference
+        from core.database import get_source_files_pending_trash, get_source_files_pending_purge, get_preference, db_fetch_all
         from core.lifecycle_manager import move_to_trash, purge_file
 
         # Get configurable periods
@@ -92,21 +92,29 @@ async def run_trash_expiry() -> None:
         retention_str = await get_preference("lifecycle_trash_retention_days")
         retention_days = int(retention_str) if retention_str else 60
 
-        # Move to trash
-        pending_trash = await get_bulk_files_pending_trash(grace_period_hours=grace_hours)
-        for f in pending_trash:
-            try:
-                await move_to_trash(f["id"])
-            except Exception as exc:
-                log.error("scheduler.trash_move_failed", file_id=f["id"], error=str(exc))
+        # Move to trash — look up linked bulk_files for each source_file
+        pending_trash = await get_source_files_pending_trash(grace_period_hours=grace_hours)
+        for sf in pending_trash:
+            bf_rows = await db_fetch_all(
+                "SELECT id FROM bulk_files WHERE source_file_id = ?", (sf["id"],),
+            )
+            for bf in bf_rows:
+                try:
+                    await move_to_trash(bf["id"])
+                except Exception as exc:
+                    log.error("scheduler.trash_move_failed", file_id=bf["id"], error=str(exc))
 
-        # Purge expired trash
-        pending_purge = await get_bulk_files_pending_purge(trash_retention_days=retention_days)
-        for f in pending_purge:
-            try:
-                await purge_file(f["id"])
-            except Exception as exc:
-                log.error("scheduler.purge_failed", file_id=f["id"], error=str(exc))
+        # Purge expired trash — same pattern
+        pending_purge = await get_source_files_pending_purge(trash_retention_days=retention_days)
+        for sf in pending_purge:
+            bf_rows = await db_fetch_all(
+                "SELECT id FROM bulk_files WHERE source_file_id = ?", (sf["id"],),
+            )
+            for bf in bf_rows:
+                try:
+                    await purge_file(bf["id"])
+                except Exception as exc:
+                    log.error("scheduler.purge_failed", file_id=bf["id"], error=str(exc))
 
         if pending_trash or pending_purge:
             log.info(

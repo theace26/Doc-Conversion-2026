@@ -15,8 +15,9 @@ from core.auth import AuthenticatedUser, UserRole, require_role
 
 from api.models import TrashRecord
 from core.database import (
+    db_fetch_all,
     db_fetch_one,
-    get_bulk_files_by_lifecycle_status,
+    get_source_files_by_lifecycle_status,
     get_preference,
 )
 
@@ -61,14 +62,19 @@ async def empty_trash(
     """Purge all files currently in trash."""
     from core.lifecycle_manager import purge_file
 
-    files = await get_bulk_files_by_lifecycle_status("in_trash")
+    source_files = await get_source_files_by_lifecycle_status("in_trash")
     count = 0
-    for f in files:
-        try:
-            await purge_file(f["id"])
-            count += 1
-        except Exception:
-            pass
+    for sf in source_files:
+        # Look up linked bulk_files and purge each
+        bf_rows = await db_fetch_all(
+            "SELECT id FROM bulk_files WHERE source_file_id = ?", (sf["id"],),
+        )
+        for bf in bf_rows:
+            try:
+                await purge_file(bf["id"])
+                count += 1
+            except Exception:
+                pass
     return {"purged_count": count}
 
 
@@ -83,7 +89,7 @@ async def list_trash(
     retention_str = await get_preference("lifecycle_trash_retention_days")
     retention_days = int(retention_str) if retention_str else 60
 
-    files = await get_bulk_files_by_lifecycle_status("in_trash")
+    files = await get_source_files_by_lifecycle_status("in_trash")
 
     # Sort
     if sort == "path":
