@@ -28,7 +28,9 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ## Current Status — v0.16.2
 
-v0.16.2: Streamlining audit complete (24/24 resolved). Final 3 items from v0.16.1:
+v0.16.2: Streamlining audit complete (24/24 resolved) + search viewer UX fix.
+Search viewer back button now closes the tab (returning to search results)
+instead of navigating within the viewer tab. Final 3 streamlining items:
 **STR-05** — Split monolithic `database.py` (2,300 lines) into `core/db/` package
 with 8 domain modules (connection, schema, preferences, bulk, conversions,
 catalog, lifecycle, auth). `core/database.py` is now a backward-compatible

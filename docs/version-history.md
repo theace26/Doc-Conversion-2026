@@ -4,7 +4,12 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
-## v0.16.2 — Streamlining Audit Complete (2026-04-01)
+## v0.16.2 — Streamlining Audit Complete + Search UX Fix (2026-04-01)
+
+**Search viewer back-button fix:**
+- Viewer pages (opened in new tabs from search results) now close the tab on back-button
+  press or "Back to Search" click, returning focus to the search results page. Falls back
+  to navigation if `window.close()` is blocked by the browser.
 
 **Final 3 streamlining items resolved (24/24 complete):**
 - **STR-05: database.py module split** — 2,300-line monolith split into `core/db/` package
