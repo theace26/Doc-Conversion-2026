@@ -159,7 +159,7 @@ async def search(
 
 @router.get("/all")
 async def search_all(
-    q: str = Query(..., min_length=2),
+    q: str = Query("", min_length=0),
     format: str | None = None,
     sort: str = Query("relevance", pattern="^(relevance|date|size|format)$"),
     page: int = Query(1, ge=1),
@@ -179,16 +179,20 @@ async def search_all(
     options: dict = {
         "limit": per_page,
         "offset": (page - 1) * per_page,
-        "attributesToHighlight": ["content", "title", "text_content", "raw_text"],
-        "highlightPreTag": "<em>",
-        "highlightPostTag": "</em>",
         "facets": ["source_format"],
     }
 
-    # Sort mapping
-    if sort == "date":
+    # Only highlight when there's an actual query
+    if q.strip():
+        options["attributesToHighlight"] = ["content", "title", "text_content", "raw_text"]
+        options["highlightPreTag"] = "<em>"
+        options["highlightPostTag"] = "</em>"
+
+    # Sort mapping — default to date for empty queries (browse mode)
+    effective_sort = sort if q.strip() else "date"
+    if effective_sort == "date":
         options["sort"] = ["converted_at:desc"]
-    elif sort == "size":
+    elif effective_sort == "size":
         options["sort"] = ["file_size_bytes:desc"]
     elif sort == "format":
         options["sort"] = ["converted_at:desc"]

@@ -70,6 +70,16 @@ class CreateBulkJobRequest(BaseModel):
     fidelity_tier: int = Field(default=2, ge=1, le=3)
     ocr_mode: str = Field(default="auto", pattern="^(auto|force|skip)$")
     include_adobe: bool = True
+    # Per-job overrides (optional — fall back to global preferences if not set)
+    scan_max_threads: str | None = None
+    collision_strategy: str | None = None
+    max_files: int | None = None
+    ocr_confidence_threshold: int | None = None
+    unattended: bool | None = None
+    password_dictionary_enabled: bool | None = None
+    password_brute_force_enabled: bool | None = None
+    password_timeout_seconds: int | None = None
+    password_hashcat_enabled: bool | None = None
 
 
 # ── POST /api/bulk/jobs ──────────────────────────────────────────────────────
@@ -147,6 +157,16 @@ async def create_job(
     # Ensure output dir exists
     output.mkdir(parents=True, exist_ok=True)
 
+    # Build per-job overrides dict (only include non-None values)
+    job_overrides = {}
+    for key in ('scan_max_threads', 'collision_strategy', 'max_files',
+                'ocr_confidence_threshold', 'unattended',
+                'password_dictionary_enabled', 'password_brute_force_enabled',
+                'password_timeout_seconds', 'password_hashcat_enabled'):
+        val = getattr(req, key, None)
+        if val is not None:
+            job_overrides[key] = val
+
     # Start job in background
     bulk_job = BulkJob(
         job_id=job_id,
@@ -156,6 +176,8 @@ async def create_job(
         fidelity_tier=req.fidelity_tier,
         ocr_mode=req.ocr_mode,
         include_adobe=req.include_adobe,
+        max_files=req.max_files or None,
+        overrides=job_overrides if job_overrides else None,
     )
     asyncio.create_task(bulk_job.run())
 

@@ -780,3 +780,18 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 - **Job detail page auto-serves**: The catch-all `/{page_name}.html` route in `main.py`
   (line 322) serves any `.html` file from `static/`. No registration needed for new pages.
+
+- **Auto-converter only triggered on new/modified files**: The auto-converter's
+  `on_scan_complete()` checked `new_files + modified_files == 0` and returned immediately.
+  If a prior bulk job failed mid-scan, pending files were orphaned forever. Fixed: now checks
+  `bulk_files WHERE status='pending'` as a backlog count and triggers conversion if >0 and no
+  active job. This also prevents double-triggering (checks `get_all_active_jobs()` first).
+
+- **Search empty query = browse all**: Meilisearch natively supports empty-string queries
+  (returns all documents). The `/api/search/all` endpoint's `q` parameter changed from
+  `min_length=2` to `min_length=0`. Empty queries skip highlighting and default to sort-by-date.
+
+- **Per-job overrides are optional**: `CreateBulkJobRequest` has nullable override fields.
+  Only non-None values are included in the `job_overrides` dict passed to `BulkJob`. The
+  `overrides` dict defaults to `{}`. Scanner/converter code should check `self.overrides.get(key)`
+  with a fallback to the global preference.

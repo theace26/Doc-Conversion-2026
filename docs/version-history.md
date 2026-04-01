@@ -4,6 +4,36 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.17.1 — Job Config Modal, Browse All, Auto-Convert Backlog Fix (2026-04-01)
+
+**Job configuration modal:**
+- "Start Job" now opens a configuration dialog before launching the job.
+- Modal sections: **Conversion** (workers, fidelity, OCR mode, Adobe indexing),
+  **Scan Options** (threads, collision strategy, max files), **OCR** (confidence
+  threshold, unattended mode), **Password Recovery** (dictionary, brute-force,
+  timeout, GPU acceleration).
+- Each section shows global defaults with per-job override capability.
+- API extended: `CreateBulkJobRequest` accepts optional override fields
+  (`scan_max_threads`, `collision_strategy`, `max_files`, `ocr_confidence_threshold`,
+  `unattended`, `password_*`). `BulkJob` stores overrides dict for downstream use.
+
+**Search "Browse All":**
+- New "Browse All" button on the Search page shows all indexed documents sorted
+  by date when no query is entered.
+- API `GET /api/search/all` now accepts empty queries (`q=""`) — Meilisearch
+  natively supports empty-string queries returning all documents.
+- Empty queries default to sort-by-date and skip highlighting.
+
+**Auto-converter backlog fix:**
+- The auto-converter previously only triggered on new/modified files from lifecycle
+  scans. If a prior bulk job failed (e.g., due to the `_is_excluded` bug), the
+  60K+ pending files were orphaned and never retried.
+- New `_get_pending_backlog_count()` method checks `bulk_files` for pending rows
+  when no new files are discovered. If backlog exists and no job is active,
+  auto-conversion triggers to process it.
+
+---
+
 ## v0.17.0 — Job Detail Page & Enhanced Viewer (2026-04-01)
 
 **Job Detail page (industry-standard batch job monitoring):**

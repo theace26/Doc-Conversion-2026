@@ -135,6 +135,7 @@
         <ul id="autocomplete-list" class="autocomplete-dropdown" hidden></ul>
       </div>
       <button class="btn btn-primary" id="search-btn">Search</button>
+      <button class="btn" id="browse-btn" title="Browse all indexed documents">Browse All</button>
     </div>
 
     <div id="results-toolbar" class="results-toolbar" hidden>
@@ -402,7 +403,8 @@
   // ── Search ────────────────────────────────────────────────────────────────
   async function doSearch() {
     var q = document.getElementById('search-input').value.trim();
-    if (q.length < 2) return;
+    // Allow empty query (browse all) or queries with 2+ chars
+    if (q.length > 0 && q.length < 2) return;
 
     updateURL(q);
     document.getElementById('results-card').hidden = true;
@@ -412,7 +414,7 @@
 
     try {
       var qs = new URLSearchParams({
-        q: q, sort: currentSort, page: String(currentPage),
+        q: q, sort: q ? currentSort : 'date', page: String(currentPage),
         per_page: String(currentPerPage)
       });
       if (activeFormat) qs.set('format', activeFormat);
@@ -827,6 +829,13 @@
   document.getElementById('search-btn').addEventListener('click', function() {
     clearTimeout(searchTimer);
     currentPage = 1;
+    doSearch();
+  });
+  document.getElementById('browse-btn').addEventListener('click', function() {
+    document.getElementById('search-input').value = '';
+    currentPage = 1;
+    currentSort = 'date';
+    document.getElementById('sort-select').value = 'date';
     doSearch();
   });
   document.getElementById('sort-select').addEventListener('change', function(e) {

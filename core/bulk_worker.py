@@ -199,6 +199,7 @@ class BulkJob:
         ocr_mode: str = "auto",
         include_adobe: bool = True,
         max_files: int | None = None,
+        overrides: dict | None = None,
     ):
         self.job_id = job_id
         # Accept single path or list for backward compatibility
@@ -213,6 +214,7 @@ class BulkJob:
         self.ocr_mode = ocr_mode
         self.include_adobe = include_adobe
         self.max_files = max_files  # Auto-conversion batch limit
+        self.overrides = overrides or {}  # Per-job setting overrides
 
         self._queue: asyncio.Queue[dict | None] = asyncio.Queue()
         self._pause_event = asyncio.Event()

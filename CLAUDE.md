@@ -26,24 +26,24 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.17.0
+## Current Status — v0.17.1
 
-v0.17.0: Job detail page, enhanced viewer, scanner fix. New `/job-detail.html`
-page with industry-standard batch job monitoring: summary header, stats bar,
-segmented progress, tabbed Files/Errors/Info views with search and filtering.
-Cancellation reasons tracked (`cancellation_reason` column, migration #17).
-Document viewer rewritten with three modes: Source (iframe), Rendered (marked.js
-+ DOMPurify), Raw (line numbers + word wrap). In-document search with
-highlighting (Ctrl+F). Search preview popup now renders markdown instead of raw
-text. Bug fix: `_is_excluded` scope error caused all parallel scans to find 0
-files — moved from local function to `BulkScanner` class method. Job History
-rows now clickable, show start/finish times and computed duration.
+v0.17.1: Job config modal, browse all, auto-convert backlog fix. "Start Job"
+now opens a configuration modal with per-job overrides for scan threads,
+collision strategy, OCR confidence, password recovery, and more. API extended
+with optional override fields passed through `BulkJob.overrides` dict. New
+"Browse All" button on Search page shows all indexed documents (empty-query
+search sorted by date). Auto-converter now detects pending backlog from prior
+failed jobs — if 60K+ files are stuck as `pending` in `bulk_files`, the next
+lifecycle scan triggers conversion instead of silently skipping.
 
-Previous (v0.16.9): Multi-source scanning. Both lifecycle scanner and bulk jobs
-now scan all configured source locations sequentially within a single scan
-run / job. Lifecycle scanner resolves all source locations (not just the first),
-validates each, walks them one at a time. Bulk jobs accept `scan_all_sources`
-flag; workers convert the combined queue as one batch.
+Previous (v0.17.0): Job detail page, enhanced viewer, scanner fix. New
+`/job-detail.html` with Files/Errors/Info tabs, search, filtering. Document
+viewer rewritten: Source/Rendered/Raw modes, in-document search, marked.js +
+DOMPurify. Scanner `_is_excluded` scope bug fixed.
+
+Previous (v0.16.9): Multi-source scanning. Lifecycle scanner and bulk jobs scan
+all configured source locations sequentially within a single run.
 
 Previous (v0.16.8): Job History cleanup. Timestamps now use `formatLocalTime()` for
 human-readable display (e.g. "Apr 1, 2026, 3:13 PM" instead of raw ISO).
@@ -378,6 +378,9 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **`_is_excluded` must be a class method on BulkScanner**: Was a local function in `run_scan()` but referenced in `_walker_thread()` inside `_parallel_scan()`. Closures don't cross method boundaries — all worker threads crashed with `NameError`. Now `self._is_excluded()`.
 - **Viewer markdown rendering**: Uses marked.js + DOMPurify (CDN). DOMPurify whitelist is explicit — no `script`, no event handlers. Raw view uses `textContent` only. In-document search uses `TreeWalker` to find text nodes.
 - **Job detail `cancellation_reason`**: Migration #17 adds column. Populated by cancel(), error-rate abort, fatal exceptions, and orphan cleanup. Displayed as a banner on the job detail page.
+- **Auto-converter backlog detection**: `on_scan_complete()` now checks `bulk_files WHERE status='pending'` when 0 new files found. Prevents orphaned pending files from failed jobs sitting forever. Only triggers if no active job is running.
+- **Search empty query = browse all**: `/api/search/all` accepts `q=""`. Meilisearch returns all docs. Empty queries skip highlighting and sort by date. "Browse All" button on search page.
+- **Per-job overrides**: `BulkJob.overrides` dict stores per-job settings. Scanner/converter should use `self.overrides.get(key)` with fallback to global preference.
 
 ---
 

@@ -48,6 +48,19 @@ class AutoConversionEngine:
         self._override_expiry: Optional[datetime] = None
         self._last_decision: Optional[AutoConvertDecision] = None
 
+    async def _get_pending_backlog_count(self) -> int:
+        """Check if there are pending files from prior failed/interrupted jobs."""
+        from core.database import db_fetch_one
+        from core.bulk_worker import get_all_active_jobs
+        # Only count backlog if no job is currently running
+        active = await get_all_active_jobs()
+        if active:
+            return 0
+        row = await db_fetch_one(
+            "SELECT COUNT(*) as cnt FROM bulk_files WHERE status = 'pending'"
+        )
+        return row["cnt"] if row else 0
+
     # ── Public API ──────────────────────────────────────────────
 
     async def on_scan_complete(
@@ -65,13 +78,19 @@ class AutoConversionEngine:
         total_discovered = new_files + modified_files
 
         if total_discovered == 0:
-            return AutoConvertDecision(
-                should_convert=False,
-                mode="off",
-                workers=0,
-                batch_size=0,
-                reason="No new or modified files discovered",
-            )
+            # Check for pending backlog from prior failed/interrupted jobs
+            pending_count = await self._get_pending_backlog_count()
+            if pending_count > 0:
+                log.info("auto_convert_backlog_detected", pending_count=pending_count)
+                total_discovered = pending_count
+            else:
+                return AutoConvertDecision(
+                    should_convert=False,
+                    mode="off",
+                    workers=0,
+                    batch_size=0,
+                    reason="No new or modified files discovered",
+                )
 
         mode = await self._get_effective_mode()
 

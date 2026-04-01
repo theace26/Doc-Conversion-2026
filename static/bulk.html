@@ -29,6 +29,17 @@
     .job-status.failed { background: rgba(220,38,38,0.12); color: var(--error); }
     .job-status.cancelled { background: rgba(107,112,132,0.12); color: var(--text-muted); }
     .job-status.paused { background: rgba(217,119,6,0.12); color: var(--warn); }
+
+    /* Job config modal */
+    .cfg-section-title { font-weight: 600; font-size: 0.9rem; cursor: pointer; padding: 0.5rem 0; color: var(--text); user-select: none; }
+    .cfg-section-title:hover { color: var(--accent); }
+    details + details { border-top: 1px solid var(--border); }
+    details[open] > .cfg-grid { padding: 0.5rem 0 0.75rem; }
+    .cfg-grid { display: grid; grid-template-columns: 140px 1fr; gap: 0.5rem 0.75rem; align-items: center; font-size: 0.85rem; }
+    .cfg-grid label { font-weight: 500; font-size: 0.85rem; }
+    .cfg-input { padding: 0.35rem 0.55rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 0.85rem; width: 100%; }
+    .cfg-checkbox { display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; font-size: 0.85rem; }
+    .cfg-hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.15rem; }
     .control-btns { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
   </style>
 </head>
@@ -98,7 +109,7 @@
       <a href="/locations.html?setup=true" class="btn btn-primary">Set Up Locations</a>
     </section>
 
-    <!-- New Job Form -->
+    <!-- New Job Form (compact — full options in modal) -->
     <section class="card mb-2" id="job-form-section">
       <h2 data-help="bulk-conversion">New Bulk Job</h2>
       <div id="location-warnings"></div>
@@ -124,31 +135,120 @@
           </div>
           <div id="output-path-hint" class="text-sm text-mono text-muted" style="margin-top:0.2rem;font-size:0.78rem"></div>
         </div>
-        <label for="workers">Workers</label>
-        <input type="number" id="workers" min="1" max="16" value="4">
-        <label for="fidelity">Fidelity tier</label>
-        <select id="fidelity">
-          <option value="1">Tier 1 (structure)</option>
-          <option value="2" selected>Tier 2 (styles)</option>
-          <option value="3">Tier 3 (original patch)</option>
-        </select>
-        <label for="ocr-mode">OCR mode</label>
-        <select id="ocr-mode">
-          <option value="auto" selected>Auto</option>
-          <option value="force">Force</option>
-          <option value="skip">Skip</option>
-        </select>
-        <label>&nbsp;</label>
-        <div class="checkbox-row">
-          <input type="checkbox" id="include-adobe" checked>
-          <label for="include-adobe" style="font-weight:normal">Index Adobe files</label>
-        </div>
-        <div class="form-actions">
+        <div class="form-actions" style="grid-column:1/-1;margin-top:0.75rem">
           <button class="btn btn-primary" id="start-btn">Start Job</button>
           <span id="start-error" class="text-sm" style="color:var(--error);margin-left:0.75rem" hidden></span>
         </div>
       </div>
     </section>
+
+    <!-- Job Configuration Modal -->
+    <div id="job-config-backdrop" class="dialog-backdrop">
+      <div class="dialog" style="max-width:600px;max-height:85vh;overflow-y:auto">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+          <h3 style="margin:0">Job Configuration</h3>
+          <button class="btn btn-sm" id="cfg-close-btn" style="padding:0.2rem 0.5rem">&times;</button>
+        </div>
+        <p class="text-sm text-muted" style="margin:-0.5rem 0 1rem">Configure options for this scan. Overrides apply to this job only — global defaults are shown in parentheses.</p>
+
+        <!-- Conversion Settings -->
+        <details open>
+          <summary class="cfg-section-title">Conversion</summary>
+          <div class="cfg-grid">
+            <label for="cfg-workers">Workers</label>
+            <input type="number" id="cfg-workers" min="1" max="16" value="4" class="cfg-input">
+            <label for="cfg-fidelity">Fidelity tier</label>
+            <select id="cfg-fidelity" class="cfg-input">
+              <option value="1">Tier 1 (structure only)</option>
+              <option value="2" selected>Tier 2 (with styles)</option>
+              <option value="3">Tier 3 (original patch)</option>
+            </select>
+            <label for="cfg-ocr-mode">OCR mode</label>
+            <select id="cfg-ocr-mode" class="cfg-input">
+              <option value="auto" selected>Auto-detect</option>
+              <option value="force">Force OCR on all PDFs</option>
+              <option value="skip">Skip OCR entirely</option>
+            </select>
+            <label>&nbsp;</label>
+            <label class="cfg-checkbox"><input type="checkbox" id="cfg-include-adobe" checked> Index Adobe files</label>
+          </div>
+        </details>
+
+        <!-- Scan Settings -->
+        <details>
+          <summary class="cfg-section-title">Scan Options</summary>
+          <div class="cfg-grid">
+            <label for="cfg-scan-threads">Scan threads</label>
+            <div>
+              <select id="cfg-scan-threads" class="cfg-input">
+                <option value="auto" selected>Auto (probe storage)</option>
+                <option value="1">1 (serial)</option>
+                <option value="2">2</option>
+                <option value="4">4</option>
+                <option value="6">6</option>
+                <option value="8">8</option>
+                <option value="12">12</option>
+              </select>
+              <div class="cfg-hint" id="cfg-scan-threads-hint">Global default: auto</div>
+            </div>
+            <label for="cfg-collision">Path collisions</label>
+            <div>
+              <select id="cfg-collision" class="cfg-input">
+                <option value="rename" selected>Rename (append extension)</option>
+                <option value="skip">Skip duplicates</option>
+                <option value="overwrite">Overwrite</option>
+              </select>
+              <div class="cfg-hint" id="cfg-collision-hint">Global default: rename</div>
+            </div>
+            <label for="cfg-max-files">Max files</label>
+            <div>
+              <input type="number" id="cfg-max-files" min="0" value="0" class="cfg-input" placeholder="0 = unlimited">
+              <div class="cfg-hint">0 = no limit. Cap files processed in this job.</div>
+            </div>
+          </div>
+        </details>
+
+        <!-- OCR Settings -->
+        <details>
+          <summary class="cfg-section-title">OCR</summary>
+          <div class="cfg-grid">
+            <label for="cfg-ocr-threshold">Confidence threshold</label>
+            <div>
+              <input type="number" id="cfg-ocr-threshold" min="0" max="100" value="70" class="cfg-input" style="width:80px">
+              <span class="text-sm text-muted">%</span>
+              <div class="cfg-hint" id="cfg-ocr-threshold-hint">Global default: 70%. Pages below this are flagged for review.</div>
+            </div>
+            <label>&nbsp;</label>
+            <label class="cfg-checkbox"><input type="checkbox" id="cfg-unattended"> Unattended mode <span class="text-muted text-sm">(skip review queue)</span></label>
+          </div>
+        </details>
+
+        <!-- Password Recovery -->
+        <details>
+          <summary class="cfg-section-title">Password Recovery</summary>
+          <div class="cfg-grid">
+            <label>&nbsp;</label>
+            <label class="cfg-checkbox"><input type="checkbox" id="cfg-pw-dictionary" checked> Dictionary attack</label>
+            <label>&nbsp;</label>
+            <label class="cfg-checkbox"><input type="checkbox" id="cfg-pw-brute"> Brute-force attack</label>
+            <label for="cfg-pw-timeout">Timeout per file</label>
+            <div>
+              <input type="number" id="cfg-pw-timeout" min="1" max="3600" value="60" class="cfg-input" style="width:80px">
+              <span class="text-sm text-muted">seconds</span>
+              <div class="cfg-hint" id="cfg-pw-timeout-hint">Global default: 60s</div>
+            </div>
+            <label>&nbsp;</label>
+            <label class="cfg-checkbox"><input type="checkbox" id="cfg-pw-hashcat"> GPU acceleration (hashcat)</label>
+          </div>
+        </details>
+
+        <!-- Actions -->
+        <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border)">
+          <button class="btn" id="cfg-cancel-btn">Cancel</button>
+          <button class="btn btn-primary" id="cfg-start-btn">Start Job</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Active Job Progress -->
     <section class="card mb-2" id="active-job-section" hidden>
@@ -420,12 +520,51 @@
     } catch (e) { /* default true */ }
   })();
 
-  // Start job
-  document.getElementById('start-btn').addEventListener('click', async () => {
+  // ── Job config modal ────────────────────────────────────────────────────
+  const cfgBackdrop = document.getElementById('job-config-backdrop');
+  let globalPrefs = {};
+
+  // Load global preferences to show defaults in modal
+  async function loadGlobalPrefs() {
+    try {
+      const data = await API.get('/api/preferences');
+      globalPrefs = data.preferences || {};
+      // Set hint text showing global defaults
+      const hints = {
+        'cfg-scan-threads-hint': 'Global default: ' + (globalPrefs.scan_max_threads || 'auto'),
+        'cfg-collision-hint': 'Global default: ' + (globalPrefs.collision_strategy || 'rename'),
+        'cfg-ocr-threshold-hint': 'Global default: ' + (globalPrefs.ocr_confidence_threshold || '70') + '%. Pages below this are flagged for review.',
+        'cfg-pw-timeout-hint': 'Global default: ' + (globalPrefs.password_timeout_seconds || '60') + 's',
+      };
+      for (const [id, text] of Object.entries(hints)) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = text;
+      }
+      // Pre-fill modal fields with global defaults
+      document.getElementById('cfg-workers').value = globalPrefs.worker_count || 4;
+      document.getElementById('cfg-scan-threads').value = globalPrefs.scan_max_threads || 'auto';
+      document.getElementById('cfg-collision').value = globalPrefs.collision_strategy || 'rename';
+      document.getElementById('cfg-ocr-threshold').value = globalPrefs.ocr_confidence_threshold || 70;
+      document.getElementById('cfg-pw-dictionary').checked = globalPrefs.password_dictionary_enabled !== 'false';
+      document.getElementById('cfg-pw-brute').checked = globalPrefs.password_brute_force_enabled === 'true';
+      document.getElementById('cfg-pw-timeout').value = globalPrefs.password_timeout_seconds || 60;
+      document.getElementById('cfg-pw-hashcat').checked = globalPrefs.password_hashcat_enabled === 'true';
+      document.getElementById('cfg-unattended').checked = globalPrefs.unattended_default === 'true';
+    } catch(e) { /* defaults are fine */ }
+  }
+  loadGlobalPrefs();
+
+  function openConfigModal() {
+    cfgBackdrop.classList.add('open');
+  }
+  function closeConfigModal() {
+    cfgBackdrop.classList.remove('open');
+  }
+
+  // "Start Job" button on main form → validate locations then open modal
+  document.getElementById('start-btn').addEventListener('click', () => {
     const errEl = document.getElementById('start-error');
     errEl.hidden = true;
-    const btn = document.getElementById('start-btn');
-    btn.disabled = true;
 
     const sourceSel = document.getElementById('source-loc');
     const outputSel = document.getElementById('output-loc');
@@ -434,22 +573,48 @@
     if (!scanAll && !sourceSel.value) {
       errEl.textContent = 'Select a source location or check "Scan all source locations".';
       errEl.hidden = false;
-      btn.disabled = false;
       return;
     }
     if (!outputSel.value) {
       errEl.textContent = 'Select an output location.';
       errEl.hidden = false;
-      btn.disabled = false;
       return;
     }
 
+    openConfigModal();
+  });
+
+  // Modal close buttons
+  document.getElementById('cfg-close-btn').addEventListener('click', closeConfigModal);
+  document.getElementById('cfg-cancel-btn').addEventListener('click', closeConfigModal);
+  cfgBackdrop.addEventListener('click', (e) => { if (e.target === cfgBackdrop) closeConfigModal(); });
+
+  // Modal "Start Job" → actually launch the job
+  document.getElementById('cfg-start-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('cfg-start-btn');
+    btn.disabled = true;
+    btn.textContent = 'Starting...';
+
+    const sourceSel = document.getElementById('source-loc');
+    const outputSel = document.getElementById('output-loc');
+    const scanAll = document.getElementById('scan-all-sources').checked;
+
     const payload = {
       output_location_id: outputSel.value,
-      worker_count: parseInt(document.getElementById('workers').value) || 4,
-      fidelity_tier: parseInt(document.getElementById('fidelity').value) || 2,
-      ocr_mode: document.getElementById('ocr-mode').value,
-      include_adobe: document.getElementById('include-adobe').checked,
+      worker_count: parseInt(document.getElementById('cfg-workers').value) || 4,
+      fidelity_tier: parseInt(document.getElementById('cfg-fidelity').value) || 2,
+      ocr_mode: document.getElementById('cfg-ocr-mode').value,
+      include_adobe: document.getElementById('cfg-include-adobe').checked,
+      // Per-job overrides
+      scan_max_threads: document.getElementById('cfg-scan-threads').value,
+      collision_strategy: document.getElementById('cfg-collision').value,
+      max_files: parseInt(document.getElementById('cfg-max-files').value) || 0,
+      ocr_confidence_threshold: parseInt(document.getElementById('cfg-ocr-threshold').value) || 70,
+      unattended: document.getElementById('cfg-unattended').checked,
+      password_dictionary_enabled: document.getElementById('cfg-pw-dictionary').checked,
+      password_brute_force_enabled: document.getElementById('cfg-pw-brute').checked,
+      password_timeout_seconds: parseInt(document.getElementById('cfg-pw-timeout').value) || 60,
+      password_hashcat_enabled: document.getElementById('cfg-pw-hashcat').checked,
     };
     if (scanAll) {
       payload.scan_all_sources = true;
@@ -459,16 +624,17 @@
 
     try {
       const data = await API.post('/api/bulk/jobs', payload);
+      closeConfigModal();
       activeJobId = data.job_id;
-      workerCount = parseInt(document.getElementById('workers').value) || 4;
+      workerCount = parseInt(document.getElementById('cfg-workers').value) || 4;
       for (let i = 1; i <= workerCount; i++) activeWorkers[i] = null;
       connectSSE(data.job_id);
       document.getElementById('active-job-section').hidden = false;
       resetCounters();
     } catch (e) {
-      errEl.textContent = e.message;
-      errEl.hidden = false;
+      showToast(e.message, 'error');
       btn.disabled = false;
+      btn.textContent = 'Start Job';
     }
   });
 
