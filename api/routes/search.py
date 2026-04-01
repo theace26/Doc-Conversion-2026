@@ -23,7 +23,7 @@ import structlog
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 
-from core.auth import AuthenticatedUser, UserRole, require_role
+from core.auth import AuthenticatedUser, UserRole, require_role, role_satisfies
 from core.database import db_fetch_one
 from core.search_client import get_meili_client
 from core.search_indexer import get_search_indexer
@@ -124,6 +124,9 @@ async def search(
         filters.append(f'source_format = "{format}"')
     if path_prefix and index == "documents":
         filters.append(f'relative_path_prefix = "{path_prefix}"')
+    # Hide flagged files from non-admin users
+    if not role_satisfies(user.role, UserRole.ADMIN):
+        filters.append("is_flagged != true")
     if filters:
         options["filter"] = " AND ".join(filters)
 
@@ -190,8 +193,14 @@ async def search_all(
     elif sort == "format":
         options["sort"] = ["converted_at:desc"]
 
+    # Build document filter
+    doc_filters = []
     if format:
-        options["filter"] = f'source_format = "{format}"'
+        doc_filters.append(f'source_format = "{format}"')
+    if not role_satisfies(user.role, UserRole.ADMIN):
+        doc_filters.append("is_flagged != true")
+    if doc_filters:
+        options["filter"] = " AND ".join(doc_filters)
 
     # Fan out to all 3 indexes concurrently
     docs_task = client.search("documents", q, options)
@@ -203,13 +212,27 @@ async def search_all(
         "highlightPreTag": "<em>",
         "highlightPostTag": "</em>",
     }
+
+    # Build other-index filters
+    other_filters = []
+    if not role_satisfies(user.role, UserRole.ADMIN):
+        other_filters.append("is_flagged != true")
+
     if format:
-        other_options_adobe = {**other_options, "filter": f'file_ext = ".{format}"'}
+        adobe_filter_parts = [f'file_ext = ".{format}"'] + other_filters
+        other_options_adobe = {**other_options, "filter": " AND ".join(adobe_filter_parts)}
+    elif other_filters:
+        other_options_adobe = {**other_options, "filter": " AND ".join(other_filters)}
     else:
         other_options_adobe = other_options
 
+    if other_filters:
+        other_options_transcripts = {**other_options, "filter": " AND ".join(other_filters)}
+    else:
+        other_options_transcripts = other_options
+
     adobe_task = client.search("adobe-files", q, other_options_adobe)
-    transcript_task = client.search("transcripts", q, other_options)
+    transcript_task = client.search("transcripts", q, other_options_transcripts)
 
     docs_result, adobe_result, transcript_result = await asyncio.gather(
         docs_task, adobe_task, transcript_task
@@ -345,6 +368,12 @@ async def serve_source(
     if source_path is None or not source_path.exists():
         raise HTTPException(status_code=404, detail="Original source file not found.")
 
+    # Block flagged files for non-admin users
+    from core.flag_manager import is_file_flagged_by_path
+    if await is_file_flagged_by_path(str(source_path)):
+        if not role_satisfies(user.role, UserRole.ADMIN):
+            raise HTTPException(status_code=403, detail="This file has been flagged for review.")
+
     mime, _ = mimetypes.guess_type(str(source_path))
     if not mime:
         mime = "application/octet-stream"
@@ -382,6 +411,12 @@ async def download_source(
     source_path = await _resolve_source_path(output_path, source_filename)
     if source_path is None or not source_path.exists():
         raise HTTPException(status_code=404, detail="Original source file not found.")
+
+    # Block flagged files for non-admin users
+    from core.flag_manager import is_file_flagged_by_path
+    if await is_file_flagged_by_path(str(source_path)):
+        if not role_satisfies(user.role, UserRole.ADMIN):
+            raise HTTPException(status_code=403, detail="This file has been flagged for review.")
 
     mime, _ = mimetypes.guess_type(str(source_path))
     return FileResponse(
@@ -438,6 +473,7 @@ async def batch_download(
     client = get_meili_client()
     buf = io.BytesIO()
     added_names: dict[str, int] = {}  # track duplicates
+    skipped_flagged = 0
 
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for item in items:
@@ -456,6 +492,12 @@ async def batch_download(
                     doc.get("source_filename", ""),
                 )
                 if source_path is None or not source_path.exists():
+                    continue
+
+                # Skip flagged files
+                from core.flag_manager import is_file_flagged_by_path
+                if await is_file_flagged_by_path(str(source_path)):
+                    skipped_flagged += 1
                     continue
 
                 # Handle duplicate filenames
@@ -485,6 +527,7 @@ async def batch_download(
         headers={
             "Content-Disposition": 'attachment; filename="markflow-search-results.zip"',
             "Content-Length": str(size),
+            "X-Skipped-Flagged": str(skipped_flagged),
         },
     )
 
