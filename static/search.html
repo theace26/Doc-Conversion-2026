@@ -105,6 +105,12 @@
     .hit-index-tag.documents { background: #e3f2fd; color: #1565c0; }
     .hit-index-tag.adobe-files { background: #fce4ec; color: #c62828; }
     .hit-index-tag.transcripts { background: #f3e5f5; color: #6a1b9a; }
+    .btn-flag {
+      background: none; border: none; color: var(--text-muted); cursor: pointer;
+      padding: 4px 6px; font-size: 1rem; border-radius: var(--radius-sm);
+      transition: color 0.2s, background 0.2s; flex-shrink: 0; margin-top: 0.2rem;
+    }
+    .btn-flag:hover { color: var(--error); background: color-mix(in srgb, var(--error) 10%, transparent); }
     .index-status { font-size: 0.82rem; color: var(--text-muted); }
     .index-offline { color: var(--error); font-weight: 500; }
   </style>
@@ -344,6 +350,7 @@
 
       var row = document.createElement('div');
       row.className = 'hit';
+      row.setAttribute('data-doc-id', hit.id);
 
       // Checkbox
       var cb = document.createElement('input');
@@ -360,6 +367,21 @@
         updateBatchBar();
       });
       row.appendChild(cb);
+
+      // Flag button
+      var flagBtn = document.createElement('button');
+      flagBtn.className = 'btn-flag';
+      flagBtn.title = 'Flag this file';
+      flagBtn.textContent = '\u2691';
+      flagBtn.setAttribute('data-source-path', hit.source_path || hit.path || '');
+      flagBtn.setAttribute('data-doc-id', hit.id);
+      flagBtn.setAttribute('data-source-index', indexTag);
+      flagBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        openFlagModal(hit.source_path || hit.path || '', hit.id, indexTag);
+      });
+      row.appendChild(flagBtn);
 
       // Body (clickable)
       var body = document.createElement('div');
@@ -657,6 +679,79 @@
 
   // Auto-search if query in URL
   if (document.getElementById('search-input').value.trim().length >= 2) doSearch();
+
+  // ── Flag Modal ────────────────────────────────────────────────────────────
+  var flagModalState = {};
+
+  function openFlagModal(sourcePath, docId, sourceIndex) {
+    flagModalState = { sourcePath: sourcePath, docId: docId, sourceIndex: sourceIndex };
+    document.getElementById('flag-modal-filename').textContent = sourcePath || docId;
+    document.getElementById('flag-reason').value = '';
+    document.getElementById('flag-note').value = '';
+    document.getElementById('flag-modal-backdrop').classList.add('open');
+  }
+
+  function closeFlagModal() {
+    document.getElementById('flag-modal-backdrop').classList.remove('open');
+  }
+
+  function submitFlag() {
+    var reason = document.getElementById('flag-reason').value;
+    if (!reason) { showToast('Please select a reason.', 'error'); return; }
+    var note = document.getElementById('flag-note').value;
+    var btn = document.getElementById('flag-submit-btn');
+    btn.disabled = true;
+    btn.textContent = 'Flagging...';
+
+    var sourcePath = flagModalState.sourcePath;
+    API.get('/api/flags/lookup-source?source_path=' + encodeURIComponent(sourcePath))
+      .then(function(sfResp) {
+        return API.post('/api/flags', {
+          source_file_id: sfResp.source_file_id,
+          reason: reason,
+          note: note
+        });
+      })
+      .then(function() {
+        closeFlagModal();
+        showToast('File flagged \u2014 hidden from search.', 'success');
+        var hitEl = document.querySelector('[data-doc-id="' + flagModalState.docId + '"]');
+        if (hitEl) { hitEl.style.opacity = '0.3'; hitEl.style.pointerEvents = 'none'; }
+      })
+      .catch(function(err) {
+        showToast(err.message || 'Failed to flag file.', 'error');
+      })
+      .finally(function() {
+        btn.disabled = false;
+        btn.textContent = 'Flag File';
+      });
+  }
   </script>
+
+<!-- Flag File Modal -->
+<div id="flag-modal-backdrop" class="dialog-backdrop">
+  <div class="dialog" style="max-width:420px;">
+    <h3 style="margin-top:0;">Flag File for Review</h3>
+    <p id="flag-modal-filename" style="color:var(--text-muted);word-break:break-all;"></p>
+    <div class="form-group">
+      <label for="flag-reason">Reason</label>
+      <select id="flag-reason">
+        <option value="">Select a reason...</option>
+        <option value="pii">Contains PII</option>
+        <option value="confidential">Confidential / Privileged</option>
+        <option value="unauthorized">Not Authorized to Share</option>
+        <option value="other">Other</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label for="flag-note">Note (optional)</label>
+      <input type="text" id="flag-note" placeholder="Additional context...">
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-ghost" onclick="closeFlagModal()">Cancel</button>
+      <button class="btn btn-danger" id="flag-submit-btn" onclick="submitFlag()">Flag File</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
