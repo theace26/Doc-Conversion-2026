@@ -32,7 +32,7 @@ log = structlog.get_logger(__name__)
 # All supported extensions — unified scanning (no separate Adobe/convertible split)
 SUPPORTED_EXTENSIONS = {
     # Office documents
-    ".docx", ".doc",
+    ".docx", ".doc", ".docm", ".wpd",
     ".pdf",
     ".pptx", ".ppt",
     ".xlsx", ".xls",
@@ -52,7 +52,7 @@ SUPPORTED_EXTENSIONS = {
     ".zip", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2",
     ".tar.xz", ".txz", ".7z", ".rar", ".cab", ".iso",
     # Adobe creative suite
-    ".psd", ".ai", ".indd", ".aep", ".prproj", ".xd",
+    ".psd", ".ai", ".indd", ".aep", ".prproj", ".xd", ".ait", ".indt",
     # Media (audio/video — indexed for metadata/scene detection)
     ".mp3", ".mp4", ".mov", ".avi", ".mkv", ".wav", ".flac", ".ogg",
     ".webm", ".m4a", ".m4v", ".wmv", ".aac", ".wma",
@@ -62,7 +62,7 @@ SUPPORTED_EXTENSIONS = {
 
 # Backwards-compat aliases (referenced by bulk_worker and other modules)
 CONVERTIBLE_EXTENSIONS = SUPPORTED_EXTENSIONS
-ADOBE_EXTENSIONS = {".ai", ".psd", ".indd", ".aep", ".prproj", ".xd"}
+ADOBE_EXTENSIONS = {".ai", ".psd", ".indd", ".aep", ".prproj", ".xd", ".ait", ".indt"}
 ALL_SUPPORTED = SUPPORTED_EXTENSIONS
 
 

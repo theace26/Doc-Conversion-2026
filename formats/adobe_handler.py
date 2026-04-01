@@ -32,7 +32,7 @@ log = structlog.get_logger(__name__)
 class AdobeHandler(FormatHandler):
     """Handler for Adobe creative suite files: PSD, AI, INDD, AEP, PRPROJ, XD."""
 
-    EXTENSIONS = ["psd", "ai", "indd", "aep", "prproj", "xd"]
+    EXTENSIONS = ["psd", "ai", "indd", "aep", "prproj", "xd", "ait", "indt"]
 
     # ── Ingest ────────────────────────────────────────────────────────────────
 

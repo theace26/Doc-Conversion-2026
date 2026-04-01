@@ -23,6 +23,10 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 - Uses exiftool (already in Dockerfile.base) for extended metadata (same subprocess pattern as AdobeHandler)
 - No new dependencies required
 - EPS support via Pillow's GhostScript integration (if GhostScript is installed)
+- `.docm` (macro-enabled Word) now handled by DocxHandler via LibreOffice preprocessing
+- `.wpd` (WordPerfect) now handled by DocxHandler via LibreOffice preprocessing
+- `.ait` / `.indt` (Adobe Illustrator/InDesign templates) now handled by AdobeHandler
+- All previously unrecognized file types now have handlers
 
 ---
 

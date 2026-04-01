@@ -41,13 +41,18 @@ replaces duplicated LibreOffice logic across all three legacy handlers.
 Lifecycle scan now yields to active bulk jobs — prevents "database is locked"
 errors from concurrent DB access.
 
+**Pre-production checklist:**
+- Lifecycle timers are set to testing values — **MUST** restore before production:
+  - `lifecycle_grace_period_hours`: currently **12** (production: 36+)
+  - `lifecycle_trash_retention_days`: currently **7** (production: 60+)
+  - Set via Settings UI or `PUT /api/preferences/<key>`
+
 **Known issues (v0.13.7):**
 - `bulk_files` table duplicates rows across jobs (keyed by `job_id + source_path`).
   12,847 distinct source files → 34K+ rows after 5 scan jobs. Per-job counts are
   accurate; cross-job aggregation overcounts. Needs a dedup or global file registry.
-- Remaining unrecognized files in the source repo — .wpd (WordPerfect, 277),
-  .docm (macro Word, 20), .ait/.indt (Adobe templates, 115). Image files
-  (.jpg, .png, .tif, .bmp, .gif, .eps) now handled by ImageHandler.
+- All previously unrecognized file types now have handlers: images (ImageHandler),
+  .docm/.wpd (DocxHandler via LibreOffice), .ait/.indt (AdobeHandler).
 
 Previous (v0.13.6): ErrorRateMonitor integrated across all I/O subsystems. Meilisearch
 index rebuild aborts early if search service is unreachable. Cloud transcriber
@@ -209,7 +214,8 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 
 | Category | Extensions | Handler |
 |----------|-----------|---------|
-| Office | .docx, .doc, .pdf, .pptx, .ppt, .xlsx, .xls, .csv, .tsv | DocxHandler, PdfHandler, PptxHandler, XlsxHandler, CsvHandler |
+| Office | .docx, .doc, .docm, .pdf, .pptx, .ppt, .xlsx, .xls, .csv, .tsv | DocxHandler, PdfHandler, PptxHandler, XlsxHandler, CsvHandler |
+| WordPerfect | .wpd | DocxHandler (via LibreOffice preprocessing) |
 | Rich Text | .rtf | RtfHandler |
 | OpenDocument | .odt, .ods, .odp | OdtHandler, OdsHandler, OdpHandler |
 | Markdown & Text | .md, .txt, .log, .text | MarkdownHandler, TxtHandler |
@@ -217,7 +223,7 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 | Data & Config | .json, .yaml, .yml, .ini, .cfg, .conf, .properties | JsonHandler, YamlHandler, IniHandler |
 | Email | .eml, .msg | EmlHandler (with recursive attachment conversion) |
 | Archives | .zip, .tar, .tar.gz, .tgz, .tar.bz2, .7z, .rar, .cab, .iso | ArchiveHandler |
-| Adobe | .psd, .ai, .indd, .aep, .prproj, .xd | AdobeHandler |
+| Adobe | .psd, .ai, .indd, .aep, .prproj, .xd, .ait, .indt | AdobeHandler |
 | Media (audio) | .mp3, .wav, .m4a, .flac, .ogg, .aac, .wma | AudioHandler |
 | Media (video) | .mp4, .mov, .avi, .mkv, .webm, .m4v, .wmv | MediaHandler |
 | Captions | .srt, .vtt, .sbv | CaptionIngestor (via AudioHandler) |
