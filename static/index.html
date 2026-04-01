@@ -82,7 +82,11 @@
       <!-- Output directory -->
       <div class="form-group mt-2">
         <label for="output-dir">Output Directory <span class="text-muted">(optional)</span></label>
-        <input type="text" id="output-dir" name="output_dir" placeholder="/app/output">
+        <div style="display:flex;gap:0.5rem;align-items:center">
+          <input type="text" id="output-dir" name="output_dir" placeholder="/app/output" style="flex:1">
+          <button class="btn btn-sm" id="browse-output-btn" title="Browse for output folder" style="white-space:nowrap">Browse</button>
+        </div>
+        <div id="output-dir-hint" class="text-sm text-muted" style="margin-top:0.25rem"></div>
       </div>
 
       <!-- Password (optional, for encrypted files) -->
@@ -98,6 +102,33 @@
         <span class="toggle-label">Unattended mode (auto-accept all OCR results)</span>
       </label>
 
+      <!-- Conversion options (shown on Convert click) -->
+      <details id="convert-options" style="margin-bottom:1rem">
+        <summary style="cursor:pointer;font-weight:600;font-size:0.9rem;color:var(--text-muted)">Conversion Options</summary>
+        <div style="display:grid;grid-template-columns:140px 1fr;gap:0.5rem 0.75rem;align-items:center;padding:0.75rem 0;font-size:0.85rem">
+          <label for="cv-fidelity" style="font-weight:500">Fidelity tier</label>
+          <select id="cv-fidelity" style="padding:0.35rem 0.55rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:0.85rem">
+            <option value="1">Tier 1 (structure)</option>
+            <option value="2" selected>Tier 2 (styles)</option>
+            <option value="3">Tier 3 (original patch)</option>
+          </select>
+          <label for="cv-ocr-mode" style="font-weight:500">OCR mode</label>
+          <select id="cv-ocr-mode" style="padding:0.35rem 0.55rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:0.85rem">
+            <option value="auto" selected>Auto-detect</option>
+            <option value="force">Force OCR</option>
+            <option value="skip">Skip OCR</option>
+          </select>
+          <label style="font-weight:500">Passwords</label>
+          <label style="display:flex;align-items:center;gap:0.35rem;font-weight:normal;cursor:pointer;font-size:0.85rem">
+            <input type="checkbox" id="cv-pw-dictionary" checked> Dictionary attack
+          </label>
+          <label>&nbsp;</label>
+          <label style="display:flex;align-items:center;gap:0.35rem;font-weight:normal;cursor:pointer;font-size:0.85rem">
+            <input type="checkbox" id="cv-pw-brute"> Brute-force attack
+          </label>
+        </div>
+      </details>
+
       <!-- Actions -->
       <div class="btn-group mt-2">
         <button class="btn btn-ghost" id="btn-preview" disabled>Preview</button>
@@ -107,6 +138,7 @@
   </div>
 
   <script src="/static/app.js"></script>
+  <script src="/static/js/folder-picker.js"></script>
   <script>
   // ── Health check ──────────────────────────────────────────────────────────
   (async () => {
@@ -126,17 +158,35 @@
   })();
 
   // ── Load preferences ──────────────────────────────────────────────────────
+  let globalPrefs = {};
   (async () => {
     try {
       const data = await API.get('/api/preferences');
-      const prefs = data.preferences || data;
-      if (prefs.last_save_directory) document.getElementById('output-dir').value = prefs.last_save_directory;
-      if (prefs.default_direction) {
-        const radio = document.querySelector(`input[name=direction][value="${prefs.default_direction}"]`);
-        if (radio) { radio.checked = true; toggleDirection(prefs.default_direction); }
+      globalPrefs = data.preferences || data;
+      // Session-sticky output dir takes priority, then global pref
+      const sessionDir = sessionStorage.getItem('markflow_output_dir');
+      if (sessionDir) {
+        document.getElementById('output-dir').value = sessionDir;
+      } else if (globalPrefs.last_save_directory) {
+        document.getElementById('output-dir').value = globalPrefs.last_save_directory;
+      }
+      updateOutputHint();
+      if (globalPrefs.default_direction) {
+        const radio = document.querySelector(`input[name=direction][value="${globalPrefs.default_direction}"]`);
+        if (radio) { radio.checked = true; toggleDirection(globalPrefs.default_direction); }
       }
     } catch (e) { /* prefs not critical */ }
   })();
+
+  function updateOutputHint() {
+    const dir = document.getElementById('output-dir').value.trim();
+    const hint = document.getElementById('output-dir-hint');
+    hint.textContent = dir ? 'Files will be saved to: ' + dir : 'Default: /app/output';
+  }
+  document.getElementById('output-dir').addEventListener('input', function() {
+    updateOutputHint();
+    if (this.value.trim()) sessionStorage.setItem('markflow_output_dir', this.value.trim());
+  });
 
   // ── Direction toggle ──────────────────────────────────────────────────────
   document.querySelectorAll('input[name=direction]').forEach(r =>
@@ -294,6 +344,21 @@
     renderFileList();
   }
 
+  // ── Browse output directory ───────────────────────────────────────────────
+  document.getElementById('browse-output-btn').addEventListener('click', () => {
+    const picker = new FolderPicker({
+      title: 'Select Output Directory',
+      initialPath: document.getElementById('output-dir').value.trim() || '/app/output',
+      mode: 'output',
+      onSelect: (path) => {
+        document.getElementById('output-dir').value = path;
+        sessionStorage.setItem('markflow_output_dir', path);
+        updateOutputHint();
+      },
+    });
+    picker.open();
+  });
+
   // ── Preview ───────────────────────────────────────────────────────────────
   document.getElementById('btn-preview').addEventListener('click', async () => {
     if (!selectedFiles.length) return;
@@ -325,6 +390,8 @@
     fd.append('direction', document.querySelector('input[name=direction]:checked').value);
     fd.append('output_dir', document.getElementById('output-dir').value);
     fd.append('unattended', document.getElementById('unattended').checked);
+    fd.append('fidelity_tier', document.getElementById('cv-fidelity').value);
+    fd.append('ocr_mode', document.getElementById('cv-ocr-mode').value);
     const pw = document.getElementById('file-password').value;
     if (pw) fd.append('password', pw);
     if (document.querySelector('input[name=direction]:checked').value === 'from_md') {
