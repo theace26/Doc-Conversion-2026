@@ -1,12 +1,15 @@
 """
 Lifecycle scanner — walks the source share, detects new/modified/moved/deleted
-files, and updates lifecycle state in bulk_files.
+files, and updates lifecycle state in source_files and bulk_files.
 
 Called by the scheduler. One scan cycle:
 1. Walk source share
 2. Detect new, modified, moved, deleted files
 3. Update DB state and create version records
 4. Record scan run with counters
+
+Deletion and move detection queries source_files (deduplicated) to avoid
+overcounting from duplicate bulk_files rows across scan jobs.
 """
 
 import hashlib
@@ -27,7 +30,7 @@ from core.database import (
     create_scan_run,
     create_version_snapshot,
     db_fetch_all,
-    get_bulk_file_by_path,
+    get_source_file_by_path,
     get_next_version_number,
     get_scan_run,
     update_bulk_file,
@@ -236,12 +239,11 @@ async def run_lifecycle_scan(
         return scan_run_id
 
     # ── Detect deletions (files not seen but still active) ────────────────────
+    # Query source_files (deduplicated) instead of bulk_files to avoid
+    # overcounting from duplicate rows across scan jobs.
     try:
         active_files = await db_fetch_all(
-            """SELECT * FROM bulk_files
-               WHERE lifecycle_status='active'
-               AND job_id=?""",
-            (job_id,),
+            "SELECT * FROM source_files WHERE lifecycle_status='active' ORDER BY source_path",
         )
 
         # Build set of newly seen paths that don't have DB records yet
@@ -256,14 +258,26 @@ async def run_lifecycle_scan(
             content_hash = f.get("content_hash")
             if content_hash:
                 # Look for a newly created file with the same hash
-                match = await _find_hash_match_in_seen(content_hash, seen_paths, job_id)
+                match = await _find_hash_match_in_seen(content_hash, seen_paths)
                 if match:
-                    await record_file_move(f["id"], f["source_path"], match, scan_run_id)
-                    counters["files_moved"] += 1
+                    # Look up all linked bulk_files rows and record the move
+                    bf_rows = await db_fetch_all(
+                        "SELECT id FROM bulk_files WHERE source_file_id = ? AND lifecycle_status = 'active'",
+                        (f["id"],),
+                    )
+                    for bf in bf_rows:
+                        await record_file_move(bf["id"], f["source_path"], match, scan_run_id)
+                    counters["files_moved"] += 1  # count once per source file
                     continue
 
-            await mark_file_for_deletion(f["id"], scan_run_id)
-            counters["files_deleted"] += 1
+            # File is gone — mark all linked bulk_files rows for deletion
+            bf_rows = await db_fetch_all(
+                "SELECT id FROM bulk_files WHERE source_file_id = ? AND lifecycle_status = 'active'",
+                (f["id"],),
+            )
+            for bf in bf_rows:
+                await mark_file_for_deletion(bf["id"], scan_run_id)
+            counters["files_deleted"] += 1  # count once per source file, not per bulk_file row
     except Exception as exc:
         counters["errors"] += 1
         error_entries.append({"path": "deletion_detection", "error": str(exc)})
@@ -350,7 +364,7 @@ async def _process_file(
     counters: dict,
 ) -> None:
     """Process a single file discovered during scan."""
-    existing = await get_bulk_file_by_path(path_str)
+    existing = await get_source_file_by_path(path_str)
 
     if existing is None:
         # New file — upsert and create initial version
@@ -420,13 +434,15 @@ async def _process_file(
 
 
 async def _find_hash_match_in_seen(
-    content_hash: str, seen_paths: set[str], job_id: str
+    content_hash: str, seen_paths: set[str],
 ) -> str | None:
-    """Check if any newly-seen file matches the content hash."""
-    # Look for files recently added with matching hash
+    """Check if any newly-seen file matches the content hash.
+
+    Queries source_files (deduplicated) — no job_id filter needed.
+    """
     rows = await db_fetch_all(
-        "SELECT source_path FROM bulk_files WHERE content_hash=? AND job_id=? AND lifecycle_status='active'",
-        (content_hash, job_id),
+        "SELECT source_path FROM source_files WHERE content_hash=? AND lifecycle_status='active'",
+        (content_hash,),
     )
     for row in rows:
         if row["source_path"] in seen_paths:
@@ -604,7 +620,7 @@ async def _parallel_lifecycle_walk(
             counters["files_scanned"] += 1
 
             if ext not in ALL_SUPPORTED and ext not in CONVERTIBLE_EXTENSIONS and ext not in ADOBE_EXTENSIONS:
-                existing = await get_bulk_file_by_path(path_str)
+                existing = await get_source_file_by_path(path_str)
                 if existing and existing.get("lifecycle_status") == "marked_for_deletion":
                     await restore_file(existing["id"], scan_run_id)
                     counters["files_restored"] += 1
@@ -690,7 +706,7 @@ async def _lifecycle_process_entry(
         return
 
     if ext not in ALL_SUPPORTED and ext not in CONVERTIBLE_EXTENSIONS and ext not in ADOBE_EXTENSIONS:
-        existing = await get_bulk_file_by_path(path_str)
+        existing = await get_source_file_by_path(path_str)
         if existing and existing.get("lifecycle_status") == "marked_for_deletion":
             await restore_file(existing["id"], scan_run_id)
             counters["files_restored"] += 1
