@@ -706,23 +706,27 @@
 
       list.innerHTML = data.jobs.map(j => {
         const statusClass = j.status || 'pending';
+        const statusLabel = (j.status || 'pending').charAt(0).toUpperCase() + (j.status || 'pending').slice(1);
         const errors = j.failed || 0;
         const errorsLink = errors > 0
-          ? `<a href="/api/bulk/jobs/${j.id}/errors" class="text-sm" style="color:var(--error)">${errors} errors</a>`
+          ? ` <a href="/api/bulk/jobs/${j.id}/errors" class="text-sm" style="color:var(--error)">${errors.toLocaleString()} errors</a>`
           : '';
         const rqCount = j.review_queue_count || 0;
         const reviewLink = (rqCount > 0 && j.status === 'completed')
-          ? `<a href="/bulk-review.html?job_id=${j.id}" class="text-sm" style="color:var(--warn)">⚠ ${rqCount} need review</a>`
+          ? ` <a href="/bulk-review.html?job_id=${j.id}" class="text-sm" style="color:var(--warn)">${rqCount} need review</a>`
           : '';
+        const converted = (j.converted || 0).toLocaleString();
+        const total = j.total_files ? j.total_files.toLocaleString() : null;
+        const statsText = total
+          ? `${converted} of ${total} converted`
+          : `${converted} converted`;
         return `<div class="job-history-item">
           <div>
-            <span class="job-status ${statusClass}">${j.status}</span>
-            <span class="text-sm text-muted" style="margin-left:0.5rem">${j.started_at || ''}</span>
+            <span class="job-status ${statusClass}">${statusLabel}</span>
+            <span class="text-sm text-muted" style="margin-left:0.5rem">${formatLocalTime(j.started_at)}</span>
           </div>
-          <div class="text-sm">
-            ${(j.converted || 0).toLocaleString()} converted
-            ${errorsLink}
-            ${reviewLink}
+          <div class="text-sm" style="text-align:right">
+            ${statsText}${errorsLink}${reviewLink}
           </div>
         </div>`;
       }).join('');

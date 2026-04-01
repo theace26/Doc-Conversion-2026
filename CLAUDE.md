@@ -26,9 +26,14 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.16.7
+## Current Status — v0.16.8
 
-v0.16.7: Collapsible settings sections. All 16 Settings page sections are now
+v0.16.8: Job History cleanup. Timestamps now use `formatLocalTime()` for
+human-readable display (e.g. "Apr 1, 2026, 3:13 PM" instead of raw ISO).
+Status labels title-cased ("Completed" not "COMPLETED"). Stats show
+"X of Y converted" when total file count is available.
+
+Previous (v0.16.7): Collapsible settings sections. All 16 Settings page sections are now
 wrapped in native `<details>/<summary>` elements. Only Locations and Conversion
 are open by default; all others start collapsed. "Expand All / Collapse All"
 toggle button in the page header. Animated chevron indicator, smooth slide-down
