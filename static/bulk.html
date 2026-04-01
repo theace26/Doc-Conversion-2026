@@ -108,6 +108,11 @@
             <select id="source-loc" style="flex:1;padding:0.45rem 0.6rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:0.9rem"></select>
             <a href="/locations.html" target="_blank" class="text-sm" style="white-space:nowrap">Manage</a>
           </div>
+          <div style="margin-top:0.35rem;display:flex;align-items:center;gap:0.4rem">
+            <label style="display:flex;align-items:center;gap:0.35rem;margin:0;cursor:pointer" class="text-sm">
+              <input type="checkbox" id="scan-all-sources"> Scan all source locations
+            </label>
+          </div>
           <div id="source-path-hint" class="text-sm text-mono text-muted" style="margin-top:0.2rem;font-size:0.78rem"></div>
         </div>
         <label for="output-loc">Output location</label>
@@ -423,29 +428,65 @@
 
     const sourceSel = document.getElementById('source-loc');
     const outputSel = document.getElementById('output-loc');
+    const scanAll = document.getElementById('scan-all-sources').checked;
 
-    if (!sourceSel.value || !outputSel.value) {
-      errEl.textContent = 'Select both a source and output location.';
+    if (!scanAll && !sourceSel.value) {
+      errEl.textContent = 'Select a source location or check "Scan all source locations".';
+      errEl.hidden = false;
+      btn.disabled = false;
+      return;
+    }
+    if (!outputSel.value) {
+      errEl.textContent = 'Select an output location.';
       errEl.hidden = false;
       btn.disabled = false;
       return;
     }
 
+    const basePayload = {
+      output_location_id: outputSel.value,
+      worker_count: parseInt(document.getElementById('workers').value) || 4,
+      fidelity_tier: parseInt(document.getElementById('fidelity').value) || 2,
+      ocr_mode: document.getElementById('ocr-mode').value,
+      include_adobe: document.getElementById('include-adobe').checked,
+    };
+
     try {
-      const data = await API.post('/api/bulk/jobs', {
-        source_location_id: sourceSel.value,
-        output_location_id: outputSel.value,
-        worker_count: parseInt(document.getElementById('workers').value) || 4,
-        fidelity_tier: parseInt(document.getElementById('fidelity').value) || 2,
-        ocr_mode: document.getElementById('ocr-mode').value,
-        include_adobe: document.getElementById('include-adobe').checked,
-      });
-      activeJobId = data.job_id;
-      workerCount = parseInt(document.getElementById('workers').value) || 4;
-      for (let i = 1; i <= workerCount; i++) activeWorkers[i] = null;
-      connectSSE(data.job_id);
-      document.getElementById('active-job-section').hidden = false;
-      resetCounters();
+      if (scanAll) {
+        // Fire off a job for each source location
+        const sourceOptions = Array.from(sourceSel.options).filter(o => o.value);
+        if (sourceOptions.length === 0) {
+          errEl.textContent = 'No source locations configured.';
+          errEl.hidden = false;
+          btn.disabled = false;
+          return;
+        }
+        const results = await Promise.all(
+          sourceOptions.map(opt =>
+            API.post('/api/bulk/jobs', { ...basePayload, source_location_id: opt.value })
+          )
+        );
+        showToast(`Started ${results.length} job${results.length !== 1 ? 's' : ''} across all source locations.`, 'success');
+        // Connect SSE to the first job for live progress
+        const firstJob = results[0];
+        activeJobId = firstJob.job_id;
+        workerCount = basePayload.worker_count;
+        for (let i = 1; i <= workerCount; i++) activeWorkers[i] = null;
+        connectSSE(firstJob.job_id);
+        document.getElementById('active-job-section').hidden = false;
+        resetCounters();
+      } else {
+        const data = await API.post('/api/bulk/jobs', {
+          ...basePayload,
+          source_location_id: sourceSel.value,
+        });
+        activeJobId = data.job_id;
+        workerCount = basePayload.worker_count;
+        for (let i = 1; i <= workerCount; i++) activeWorkers[i] = null;
+        connectSSE(data.job_id);
+        document.getElementById('active-job-section').hidden = false;
+        resetCounters();
+      }
     } catch (e) {
       errEl.textContent = e.message;
       errEl.hidden = false;
@@ -810,6 +851,19 @@
 
   document.getElementById('source-loc').addEventListener('change', () => updatePathHint('source-loc', 'source-path-hint'));
   document.getElementById('output-loc').addEventListener('change', () => updatePathHint('output-loc', 'output-path-hint'));
+
+  // "Scan all sources" checkbox — disable dropdown when checked
+  document.getElementById('scan-all-sources').addEventListener('change', function() {
+    const sel = document.getElementById('source-loc');
+    const hint = document.getElementById('source-path-hint');
+    sel.disabled = this.checked;
+    if (this.checked) {
+      const count = sel.options.length;
+      hint.textContent = `All ${count} source location${count !== 1 ? 's' : ''} will be scanned`;
+    } else {
+      updatePathHint('source-loc', 'source-path-hint');
+    }
+  });
 
   // Update hints after dropdown population
   const _origLoadDropdowns = loadLocationDropdowns;

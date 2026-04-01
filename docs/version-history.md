@@ -4,6 +4,18 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.16.9 — Scan All Sources (2026-04-01)
+
+**Bulk Jobs "Scan all source locations" checkbox:**
+- New checkbox below the source location dropdown on the Bulk Jobs page.
+- When checked, the source dropdown is disabled and shows "All N source locations will be scanned".
+- Start Job fires off a parallel job for each source location via `Promise.all()`.
+- Each job gets its own storage probe and adaptive throttling — no backend changes needed.
+- SSE connects to the first job for live progress display.
+- Toast confirms "Started N jobs across all source locations".
+
+---
+
 ## v0.16.8 — Job History Cleanup (2026-04-01)
 
 **Job History readability improvements (Bulk page):**
