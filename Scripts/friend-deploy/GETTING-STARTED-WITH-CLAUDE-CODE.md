@@ -171,10 +171,13 @@ chmod +x setup-markflow.sh
 1. Two folder-picker dialogs pop up (native Windows dialog or macOS Finder dialog):
    - **First:** Pick the folder with documents you want to convert (your "source" -- MarkFlow only reads from this, never writes)
    - **Second:** Pick where you want converted output saved (any local folder with free space)
-2. The script auto-detects your GPU
-3. It writes the Docker configuration
-4. It builds the Docker base image (**this takes 25-40 minutes the first time on Windows/HDD, 5-15 min on macOS/SSD** -- it's downloading LibreOffice, Tesseract OCR, ffmpeg, Whisper, and a bunch of other tools into the container)
-5. It starts all three services
+2. The script detects your CPU cores and RAM, asks you to confirm (just press Enter if the detected values look right)
+3. It calculates optimal worker count and search engine memory for your machine
+4. It generates a secure API key for Meilisearch (the search engine)
+5. It auto-detects your GPU
+6. It writes the Docker configuration with all tuned values
+7. It builds the Docker base image (**this takes 25-40 minutes the first time on Windows/HDD, 5-15 min on macOS/SSD** -- it's downloading LibreOffice, Tesseract OCR, ffmpeg, Whisper, and a bunch of other tools into the container)
+8. It starts all three services
 
 When it finishes you'll see:
 

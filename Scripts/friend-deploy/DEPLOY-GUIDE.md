@@ -83,9 +83,12 @@ You'll pick these interactively when running the setup script.
 
 The setup script is your one-stop first-time deployment. It:
 - Prompts you to browse/pick your source and output directories
+- Auto-detects your CPU cores and RAM, prompts you to confirm
+- Tunes parallel worker count and Meilisearch search engine memory based on your hardware
+- Generates a secure Meilisearch API key automatically
 - Auto-detects your GPU hardware
 - Installs hashcat if missing (optional, for password cracking)
-- Writes the `.env` configuration file
+- Writes the `.env` configuration file with all tuned values
 - Builds the Docker base image (slow first time -- only once)
 - Builds the app image and starts all services
 
@@ -106,8 +109,9 @@ chmod +x setup-markflow.sh
 ./setup-markflow.sh
 ```
 
-Both scripts open native folder-picker dialogs for your source and output directories.
-Follow the prompts.
+Both scripts open native folder-picker dialogs for your source and output directories,
+then detect your hardware and ask you to confirm CPU thread count and RAM. Follow the
+prompts -- the defaults are auto-detected and usually correct.
 
 When it finishes, you'll see:
 
@@ -138,10 +142,12 @@ Open **http://localhost:8000** in your browser to verify.
 2. Your source directory is pre-configured -- click **Start Scan**
 3. After scanning, click **Start Conversion**
 4. Watch real-time progress with per-worker status
+5. Worker count is auto-tuned to your hardware (configurable in Settings)
 
 ### Search test
 1. After converting some files, go to http://localhost:8000/search.html
 2. Type a keyword -- Meilisearch indexes everything automatically
+3. Search is fully authenticated -- the setup script generated an API key for you
 
 ### Health check
 
@@ -186,7 +192,7 @@ MarkFlow deploys three Docker containers:
 |---------|------|---------|
 | **markflow** | 8000 | Main app (FastAPI + web UI) |
 | **markflow-mcp** | 8001 | MCP server (Claude.ai integration) |
-| **meilisearch** | 7700 | Full-text search engine |
+| **meilisearch** | 7700 | Full-text search engine (memory capped based on your RAM) |
 
 Plus optionally a **hashcat host worker** process (runs natively, not in Docker)
 for GPU password cracking. On macOS, this is the only GPU path -- NVIDIA container
@@ -230,12 +236,13 @@ The setup script auto-detects your GPU and configures the host worker accordingl
 
 ### Docker Resource Allocation
 
-Docker Desktop on macOS has conservative default memory limits. For large bulk
-conversions, increase the allocation:
+Docker Desktop on macOS has conservative default memory limits. The setup script
+auto-tunes worker count and Meilisearch memory based on your hardware, but Docker
+Desktop itself needs enough allocated:
 
 1. Open Docker Desktop > Settings > Resources
 2. Set Memory to at least **4 GB** (8 GB recommended for large repos)
-3. Set CPU to at least **4 cores**
+3. Set CPU to at least **4 cores** (the setup script tunes workers to ~67% of your threads)
 4. Click Apply & Restart
 
 ### File Sharing
@@ -296,7 +303,7 @@ prevent sleep (`caffeinate -s`) or use a wired connection.
 
 ```
 Doc-Conversion-2026/
-  .env                    # Your machine-specific config (gitignored)
+  .env                    # Your machine-specific config (gitignored, auto-tuned)
   docker-compose.yml      # Container definitions
   Dockerfile              # App image (fast rebuild)
   Dockerfile.base         # Base image (slow, built once)
