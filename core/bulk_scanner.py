@@ -677,6 +677,14 @@ class BulkScanner:
                 file_size_bytes=file_size,
                 source_mtime=mtime,
             )
+            # Enqueue for cloud prefetch if enabled
+            from core.cloud_prefetch import get_prefetch_manager
+            pfx = get_prefetch_manager()
+            if pfx is not None:
+                try:
+                    await pfx.enqueue(file_path, file_size, priority=file_count)
+                except Exception:
+                    pass  # non-critical — conversion will handle it
         else:
             result.unrecognized_count += 1
             await self._record_unrecognized(file_path, ext, file_size, mtime)
