@@ -283,6 +283,10 @@ app.include_router(pipeline_routes.router)
 from api.routes import media as media_routes
 app.include_router(media_routes.router)
 
+# v0.16.0 — File flagging & content moderation
+from api.routes import flags as flags_routes
+app.include_router(flags_routes.router)
+
 log.info("markflow.all_routes_registered")
 
 # ── Static files ──────────────────────────────────────────────────────────────
