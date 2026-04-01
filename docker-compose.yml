@@ -82,8 +82,13 @@ services:
     environment:
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-}
       - MEILI_ENV=development
+      - MEILI_MAX_INDEXING_MEMORY=${MEILI_MAX_INDEXING_MEMORY:-1073741824}
     volumes:
       - meilisearch-data:/meili_data
+    deploy:
+      resources:
+        limits:
+          memory: ${MEILI_MEMORY_LIMIT:-1g}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
       interval: 10s

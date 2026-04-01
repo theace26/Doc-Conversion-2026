@@ -133,22 +133,22 @@ ENV_FILE="$REPO_DIR/.env"
 if [ ! -f "$ENV_FILE" ]; then
     cat > "$ENV_FILE" << 'ENV_CONTENT'
 # MarkFlow Environment Configuration
-# Proxmox VM test environment
+# Proxmox VM (5 cores / 28GB RAM)
 
 # Paths — these map into the Docker containers
 SOURCE_DIR=/mnt/source-share
 OUTPUT_DIR=/opt/markflow-output
 
 # Meilisearch
-MEILI_MASTER_KEY=markflow-test-key-change-in-production
+MEILI_MASTER_KEY=f7b85048ef044c5e64c7e0dec03deebaef4c78e3327aaca89e9814ae4cb3d8c4
 
-# MinIO (S3-compatible object storage)
-MINIO_ROOT_USER=markflow
-MINIO_ROOT_PASSWORD=markflow-test-password
+# Bulk conversion — 4 workers (reserve 1 core for OS + Meilisearch)
+BULK_WORKER_COUNT=4
 
 # MarkFlow app
 SECRET_KEY=change-me-in-production-use-openssl-rand-hex-32
-LOG_LEVEL=INFO
+DEFAULT_LOG_LEVEL=normal
+DEV_BYPASS_AUTH=true
 ENV_CONTENT
     echo "  ✅ Created $ENV_FILE"
 else

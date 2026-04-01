@@ -17,30 +17,21 @@ log = structlog.get_logger(__name__)
 scheduler = AsyncIOScheduler()
 
 
-def _is_business_hours() -> bool:
-    """Check if current local time is within business hours (Mon-Fri 06:00-18:00)."""
+async def _is_business_hours_async() -> bool:
+    """Check if current local time is within scan hours (Mon-Fri, reads DB preferences)."""
+    now = datetime.now()
+    if now.weekday() > 4:  # Saturday or Sunday
+        return False
+
     try:
-        from core.database import get_all_preferences
-        import asyncio
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # Can't await in sync function — use defaults
-            start_hour, start_min = 6, 0
-            end_hour, end_min = 18, 0
-        else:
-            prefs = loop.run_until_complete(get_all_preferences())
-            start = prefs.get("scanner_business_hours_start", "06:00")
-            end = prefs.get("scanner_business_hours_end", "18:00")
-            start_hour, start_min = map(int, start.split(":"))
-            end_hour, end_min = map(int, end.split(":"))
+        from core.database import get_preference
+        start_str = await get_preference("scanner_business_hours_start") or "06:00"
+        end_str = await get_preference("scanner_business_hours_end") or "22:00"
+        start_hour, start_min = map(int, start_str.split(":"))
+        end_hour, end_min = map(int, end_str.split(":"))
     except Exception:
         start_hour, start_min = 6, 0
-        end_hour, end_min = 18, 0
-
-    now = datetime.now()
-    weekday = now.weekday()  # 0=Monday, 6=Sunday
-    if weekday > 4:  # Saturday or Sunday
-        return False
+        end_hour, end_min = 22, 0
 
     current_minutes = now.hour * 60 + now.minute
     start_minutes = start_hour * 60 + start_min
@@ -54,9 +45,11 @@ async def run_lifecycle_scan(force: bool = False) -> None:
     Also skips if any bulk job is currently active (scanning, running, or
     paused) — bulk jobs take priority over background lifecycle scans.
     """
-    if not force and not _is_business_hours():
-        log.debug("scheduler.scan_skipped_outside_business_hours")
-        return
+    if not force:
+        in_hours = await _is_business_hours_async()
+        if not in_hours:
+            log.debug("scheduler.scan_skipped_outside_business_hours")
+            return
 
     try:
         # Check if scanner is enabled
@@ -251,7 +244,7 @@ def start_scheduler() -> None:
         max_instances=1,
     )
 
-    # Lifecycle scan — every 15 minutes (business hours enforced in the job)
+    # Lifecycle scan — every 15 minutes (Mon-Fri within configured scan hours)
     scheduler.add_job(
         run_lifecycle_scan,
         trigger=IntervalTrigger(minutes=15),
