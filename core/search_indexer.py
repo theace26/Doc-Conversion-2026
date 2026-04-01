@@ -23,6 +23,66 @@ from core.storage_probe import ErrorRateMonitor
 
 log = structlog.get_logger(__name__)
 
+# ── Filename normalization ────────────────────────────────────────────────────
+
+# Characters that commonly substitute for spaces in filenames
+_FILENAME_SEPARATORS = re.compile(r"[_.\-]+")
+
+# Boundary patterns for camelCase / PascalCase / number-letter transitions
+_CAMEL_BOUNDARY = re.compile(
+    r"(?<=[a-z])(?=[A-Z])"        # camelCase: aB → a B
+    r"|(?<=[A-Z])(?=[A-Z][a-z])"  # PascalCase acronym end: XMLParser → XML Parser
+    r"|(?<=[a-zA-Z])(?=[0-9])"    # letter→digit: report2024 → report 2024
+    r"|(?<=[0-9])(?=[a-zA-Z])"    # digit→letter: 2024report → 2024 report
+)
+
+# Collapse multiple spaces into one
+_MULTI_SPACE = re.compile(r" {2,}")
+
+
+def normalize_filename_for_search(filename: str) -> str:
+    """Convert filename separators to spaces for search matching.
+
+    Handles inconsistent naming conventions by splitting on:
+      - Explicit separators: _ . -
+      - camelCase boundaries: getUserName → get User Name
+      - PascalCase boundaries: XMLParser → XML Parser
+      - Letter/number transitions: report2024 → report 2024, 2024report → 2024 report
+
+    Examples:
+        PENINSULA_SMALL_WORKS_UNFUNDED.pdf     → PENINSULA SMALL WORKS UNFUNDED
+        wage.sheets.pdf                        → wage sheets
+        my-document-v2.docx                    → my document v2
+        040125-123125_REPORT.pdf               → 040125 123125 REPORT
+        getUserName.js                         → get User Name
+        Q1_2024BudgetReport-FINAL.xlsx         → Q1 2024 Budget Report FINAL
+        IBEWLocal46_MeetingNotes.docx          → IBEW Local46 Meeting Notes
+        ProjectAlpha_v2.3-draft.pdf            → Project Alpha v2 3 draft
+
+    Strips file extensions first so ".pdf" doesn't become a search token.
+    The original filename is preserved in source_filename for display.
+    """
+    # Remove extension(s) — handle compound like .tar.gz
+    stem = filename
+    while "." in stem:
+        base, ext = stem.rsplit(".", 1)
+        # Stop if what's left doesn't look like an extension (>5 chars or has spaces)
+        if len(ext) > 5 or " " in ext:
+            break
+        stem = base
+
+    # Step 1: Replace explicit separators with spaces
+    result = _FILENAME_SEPARATORS.sub(" ", stem)
+
+    # Step 2: Split camelCase/PascalCase and number-letter boundaries
+    result = _CAMEL_BOUNDARY.sub(" ", result)
+
+    # Step 3: Clean up whitespace
+    result = _MULTI_SPACE.sub(" ", result).strip()
+
+    return result
+
+
 # ── Index settings ───────────────────────────────────────────────────────────
 
 DOCUMENTS_INDEX_SETTINGS = {
@@ -32,6 +92,7 @@ DOCUMENTS_INDEX_SETTINGS = {
         "headings",
         "frame_descriptions",
         "source_filename",
+        "filename_search",
     ],
     "filterableAttributes": [
         "source_format",
@@ -49,7 +110,8 @@ DOCUMENTS_INDEX_SETTINGS = {
         "source_format",
     ],
     "displayedAttributes": [
-        "id", "title", "source_filename", "source_format", "relative_path",
+        "id", "title", "source_filename", "filename_search",
+        "source_format", "relative_path",
         "output_path", "source_path", "content_preview", "headings",
         "frame_descriptions", "fidelity_tier", "has_ocr", "converted_at",
         "file_size_bytes", "job_id", "enrichment_level", "vision_provider",
@@ -61,22 +123,23 @@ DOCUMENTS_INDEX_SETTINGS = {
 }
 
 TRANSCRIPTS_INDEX_SETTINGS = {
-    "searchableAttributes": ["title", "raw_text", "language", "source_path"],
+    "searchableAttributes": ["title", "raw_text", "language", "source_path", "filename_search"],
     "filterableAttributes": ["source_format", "engine", "language", "is_flagged"],
     "sortableAttributes": ["duration_seconds", "word_count", "created_at"],
     "displayedAttributes": [
         "id", "title", "raw_text", "source_path", "source_format",
         "duration_seconds", "engine", "whisper_model", "language",
-        "word_count", "created_at", "is_flagged",
+        "word_count", "created_at", "is_flagged", "filename_search",
     ],
 }
 
 ADOBE_INDEX_SETTINGS = {
-    "searchableAttributes": ["title", "text_content", "source_filename", "keywords"],
+    "searchableAttributes": ["title", "text_content", "source_filename", "filename_search", "keywords"],
     "filterableAttributes": ["file_ext", "creator", "job_id", "is_flagged"],
     "sortableAttributes": ["indexed_at"],
     "displayedAttributes": [
-        "id", "source_filename", "file_ext", "source_path", "title",
+        "id", "source_filename", "filename_search", "file_ext",
+        "source_path", "title",
         "creator", "keywords", "text_preview", "indexed_at", "job_id",
         "is_flagged",
     ],
@@ -211,6 +274,7 @@ class SearchIndexer:
             "id": _doc_id(str(md_path)),
             "title": title,
             "source_filename": source_filename,
+            "filename_search": normalize_filename_for_search(source_filename),
             "source_format": source_format,
             "source_path": source_path,
             "output_path": str(md_path),
@@ -252,6 +316,7 @@ class SearchIndexer:
         doc = {
             "id": _doc_id(str(adobe_result.source_path)),
             "source_filename": adobe_result.source_path.name,
+            "filename_search": normalize_filename_for_search(adobe_result.source_path.name),
             "file_ext": adobe_result.file_ext,
             "source_path": str(adobe_result.source_path),
             "title": metadata.get("Title", "") or adobe_result.source_path.stem,
@@ -286,11 +351,13 @@ class SearchIndexer:
         word_count: int,
     ) -> bool:
         """Index a media transcript in Meilisearch."""
+        source_name = Path(source_path).name if source_path else title
         doc = {
             "id": history_id,
             "title": title,
             "raw_text": raw_text,
             "source_path": source_path,
+            "filename_search": normalize_filename_for_search(source_name),
             "source_format": source_format,
             "duration_seconds": duration_seconds,
             "engine": engine,

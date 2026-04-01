@@ -4,6 +4,27 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.16.4 — Filename Search Normalization (2026-04-01)
+
+**Filename-aware search matching:**
+- New `filename_search` field added to all three Meilisearch indexes (documents,
+  adobe-files, transcripts). Populated at index time by `normalize_filename_for_search()`.
+- Normalizer splits filenames on:
+  - Explicit separators: `_`, `.`, `-`
+  - camelCase/PascalCase boundaries: `getUserName` -> `get User Name`
+  - Letter/number transitions: `Resume2024` -> `Resume 2024`
+- File extensions stripped before normalization (`.pdf`, `.docx`, etc.)
+- Original `source_filename` preserved for display; `filename_search` is a shadow
+  field used only for matching.
+- Requires index rebuild after deploy to backfill existing documents.
+
+**Rebuild Index button:**
+- Added "Rebuild Index" button to Bulk page pipeline controls (between Pause and Run Now).
+- Triggers `POST /api/search/index/rebuild` with toast confirmation.
+- Button disables for 5 seconds to prevent double-clicks.
+
+---
+
 ## v0.16.3 — Search Hover Preview (2026-04-01)
 
 **Search result hover preview:**

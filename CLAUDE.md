@@ -26,9 +26,18 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.16.3
+## Current Status — v0.16.4
 
-v0.16.3: Search hover preview. Hovering over a search result shows a preview
+v0.16.4: Filename search normalization. New `filename_search` field in all three
+Meilisearch indexes (documents, adobe-files, transcripts) normalizes filenames
+for search by splitting on underscores, dots, dashes, camelCase boundaries,
+and letter/number transitions. Searching "PENINSULA SMALL WORKS" now matches
+`PENINSULA_SMALL_WORKS.pdf`, `wage.sheets` matches `wage.sheets.pdf`, and
+`IBEWLocal46` matches as `IBEW Local 46`. Original filenames preserved in
+`source_filename` for display. Rebuild Index button added to Bulk page pipeline
+controls.
+
+Previous (v0.16.3): Search hover preview. Hovering over a search result shows a preview
 popup of the file content. Smart hybrid strategy: inline source for PDFs/images/
 text (via sandboxed iframe), converted markdown text for other formats, snippet
 fallback when neither is available. User-configurable via Settings page:

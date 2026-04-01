@@ -26,7 +26,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `core/bulk_worker.py` | Worker pool: BulkJob class, pause/resume/cancel, SSE events, job registry |
 | `core/adobe_indexer.py` | Adobe Level 2 indexing: exiftool metadata + text extraction (.ai/.psd) |
 | `core/search_client.py` | Thin async Meilisearch HTTP client via httpx, graceful degradation |
-| `core/search_indexer.py` | Manages Meilisearch indexes, document/adobe indexing, rebuild |
+| `core/search_indexer.py` | Manages Meilisearch indexes, document/adobe indexing, rebuild, filename normalization |
 | `core/crypto.py` | Fernet encryption/decryption for API keys stored at rest |
 | `core/llm_providers.py` | PROVIDER_REGISTRY: known providers (Anthropic, OpenAI, Gemini, Ollama, custom) |
 | `core/llm_client.py` | Unified async LLM client — routes to provider-specific API implementations |

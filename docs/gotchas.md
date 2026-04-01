@@ -262,6 +262,16 @@ the relevant subsystem. Referenced from CLAUDE.md.
   where typing triggered both a full search and an autocomplete request. Fixed by consolidating
   into a single handler that dispatches to the appropriate code path.
 
+- **Filename search normalization**: `filename_search` is a shadow searchable field that
+  normalizes filenames by splitting on `_`, `.`, `-`, camelCase boundaries, and letter/number
+  transitions. Original `source_filename` is preserved for display. Both fields are in
+  `searchableAttributes` so queries match either form. After adding this field, existing
+  documents require an index rebuild (`POST /api/search/index/rebuild`) to populate it.
+
+- **Extension stripping in normalizer**: `normalize_filename_for_search()` strips extensions
+  by iterating `rsplit(".", 1)` from the right, stopping when the trailing segment is >5 chars
+  or contains a space (not a real extension). This handles compound extensions like `.tar.gz`.
+
 ## Locations & Browse
 
 - **Locations validate endpoint timeout**: `file_count_estimate` capped at 10s. Null is not an error.

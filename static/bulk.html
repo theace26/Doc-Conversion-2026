@@ -49,6 +49,7 @@
         </div>
         <div style="display:flex;gap:0.5rem">
           <button class="btn btn-ghost btn-sm" id="pl-pause-btn" onclick="togglePipelinePause()">Pause</button>
+          <button class="btn btn-ghost btn-sm" id="pl-rebuild-btn" onclick="rebuildSearchIndex()">Rebuild Index</button>
           <button class="btn btn-primary btn-sm" id="pl-run-now-btn" onclick="pipelineRunNow()">Run Now</button>
         </div>
       </div>
@@ -308,6 +309,19 @@
       showToast('Pipeline cycle triggered', 'success');
       setTimeout(loadPipelineStatus, 2000);
     } catch (e) { showToast('Failed: ' + e.message, 'error'); }
+  }
+
+  async function rebuildSearchIndex() {
+    const btn = document.getElementById('pl-rebuild-btn');
+    btn.disabled = true;
+    btn.textContent = 'Rebuilding…';
+    try {
+      await API.post('/api/search/index/rebuild');
+      showToast('Search index rebuild started', 'success');
+    } catch (e) { showToast('Rebuild failed: ' + e.message, 'error'); }
+    finally {
+      setTimeout(() => { btn.disabled = false; btn.textContent = 'Rebuild Index'; }, 5000);
+    }
   }
 
   // Refresh pipeline status every 30 seconds
