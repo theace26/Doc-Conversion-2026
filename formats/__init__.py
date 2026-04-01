@@ -29,3 +29,4 @@ from formats.ini_handler import IniHandler  # noqa: F401
 from formats.archive_handler import ArchiveHandler  # noqa: F401
 from formats.audio_handler import AudioHandler  # noqa: F401
 from formats.media_handler import MediaHandler  # noqa: F401
+from formats.image_handler import ImageHandler  # noqa: F401

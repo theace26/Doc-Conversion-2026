@@ -4,6 +4,28 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.13.8 — Image File Support (2026-03-31)
+
+**New features:**
+- Image files (.jpg, .jpeg, .png, .tif, .tiff, .bmp, .gif, .eps) now supported via `ImageHandler`
+- Extracts image metadata (dimensions, color mode, EXIF data) using Pillow and exiftool
+- Produces a DocumentModel with metadata summary, embedded IMAGE element, and EXIF details
+- Previously the largest group of unrecognized files (~7,347 images) — now handled natively
+
+**Modified files:**
+- `formats/image_handler.py` — new handler: ingest extracts metadata + embeds image, export writes Markdown
+- `formats/__init__.py` — register ImageHandler import
+- `core/bulk_scanner.py` — add image extensions to SUPPORTED_EXTENSIONS
+
+**Design notes:**
+- Follows AdobeHandler pattern: ingest extracts metadata, export writes Markdown (can't author binary images from text)
+- Uses Pillow (already in requirements.txt) for dimensions/color mode/EXIF
+- Uses exiftool (already in Dockerfile.base) for extended metadata (same subprocess pattern as AdobeHandler)
+- No new dependencies required
+- EPS support via Pillow's GhostScript integration (if GhostScript is installed)
+
+---
+
 ## v0.13.7 — Legacy Office Format Support + Scheduler Fix (2026-03-31)
 
 **New features:**

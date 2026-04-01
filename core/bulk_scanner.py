@@ -56,6 +56,8 @@ SUPPORTED_EXTENSIONS = {
     # Media (audio/video — indexed for metadata/scene detection)
     ".mp3", ".mp4", ".mov", ".avi", ".mkv", ".wav", ".flac", ".ogg",
     ".webm", ".m4a", ".m4v", ".wmv", ".aac", ".wma",
+    # Images
+    ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".gif", ".eps",
 }
 
 # Backwards-compat aliases (referenced by bulk_worker and other modules)

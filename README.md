@@ -11,7 +11,7 @@ and version tracking. Everything runs inside Docker with a browser-based UI.
 
 ## What It Does
 
-- **60+ file types in, Markdown out** — Office, PDF, email, archives, Adobe creative files, audio, video, config files, and more. Round-trip back to the original format when needed.
+- **60+ file types in, Markdown out** — Office, PDF, email, archives, Adobe creative files, images, audio, video, config files, and more. Round-trip back to the original format when needed.
 - **Bulk conversion at scale** — Point MarkFlow at a network share with tens of thousands of files. It scans, classifies, and converts in parallel with adaptive throttling that adjusts to your storage (SSD, HDD, or NAS).
 - **OCR built in** — Scanned PDFs are automatically detected and OCR'd with per-page confidence scoring. Low-confidence pages get flagged for human review — or run fully unattended.
 - **Password-protected files handled automatically** — PDF encryption, Office passwords, and archive passwords are cracked via a cascade: known passwords, dictionary, brute-force, and GPU-accelerated hashcat (NVIDIA, AMD, Intel, Apple Silicon).

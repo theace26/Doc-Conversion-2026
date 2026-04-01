@@ -79,6 +79,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `formats/eml_handler.py` | EML/MSG email with recursive attachment conversion |
 | `formats/adobe_handler.py` | PSD/AI/INDD/AEP/PRPROJ/XD — unified Adobe handler |
 | `formats/archive_handler.py` | ZIP/TAR/7z/RAR/CAB/ISO — recursive extraction + conversion |
+| `formats/image_handler.py` | Image file handler (.jpg, .png, .tif, .bmp, .gif, .eps) |
 | `formats/audio_handler.py` | Audio file handler (.mp3, .wav, .flac, .ogg, .m4a, .wma, .aac) |
 | `formats/media_handler.py` | Video file handler (.mp4, .mov, .avi, .mkv, .webm, .m4v, .wmv) |
 

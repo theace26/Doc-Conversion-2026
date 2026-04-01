@@ -26,9 +26,15 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.13.7
+## Current Status — v0.13.8
 
-v0.13.7: Legacy Office format support + scheduler coordination.
+v0.13.8: Image file support. `.jpg`, `.jpeg`, `.png`, `.tif`, `.tiff`,
+`.bmp`, `.gif`, `.eps` files now handled by `ImageHandler` — extracts
+metadata (dimensions, color mode, EXIF) via Pillow + exiftool and embeds
+the image in the DocumentModel. Previously the largest group of
+unrecognized files (~7,347 images).
+
+Previous (v0.13.7): Legacy Office format support + scheduler coordination.
 `.xls` and `.ppt` files now convert via LibreOffice preprocessing →
 existing openpyxl/python-pptx pipelines. Shared `core/libreoffice_helper.py`
 replaces duplicated LibreOffice logic across all three legacy handlers.
@@ -39,9 +45,9 @@ errors from concurrent DB access.
 - `bulk_files` table duplicates rows across jobs (keyed by `job_id + source_path`).
   12,847 distinct source files → 34K+ rows after 5 scan jobs. Per-job counts are
   accurate; cross-job aggregation overcounts. Needs a dedup or global file registry.
-- 4,237 unrecognized files in the source repo — mostly images (.jpg 4211, .png 1349,
-  .tif/.tiff 787, .eps 714, .gif 211, .bmp 75). Also .wpd (WordPerfect, 277),
-  .docm (macro Word, 20), .ait/.indt (Adobe templates, 115).
+- Remaining unrecognized files in the source repo — .wpd (WordPerfect, 277),
+  .docm (macro Word, 20), .ait/.indt (Adobe templates, 115). Image files
+  (.jpg, .png, .tif, .bmp, .gif, .eps) now handled by ImageHandler.
 
 Previous (v0.13.6): ErrorRateMonitor integrated across all I/O subsystems. Meilisearch
 index rebuild aborts early if search service is unreachable. Cloud transcriber
@@ -137,6 +143,7 @@ Critical files to know:
 | `formats/json_handler.py` | JSON ingest/export with summary + structure outline |
 | `formats/yaml_handler.py` | YAML/YML with multi-document support |
 | `formats/ini_handler.py` | INI/CFG/CONF/properties with section-aware parsing |
+| `formats/image_handler.py` | Image file handler (.jpg, .png, .tif, .bmp, .gif, .eps) |
 | `formats/audio_handler.py` | Audio file handler (.mp3, .wav, .flac, etc.) |
 | `formats/media_handler.py` | Video file handler (.mp4, .mov, .mkv, etc.) |
 | `core/media_probe.py` | ffprobe wrapper: codec detection, duration, transcode decision |
@@ -198,7 +205,7 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 
 ---
 
-## Supported Formats (v0.13.7)
+## Supported Formats (v0.13.8)
 
 | Category | Extensions | Handler |
 |----------|-----------|---------|
@@ -214,6 +221,7 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 | Media (audio) | .mp3, .wav, .m4a, .flac, .ogg, .aac, .wma | AudioHandler |
 | Media (video) | .mp4, .mov, .avi, .mkv, .webm, .m4v, .wmv | MediaHandler |
 | Captions | .srt, .vtt, .sbv | CaptionIngestor (via AudioHandler) |
+| Images | .jpg, .jpeg, .png, .tif, .tiff, .bmp, .gif, .eps | ImageHandler |
 
 ---
 
