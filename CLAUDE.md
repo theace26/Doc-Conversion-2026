@@ -26,9 +26,21 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.16.8
+## Current Status — v0.16.9
 
-v0.16.8: Job History cleanup. Timestamps now use `formatLocalTime()` for
+v0.16.9: Multi-source scanning. Both lifecycle scanner and bulk jobs now scan
+all configured source locations sequentially within a single scan run / job.
+Lifecycle scanner resolves all source locations (not just the first), validates
+each, and walks them one at a time — shared counters, seen_paths, and error
+tracking accumulate across roots. Each root gets its own storage probe (mounts
+may be different hardware). Bulk jobs accept `scan_all_sources: bool` flag;
+`BulkJob` accepts `source_paths: list[Path]` and loops the scanning phase,
+merging `ScanResult` fields. Workers convert the combined queue as one batch.
+UI checkbox "Scan all source locations" on the Bulk page disables the dropdown
+and sends the flag. All existing settings (throttling, error-rate, exclusions,
+pipeline controls) apply per-root as before.
+
+Previous (v0.16.8): Job History cleanup. Timestamps now use `formatLocalTime()` for
 human-readable display (e.g. "Apr 1, 2026, 3:13 PM" instead of raw ISO).
 Status labels title-cased ("Completed" not "COMPLETED"). Stats show
 "X of Y converted" when total file count is available.

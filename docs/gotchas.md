@@ -380,6 +380,12 @@ the relevant subsystem. Referenced from CLAUDE.md.
   hint to check SMB connectivity. The error-rate monitor handles sustained failures via its
   existing abort threshold.
 
+- **Multi-source scanning**: Both lifecycle scanner and `BulkJob` scan multiple source roots
+  sequentially within a single run/job. Each root gets its own storage probe (mounts may differ).
+  Counters, `seen_paths`, and error tracking accumulate across roots. If one root fails, the
+  error is logged and the scan continues to the next root. `should_stop()` is checked between
+  roots. This is NOT parallel — it's sequential, same queue, same DB pipeline.
+
 - **Location exclusions (prefix match)**: Exclusion paths from `location_exclusions` table are
   loaded once at scan start (both bulk and lifecycle). Filtering happens at the `os.walk()` level:
   excluded directories are pruned from `dirnames[:]` so Python never descends into them. File-level

@@ -4,6 +4,25 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.16.9 — Multi-Source Scanning (2026-04-01)
+
+**All source locations scanned in a single run:**
+- Lifecycle scanner now resolves all configured source locations (was: first only).
+  Validates each root, skips inaccessible ones, walks the rest sequentially within
+  the same scan run. Shared counters, `seen_paths`, and error tracking accumulate
+  across roots. Each root gets its own storage probe (different mounts may be
+  different hardware types).
+- Bulk jobs accept `scan_all_sources: bool` in the API request. `BulkJob` accepts
+  `source_paths: list[Path]` and loops the scanning phase, merging `ScanResult`
+  fields. Workers convert the combined file queue as one batch — same job ID,
+  same worker pool, same DB pipeline.
+- New "Scan all source locations" checkbox on the Bulk Jobs page. When checked,
+  disables the source dropdown and sends the flag. One job, one queue.
+- All existing settings (throttling, error-rate abort, exclusions, pipeline
+  controls, stop/cancel) apply per-root as before. No new settings needed.
+
+---
+
 ## v0.16.8 — Job History Cleanup (2026-04-01)
 
 **Job History readability improvements (Bulk page):**

@@ -91,45 +91,51 @@ async def run_lifecycle_scan(
     """Run a full lifecycle scan. Returns scan_run_id."""
     scan_run_id = uuid.uuid4().hex
 
-    # Resolve source path
-    if not source_path:
-        source_path = os.getenv("BULK_SOURCE_PATH", "")
-    if not source_path:
-        # Try to get from locations
-        try:
-            from core.database import list_locations
-            locs = await list_locations(type_filter="source")
-            if locs:
-                source_path = locs[0]["path"]
-        except Exception:
-            pass
+    # Resolve source paths — collect all configured source locations
+    source_roots: list[Path] = []
+    if source_path:
+        source_roots = [Path(source_path)]
+    else:
+        env_path = os.getenv("BULK_SOURCE_PATH", "")
+        if env_path:
+            source_roots = [Path(env_path)]
+        else:
+            try:
+                from core.database import list_locations
+                locs = await list_locations(type_filter="source")
+                source_roots = [Path(loc["path"]) for loc in locs]
+            except Exception:
+                pass
 
-    if not source_path:
+    if not source_roots:
         log.warning("lifecycle_scan.no_source_path")
         return scan_run_id
 
-    source_root = Path(source_path)
-    if not source_root.exists() or not source_root.is_dir():
+    # Validate each root — keep only accessible, mounted ones
+    valid_roots: list[Path] = []
+    init_errors: list[dict] = []
+    for root in source_roots:
+        if not root.exists() or not root.is_dir():
+            init_errors.append({"path": str(root), "error": "Source share not accessible"})
+            log.error("lifecycle_scan.source_unavailable", path=str(root))
+        elif not verify_source_mount(str(root)):
+            init_errors.append({"path": str(root), "error": "Source mount is empty — not mounted?"})
+            log.error("lifecycle_scan.mount_not_ready", path=str(root))
+        else:
+            valid_roots.append(root)
+
+    if not valid_roots:
         await create_scan_run(scan_run_id)
         await update_scan_run(scan_run_id, {
             "status": "failed",
             "finished_at": now_iso(),
-            "error_log": json.dumps([{"path": str(source_root), "error": "Source share not accessible"}]),
+            "error_log": json.dumps(init_errors),
         })
-        log.error("lifecycle_scan.source_unavailable", path=str(source_root))
         return scan_run_id
 
-    # Verify the mount is actually populated (empty mountpoint = SMB not connected)
-    if not verify_source_mount(str(source_root)):
-        await create_scan_run(scan_run_id)
-        await update_scan_run(scan_run_id, {
-            "status": "failed",
-            "finished_at": now_iso(),
-            "error_log": json.dumps([{"path": str(source_root), "error": "Source mount is empty — not mounted?"}]),
-        })
-        log.error("lifecycle_scan.mount_not_ready", path=str(source_root),
-                  msg="Source path is empty or not mounted. Skipping scan cycle.")
-        return scan_run_id
+    if len(valid_roots) > 1:
+        log.info("lifecycle_scan.multi_source", count=len(valid_roots),
+                 paths=[str(r) for r in valid_roots])
 
     await create_scan_run(scan_run_id)
 
@@ -155,12 +161,11 @@ async def run_lifecycle_scan(
     _scan_state["current_file"] = None
     _scan_state["eta_seconds"] = None
 
-    # Pre-count files for progress estimate
+    # Pre-count files across all source roots for progress estimate
     try:
-        total_estimate = await asyncio.wait_for(
-            asyncio.to_thread(_count_files_sync, source_root),
-            timeout=10.0,
-        )
+        count_tasks = [asyncio.to_thread(_count_files_sync, r) for r in valid_roots]
+        counts = await asyncio.wait_for(asyncio.gather(*count_tasks), timeout=30.0)
+        total_estimate = sum(counts)
         _scan_state["total"] = total_estimate
     except (asyncio.TimeoutError, Exception):
         _scan_state["total"] = 0
@@ -187,12 +192,12 @@ async def run_lifecycle_scan(
         else:
             # No bulk jobs exist yet — create a synthetic lifecycle job so FK is satisfied
             job_id = await create_bulk_job(
-                source_path=str(source_root),
+                source_path=str(valid_roots[0]),
                 output_path=os.getenv("BULK_OUTPUT_PATH", "/mnt/output-repo"),
             )
             log.info("lifecycle_scan.created_synthetic_job", job_id=job_id)
 
-    # ── Storage probe for adaptive parallelism ─────────────────────────────
+    # ── Walk each source root sequentially ─────────────────────────────
     from core.database import get_preference as _get_pref
     max_threads_pref = await _get_pref("scan_max_threads") or "auto"
     if max_threads_pref == "auto":
@@ -203,45 +208,46 @@ async def run_lifecycle_scan(
         except ValueError:
             _max_override = None
 
-    storage_profile = await probe_storage_latency(
-        source_root, max_threads_override=_max_override,
-    )
-    scan_threads = storage_profile.recommended_threads
-    log.info("lifecycle_scan.storage_probe",
-             storage_hint=storage_profile.storage_hint,
-             scan_threads=scan_threads,
-             ratio=storage_profile.ratio,
-             probe_ms=storage_profile.probe_duration_ms)
+    for source_root in valid_roots:
+        if should_stop():
+            log.warning("lifecycle_scan.stopped_between_roots", completed_roots=valid_roots.index(source_root))
+            break
 
-    # ── Walk source share (adaptive: serial or parallel) ─────────────────
-    try:
-        if scan_threads > 1:
-            await _parallel_lifecycle_walk(
-                source_root, scan_threads, seen_paths, counters,
-                error_entries, job_id, scan_run_id, _started_at_dt,
-                baseline_ms=storage_profile.sequential_median_ms,
-                exclusion_paths=exclusion_paths,
-            )
-        else:
-            await _serial_lifecycle_walk(
-                source_root, seen_paths, counters,
-                error_entries, job_id, scan_run_id, _started_at_dt,
-                exclusion_paths=exclusion_paths,
-            )
-    except Exception as exc:
-        await update_scan_run(scan_run_id, {
-            "status": "failed",
-            "finished_at": now_iso(),
-            "errors": counters["errors"] + 1,
-            "error_log": json.dumps(error_entries + [{"path": str(source_root), "error": str(exc)}]),
-        })
-        _scan_state["running"] = False
-        _scan_state["current_file"] = None
-        _scan_state["eta_seconds"] = None
-        _scan_state["last_scan_at"] = now_iso()
-        _scan_state["last_scan_run_id"] = scan_run_id
-        log.error("lifecycle_scan.walk_failed", error=str(exc))
-        return scan_run_id
+        log.info("lifecycle_scan.walking_root", path=str(source_root),
+                 root_index=valid_roots.index(source_root) + 1,
+                 total_roots=len(valid_roots))
+
+        # Storage probe per root — each mount may be different hardware
+        storage_profile = await probe_storage_latency(
+            source_root, max_threads_override=_max_override,
+        )
+        scan_threads = storage_profile.recommended_threads
+        log.info("lifecycle_scan.storage_probe",
+                 path=str(source_root),
+                 storage_hint=storage_profile.storage_hint,
+                 scan_threads=scan_threads,
+                 ratio=storage_profile.ratio,
+                 probe_ms=storage_profile.probe_duration_ms)
+
+        try:
+            if scan_threads > 1:
+                await _parallel_lifecycle_walk(
+                    source_root, scan_threads, seen_paths, counters,
+                    error_entries, job_id, scan_run_id, _started_at_dt,
+                    baseline_ms=storage_profile.sequential_median_ms,
+                    exclusion_paths=exclusion_paths,
+                )
+            else:
+                await _serial_lifecycle_walk(
+                    source_root, seen_paths, counters,
+                    error_entries, job_id, scan_run_id, _started_at_dt,
+                    exclusion_paths=exclusion_paths,
+                )
+        except Exception as exc:
+            # Log error for this root but continue to next root
+            counters["errors"] += 1
+            error_entries.append({"path": str(source_root), "error": str(exc)})
+            log.error("lifecycle_scan.walk_failed", path=str(source_root), error=str(exc))
 
     # ── Detect deletions (files not seen but still active) ────────────────────
     # Query source_files (deduplicated) instead of bulk_files to avoid

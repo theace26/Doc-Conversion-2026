@@ -40,6 +40,7 @@ from core.database import (
     get_bulk_file_count,
     get_bulk_job,
     get_location,
+    list_locations,
     get_ocr_gap_fill_count,
     get_path_issues,
     get_path_issue_summary,
@@ -62,6 +63,7 @@ router = APIRouter(prefix="/api/bulk", tags=["bulk"])
 class CreateBulkJobRequest(BaseModel):
     source_path: str | None = Field(default=None)
     source_location_id: str | None = None
+    scan_all_sources: bool = False
     output_path: str | None = Field(default=None)
     output_location_id: str | None = None
     worker_count: int = Field(default=4, ge=1, le=16)
@@ -78,15 +80,22 @@ async def create_job(
     user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
 ):
     """Create and start a new bulk conversion job."""
-    # Resolve source path from location ID or raw path
-    source_path = req.source_path
-    if req.source_location_id:
+    # Resolve source path(s)
+    source_paths: list[Path] = []
+    if req.scan_all_sources:
+        locs = await list_locations(type_filter="source")
+        if not locs:
+            raise HTTPException(status_code=422, detail="No source locations configured.")
+        source_paths = [Path(loc["path"]) for loc in locs]
+    elif req.source_location_id:
         loc = await get_location(req.source_location_id)
         if not loc:
             raise HTTPException(status_code=422, detail=f"Location not found: {req.source_location_id}")
-        source_path = loc["path"]
-    if not source_path:
-        raise HTTPException(status_code=422, detail="Provide either source_path or source_location_id")
+        source_paths = [Path(loc["path"])]
+    elif req.source_path:
+        source_paths = [Path(req.source_path)]
+    else:
+        raise HTTPException(status_code=422, detail="Provide source_path, source_location_id, or scan_all_sources")
 
     # Resolve output path from location ID or raw path
     output_path = req.output_path
@@ -98,15 +107,15 @@ async def create_job(
     if not output_path:
         raise HTTPException(status_code=422, detail="Provide either output_path or output_location_id")
 
-    source = Path(source_path)
     output = Path(output_path)
 
     # Validate paths
-    if not source.exists() or not source.is_dir():
-        raise HTTPException(
-            status_code=422,
-            detail=f"Source path does not exist or is not a directory: {source_path}",
-        )
+    for sp in source_paths:
+        if not sp.exists() or not sp.is_dir():
+            raise HTTPException(
+                status_code=422,
+                detail=f"Source path does not exist or is not a directory: {sp}",
+            )
     if not output.parent.exists():
         raise HTTPException(
             status_code=422,
@@ -122,9 +131,9 @@ async def create_job(
                 detail="A bulk job is already running. Wait for it to complete before starting a new one.",
             )
 
-    # Create DB record
+    # Create DB record (store first source path; job scans all)
     job_id = await create_bulk_job(
-        source_path=source_path,
+        source_path=str(source_paths[0]),
         output_path=output_path,
         worker_count=req.worker_count,
         include_adobe=req.include_adobe,
@@ -141,7 +150,7 @@ async def create_job(
     # Start job in background
     bulk_job = BulkJob(
         job_id=job_id,
-        source_path=source,
+        source_paths=source_paths,
         output_path=output,
         worker_count=req.worker_count,
         fidelity_tier=req.fidelity_tier,

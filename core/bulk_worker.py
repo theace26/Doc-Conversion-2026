@@ -26,6 +26,7 @@ from core.bulk_scanner import (
     CONVERTIBLE_EXTENSIONS,
     BulkFileRecord,
     BulkScanner,
+    ScanResult,
 )
 from core.database import (
     add_to_review_queue,
@@ -191,7 +192,7 @@ class BulkJob:
     def __init__(
         self,
         job_id: str,
-        source_path: Path,
+        source_paths: list[Path] | Path,
         output_path: Path,
         worker_count: int = 4,
         fidelity_tier: int = 2,
@@ -200,7 +201,12 @@ class BulkJob:
         max_files: int | None = None,
     ):
         self.job_id = job_id
-        self.source_path = Path(source_path)
+        # Accept single path or list for backward compatibility
+        if isinstance(source_paths, (str, Path)):
+            self.source_paths = [Path(source_paths)]
+        else:
+            self.source_paths = [Path(p) for p in source_paths]
+        self.source_path = self.source_paths[0]  # primary, for backward compat
         self.output_path = Path(output_path)
         self.worker_count = min(max(worker_count, 1), 16)
         self.fidelity_tier = fidelity_tier
@@ -248,20 +254,45 @@ class BulkJob:
         _bulk_progress_queues[self.job_id] = asyncio.Queue(maxsize=500)
 
         try:
-            # 1. Scanning phase
+            # 1. Scanning phase — scan each source root sequentially
             await update_bulk_job_status(self.job_id, "scanning")
-            scanner = BulkScanner(self.job_id, self.source_path, self.output_path)
 
             async def _scan_progress_cb(event: dict):
                 event_type = event.pop("event", "scan_progress")
                 _emit_bulk_event(self.job_id, event_type, event)
 
-            scan_result = await scanner.scan(on_progress=_scan_progress_cb)
-
-            # Store resolved paths for workers
+            # Accumulate results across all source roots
+            combined_result = ScanResult(job_id=self.job_id)
             self._resolved_paths: dict[str, tuple[str | None, str]] = {}
-            if scan_result.path_safety_result:
-                self._resolved_paths = scan_result.path_safety_result.resolved_paths
+
+            for i, src_path in enumerate(self.source_paths):
+                if self._cancel_event.is_set() or should_stop():
+                    break
+
+                if len(self.source_paths) > 1:
+                    log.info("bulk_scan_root", job_id=self.job_id,
+                             root_index=i + 1, total_roots=len(self.source_paths),
+                             path=str(src_path))
+
+                scanner = BulkScanner(self.job_id, src_path, self.output_path)
+                scan_result = await scanner.scan(on_progress=_scan_progress_cb)
+
+                # Merge results
+                combined_result.total_discovered += scan_result.total_discovered
+                combined_result.convertible_count += scan_result.convertible_count
+                combined_result.adobe_count += scan_result.adobe_count
+                combined_result.unrecognized_count += scan_result.unrecognized_count
+                combined_result.skipped_count += scan_result.skipped_count
+                combined_result.new_count += scan_result.new_count
+                combined_result.changed_count += scan_result.changed_count
+                combined_result.path_too_long_count += scan_result.path_too_long_count
+                combined_result.collision_count += scan_result.collision_count
+                combined_result.case_collision_count += scan_result.case_collision_count
+
+                if scan_result.path_safety_result:
+                    self._resolved_paths.update(scan_result.path_safety_result.resolved_paths)
+
+            scan_result = combined_result
 
             # Emit scan_complete event
             _emit_bulk_event(self.job_id, "scan_complete", {
