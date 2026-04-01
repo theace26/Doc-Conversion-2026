@@ -4,6 +4,60 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.16.0 — File Flagging & Content Moderation (2026-04-01)
+
+**New features:**
+- **Self-service file flagging** — Any authenticated user can flag a file from search results,
+  temporarily suppressing it from search and download. Flag includes a reason and configurable
+  expiry (default from `flag_default_expiry_days` preference).
+- **Admin triage page** — Dedicated admin page (`flagged.html`) with three-action escalation:
+  dismiss (restore file to search), extend (keep suppressed longer), or remove (permanent
+  blocklist). Filters by status, sort by date/filename, pagination.
+- **Blocklist enforcement** — `blocklisted_files` table stores permanently removed files by
+  content hash and source path. Scanner checks both during indexing — prevents re-indexing of
+  removed files even if they reappear or are copied elsewhere.
+- **Meilisearch `is_flagged` attribute** — Filterable attribute added to all 3 indexes
+  (documents, adobe-files, transcripts). Search endpoint filters out flagged files by default;
+  admins can override with `?include_flagged=true`.
+- **Webhook notifications** — All flag events (create, dismiss, extend, remove) send webhook
+  POST to `flag_webhook_url` preference if configured.
+- **Hourly auto-expiry** — Scheduler job expires active flags past their `expires_at` timestamp.
+- **File size fix** — Search results now show original source file size from `source_files`
+  table instead of markdown output size.
+- **New preferences**: `flag_webhook_url` (default empty), `flag_default_expiry_days` (default `7`).
+
+**New files:**
+- `core/flag_manager.py` — flag business logic, blocklist checks, Meilisearch is_flagged sync, webhooks
+- `api/routes/flags.py` — flag API: user flagging + admin triage (dismiss/extend/remove/blocklist)
+- `static/flagged.html` — admin flagged files page with filters, sort, pagination
+
+**Modified files:**
+- `core/database.py` — `file_flags` and `blocklisted_files` table schemas, flag preference defaults
+- `core/search_indexer.py` — sets `is_flagged` attribute during indexing, checks `file_flags` table
+- `core/search_client.py` — `is_flagged` added to filterable attributes for all indexes
+- `core/bulk_scanner.py` — blocklist check during scan (skips blocklisted files)
+- `core/scheduler.py` — hourly flag expiry job
+- `api/routes/search.py` — flag filtering in search results, access blocking for flagged files
+- `static/search.html` — flag button on search results, flag modal
+- `static/admin.html` — flagged files KPI card, nav entry
+- `static/settings.html` — flag preferences section
+- `static/app.js` — nav entry for flagged files page
+- `main.py` — mount flags router
+- `core/version.py` — bumped to 0.16.0
+
+**Design notes:**
+- Multiple flags can exist per file. The file stays hidden while ANY flag has `status` in
+  (`active`, `extended`). `is_flagged` is only set to `false` when the last active/extended
+  flag resolves or expires.
+- Flag state survives Meilisearch index rebuilds — `search_indexer.py` checks `file_flags`
+  during re-indexing and sets `is_flagged=true` for any file with an active/extended flag.
+- Blocklist uses dual-match: both `content_hash` (catches copies) and `source_path` (catches
+  re-appearances at the same location). A file matches if either field matches a blocklist entry.
+- Fixed-path routes (`/mine`, `/stats`, `/blocklist`, `/lookup-source`) are defined before the
+  `/{flag_id}` catch-all in `flags.py` to prevent FastAPI from matching literal paths as flag IDs.
+
+---
+
 ## v0.15.1 — Cloud File Prefetch (2026-03-31)
 
 **New features:**

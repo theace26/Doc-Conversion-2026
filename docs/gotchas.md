@@ -709,3 +709,25 @@ the relevant subsystem. Referenced from CLAUDE.md.
 - **Transcript segments stored in DB**: `transcript_segments` table stores individual timestamped segments for API access. The full `.md` file is the authoritative source for the formatted transcript.
 - **Three output files**: Every media conversion produces `.md` + `.srt` + `.vtt`. The `.srt` and `.vtt` paths are stored in `conversion_history.media_caption_path` and `media_vtt_path`.
 - **Meilisearch transcripts index**: Separate from `documents` index. `raw_text` is the full transcript content (searchable). Search API accepts `?index=transcripts`.
+
+## File Flagging
+
+- **Multiple flags per file**: A file stays hidden from search/download while ANY flag has `status`
+  in (`active`, `extended`). The `is_flagged` Meilisearch attribute is only set to `false` when the
+  last active/extended flag is resolved or expires. Always check for remaining active flags before
+  clearing `is_flagged`.
+
+- **Flag + index rebuild**: `search_indexer.py` checks the `file_flags` table during indexing and
+  sets `is_flagged=true` for any file with an active or extended flag. This ensures flag state
+  survives a full Meilisearch index rebuild. Without this check, rebuilding indexes would silently
+  un-flag all files.
+
+- **Blocklist dual-match**: The scanner checks both `content_hash` and `source_path` against the
+  `blocklisted_files` table. A file can be blocklisted by hash (catches copies moved to new
+  locations) or by path (catches files that reappear at the same location). Either match causes
+  the file to be skipped during scanning.
+
+- **Flag routes ordering**: In `api/routes/flags.py`, fixed-path routes (`/mine`, `/stats`,
+  `/blocklist`, `/lookup-source`) must be defined BEFORE the `/{flag_id}` catch-all route, or
+  FastAPI matches the literal path segment (e.g., "mine") as a flag_id parameter. This is a
+  standard FastAPI routing gotcha but easy to break when adding new endpoints.

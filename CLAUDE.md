@@ -26,9 +26,20 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.15.1
+## Current Status — v0.16.0
 
-v0.15.1: Cloud file prefetch system. Platform-agnostic background prefetch for
+v0.16.0: File flagging & content moderation. Self-service file flagging lets any
+authenticated user temporarily suppress a file from search and download. Admins
+manage flags through dedicated page with three-action escalation: dismiss (restore),
+extend (keep suppressed longer), or remove (permanent blocklist). New `file_flags`
+and `blocklisted_files` tables. Meilisearch `is_flagged` filterable attribute on
+all 3 indexes. Blocklist enforced during scanning — prevents re-indexing of removed
+files. Webhook notifications for all flag events. Hourly auto-expiry scheduler job.
+Flag button on search results, admin flagged files page with filters/sort/pagination.
+File size fix: search results now show original source file size instead of markdown
+output size. New preferences: `flag_webhook_url`, `flag_default_expiry_days`.
+
+Previous (v0.15.1): Cloud file prefetch system. Platform-agnostic background prefetch for
 cloud-synced source directories (OneDrive, Google Drive, Nextcloud, Dropbox,
 iCloud, NAS tiered storage). `CloudDetector` probes files via disk block
 allocation and read latency. `PrefetchManager` runs background workers with
@@ -212,6 +223,9 @@ Critical files to know:
 | `api/routes/media.py` | Media transcript API: get transcript, segments, download |
 | `api/routes/pipeline.py` | Pipeline control: status, pause, resume, run-now |
 | `api/routes/search.py` | Search API: unified search, autocomplete, source file serving, batch download |
+| `core/flag_manager.py` | Flag business logic, blocklist checks, Meilisearch is_flagged sync, webhooks |
+| `api/routes/flags.py` | Flag API: user flagging + admin triage (dismiss/extend/remove/blocklist) |
+| `static/flagged.html` | Admin flagged files page with filters, sort, pagination |
 | `static/viewer.html` | Document viewer: source/markdown toggle, inline PDF, download |
 | `static/app.js` | Shared JS: API helpers, dynamic nav, toast |
 | `static/markflow.css` | Design system: CSS variables, dark mode |
@@ -269,6 +283,10 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **NTFS ADS filtering**: Files with `:` in the name (NTFS Alternate Data Streams) are skipped during scanning. These are metadata streams, not real files.
 - **Search source_path DB fallback**: `search_indexer.py` looks up `source_path` from the `source_files` DB table when frontmatter doesn't contain it. Without this fallback, source file serving and batch download fail for older converted files.
 - **AV quarantine FileNotFoundError**: Scanners catch `FileNotFoundError` from `os.stat()` — antivirus can quarantine a file between `os.walk()` discovering it and `stat()` reading it.
+- **Multiple flags per file**: File stays hidden while ANY flag has `status` in (`active`, `extended`). `is_flagged` only set to `false` when the last active/extended flag resolves/expires.
+- **Flag + index rebuild**: `search_indexer.py` checks `file_flags` during indexing and sets `is_flagged=true` for any file with an active/extended flag. Flag state survives re-indexing.
+- **Blocklist dual-match**: Scanner checks both `content_hash` and `source_path` against `blocklisted_files`. A file can be blocklisted by hash (catches copies) or by path (catches re-appearances).
+- **Flag routes ordering**: In `api/routes/flags.py`, fixed-path routes (`/mine`, `/stats`, `/blocklist`, `/lookup-source`) must be defined BEFORE `/{flag_id}` catch-all, or FastAPI matches the literal path segment as a flag_id.
 
 ---
 

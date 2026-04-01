@@ -44,6 +44,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `core/pipeline_startup.py` | Health-gated startup: waits for services before triggering initial scan+convert cycle |
 | `core/cloud_detector.py` | Platform-agnostic cloud placeholder detection (disk blocks + read latency) |
 | `core/cloud_prefetch.py` | Background prefetch worker pool with rate limiting, adaptive timeouts, retry with backoff |
+| `core/flag_manager.py` | Flag business logic, blocklist checks, Meilisearch is_flagged sync, webhooks |
 | `core/auto_metrics_aggregator.py` | Hourly rollup of system_metrics into auto_metrics |
 | `core/progress_tracker.py` | RollingWindowETA, ProgressSnapshot, format_eta for scan/bulk jobs |
 | `core/log_archiver.py` | Compress rotated logs to gzip archives, purge old archives |
@@ -117,6 +118,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `api/routes/logs.py` | GET /api/logs/download/{filename} — log file downloads + archive endpoints |
 | `api/routes/mcp_info.py` | GET /api/mcp/connection-info — MCP server status for settings UI |
 | `api/routes/media.py` | Media transcript API: get transcript, segments, download |
+| `api/routes/flags.py` | Flag API: user flagging + admin triage (dismiss/extend/remove/blocklist) |
 | `api/routes/pipeline.py` | Pipeline control: status, pause, resume, run-now |
 
 ## Frontend
@@ -144,6 +146,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `static/bulk-review.html` | Post-job OCR review queue |
 | `static/progress.html` | Live SSE batch progress |
 | `static/debug.html` | Developer debug dashboard |
+| `static/flagged.html` | Admin flagged files page with filters, sort, pagination |
 | `static/js/global-status-bar.js` | Badge-only polling: updates nav badge with active-job count |
 | `static/js/help-link.js` | Contextual "?" icon component |
 | `static/js/folder-picker.js` | FolderPicker widget: modal directory browser |
