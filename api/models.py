@@ -217,6 +217,29 @@ class LocationResponse(BaseModel):
     updated_at: str
 
 
+# ── Location Exclusions ──────────────────────────────────────────────────────
+
+class ExclusionCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+    path: str = Field(..., min_length=1)
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class ExclusionUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    path: str | None = Field(default=None, min_length=1)
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class ExclusionResponse(BaseModel):
+    id: str
+    name: str
+    path: str
+    notes: str | None
+    created_at: str
+    updated_at: str
+
+
 # ── Errors ────────────────────────────────────────────────────────────────────
 
 class ErrorResponse(BaseModel):

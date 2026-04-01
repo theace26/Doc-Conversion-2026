@@ -7,6 +7,13 @@ GET    /api/locations/validate      — Check if a container path is accessible
 GET    /api/locations/{id}          — Get single location
 PUT    /api/locations/{id}          — Update a location
 DELETE /api/locations/{id}          — Delete a location
+
+Exclusions (prefix-match paths skipped during scanning):
+GET    /api/locations/exclusions          — List all exclusions
+POST   /api/locations/exclusions          — Create an exclusion
+GET    /api/locations/exclusions/{id}     — Get single exclusion
+PUT    /api/locations/exclusions/{id}     — Update an exclusion
+DELETE /api/locations/exclusions/{id}     — Delete an exclusion
 """
 
 import asyncio
@@ -19,12 +26,23 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from core.auth import AuthenticatedUser, UserRole, require_role
 
-from api.models import LocationCreate, LocationResponse, LocationUpdate
+from api.models import (
+    ExclusionCreate,
+    ExclusionUpdate,
+    LocationCreate,
+    LocationResponse,
+    LocationUpdate,
+)
 from core.database import (
+    create_exclusion,
     create_location,
+    delete_exclusion,
     delete_location,
+    get_exclusion,
     get_location,
+    list_exclusions,
     list_locations,
+    update_exclusion,
     update_location,
     db_fetch_all,
 )
@@ -88,6 +106,89 @@ async def create(
 
     loc = await get_location(loc_id)
     return loc
+
+
+# ── Exclusions — must be before /{id} catch-all ────────────────────────────
+
+@router.get("/exclusions")
+async def list_all_exclusions(
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
+    """List all location exclusions."""
+    return await list_exclusions()
+
+
+@router.post("/exclusions", status_code=201)
+async def create_excl(
+    body: ExclusionCreate,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
+    """Create a new location exclusion (prefix-match path skipped during scanning)."""
+    _validate_path(body.path)
+
+    try:
+        excl_id = await create_exclusion(
+            name=body.name,
+            path=body.path,
+            notes=body.notes,
+        )
+    except ValueError:
+        raise HTTPException(status_code=409, detail=f"Exclusion name already exists: {body.name}")
+
+    return await get_exclusion(excl_id)
+
+
+@router.get("/exclusions/{exclusion_id}")
+async def get_single_exclusion(
+    exclusion_id: str,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
+    """Get a single exclusion by ID."""
+    excl = await get_exclusion(exclusion_id)
+    if not excl:
+        raise HTTPException(status_code=404, detail="Exclusion not found.")
+    return excl
+
+
+@router.put("/exclusions/{exclusion_id}")
+async def update_excl(
+    exclusion_id: str,
+    body: ExclusionUpdate,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
+    """Update an exclusion."""
+    excl = await get_exclusion(exclusion_id)
+    if not excl:
+        raise HTTPException(status_code=404, detail="Exclusion not found.")
+
+    fields = body.model_dump(exclude_none=True)
+    if not fields:
+        return excl
+
+    if "path" in fields:
+        _validate_path(fields["path"])
+
+    try:
+        await update_exclusion(exclusion_id, **fields)
+    except ValueError:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Exclusion name already exists: {fields.get('name')}",
+        )
+
+    return await get_exclusion(exclusion_id)
+
+
+@router.delete("/exclusions/{exclusion_id}", status_code=204)
+async def delete_excl(
+    exclusion_id: str,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
+    """Delete an exclusion."""
+    excl = await get_exclusion(exclusion_id)
+    if not excl:
+        raise HTTPException(status_code=404, detail="Exclusion not found.")
+    await delete_exclusion(exclusion_id)
 
 
 # ── GET /api/locations/validate — must be before /{id} ───────────────────────

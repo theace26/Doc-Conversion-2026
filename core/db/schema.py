@@ -172,6 +172,15 @@ CREATE TABLE IF NOT EXISTS locations (
     updated_at  TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS location_exclusions (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL UNIQUE,
+    path        TEXT NOT NULL,
+    notes       TEXT,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS llm_providers (
     id              TEXT PRIMARY KEY,
     name            TEXT NOT NULL UNIQUE,

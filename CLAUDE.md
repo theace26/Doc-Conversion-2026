@@ -26,9 +26,18 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.16.5
+## Current Status — v0.16.6
 
-v0.16.5: Activity log pagination. Resources page activity log now uses per-page
+v0.16.6: Location exclusions. New "Exclude Location" feature on the Locations
+page lets users define paths to skip during scanning. Uses prefix matching —
+excluding `/host/c/Archive` skips all files and subdirectories under that path.
+New `location_exclusions` DB table with full CRUD API
+(`/api/locations/exclusions`). Both bulk scanner and lifecycle scanner load
+exclusion paths at scan start and filter at the `os.walk()` level (excluded
+directories are never descended into). UI mirrors the existing Add Location
+form with Browse, Check Access, and inline edit/delete.
+
+Previous (v0.16.5): Activity log pagination. Resources page activity log now uses per-page
 buttons (10/30/50/100/All) matching the search page pattern. Fixed-height
 scrollable container (600px max) with sticky header. Default reduced from 100
 to 10 rows. Shows "Showing X of Y events" count summary.

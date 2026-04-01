@@ -166,6 +166,12 @@ async def run_lifecycle_scan(
         _scan_state["total"] = 0
     _started_at_dt = datetime.now(timezone.utc)
 
+    # ── Load exclusion paths (prefix-match) ────────────────────────────
+    from core.database import get_exclusion_paths
+    exclusion_paths = await get_exclusion_paths()
+    if exclusion_paths:
+        log.info("lifecycle_scan.exclusions_loaded", count=len(exclusion_paths), paths=exclusion_paths)
+
     # Record activity event for scan start
     try:
         await record_activity_event("lifecycle_scan_start", "Lifecycle scan started")
@@ -214,11 +220,13 @@ async def run_lifecycle_scan(
                 source_root, scan_threads, seen_paths, counters,
                 error_entries, job_id, scan_run_id, _started_at_dt,
                 baseline_ms=storage_profile.sequential_median_ms,
+                exclusion_paths=exclusion_paths,
             )
         else:
             await _serial_lifecycle_walk(
                 source_root, seen_paths, counters,
                 error_entries, job_id, scan_run_id, _started_at_dt,
+                exclusion_paths=exclusion_paths,
             )
     except Exception as exc:
         await update_scan_run(scan_run_id, {
@@ -454,9 +462,14 @@ async def _serial_lifecycle_walk(
     job_id: str,
     scan_run_id: str,
     started_at_dt: datetime,
+    exclusion_paths: list[str] | None = None,
 ) -> None:
     """Serial walk for local SSD/HDD sources with error-rate abort."""
     error_monitor = ErrorRateMonitor()
+    _excl = exclusion_paths or []
+
+    def _is_excluded(p: str) -> bool:
+        return any(p.startswith(ep) for ep in _excl)
 
     def _lifecycle_walk_error(err: OSError) -> None:
         if isinstance(err, PermissionError):
@@ -474,10 +487,16 @@ async def _serial_lifecycle_walk(
             _scan_state["current_file"] = None
             break
 
-        dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "_markflow"]
+        dirnames[:] = [
+            d for d in dirnames
+            if not d.startswith(".") and d != "_markflow"
+            and not _is_excluded(str(Path(dirpath) / d))
+        ]
 
         for filename in filenames:
             file_path = Path(dirpath) / filename
+            if _is_excluded(str(file_path)):
+                continue
             errors_before = counters["errors"]
             await _lifecycle_process_entry(
                 file_path, source_root, seen_paths, counters,
@@ -502,9 +521,15 @@ async def _parallel_lifecycle_walk(
     scan_run_id: str,
     started_at_dt: datetime,
     baseline_ms: float = 1.0,
+    exclusion_paths: list[str] | None = None,
 ) -> None:
     """Parallel walk with feedback-loop throttling for NAS/SMB sources."""
     import time as _time
+
+    _excl = exclusion_paths or []
+
+    def _is_excluded(p: str) -> bool:
+        return any(p.startswith(ep) for ep in _excl)
 
     throttler = ScanThrottler(baseline_ms=baseline_ms, max_threads=thread_count)
     error_monitor = ErrorRateMonitor()
@@ -523,10 +548,11 @@ async def _parallel_lifecycle_walk(
             for entry in it:
                 if entry.is_dir(follow_symlinks=False):
                     name = entry.name
-                    if not name.startswith(".") and name != "_markflow":
+                    if not name.startswith(".") and name != "_markflow" and not _is_excluded(entry.path):
                         subdirs.append(Path(entry.path))
                 elif entry.is_file(follow_symlinks=False):
-                    root_files.append(entry.name)
+                    if not _is_excluded(entry.path):
+                        root_files.append(entry.name)
     except OSError as exc:
         log.warning("lifecycle_parallel_root_error", error=str(exc))
 
@@ -538,6 +564,8 @@ async def _parallel_lifecycle_walk(
         """Thread worker: walks directories, stats files with latency tracking."""
 
         def _stat_and_enqueue(file_path: Path) -> None:
+            if _is_excluded(str(file_path)):
+                return
             t0 = _time.perf_counter()
             try:
                 st = file_path.stat()
@@ -575,7 +603,11 @@ async def _parallel_lifecycle_walk(
             for dirpath, dirnames, filenames in os.walk(subdir, onerror=_par_walk_error):
                 if _should_bail():
                     return
-                dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "_markflow"]
+                dirnames[:] = [
+                    d for d in dirnames
+                    if not d.startswith(".") and d != "_markflow"
+                    and not _is_excluded(str(Path(dirpath) / d))
+                ]
                 for filename in filenames:
                     if _should_bail():
                         return

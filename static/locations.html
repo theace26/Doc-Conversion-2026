@@ -108,6 +108,39 @@
       <div class="section-label">Both (Source &amp; Output)</div>
       <div id="both-list"></div>
     </div>
+
+    <!-- Exclusions section -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:2rem">
+      <h2>Exclusions</h2>
+      <button class="btn btn-primary" id="add-excl-btn">+ Exclude Location</button>
+    </div>
+    <p class="text-muted mb-2">Paths excluded from scanning. Any file or folder under an excluded path is skipped (prefix match).</p>
+
+    <!-- Exclusion add/edit form (hidden by default) -->
+    <div id="excl-form-wrap" hidden>
+      <div class="add-form" id="excl-form">
+        <label for="excl-name">Name</label>
+        <input type="text" id="excl-name" placeholder="e.g. Old Archives" maxlength="80">
+        <label for="excl-path">Path</label>
+        <div class="path-row">
+          <input type="text" id="excl-path" placeholder="/host/c/Users/.../OldStuff">
+          <button type="button" class="btn btn-ghost btn-sm" id="excl-browse-btn">Browse...</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="excl-check-btn">Check Access</button>
+        </div>
+        <label></label>
+        <div class="validate-result" id="excl-validate-result"></div>
+        <label for="excl-notes">Notes</label>
+        <textarea id="excl-notes" placeholder="Optional reason for exclusion" maxlength="500"></textarea>
+        <div class="form-actions">
+          <button class="btn btn-primary" id="excl-save-btn">Save</button>
+          <button class="btn btn-ghost" id="excl-cancel-btn">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="exclusion-section">
+      <div id="exclusion-list"></div>
+    </div>
   </div>
 
   <script src="/static/app.js"></script>
@@ -393,6 +426,176 @@
   // ── Init ────────────────────────────────────────────────────────────────
 
   loadLocations();
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Exclusions
+  // ═══════════════════════════════════════════════════════════════════════
+
+  let exclEditingId = null;
+  let allExclusions = [];
+
+  async function loadExclusions() {
+    try {
+      allExclusions = await API.get('/api/locations/exclusions');
+      renderExclusions();
+    } catch (e) {
+      showError('Failed to load exclusions: ' + e.message);
+    }
+  }
+
+  function renderExclusions() {
+    const listEl = document.getElementById('exclusion-list');
+    if (allExclusions.length === 0) {
+      listEl.innerHTML = '<div class="empty-state">(none)</div>';
+    } else {
+      listEl.innerHTML = allExclusions.map(renderExclCard).join('');
+    }
+  }
+
+  function renderExclCard(excl) {
+    return `<div class="loc-card" id="excl-card-${excl.id}">
+      <div class="loc-card-header">
+        <span class="loc-name">${esc(excl.name)}</span>
+        <div class="loc-actions">
+          <button class="btn btn-ghost btn-sm" onclick="editExclusion('${excl.id}')">Edit</button>
+          <button class="btn btn-ghost btn-sm" id="excl-del-btn-${excl.id}" onclick="confirmDeleteExcl('${excl.id}', '${esc(excl.name)}')">Delete</button>
+        </div>
+      </div>
+      <div class="loc-path">${esc(excl.path)}${excl.notes ? ' &middot; ' + esc(excl.notes) : ''}</div>
+    </div>`;
+  }
+
+  function showExclForm(excl = null) {
+    exclEditingId = excl ? excl.id : null;
+    document.getElementById('excl-name').value = excl ? excl.name : '';
+    document.getElementById('excl-path').value = excl ? excl.path : '';
+    document.getElementById('excl-notes').value = excl ? (excl.notes || '') : '';
+    document.getElementById('excl-validate-result').textContent = '';
+    document.getElementById('excl-form-wrap').hidden = false;
+    document.getElementById('excl-save-btn').textContent = excl ? 'Update' : 'Save';
+    document.getElementById('excl-name').focus();
+  }
+
+  function hideExclForm() {
+    exclEditingId = null;
+    document.getElementById('excl-form-wrap').hidden = true;
+  }
+
+  document.getElementById('add-excl-btn').addEventListener('click', () => showExclForm());
+  document.getElementById('excl-cancel-btn').addEventListener('click', hideExclForm);
+
+  function editExclusion(id) {
+    const excl = allExclusions.find(e => e.id === id);
+    if (excl) showExclForm(excl);
+  }
+
+  // Check Access for exclusion
+  document.getElementById('excl-check-btn').addEventListener('click', async () => {
+    const path = document.getElementById('excl-path').value.trim();
+    const el = document.getElementById('excl-validate-result');
+    if (!path) { el.textContent = 'Enter a path first.'; el.className = 'validate-result err'; return; }
+
+    el.innerHTML = '<span class="spinner-sm"></span> Checking...';
+    el.className = 'validate-result';
+
+    try {
+      const r = await API.get(`/api/locations/validate?path=${encodeURIComponent(path)}`);
+      if (r.error === 'not_a_container_path') {
+        el.textContent = 'Not a container path \u2014 use /host/... not C:\\...';
+        el.className = 'validate-result err';
+      } else if (!r.exists) {
+        el.textContent = 'Path not found \u2014 check the container mount.';
+        el.className = 'validate-result err';
+      } else if (r.accessible) {
+        let msg = 'Accessible';
+        if (r.file_count_estimate != null) msg += ` \u00b7 ~${r.file_count_estimate.toLocaleString()} files will be excluded`;
+        el.textContent = msg;
+        el.className = 'validate-result ok';
+      } else {
+        el.textContent = 'Path exists but is not readable.';
+        el.className = 'validate-result err';
+      }
+    } catch {
+      el.textContent = 'Check failed.';
+      el.className = 'validate-result err';
+    }
+  });
+
+  // Save exclusion
+  document.getElementById('excl-save-btn').addEventListener('click', async () => {
+    const name = document.getElementById('excl-name').value.trim();
+    const path = document.getElementById('excl-path').value.trim();
+    const notes = document.getElementById('excl-notes').value.trim() || null;
+
+    if (!name || !path) {
+      showToast('Name and path are required.', 'error');
+      return;
+    }
+
+    const btn = document.getElementById('excl-save-btn');
+    btn.disabled = true;
+
+    try {
+      if (exclEditingId) {
+        await API.put(`/api/locations/exclusions/${exclEditingId}`, { name, path, notes });
+        showToast('Exclusion updated.', 'success');
+      } else {
+        await API.post('/api/locations/exclusions', { name, path, notes });
+        showToast('Exclusion created.', 'success');
+      }
+      hideExclForm();
+      await loadExclusions();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // Delete exclusion
+  function confirmDeleteExcl(id, name) {
+    const btn = document.getElementById(`excl-del-btn-${id}`);
+    const parent = btn.parentElement;
+
+    const row = document.createElement('span');
+    row.className = 'confirm-row';
+    row.innerHTML = `Delete '${esc(name)}'? <button class="btn btn-danger btn-sm" id="confirm-excl-del-${id}">Confirm</button> <button class="btn btn-ghost btn-sm" id="cancel-excl-del-${id}">Cancel</button>`;
+    btn.hidden = true;
+    parent.appendChild(row);
+
+    document.getElementById(`cancel-excl-del-${id}`).addEventListener('click', () => {
+      row.remove();
+      btn.hidden = false;
+    });
+
+    document.getElementById(`confirm-excl-del-${id}`).addEventListener('click', async () => {
+      try {
+        await API.del(`/api/locations/exclusions/${id}`);
+        showToast('Exclusion deleted.', 'success');
+        await loadExclusions();
+      } catch (e) {
+        showToast(e.message, 'error');
+        row.remove();
+        btn.hidden = false;
+      }
+    });
+  }
+
+  // Browse button for exclusion
+  document.getElementById('excl-browse-btn').addEventListener('click', () => {
+    const picker = new FolderPicker({
+      title: 'Select Folder to Exclude',
+      mode: 'source',
+      initialPath: document.getElementById('excl-path').value || '/host',
+      onSelect: (path) => {
+        document.getElementById('excl-path').value = path;
+        document.getElementById('excl-check-btn').click();
+      },
+    });
+    picker.open();
+  });
+
+  loadExclusions();
   </script>
 </body>
 </html>

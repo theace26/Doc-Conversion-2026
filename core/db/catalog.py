@@ -163,6 +163,76 @@ async def delete_location(location_id: str) -> None:
         await conn.commit()
 
 
+# ── Location exclusion helpers ─────────────────────────────────────────────
+
+async def create_exclusion(
+    name: str, path: str, notes: str | None = None
+) -> str:
+    """Insert a new exclusion. Returns id. Raises ValueError if name exists."""
+    existing = await db_fetch_one(
+        "SELECT id FROM location_exclusions WHERE name = ?", (name,)
+    )
+    if existing:
+        raise ValueError(f"Exclusion name already exists: {name}")
+
+    exclusion_id = uuid.uuid4().hex
+    now = now_iso()
+    async with get_db() as conn:
+        await conn.execute(
+            """INSERT INTO location_exclusions (id, name, path, notes, created_at, updated_at)
+               VALUES (?,?,?,?,?,?)""",
+            (exclusion_id, name, path, notes, now, now),
+        )
+        await conn.commit()
+    return exclusion_id
+
+
+async def get_exclusion(exclusion_id: str) -> dict[str, Any] | None:
+    """Return a single exclusion by id."""
+    return await db_fetch_one("SELECT * FROM location_exclusions WHERE id = ?", (exclusion_id,))
+
+
+async def list_exclusions() -> list[dict[str, Any]]:
+    """Return all exclusions ordered by name."""
+    return await db_fetch_all("SELECT * FROM location_exclusions ORDER BY name")
+
+
+async def update_exclusion(exclusion_id: str, **fields) -> None:
+    """Update name, path, or notes. Raises ValueError if new name conflicts."""
+    if not fields:
+        return
+
+    if "name" in fields:
+        existing = await db_fetch_one(
+            "SELECT id FROM location_exclusions WHERE name = ? AND id != ?",
+            (fields["name"], exclusion_id),
+        )
+        if existing:
+            raise ValueError(f"Exclusion name already exists: {fields['name']}")
+
+    fields["updated_at"] = now_iso()
+    sets = [f"{k}=?" for k in fields]
+    values = list(fields.values()) + [exclusion_id]
+    async with get_db() as conn:
+        await conn.execute(
+            f"UPDATE location_exclusions SET {', '.join(sets)} WHERE id=?", values
+        )
+        await conn.commit()
+
+
+async def delete_exclusion(exclusion_id: str) -> None:
+    """Delete an exclusion by id."""
+    async with get_db() as conn:
+        await conn.execute("DELETE FROM location_exclusions WHERE id = ?", (exclusion_id,))
+        await conn.commit()
+
+
+async def get_exclusion_paths() -> list[str]:
+    """Return all exclusion paths (for scanner filtering)."""
+    rows = await db_fetch_all("SELECT path FROM location_exclusions ORDER BY path")
+    return [r["path"] for r in rows]
+
+
 # ── LLM provider helpers ────────────────────────────────────────────────────
 
 async def create_llm_provider(
