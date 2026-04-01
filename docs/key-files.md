@@ -110,7 +110,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `api/routes/bulk.py` | Bulk job API: create, list, status, pause/resume/cancel, files, errors, SSE |
 | `api/routes/search.py` | Search API: unified multi-index search, autocomplete, source file serving, batch download, rebuild |
 | `api/routes/cowork.py` | AI assistant search: full .md content inline, token-budget-aware |
-| `api/routes/locations.py` | Locations CRUD API + path validation endpoint |
+| `api/routes/locations.py` | Locations CRUD API + exclusions CRUD + path validation endpoint |
 | `api/routes/browse.py` | Directory browser API with path traversal protection |
 | `api/routes/llm_providers.py` | LLM provider CRUD, verify, activate, Ollama model fetch |
 | `api/routes/unrecognized.py` | Unrecognized files: list, stats, CSV export |
@@ -149,7 +149,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `static/providers.html` | LLM provider management |
 | `static/trash.html` | Trash management page |
 | `static/db-health.html` | Database health dashboard |
-| `static/locations.html` | Locations management |
+| `static/locations.html` | Locations management + exclusions |
 | `static/unrecognized.html` | Unrecognized files UI |
 | `static/review.html` | OCR review page (side-by-side image + editable text) |
 | `static/bulk-review.html` | Post-job OCR review queue |

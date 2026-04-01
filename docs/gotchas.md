@@ -380,6 +380,12 @@ the relevant subsystem. Referenced from CLAUDE.md.
   hint to check SMB connectivity. The error-rate monitor handles sustained failures via its
   existing abort threshold.
 
+- **Location exclusions (prefix match)**: Exclusion paths from `location_exclusions` table are
+  loaded once at scan start (both bulk and lifecycle). Filtering happens at the `os.walk()` level:
+  excluded directories are pruned from `dirnames[:]` so Python never descends into them. File-level
+  checks are a safety net. The fast walk counter also respects exclusions. Exclusions are stored
+  on `self._exclusion_paths` (bulk scanner) or passed as a parameter (lifecycle scanner).
+
 - **Adaptive scan parallelism**: `storage_probe.py` runs a ~200ms latency probe before each
   scan, measuring sequential vs random `stat()` times. The ratio discriminates storage types:
   ratio > 3x = spinning disk (stay serial), ratio < 2x + high latency = NAS (go parallel).

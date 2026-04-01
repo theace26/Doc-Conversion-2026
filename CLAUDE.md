@@ -26,9 +26,15 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.16.6
+## Current Status — v0.16.7
 
-v0.16.6: Location exclusions. New "Exclude Location" feature on the Locations
+v0.16.7: Collapsible settings sections. All 16 Settings page sections are now
+wrapped in native `<details>/<summary>` elements. Only Locations and Conversion
+are open by default; all others start collapsed. "Expand All / Collapse All"
+toggle button in the page header. Animated chevron indicator, smooth slide-down
+on open. Significantly reduces visual clutter on the Settings page.
+
+Previous (v0.16.6): Location exclusions. New "Exclude Location" feature on the Locations
 page lets users define paths to skip during scanning. Uses prefix matching —
 excluding `/host/c/Archive` skips all files and subdirectories under that path.
 New `location_exclusions` DB table with full CRUD API

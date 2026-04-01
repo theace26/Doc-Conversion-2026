@@ -4,6 +4,35 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.16.7 — Collapsible Settings Sections (2026-04-01)
+
+**Settings page UX cleanup:**
+- All 16 settings sections wrapped in native `<details>/<summary>` collapsible elements.
+- Only Locations and Conversion sections open by default; all others start collapsed.
+- "Expand All / Collapse All" toggle button in the page header.
+- Animated chevron (right-pointing triangle rotates 90 degrees on open).
+- Smooth slide-down animation when opening a section.
+- Uses semantic HTML — no JavaScript for open/close behavior.
+
+---
+
+## v0.16.6 — Location Exclusions (2026-04-01)
+
+**Path exclusion for scanning:**
+- New "Exclude Location" feature on the Locations page.
+- Exclusions use prefix matching — excluding `/host/c/Archive` skips all files and
+  subdirectories under that path during both bulk and lifecycle scans.
+- New `location_exclusions` DB table with full CRUD.
+- API endpoints: `GET/POST /api/locations/exclusions`, `GET/PUT/DELETE /api/locations/exclusions/{id}`.
+- Both `BulkScanner` and lifecycle scanner load exclusion paths once at scan start.
+- Filtering at the `os.walk()` level: excluded directories are pruned from `dirnames[:]`
+  so Python never descends into them. File-level check as safety net.
+- Fast walk counter (file count estimator) also respects exclusions.
+- UI mirrors the existing Add Location form: name, path, notes, Browse, Check Access,
+  inline edit/delete with confirmation.
+
+---
+
 ## v0.16.5 — Activity Log Pagination (2026-04-01)
 
 **Activity log UX improvements (Resources page):**

@@ -7,6 +7,42 @@
   <link rel="stylesheet" href="/static/markflow.css">
   <style>
     .tier-desc { font-size: 0.82rem; color: var(--text-muted); margin-top: 0.2rem; }
+
+    /* Collapsible sections */
+    .settings-section { margin-bottom: 0.75rem; }
+    .settings-section summary {
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.95rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: var(--text-muted);
+      padding: 0.6rem 0;
+      border-bottom: 1px solid var(--border);
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      user-select: none;
+    }
+    .settings-section summary::-webkit-details-marker { display: none; }
+    .settings-section summary::before {
+      content: '\25B6';
+      font-size: 0.7rem;
+      transition: transform 0.2s ease;
+      display: inline-block;
+    }
+    .settings-section[open] > summary::before {
+      transform: rotate(90deg);
+    }
+    .settings-section > .card {
+      margin-top: 0.5rem;
+      animation: slideDown 0.15s ease-out;
+    }
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
   </style>
 </head>
 <body>
@@ -18,7 +54,10 @@
   <div class="container page-content">
     <div id="error-banner" role="alert" hidden></div>
 
-    <h1>Settings</h1>
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h1>Settings</h1>
+      <button class="btn btn-ghost btn-sm" id="toggle-all-btn" type="button">Expand All</button>
+    </div>
     <p class="text-muted mb-2">Configure conversion preferences. Changes are saved explicitly.</p>
 
     <div id="loading" style="text-align:center;padding:2rem"><span class="spinner"></span> Loading settings...</div>
@@ -37,7 +76,8 @@
       </div>
 
       <!-- Locations section -->
-      <div class="section-title">Locations</div>
+      <details class="settings-section" open>
+      <summary>Locations</summary>
       <div class="card">
         <p style="margin:0 0 0.5rem">Define source and output paths for bulk conversion jobs.</p>
         <div style="display:flex;justify-content:space-between;align-items:center">
@@ -46,8 +86,11 @@
         </div>
       </div>
 
+      </details>
+
       <!-- Conversion section -->
-      <div class="section-title">Conversion</div>
+      <details class="settings-section" open>
+      <summary>Conversion</summary>
       <div class="card">
         <div class="form-group">
           <label for="pref-default_direction">Default conversion direction</label>
@@ -77,8 +120,11 @@
         </div>
       </div>
 
+      </details>
+
       <!-- Path Safety section -->
-      <div class="section-title" id="collision-strategy">Path Safety</div>
+      <details class="settings-section">
+      <summary id="collision-strategy">Path Safety</summary>
       <div class="card">
         <div class="form-group">
           <label for="pref-max_output_path_length">Max output path length (chars)</label>
@@ -109,8 +155,11 @@
         </div>
       </div>
 
+      </details>
+
       <!-- OCR section -->
-      <div class="section-title">OCR</div>
+      <details class="settings-section">
+      <summary>OCR</summary>
       <div class="card">
         <div class="form-group">
           <label for="pref-ocr_confidence_threshold">Confidence threshold</label>
@@ -133,8 +182,11 @@
         </div>
       </div>
 
+      </details>
+
       <!-- Logging section -->
-      <div class="section-title">Logging</div>
+      <details class="settings-section">
+      <summary>Logging</summary>
       <div class="card">
         <div class="form-group">
           <label for="pref-log_level">Log Level</label>
@@ -165,8 +217,11 @@
         </div>
       </div>
 
+      </details>
+
       <!-- Password Recovery section -->
-      <div class="section-title">Password Recovery</div>
+      <details class="settings-section">
+      <summary>Password Recovery</summary>
       <div class="card">
         <p class="text-sm text-muted" style="margin:0 0 1rem">
           Configure how MarkFlow handles password-protected documents.
@@ -258,8 +313,11 @@
         </p>
       </div>
 
+      </details>
+
       <!-- AI Enhancement section -->
-      <div class="section-title">AI Enhancement</div>
+      <details class="settings-section">
+      <summary>AI Enhancement</summary>
       <div class="card">
         <p class="text-sm text-muted" style="margin:0 0 1rem">Configure an AI provider to enhance conversion quality. AI is optional — conversions work without it.</p>
 
@@ -311,8 +369,11 @@
         </div>
       </div>
 
+      </details>
+
       <!-- Vision & Frame Description section -->
-      <div class="section-title">Vision &amp; Frame Description</div>
+      <details class="settings-section">
+      <summary>Vision &amp; Frame Description</summary>
       <div class="card">
         <p class="text-sm text-muted" style="margin:0 0 1rem">Add visual context to video conversions. Scene detection extracts keyframes; Level 3 adds AI frame descriptions.</p>
 
@@ -364,8 +425,11 @@
         </div>
       </div>
 
+      </details>
+
       <!-- MCP Integration section -->
-      <div class="section-title">Claude Integration (MCP)</div>
+      <details class="settings-section">
+      <summary>Claude Integration (MCP)</summary>
       <div class="card" id="mcp-section">
         <p class="text-sm text-muted" style="margin:0 0 1rem">Connect MarkFlow to Claude.ai so Claude can search and read your documents directly.</p>
         <div id="mcp-info">
@@ -426,8 +490,11 @@
         </div>
       </div>
 
+      </details>
+
       <!-- File Lifecycle section -->
-      <div class="section-title">File Lifecycle</div>
+      <details class="settings-section">
+      <summary>File Lifecycle</summary>
       <div class="card">
         <p class="text-sm text-muted" style="margin:0 0 1rem">Control how MarkFlow tracks file changes, deletions, and trash retention.</p>
 
@@ -476,8 +543,11 @@
         </div>
       </div>
 
+      </details>
+
       <!-- Pipeline section (v0.14.0) -->
-      <div class="section-title">Pipeline</div>
+      <details class="settings-section">
+      <summary>Pipeline</summary>
       <div class="card">
         <p class="text-sm text-muted" style="margin:0 0 1rem">
           Master controls for the automated scan-and-convert pipeline. When enabled, the lifecycle
@@ -516,8 +586,11 @@
         </div>
       </div>
 
+      </details>
+
       <!-- Cloud Prefetch section -->
-      <div class="section-title">Cloud Prefetch</div>
+      <details class="settings-section">
+      <summary>Cloud Prefetch</summary>
       <div class="card">
         <p class="text-sm text-muted" style="margin:0 0 1rem">
           Controls for prefetching files from cloud storage before conversion.
@@ -575,8 +648,11 @@
         </div>
       </div>
 
+      </details>
+
       <!-- Search Preview section -->
-      <div class="section-title">Search Preview</div>
+      <details class="settings-section">
+      <summary>Search Preview</summary>
       <div class="card">
         <div class="form-group">
           <label class="toggle">
@@ -604,8 +680,11 @@
         </div>
       </div>
 
+      </details>
+
       <!-- File Flagging section -->
-      <div class="section-title">File Flagging</div>
+      <details class="settings-section">
+      <summary>File Flagging</summary>
       <div class="card">
         <div class="form-group">
           <label for="pref-flag_default_expiry_days">Default flag expiry (days)</label>
@@ -621,8 +700,11 @@
         </div>
       </div>
 
+      </details>
+
       <!-- Auto-Conversion section -->
-      <div class="section-title" data-help="auto-conversion">Auto-Conversion</div>
+      <details class="settings-section">
+      <summary data-help="auto-conversion">Auto-Conversion</summary>
       <div class="card">
         <p class="text-sm text-muted" style="margin:0 0 1rem">
           Automatically convert new and modified files discovered by the lifecycle scanner.
@@ -740,8 +822,11 @@
         </div>
       </div>
 
+      </details>
+
       <!-- Transcription section (v0.13.0) -->
-      <div class="section-title">Transcription</div>
+      <details class="settings-section">
+      <summary>Transcription</summary>
       <div class="card">
         <p class="text-sm text-muted" style="margin:0 0 1rem">
           Audio and video transcription settings. Media files are transcribed using local Whisper
@@ -803,8 +888,11 @@
         </div>
       </div>
 
+      </details>
+
       <!-- Advanced section -->
-      <div class="section-title">Advanced</div>
+      <details class="settings-section">
+      <summary>Advanced</summary>
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <div>
@@ -815,8 +903,11 @@
         </div>
       </div>
 
+      </details>
+
       <!-- Info section -->
-      <div class="section-title">Info</div>
+      <details class="settings-section">
+      <summary>Info</summary>
       <div class="card">
         <div class="form-group">
           <label for="pref-last_save_directory">Last save directory</label>
@@ -827,6 +918,8 @@
           <input type="text" id="pref-last_source_directory" data-key="last_source_directory" readonly>
         </div>
       </div>
+
+      </details>
 
       <!-- Actions -->
       <div class="btn-group mt-2">
@@ -850,6 +943,14 @@
 
   <script src="/static/app.js"></script>
   <script>
+  // ── Expand / Collapse All ──────────────────────────────────────────────
+  document.getElementById('toggle-all-btn').addEventListener('click', function() {
+    const sections = document.querySelectorAll('details.settings-section');
+    const anyOpen = Array.from(sections).some(s => s.open);
+    sections.forEach(s => s.open = !anyOpen);
+    this.textContent = anyOpen ? 'Expand All' : 'Collapse All';
+  });
+
   let originalValues = {};
   let defaults = {};
 
