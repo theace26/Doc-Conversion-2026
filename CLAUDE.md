@@ -26,16 +26,9 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.16.9
+## Current Status — v0.16.8
 
-v0.16.9: Scan all sources. New "Scan all source locations" checkbox on the
-Bulk Jobs page. When checked, disables the source dropdown and fires off a
-parallel job for each configured source location via `Promise.all()`. The
-existing per-job storage probe, scan throttler, and error-rate monitor
-self-regulate concurrency per storage type. SSE connects to the first job
-for live progress. Toast confirms how many jobs were started.
-
-Previous (v0.16.8): Job History cleanup. Timestamps now use `formatLocalTime()` for
+v0.16.8: Job History cleanup. Timestamps now use `formatLocalTime()` for
 human-readable display (e.g. "Apr 1, 2026, 3:13 PM" instead of raw ISO).
 Status labels title-cased ("Completed" not "COMPLETED"). Stats show
 "X of Y converted" when total file count is available.
