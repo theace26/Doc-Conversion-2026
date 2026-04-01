@@ -646,6 +646,15 @@ class BulkJob:
         convert_opts = {"fidelity_tier": self.fidelity_tier, "ocr_mode": self.ocr_mode}
         if self._password_handler:
             convert_opts["_password_handler"] = self._password_handler
+        # Wait for cloud prefetch if enabled
+        from core.cloud_prefetch import get_prefetch_manager
+        pfx = get_prefetch_manager()
+        if pfx is not None:
+            pfx_status = await pfx.wait_for(source_path)
+            if pfx_status.value == "failed":
+                log.warning("cloud_prefetch_wait_failed", path=str(source_path),
+                            hint="attempting conversion anyway")
+
         result = await asyncio.to_thread(
             _convert_file_sync,
             source_path,
