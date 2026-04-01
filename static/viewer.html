@@ -5,16 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MarkFlow — Document Viewer</title>
   <link rel="stylesheet" href="/static/markflow.css">
+  <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
   <style>
+    /* ── Toolbar ─────────────────────────────────────────────── */
     .viewer-toolbar {
       display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;
-      margin-bottom: 1rem; padding: 0.75rem 1rem;
+      margin-bottom: 0; padding: 0.6rem 1rem;
       background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius);
+      border-radius: var(--radius) var(--radius) 0 0;
+      position: sticky; top: 0; z-index: 10;
     }
-    .viewer-toolbar .btn { font-size: 0.85rem; padding: 0.4rem 0.8rem; }
+    .viewer-toolbar .btn { font-size: 0.82rem; padding: 0.35rem 0.7rem; }
     .viewer-info {
-      flex: 1; display: flex; gap: 1rem; align-items: center;
+      flex: 1; display: flex; gap: 0.75rem; align-items: center;
       font-size: 0.85rem; color: var(--text-muted); min-width: 0;
     }
     .viewer-info .title {
@@ -22,40 +26,127 @@
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .viewer-info .badge {
-      font-size: 0.72rem; text-transform: uppercase; padding: 0.15em 0.5em;
+      font-size: 0.7rem; text-transform: uppercase; padding: 0.12em 0.45em;
       border-radius: 3px; background: var(--bg); color: var(--text-muted);
       border: 1px solid var(--border); letter-spacing: 0.03em; flex-shrink: 0;
     }
+    .view-toggle { display: flex; gap: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .view-toggle button {
+      padding: 0.35rem 0.7rem; border: none; background: var(--surface);
+      color: var(--text-muted); font-size: 0.8rem; cursor: pointer;
+      border-right: 1px solid var(--border); transition: all 0.15s;
+    }
+    .view-toggle button:last-child { border-right: none; }
+    .view-toggle button.active { background: var(--accent); color: #fff; }
+    .view-toggle button:hover:not(.active) { background: var(--surface-alt); }
+
+    /* ── Search bar ──────────────────────────────────────────── */
+    .search-bar {
+      display: none; align-items: center; gap: 0.4rem;
+      padding: 0.4rem 1rem;
+      background: var(--surface); border: 1px solid var(--border); border-top: none;
+    }
+    .search-bar.open { display: flex; }
+    .search-bar input {
+      flex: 1; padding: 0.3rem 0.6rem; border: 1px solid var(--border);
+      border-radius: var(--radius-sm); background: var(--bg); color: var(--text);
+      font-size: 0.82rem; min-width: 150px;
+    }
+    .search-bar .search-info { font-size: 0.78rem; color: var(--text-muted); min-width: 60px; }
+    .search-bar button { padding: 0.2rem 0.5rem; font-size: 0.78rem; }
+
+    /* ── Meta bar ────────────────────────────────────────────── */
+    .viewer-meta {
+      display: flex; gap: 1.5rem; font-size: 0.8rem; color: var(--text-muted);
+      padding: 0.4rem 1rem; border: 1px solid var(--border); border-top: none;
+      background: var(--surface-alt); flex-wrap: wrap;
+    }
+
+    /* ── Source iframe ────────────────────────────────────────── */
     .viewer-frame {
-      width: 100%; border: 1px solid var(--border); border-radius: var(--radius);
+      width: 100%; border: 1px solid var(--border); border-top: none;
+      border-radius: 0 0 var(--radius) var(--radius);
       background: #fff; min-height: 70vh;
     }
     .viewer-frame iframe {
-      width: 100%; height: 80vh; border: none; border-radius: var(--radius);
+      width: 100%; height: 80vh; border: none;
+      border-radius: 0 0 var(--radius) var(--radius);
     }
     .viewer-fallback {
       padding: 2rem; text-align: center; color: var(--text-muted);
     }
     .viewer-fallback h3 { margin-bottom: 0.5rem; color: var(--text); }
     .viewer-fallback .file-icon { font-size: 3rem; margin-bottom: 1rem; opacity: 0.4; }
-    .viewer-meta {
-      display: flex; gap: 1.5rem; font-size: 0.82rem; color: var(--text-muted);
-      margin-top: 0.5rem; flex-wrap: wrap;
+
+    /* ── Rendered markdown ────────────────────────────────────── */
+    .md-rendered {
+      padding: 1.5rem 2rem; background: var(--surface);
+      border: 1px solid var(--border); border-top: none;
+      border-radius: 0 0 var(--radius) var(--radius);
+      max-height: 85vh; overflow-y: auto;
+      font-size: 0.9rem; line-height: 1.7; color: var(--text);
     }
-    .md-preview {
-      padding: 1.5rem; background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius); font-family: var(--font-mono);
-      font-size: 0.85rem; line-height: 1.6; white-space: pre-wrap;
-      max-height: 80vh; overflow-y: auto;
+    .md-rendered h1, .md-rendered h2, .md-rendered h3,
+    .md-rendered h4, .md-rendered h5, .md-rendered h6 {
+      color: var(--text); margin-top: 1.5em; margin-bottom: 0.5em;
+      border-bottom: 1px solid var(--border); padding-bottom: 0.3em;
     }
-    .view-toggle { display: flex; gap: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-    .view-toggle button {
-      padding: 0.4rem 0.8rem; border: none; background: var(--surface);
-      color: var(--text-muted); font-size: 0.82rem; cursor: pointer;
-      border-right: 1px solid var(--border);
+    .md-rendered h1 { font-size: 1.6rem; }
+    .md-rendered h2 { font-size: 1.3rem; }
+    .md-rendered h3 { font-size: 1.1rem; border-bottom: none; }
+    .md-rendered p { margin: 0.75em 0; }
+    .md-rendered code {
+      background: var(--surface-alt); padding: 0.15em 0.35em;
+      border-radius: 3px; font-size: 0.88em; font-family: var(--font-mono);
     }
-    .view-toggle button:last-child { border-right: none; }
-    .view-toggle button.active { background: var(--accent); color: #fff; }
+    .md-rendered pre {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 1rem;
+      overflow-x: auto; font-size: 0.82rem; line-height: 1.5;
+    }
+    .md-rendered pre code { background: none; padding: 0; }
+    .md-rendered table {
+      width: 100%; border-collapse: collapse; margin: 1em 0; font-size: 0.85rem;
+    }
+    .md-rendered th, .md-rendered td {
+      padding: 0.5rem 0.75rem; border: 1px solid var(--border); text-align: left;
+    }
+    .md-rendered th { background: var(--surface-alt); font-weight: 600; }
+    .md-rendered blockquote {
+      margin: 1em 0; padding: 0.5em 1em;
+      border-left: 3px solid var(--accent); color: var(--text-muted);
+      background: var(--surface-alt);
+    }
+    .md-rendered a { color: var(--accent); }
+    .md-rendered img { max-width: 100%; border-radius: var(--radius-sm); }
+    .md-rendered ul, .md-rendered ol { padding-left: 1.5em; }
+    .md-rendered li { margin: 0.3em 0; }
+    .md-rendered hr { border: none; border-top: 1px solid var(--border); margin: 1.5em 0; }
+
+    /* ── Raw text view (with line numbers) ───────────────────── */
+    .raw-text-view {
+      display: flex; background: var(--surface);
+      border: 1px solid var(--border); border-top: none;
+      border-radius: 0 0 var(--radius) var(--radius);
+      max-height: 85vh; overflow-y: auto;
+      font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6;
+    }
+    .line-numbers {
+      padding: 1rem 0.75rem 1rem 0.5rem; text-align: right;
+      color: var(--text-muted); opacity: 0.5; user-select: none;
+      border-right: 1px solid var(--border); flex-shrink: 0;
+      white-space: pre;
+    }
+    .raw-content {
+      padding: 1rem; flex: 1; overflow-x: auto; white-space: pre;
+    }
+    .raw-content.wrap { white-space: pre-wrap; word-break: break-word; }
+
+    /* Search highlights */
+    .search-highlight { background: rgba(217,119,6,0.3); border-radius: 2px; }
+    .search-highlight.current { background: rgba(217,119,6,0.7); }
+
+    .empty-state { text-align: center; padding: 2rem; color: var(--text-muted); }
   </style>
 </head>
 <body>
@@ -64,7 +155,7 @@
     <div id="main-nav" class="nav-links"></div>
   </nav>
 
-  <div class="container page-content">
+  <main class="container page-content">
     <div id="error-banner" role="alert" hidden></div>
 
     <div id="loading" class="empty-state">
@@ -72,83 +163,111 @@
     </div>
 
     <div id="viewer-content" hidden>
-      <div class="viewer-toolbar">
+      <div class="viewer-toolbar" id="toolbar">
         <div class="viewer-info">
           <span id="doc-title" class="title"></span>
           <span id="doc-badge" class="badge"></span>
         </div>
         <div class="view-toggle" id="view-toggle">
           <button id="btn-source" class="active">Source</button>
-          <button id="btn-markdown">Markdown</button>
+          <button id="btn-markdown">Rendered</button>
+          <button id="btn-raw">Raw</button>
         </div>
+        <button class="btn" id="btn-search" title="Search in document (Ctrl+F)">Search</button>
+        <button class="btn" id="btn-wrap" title="Toggle word wrap">Wrap</button>
+        <button class="btn" id="btn-copy" title="Copy content to clipboard">Copy</button>
         <button class="btn btn-primary" id="btn-download">Download</button>
-        <a href="#" class="btn" id="btn-back">Back to Search</a>
+        <a href="#" class="btn" id="btn-back">Close</a>
+      </div>
+
+      <div class="search-bar" id="search-bar">
+        <input type="text" id="search-input" placeholder="Search in document..." autocomplete="off">
+        <span class="search-info" id="search-info"></span>
+        <button class="btn" id="search-prev" title="Previous">&uarr;</button>
+        <button class="btn" id="search-next" title="Next">&darr;</button>
+        <button class="btn" id="search-close">&times;</button>
       </div>
 
       <div id="doc-meta" class="viewer-meta"></div>
 
       <div id="source-view" class="viewer-frame"></div>
-      <div id="markdown-view" hidden></div>
+      <div id="markdown-view" class="md-rendered" hidden></div>
+      <div id="raw-view" class="raw-text-view" hidden>
+        <div class="line-numbers" id="line-numbers"></div>
+        <div class="raw-content" id="raw-content"></div>
+      </div>
     </div>
-  </div>
+  </main>
 
   <script src="/static/app.js"></script>
   <script>
-  var params = new URLSearchParams(location.search);
-  var docIndex = params.get('index') || 'documents';
-  var docId = params.get('id') || '';
-  var returnQuery = params.get('q') || '';
+  (function() {
+    var params = new URLSearchParams(location.search);
+    var docIndex = params.get('index') || 'documents';
+    var docId = params.get('id') || '';
+    var returnQuery = params.get('q') || '';
+    var initialView = params.get('view');
 
-  // Back button: close this tab (opened via target="_blank" from search results).
-  // Falls back to navigating to search page if window.close() is blocked.
-  var backLink = '/search.html';
-  if (returnQuery) backLink += '?q=' + encodeURIComponent(returnQuery);
-  document.getElementById('btn-back').href = backLink;
-  document.getElementById('btn-back').addEventListener('click', function(e) {
-    e.preventDefault();
-    window.close();
-    // If window.close() was blocked (not opened by script), navigate instead
-    setTimeout(function() { location.href = backLink; }, 100);
-  });
-  // Browser back button also closes this tab
-  history.pushState(null, '', location.href);
-  window.addEventListener('popstate', function() {
-    window.close();
-    setTimeout(function() { location.href = backLink; }, 100);
-  });
+    var info = null;
+    var mdText = null;
+    var mdLoaded = false;
+    var currentView = 'source';
+    var wrapEnabled = false;
+    var searchMatches = [];
+    var searchIndex = -1;
 
-  function formatLocalTime(isoStr) {
-    if (!isoStr) return '';
-    var d = new Date(isoStr);
-    if (isNaN(d.getTime())) return isoStr;
-    return d.toLocaleString(undefined, {
-      year: 'numeric', month: 'short', day: 'numeric',
-      hour: 'numeric', minute: '2-digit'
+    // Back/close
+    var backLink = '/search.html';
+    if (returnQuery) backLink += '?q=' + encodeURIComponent(returnQuery);
+    document.getElementById('btn-back').href = backLink;
+    document.getElementById('btn-back').addEventListener('click', function(e) {
+      e.preventDefault();
+      window.close();
+      setTimeout(function() { location.href = backLink; }, 100);
     });
-  }
+    history.pushState(null, '', location.href);
+    window.addEventListener('popstate', function() {
+      window.close();
+      setTimeout(function() { location.href = backLink; }, 100);
+    });
 
-  function formatSize(bytes) {
-    if (!bytes) return '';
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / 1048576).toFixed(1) + ' MB';
-  }
-
-  (async function() {
-    if (!docId) {
-      document.getElementById('loading').textContent = 'No document ID provided.';
-      return;
+    function formatLocalTime(isoStr) {
+      if (!isoStr) return '';
+      var d = new Date(isoStr);
+      if (isNaN(d.getTime())) return isoStr;
+      return d.toLocaleString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: 'numeric', minute: '2-digit'
+      });
     }
 
-    try {
-      var info = await API.get('/api/search/doc-info/' + encodeURIComponent(docIndex) + '/' + encodeURIComponent(docId));
+    function formatSize(bytes) {
+      if (!bytes) return '';
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / 1048576).toFixed(1) + ' MB';
+    }
+
+    // ── Load document ──────────────────────────────────────────
+    (async function() {
+      if (!docId) {
+        document.getElementById('loading').textContent = 'No document ID provided.';
+        return;
+      }
+
+      try {
+        info = await API.get('/api/search/doc-info/' + encodeURIComponent(docIndex) + '/' + encodeURIComponent(docId));
+      } catch(e) {
+        document.getElementById('loading').textContent = 'Error loading document: ' + e.message;
+        return;
+      }
 
       document.getElementById('loading').hidden = true;
       document.getElementById('viewer-content').hidden = false;
 
-      // Title and badge
       document.getElementById('doc-title').textContent = info.title || info.source_filename || 'Untitled';
       document.getElementById('doc-badge').textContent = (info.source_format || '').toUpperCase();
+      document.title = (info.title || info.source_filename || 'Document') + ' \u2014 MarkFlow Viewer';
 
       // Meta
       var metaEl = document.getElementById('doc-meta');
@@ -157,7 +276,10 @@
       if (info.date) parts.push('Converted: ' + formatLocalTime(info.date));
       if (info.fidelity_tier) parts.push('Fidelity: Tier ' + info.fidelity_tier);
       if (info.has_ocr) parts.push('OCR applied');
-      metaEl.textContent = '';
+      if (info.source_path) {
+        var pp = info.source_path.replace(/\\/g, '/').split('/');
+        parts.push('Path: .../' + pp.slice(-3).join('/'));
+      }
       parts.forEach(function(p) {
         var span = document.createElement('span');
         span.textContent = p;
@@ -182,87 +304,251 @@
         h3.textContent = info.source_filename || info.title;
         fallback.appendChild(h3);
         var p = document.createElement('p');
-        p.textContent = 'This file type cannot be previewed in the browser. Click Download to get the file.';
+        p.textContent = 'This file type cannot be previewed in the browser. Switch to Rendered or Raw view, or click Download.';
         fallback.appendChild(p);
         sourceView.appendChild(fallback);
       } else {
-        var noSource = document.createElement('div');
-        noSource.className = 'viewer-fallback';
+        var noSrc = document.createElement('div');
+        noSrc.className = 'viewer-fallback';
         var h3ns = document.createElement('h3');
         h3ns.textContent = 'Source file not found';
-        noSource.appendChild(h3ns);
+        noSrc.appendChild(h3ns);
         var pns = document.createElement('p');
-        pns.textContent = 'The original file is no longer available. You can still view the Markdown conversion.';
-        noSource.appendChild(pns);
-        sourceView.appendChild(noSource);
-        // Auto-switch to markdown
-        switchView('markdown');
+        pns.textContent = 'The original file is no longer available. View the Rendered or Raw markdown conversion.';
+        noSrc.appendChild(pns);
+        sourceView.appendChild(noSrc);
+        initialView = initialView || 'markdown';
       }
-
-      // Download button
-      document.getElementById('btn-download').addEventListener('click', function() {
-        if (info.has_source) {
-          window.location.href = '/api/search/download/' + encodeURIComponent(docIndex) + '/' + encodeURIComponent(docId);
-        } else {
-          showError('Source file not available for download.');
-        }
-      });
-
-      // View toggle
-      document.getElementById('btn-source').addEventListener('click', function() { switchView('source'); });
-      document.getElementById('btn-markdown').addEventListener('click', function() { switchView('markdown'); });
 
       if (!info.has_markdown) {
         document.getElementById('btn-markdown').disabled = true;
         document.getElementById('btn-markdown').title = 'No markdown conversion available';
+        document.getElementById('btn-raw').disabled = true;
+        document.getElementById('btn-raw').title = 'No markdown conversion available';
       }
 
-    } catch(e) {
-      document.getElementById('loading').textContent = 'Error loading document: ' + e.message;
+      if (initialView) switchView(initialView);
+    })();
+
+    // ── Download ───────────────────────────────────────────────
+    document.getElementById('btn-download').addEventListener('click', function() {
+      if (info && info.has_source) {
+        window.location.href = '/api/search/download/' + encodeURIComponent(docIndex) + '/' + encodeURIComponent(docId);
+      } else {
+        showToast('Source file not available for download.', 'error');
+      }
+    });
+
+    // ── View switching ─────────────────────────────────────────
+    function switchView(view) {
+      currentView = view;
+      ['btn-source', 'btn-markdown', 'btn-raw'].forEach(function(id) {
+        document.getElementById(id).classList.remove('active');
+      });
+      ['source-view', 'markdown-view', 'raw-view'].forEach(function(id) {
+        document.getElementById(id).hidden = true;
+      });
+
+      if (view === 'source') {
+        document.getElementById('btn-source').classList.add('active');
+        document.getElementById('source-view').hidden = false;
+      } else if (view === 'markdown') {
+        document.getElementById('btn-markdown').classList.add('active');
+        document.getElementById('markdown-view').hidden = false;
+        if (!mdLoaded) loadMarkdown();
+      } else if (view === 'raw') {
+        document.getElementById('btn-raw').classList.add('active');
+        document.getElementById('raw-view').hidden = false;
+        if (!mdLoaded) loadMarkdown();
+      }
+      clearSearch();
     }
+
+    document.getElementById('btn-source').addEventListener('click', function() { switchView('source'); });
+    document.getElementById('btn-markdown').addEventListener('click', function() { switchView('markdown'); });
+    document.getElementById('btn-raw').addEventListener('click', function() { switchView('raw'); });
+
+    // ── Load markdown ──────────────────────────────────────────
+    async function loadMarkdown() {
+      if (mdLoaded) return;
+      mdLoaded = true;
+
+      try {
+        var resp = await fetch('/api/search/view/' + encodeURIComponent(docIndex) + '/' + encodeURIComponent(docId));
+        if (!resp.ok) throw new Error('Failed to load markdown');
+        mdText = await resp.text();
+      } catch(e) {
+        mdText = 'Could not load markdown content.';
+      }
+
+      // Rendered view — parse markdown, sanitize with DOMPurify
+      var mdView = document.getElementById('markdown-view');
+      try {
+        var rawHtml = marked.parse(mdText);
+        var cleanHtml = DOMPurify.sanitize(rawHtml, {
+          ALLOWED_TAGS: ['h1','h2','h3','h4','h5','h6','p','a','ul','ol','li',
+            'table','thead','tbody','tr','th','td','pre','code','blockquote',
+            'em','strong','del','br','hr','img','span','div','sup','sub','dl','dt','dd'],
+          ALLOWED_ATTR: ['href','src','alt','title','class','id','colspan','rowspan'],
+        });
+        mdView.innerHTML = cleanHtml;
+      } catch(e) {
+        mdView.textContent = mdText;
+      }
+
+      // Raw view with line numbers
+      var lines = mdText.split('\n');
+      var nums = [];
+      for (var i = 1; i <= lines.length; i++) nums.push(i);
+      document.getElementById('line-numbers').textContent = nums.join('\n');
+      document.getElementById('raw-content').textContent = mdText;
+    }
+
+    // ── Word wrap ──────────────────────────────────────────────
+    document.getElementById('btn-wrap').addEventListener('click', function() {
+      wrapEnabled = !wrapEnabled;
+      this.classList.toggle('active', wrapEnabled);
+      var raw = document.getElementById('raw-content');
+      raw.classList.toggle('wrap', wrapEnabled);
+    });
+
+    // ── Copy ───────────────────────────────────────────────────
+    document.getElementById('btn-copy').addEventListener('click', function() {
+      var text = '';
+      if (currentView === 'raw' && mdText) {
+        text = mdText;
+      } else if (currentView === 'markdown') {
+        text = document.getElementById('markdown-view').innerText;
+      } else {
+        showToast('Copy works in Rendered and Raw views', 'info');
+        return;
+      }
+      navigator.clipboard.writeText(text).then(function() {
+        showToast('Copied to clipboard');
+      }).catch(function() {
+        showToast('Failed to copy', 'error');
+      });
+    });
+
+    // ── In-document search ─────────────────────────────────────
+    var searchBar = document.getElementById('search-bar');
+    var searchInput = document.getElementById('search-input');
+    var searchInfoEl = document.getElementById('search-info');
+
+    document.getElementById('btn-search').addEventListener('click', toggleSearch);
+
+    document.addEventListener('keydown', function(e) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        if (currentView === 'raw' || currentView === 'markdown') {
+          e.preventDefault();
+          toggleSearch();
+        }
+      }
+      if (e.key === 'Escape' && searchBar.classList.contains('open')) {
+        closeSearch();
+      }
+    });
+
+    function toggleSearch() {
+      if (searchBar.classList.contains('open')) { closeSearch(); }
+      else { searchBar.classList.add('open'); searchInput.focus(); searchInput.select(); }
+    }
+
+    function closeSearch() {
+      searchBar.classList.remove('open');
+      clearSearch();
+    }
+
+    function clearSearch() {
+      searchMatches = [];
+      searchIndex = -1;
+      searchInfoEl.textContent = '';
+      var container = currentView === 'markdown'
+        ? document.getElementById('markdown-view')
+        : document.getElementById('raw-content');
+      if (!container) return;
+      var highlights = container.querySelectorAll('.search-highlight');
+      highlights.forEach(function(el) {
+        var parent = el.parentNode;
+        parent.replaceChild(document.createTextNode(el.textContent), el);
+        parent.normalize();
+      });
+    }
+
+    var searchDebounce;
+    searchInput.addEventListener('input', function() {
+      clearTimeout(searchDebounce);
+      searchDebounce = setTimeout(performSearch, 200);
+    });
+
+    document.getElementById('search-next').addEventListener('click', function() { navigateMatch(1); });
+    document.getElementById('search-prev').addEventListener('click', function() { navigateMatch(-1); });
+    document.getElementById('search-close').addEventListener('click', closeSearch);
+    searchInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); navigateMatch(e.shiftKey ? -1 : 1); }
+    });
+
+    function performSearch() {
+      clearSearch();
+      var query = searchInput.value.trim();
+      if (!query || query.length < 2) return;
+
+      var container;
+      if (currentView === 'markdown') container = document.getElementById('markdown-view');
+      else if (currentView === 'raw') container = document.getElementById('raw-content');
+      else { searchInfoEl.textContent = 'Search in Rendered or Raw view'; return; }
+
+      highlightTextInNode(container, query);
+      searchMatches = container.querySelectorAll('.search-highlight');
+      searchInfoEl.textContent = searchMatches.length + ' found';
+
+      if (searchMatches.length > 0) {
+        searchIndex = 0;
+        searchMatches[0].classList.add('current');
+        searchMatches[0].scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+    }
+
+    function highlightTextInNode(node, query) {
+      var walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null, false);
+      var textNodes = [];
+      while (walker.nextNode()) textNodes.push(walker.currentNode);
+
+      var lowerQuery = query.toLowerCase();
+      textNodes.forEach(function(tn) {
+        var text = tn.textContent;
+        var lowerText = text.toLowerCase();
+        var idx = lowerText.indexOf(lowerQuery);
+        if (idx === -1) return;
+
+        var frag = document.createDocumentFragment();
+        var lastEnd = 0;
+        while (idx !== -1) {
+          if (idx > lastEnd) frag.appendChild(document.createTextNode(text.substring(lastEnd, idx)));
+          var mark = document.createElement('span');
+          mark.className = 'search-highlight';
+          mark.textContent = text.substring(idx, idx + query.length);
+          frag.appendChild(mark);
+          lastEnd = idx + query.length;
+          idx = lowerText.indexOf(lowerQuery, lastEnd);
+        }
+        if (lastEnd < text.length) frag.appendChild(document.createTextNode(text.substring(lastEnd)));
+        tn.parentNode.replaceChild(frag, tn);
+      });
+    }
+
+    function navigateMatch(dir) {
+      if (!searchMatches.length) { performSearch(); return; }
+      searchMatches[searchIndex].classList.remove('current');
+      searchIndex = (searchIndex + dir + searchMatches.length) % searchMatches.length;
+      searchMatches[searchIndex].classList.add('current');
+      searchMatches[searchIndex].scrollIntoView({ block: 'center', behavior: 'smooth' });
+      searchInfoEl.textContent = (searchIndex + 1) + ' of ' + searchMatches.length;
+    }
+
   })();
-
-  var mdLoaded = false;
-
-  function switchView(view) {
-    var srcBtn = document.getElementById('btn-source');
-    var mdBtn = document.getElementById('btn-markdown');
-    var srcView = document.getElementById('source-view');
-    var mdView = document.getElementById('markdown-view');
-
-    if (view === 'markdown') {
-      srcBtn.classList.remove('active');
-      mdBtn.classList.add('active');
-      srcView.hidden = true;
-      mdView.hidden = false;
-
-      if (!mdLoaded) {
-        mdLoaded = true;
-        loadMarkdown();
-      }
-    } else {
-      srcBtn.classList.add('active');
-      mdBtn.classList.remove('active');
-      srcView.hidden = false;
-      mdView.hidden = true;
-    }
-  }
-
-  async function loadMarkdown() {
-    var mdView = document.getElementById('markdown-view');
-    try {
-      var resp = await fetch('/api/search/view/' + encodeURIComponent(docIndex) + '/' + encodeURIComponent(docId));
-      if (!resp.ok) throw new Error('Failed to load markdown');
-      var text = await resp.text();
-      var pre = document.createElement('pre');
-      pre.className = 'md-preview';
-      pre.textContent = text;
-      mdView.textContent = '';
-      mdView.appendChild(pre);
-    } catch(e) {
-      mdView.textContent = 'Could not load markdown preview.';
-    }
-  }
   </script>
+  <script src="/static/js/global-status-bar.js" defer></script>
+  <script src="/static/js/help-link.js" defer></script>
 </body>
 </html>

@@ -392,6 +392,13 @@ the relevant subsystem. Referenced from CLAUDE.md.
   checks are a safety net. The fast walk counter also respects exclusions. Exclusions are stored
   on `self._exclusion_paths` (bulk scanner) or passed as a parameter (lifecycle scanner).
 
+- **`_is_excluded` must be a class method**: The exclusion check function was originally a local
+  function inside `run_scan()`, but `_walker_thread` lives inside `_parallel_scan()` — a separate
+  method. Python closures don't cross method boundaries, so all worker threads crashed with
+  `NameError`. Fix: `_is_excluded` is now a method on `BulkScanner`, using `self._exclusion_paths`.
+  The lifecycle scanner defines its own `_is_excluded` locally within each function that needs it
+  (no cross-method issue there).
+
 - **Adaptive scan parallelism**: `storage_probe.py` runs a ~200ms latency probe before each
   scan, measuring sequential vs random `stat()` times. The ratio discriminates storage types:
   ratio > 3x = spinning disk (stay serial), ratio < 2x + high latency = NAS (go parallel).
@@ -753,3 +760,23 @@ the relevant subsystem. Referenced from CLAUDE.md.
   `/blocklist`, `/lookup-source`) must be defined BEFORE the `/{flag_id}` catch-all route, or
   FastAPI matches the literal path segment (e.g., "mine") as a flag_id parameter. This is a
   standard FastAPI routing gotcha but easy to break when adding new endpoints.
+
+---
+
+## Viewer & Job Detail
+
+- **Viewer markdown rendering**: `viewer.html` uses marked.js + DOMPurify for safe markdown
+  rendering. DOMPurify whitelist is explicit — only structural/formatting tags allowed, no `img`
+  `src` or `script`. The Raw view uses `textContent` (no HTML parsing). The search highlight
+  system uses `TreeWalker` to find text nodes and wraps matches in `<span>` elements.
+
+- **Search preview also renders markdown**: `search.html` preview popup loads marked.js +
+  DOMPurify and renders the first 5000 chars of markdown. Same DOMPurify whitelist as viewer.
+
+- **Job detail `cancellation_reason` column**: Added via migration #17. Populated by:
+  user cancel ("Cancelled by user"), error-rate abort ("Aborted: error rate X%..."),
+  fatal exceptions ("Fatal error: ..."), and orphan cleanup ("Cancelled: container restarted...").
+  The `cancel()` method on `BulkJob` accepts an optional `reason` parameter.
+
+- **Job detail page auto-serves**: The catch-all `/{page_name}.html` route in `main.py`
+  (line 322) serves any `.html` file from `static/`. No registration needed for new pages.

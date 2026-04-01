@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Job Detail — MarkFlow</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+  <style>
+    .job-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+    .job-header h1 { font-size: 1.4rem; margin: 0; display: flex; align-items: center; gap: 0.75rem; }
+    .job-meta { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem; }
+    .job-meta span + span::before { content: " \00b7 "; }
+    .job-actions { display: flex; gap: 0.5rem; }
+    .job-status-lg { padding: 0.2em 0.65em; border-radius: var(--radius-sm); font-size: 0.85rem; font-weight: 600; text-transform: uppercase; }
+    .job-status-lg.completed { background: rgba(22,163,74,0.12); color: var(--ok); }
+    .job-status-lg.running, .job-status-lg.scanning { background: rgba(79,91,213,0.12); color: var(--accent); }
+    .job-status-lg.failed { background: rgba(220,38,38,0.12); color: var(--error); }
+    .job-status-lg.cancelled { background: rgba(107,112,132,0.12); color: var(--text-muted); }
+    .job-status-lg.paused { background: rgba(217,119,6,0.12); color: var(--warn); }
+    .cancel-reason { margin-top: 0.75rem; padding: 0.6rem 1rem; border-radius: var(--radius-sm); font-size: 0.85rem; }
+    .cancel-reason.cancelled { background: rgba(107,112,132,0.08); border-left: 3px solid var(--text-muted); }
+    .cancel-reason.failed { background: rgba(220,38,38,0.08); border-left: 3px solid var(--error); }
+    .stats-bar { display: flex; gap: 1.5rem; flex-wrap: wrap; margin: 1rem 0; }
+    .stat-card { display: flex; flex-direction: column; align-items: center; min-width: 80px; }
+    .stat-value { font-weight: 700; font-size: 1.5rem; }
+    .stat-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; }
+    .stat-value.ok { color: var(--ok); }
+    .stat-value.err { color: var(--error); }
+    .stat-value.warn { color: var(--warn); }
+    .stat-value.muted { color: var(--text-muted); }
+    .progress-bar-wrap { background: var(--surface-alt); border-radius: var(--radius); height: 1.2rem; overflow: hidden; margin: 0.5rem 0; }
+    .progress-segment { height: 100%; float: left; transition: width 0.3s; }
+    .progress-segment.ok { background: var(--ok); }
+    .progress-segment.err { background: var(--error); }
+    .progress-segment.skip { background: var(--warn); }
+    .tab-bar { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin: 1.5rem 0 0; }
+    .tab-btn { padding: 0.6rem 1.2rem; border: none; background: none; color: var(--text-muted); font-size: 0.9rem; font-weight: 500; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.15s; }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-btn .badge-count { background: var(--surface-alt); color: var(--text-muted); font-size: 0.7rem; padding: 0.1em 0.45em; border-radius: 999px; margin-left: 0.35rem; }
+    .tab-btn.active .badge-count { background: rgba(79,91,213,0.15); color: var(--accent); }
+    .tab-panel { display: none; padding: 1rem 0; }
+    .tab-panel.active { display: block; }
+    .toolbar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
+    .toolbar input[type="search"] { flex: 1; min-width: 200px; padding: 0.45rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 0.85rem; }
+    .filter-chip { padding: 0.25em 0.6em; border-radius: var(--radius-sm); border: 1px solid var(--border); background: none; color: var(--text-muted); cursor: pointer; font-size: 0.78rem; transition: all 0.15s; }
+    .filter-chip:hover { border-color: var(--accent); color: var(--text); }
+    .filter-chip.active { background: rgba(79,91,213,0.12); border-color: var(--accent); color: var(--accent); }
+    .file-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    .file-table th { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 2px solid var(--border); color: var(--text-muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; }
+    .file-table td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .file-table tr:hover { background: var(--surface-alt); }
+    .file-status { padding: 0.1em 0.4em; border-radius: var(--radius-sm); font-size: 0.72rem; font-weight: 600; text-transform: uppercase; }
+    .file-status.converted { background: rgba(22,163,74,0.12); color: var(--ok); }
+    .file-status.failed, .file-status.adobe_failed { background: rgba(220,38,38,0.12); color: var(--error); }
+    .file-status.skipped { background: rgba(217,119,6,0.12); color: var(--warn); }
+    .file-status.pending { background: rgba(107,112,132,0.08); color: var(--text-muted); }
+    .file-status.for_review { background: rgba(79,91,213,0.12); color: var(--accent); }
+    .error-msg-cell { color: var(--error); font-size: 0.8rem; word-break: break-word; }
+    .file-path { word-break: break-all; max-width: 500px; }
+    .file-ext { color: var(--text-muted); }
+    .pagination { display: flex; gap: 0.5rem; align-items: center; justify-content: center; margin: 1rem 0; font-size: 0.85rem; }
+    .pagination button { padding: 0.3em 0.7em; border: 1px solid var(--border); border-radius: var(--radius-sm); background: none; color: var(--text); cursor: pointer; }
+    .pagination button:disabled { opacity: 0.4; cursor: default; }
+    .error-expand { cursor: pointer; }
+    .error-detail { padding: 0.75rem 1rem; background: var(--surface-alt); border-radius: var(--radius-sm); margin: 0.25rem 0 0.5rem; font-family: monospace; font-size: 0.8rem; white-space: pre-wrap; word-break: break-word; display: none; }
+    .error-detail.open { display: block; }
+    .timing-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 1rem; font-size: 0.85rem; }
+    .timing-label { color: var(--text-muted); }
+    mark { background: rgba(217,119,6,0.3); color: inherit; padding: 0 0.1em; border-radius: 2px; }
+    .empty-state { text-align: center; padding: 2rem; color: var(--text-muted); font-size: 0.9rem; }
+    .back-link { font-size: 0.85rem; color: var(--text-muted); text-decoration: none; display: inline-flex; align-items: center; gap: 0.3rem; }
+    .back-link:hover { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="/" class="nav-logo">MarkFlow</a>
+    <div id="main-nav" class="nav-links"></div>
+  </nav>
+
+  <main class="container">
+    <a href="/bulk.html" class="back-link">&larr; Back to Bulk Jobs</a>
+
+    <div id="loading" class="empty-state">Loading job details...</div>
+    <div id="job-content" hidden>
+
+      <section class="card" style="margin-top:0.75rem">
+        <div class="job-header">
+          <div>
+            <h1>
+              <span id="job-status" class="job-status-lg"></span>
+              <span>Job <code id="job-id-short" style="font-size:0.9rem"></code></span>
+            </h1>
+            <div class="job-meta">
+              <span id="meta-source"></span>
+              <span id="meta-output"></span>
+            </div>
+          </div>
+          <div class="job-actions">
+            <button class="btn btn-sm" id="rerun-btn" title="Re-run this job">Re-run</button>
+          </div>
+        </div>
+        <div id="cancel-reason" class="cancel-reason" hidden></div>
+        <div class="timing-grid" style="margin-top:1rem">
+          <span class="timing-label">Started</span><span id="t-started"></span>
+          <span class="timing-label">Finished</span><span id="t-finished"></span>
+          <span class="timing-label">Duration</span><span id="t-duration"></span>
+        </div>
+        <div class="stats-bar" style="margin-top:1rem">
+          <div class="stat-card"><span class="stat-value" id="s-total">-</span><span class="stat-label">Total Files</span></div>
+          <div class="stat-card"><span class="stat-value ok" id="s-converted">0</span><span class="stat-label">Converted</span></div>
+          <div class="stat-card"><span class="stat-value err" id="s-failed">0</span><span class="stat-label">Failed</span></div>
+          <div class="stat-card"><span class="stat-value warn" id="s-skipped">0</span><span class="stat-label">Skipped</span></div>
+          <div class="stat-card"><span class="stat-value muted" id="s-adobe">0</span><span class="stat-label">Adobe</span></div>
+        </div>
+        <div class="progress-bar-wrap" id="seg-progress" style="margin-top:0.5rem">
+          <div class="progress-segment ok" id="seg-ok" style="width:0"></div>
+          <div class="progress-segment err" id="seg-err" style="width:0"></div>
+          <div class="progress-segment skip" id="seg-skip" style="width:0"></div>
+        </div>
+      </section>
+
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="files">Files <span class="badge-count" id="tab-files-count">0</span></button>
+        <button class="tab-btn" data-tab="errors">Errors <span class="badge-count" id="tab-errors-count">0</span></button>
+        <button class="tab-btn" data-tab="info">Info</button>
+      </div>
+
+      <div class="tab-panel active" id="panel-files">
+        <div class="toolbar">
+          <input type="search" id="file-search" placeholder="Search filenames..." autocomplete="off">
+          <button class="filter-chip active" data-status="all">All</button>
+          <button class="filter-chip" data-status="converted">Converted</button>
+          <button class="filter-chip" data-status="failed">Failed</button>
+          <button class="filter-chip" data-status="skipped">Skipped</button>
+          <button class="filter-chip" data-status="pending">Pending</button>
+          <button class="filter-chip" data-status="for_review">Review</button>
+        </div>
+        <div id="files-table-wrap">
+          <table class="file-table">
+            <thead><tr>
+              <th style="width:50%">File</th>
+              <th style="width:80px">Status</th>
+              <th style="width:70px">Type</th>
+              <th style="width:80px">Size</th>
+              <th>Details</th>
+            </tr></thead>
+            <tbody id="files-tbody"></tbody>
+          </table>
+        </div>
+        <div id="files-pagination" class="pagination"></div>
+      </div>
+
+      <div class="tab-panel" id="panel-errors">
+        <div class="toolbar">
+          <input type="search" id="error-search" placeholder="Search errors..." autocomplete="off">
+        </div>
+        <div id="errors-list"></div>
+        <div class="empty-state" id="errors-empty" hidden>No errors in this job.</div>
+      </div>
+
+      <div class="tab-panel" id="panel-info">
+        <div class="card">
+          <h3 style="margin-top:0">Job Configuration</h3>
+          <div class="timing-grid" id="info-grid"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+  (async function() {
+    const params = new URLSearchParams(location.search);
+    const jobId = params.get('id');
+    const initialTab = params.get('tab');
+
+    if (!jobId) {
+      document.getElementById('loading').textContent = 'No job ID specified.';
+      return;
+    }
+
+    // ── State ──────────────────────────────────────────────────────
+    let job = null;
+    let filesPage = 1;
+    const filesPerPage = 50;
+    let filesFilter = 'all';
+    let filesSearch = '';
+    let allErrors = [];
+    let filteredErrors = [];
+
+    // ── Helpers ────────────────────────────────────────────────────
+    function esc(str) {
+      if (!str) return '';
+      const d = document.createElement('div');
+      d.textContent = str;
+      return d.innerHTML;
+    }
+
+    function formatJobDuration(startIso, endIso) {
+      if (!startIso || !endIso) return '-';
+      const ms = new Date(endIso) - new Date(startIso);
+      if (ms < 0) return '-';
+      const totalSec = Math.floor(ms / 1000);
+      if (totalSec < 60) return totalSec + 's';
+      const mins = Math.floor(totalSec / 60);
+      const secs = totalSec % 60;
+      if (mins < 60) return secs > 0 ? mins + 'm ' + secs + 's' : mins + 'm';
+      const hrs = Math.floor(mins / 60);
+      const remMins = mins % 60;
+      return remMins > 0 ? hrs + 'h ' + remMins + 'm' : hrs + 'h';
+    }
+
+    function highlightMatch(text, query) {
+      if (!query || !text) return esc(text);
+      const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // First escape, then apply mark tags on the escaped output
+      const safe = esc(text);
+      return safe.replace(new RegExp('(' + escaped.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + ')', 'gi'), '<mark>$1</mark>');
+    }
+
+    function shortPath(fullPath) {
+      if (!fullPath) return '-';
+      const parts = fullPath.replace(/\\/g, '/').split('/');
+      return parts.length > 3 ? '.../' + parts.slice(-3).join('/') : fullPath;
+    }
+
+    // ── Load job data ─────────────────────────────────────────────
+    try {
+      job = await API.get('/api/bulk/jobs/' + jobId);
+    } catch (e) {
+      document.getElementById('loading').textContent = 'Failed to load job: ' + e.message;
+      return;
+    }
+
+    document.getElementById('loading').hidden = true;
+    document.getElementById('job-content').hidden = false;
+
+    // ── Populate header ───────────────────────────────────────────
+    const status = job.status || 'unknown';
+    const statusEl = document.getElementById('job-status');
+    statusEl.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+    statusEl.className = 'job-status-lg ' + status;
+    document.getElementById('job-id-short').textContent = jobId.substring(0, 8);
+    document.title = 'Job ' + jobId.substring(0, 8) + ' — MarkFlow';
+
+    document.getElementById('meta-source').textContent = 'Source: ' + (job.source_path || '-');
+    document.getElementById('meta-output').textContent = 'Output: ' + (job.output_path || '-');
+
+    // Cancel/error reason
+    const reason = job.cancellation_reason || job.error_msg;
+    if (reason && (status === 'cancelled' || status === 'failed')) {
+      const el = document.getElementById('cancel-reason');
+      el.textContent = reason;
+      el.className = 'cancel-reason ' + status;
+      el.hidden = false;
+    }
+
+    // Timing
+    document.getElementById('t-started').textContent = formatLocalTime(job.started_at);
+    document.getElementById('t-finished').textContent = formatLocalTime(job.completed_at);
+    document.getElementById('t-duration').textContent = formatJobDuration(job.started_at, job.completed_at);
+
+    // Stats
+    const total = job.total_files || 0;
+    const converted = job.converted || 0;
+    const failed = job.failed || 0;
+    const skipped = job.skipped || 0;
+    const adobe = job.adobe_indexed || 0;
+
+    document.getElementById('s-total').textContent = total.toLocaleString();
+    document.getElementById('s-converted').textContent = converted.toLocaleString();
+    document.getElementById('s-failed').textContent = failed.toLocaleString();
+    document.getElementById('s-skipped').textContent = skipped.toLocaleString();
+    document.getElementById('s-adobe').textContent = adobe.toLocaleString();
+
+    if (total > 0) {
+      document.getElementById('seg-ok').style.width = (converted / total * 100).toFixed(1) + '%';
+      document.getElementById('seg-err').style.width = (failed / total * 100).toFixed(1) + '%';
+      document.getElementById('seg-skip').style.width = (skipped / total * 100).toFixed(1) + '%';
+    }
+
+    document.getElementById('tab-files-count').textContent = total.toLocaleString();
+    document.getElementById('tab-errors-count').textContent = failed.toLocaleString();
+
+    // ── Tabs ──────────────────────────────────────────────────────
+    document.querySelectorAll('.tab-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+        document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+        btn.classList.add('active');
+        document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+        if (btn.dataset.tab === 'errors' && allErrors.length === 0) loadErrors();
+      });
+    });
+
+    if (initialTab) {
+      var tabBtn = document.querySelector('.tab-btn[data-tab="' + initialTab + '"]');
+      if (tabBtn) tabBtn.click();
+    }
+
+    // ── Files tab ─────────────────────────────────────────────────
+    async function loadFiles() {
+      var statusParam = filesFilter === 'all' ? '' : '&status=' + filesFilter;
+      var url = '/api/bulk/jobs/' + jobId + '/files?page=' + filesPage + '&per_page=' + filesPerPage + statusParam;
+      try {
+        var data = await API.get(url);
+        renderFiles(data);
+      } catch (e) {
+        var tbody = document.getElementById('files-tbody');
+        tbody.textContent = '';
+        var tr = document.createElement('tr');
+        var td = document.createElement('td');
+        td.colSpan = 5;
+        td.className = 'empty-state';
+        td.textContent = 'Failed to load files: ' + e.message;
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+      }
+    }
+
+    function renderFiles(data) {
+      var tbody = document.getElementById('files-tbody');
+      tbody.textContent = '';
+
+      if (!data.files || !data.files.length) {
+        var tr = document.createElement('tr');
+        var td = document.createElement('td');
+        td.colSpan = 5;
+        td.className = 'empty-state';
+        td.textContent = 'No files match the current filter.';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        document.getElementById('files-pagination').textContent = '';
+        return;
+      }
+
+      data.files.forEach(function(f) {
+        var tr = document.createElement('tr');
+
+        // File path cell
+        var tdPath = document.createElement('td');
+        tdPath.className = 'file-path';
+        tdPath.title = f.source_path || '';
+        var displayPath = shortPath(f.source_path);
+        if (filesSearch) {
+          tdPath.innerHTML = highlightMatch(displayPath, filesSearch);
+        } else {
+          tdPath.textContent = displayPath;
+        }
+
+        // Status cell
+        var tdStatus = document.createElement('td');
+        var statusSpan = document.createElement('span');
+        var fileStatus = (f.status || 'pending').replace(/ /g, '_');
+        statusSpan.className = 'file-status ' + fileStatus;
+        statusSpan.textContent = f.status || 'pending';
+        tdStatus.appendChild(statusSpan);
+
+        // Type cell
+        var tdType = document.createElement('td');
+        tdType.className = 'file-ext';
+        tdType.textContent = f.file_ext || '-';
+
+        // Size cell
+        var tdSize = document.createElement('td');
+        tdSize.textContent = formatBytes(f.file_size_bytes);
+
+        // Details cell
+        var tdDetails = document.createElement('td');
+        if (f.converted_at) {
+          var timeSpan = document.createElement('span');
+          timeSpan.textContent = formatLocalTime(f.converted_at);
+          tdDetails.appendChild(timeSpan);
+        }
+        if (f.error_msg) {
+          var errDiv = document.createElement('div');
+          errDiv.className = 'error-msg-cell';
+          errDiv.textContent = f.error_msg;
+          tdDetails.appendChild(errDiv);
+        }
+
+        tr.appendChild(tdPath);
+        tr.appendChild(tdStatus);
+        tr.appendChild(tdType);
+        tr.appendChild(tdSize);
+        tr.appendChild(tdDetails);
+        tbody.appendChild(tr);
+      });
+
+      renderPagination(data.page, data.total_pages, data.total);
+    }
+
+    function renderPagination(page, totalPages, totalItems) {
+      var el = document.getElementById('files-pagination');
+      el.textContent = '';
+      if (totalPages <= 1) {
+        var info = document.createElement('span');
+        info.className = 'page-info';
+        info.textContent = totalItems + ' files';
+        el.appendChild(info);
+        return;
+      }
+
+      var prevBtn = document.createElement('button');
+      prevBtn.textContent = '\u00ab Prev';
+      prevBtn.disabled = page <= 1;
+      prevBtn.addEventListener('click', function() { filesPage = page - 1; loadFiles(); });
+      el.appendChild(prevBtn);
+
+      var pageInfo = document.createElement('span');
+      pageInfo.className = 'page-info';
+      pageInfo.textContent = 'Page ' + page + ' of ' + totalPages + ' (' + totalItems.toLocaleString() + ' files)';
+      el.appendChild(pageInfo);
+
+      var nextBtn = document.createElement('button');
+      nextBtn.textContent = 'Next \u00bb';
+      nextBtn.disabled = page >= totalPages;
+      nextBtn.addEventListener('click', function() { filesPage = page + 1; loadFiles(); });
+      el.appendChild(nextBtn);
+    }
+
+    // Filter chips
+    document.querySelectorAll('.filter-chip').forEach(function(chip) {
+      chip.addEventListener('click', function() {
+        document.querySelectorAll('.filter-chip').forEach(function(c) { c.classList.remove('active'); });
+        chip.classList.add('active');
+        filesFilter = chip.dataset.status;
+        filesPage = 1;
+        loadFiles();
+      });
+    });
+
+    // Search (debounced)
+    var searchTimer;
+    document.getElementById('file-search').addEventListener('input', function(e) {
+      clearTimeout(searchTimer);
+      filesSearch = e.target.value.trim();
+      searchTimer = setTimeout(function() { filesPage = 1; loadFiles(); }, 300);
+    });
+
+    // ── Errors tab ────────────────────────────────────────────────
+    async function loadErrors() {
+      try {
+        var data = await API.get('/api/bulk/jobs/' + jobId + '/errors');
+        allErrors = data.errors || [];
+        filteredErrors = allErrors.slice();
+        renderErrors();
+      } catch (e) {
+        document.getElementById('errors-list').textContent = 'Failed to load errors: ' + e.message;
+      }
+    }
+
+    function renderErrors() {
+      var container = document.getElementById('errors-list');
+      var emptyEl = document.getElementById('errors-empty');
+      container.textContent = '';
+
+      if (!filteredErrors.length) {
+        emptyEl.hidden = false;
+        return;
+      }
+      emptyEl.hidden = true;
+
+      var query = document.getElementById('error-search').value.trim();
+
+      var table = document.createElement('table');
+      table.className = 'file-table';
+
+      var thead = document.createElement('thead');
+      var headTr = document.createElement('tr');
+      ['File', 'Type', 'Size', 'Error'].forEach(function(label, i) {
+        var th = document.createElement('th');
+        th.textContent = label;
+        if (i === 0) th.style.width = '50%';
+        headTr.appendChild(th);
+      });
+      thead.appendChild(headTr);
+      table.appendChild(thead);
+
+      var tBody = document.createElement('tbody');
+      filteredErrors.forEach(function(f, idx) {
+        var tr = document.createElement('tr');
+        tr.className = 'error-expand';
+
+        var tdFile = document.createElement('td');
+        tdFile.className = 'file-path';
+        tdFile.title = f.source_path || '';
+        var displayName = shortPath(f.source_path);
+        if (query) {
+          tdFile.innerHTML = highlightMatch(displayName, query);
+        } else {
+          tdFile.textContent = displayName;
+        }
+
+        var tdType = document.createElement('td');
+        tdType.className = 'file-ext';
+        tdType.textContent = f.file_ext || '-';
+
+        var tdSize = document.createElement('td');
+        tdSize.textContent = formatBytes(f.file_size_bytes);
+
+        var tdErr = document.createElement('td');
+        var errSpan = document.createElement('span');
+        errSpan.className = 'error-msg-cell';
+        var errMsg = f.error_msg || 'Unknown error';
+        var shortMsg = errMsg.length > 100 ? errMsg.substring(0, 100) + '...' : errMsg;
+        if (query) {
+          errSpan.innerHTML = highlightMatch(shortMsg, query);
+        } else {
+          errSpan.textContent = shortMsg;
+        }
+        tdErr.appendChild(errSpan);
+
+        // Expandable detail
+        var detailDiv = document.createElement('div');
+        detailDiv.className = 'error-detail';
+        detailDiv.textContent = errMsg;
+        tdErr.appendChild(detailDiv);
+
+        tr.addEventListener('click', function() { detailDiv.classList.toggle('open'); });
+
+        tr.appendChild(tdFile);
+        tr.appendChild(tdType);
+        tr.appendChild(tdSize);
+        tr.appendChild(tdErr);
+        tBody.appendChild(tr);
+      });
+
+      table.appendChild(tBody);
+      container.appendChild(table);
+    }
+
+    // Error search
+    document.getElementById('error-search').addEventListener('input', function(e) {
+      var q = e.target.value.trim().toLowerCase();
+      if (!q) {
+        filteredErrors = allErrors.slice();
+      } else {
+        filteredErrors = allErrors.filter(function(f) {
+          return (f.source_path || '').toLowerCase().indexOf(q) !== -1 ||
+                 (f.error_msg || '').toLowerCase().indexOf(q) !== -1;
+        });
+      }
+      renderErrors();
+    });
+
+    // ── Info tab ──────────────────────────────────────────────────
+    function renderInfo() {
+      var grid = document.getElementById('info-grid');
+      grid.textContent = '';
+      var rows = [
+        ['Job ID', jobId],
+        ['Status', status],
+        ['Source Path', job.source_path || '-'],
+        ['Output Path', job.output_path || '-'],
+        ['Workers', (job.worker_count || '-') + ''],
+        ['Fidelity Tier', (job.fidelity_tier || '-') + ''],
+        ['OCR Mode', job.ocr_mode || '-'],
+        ['Include Adobe', job.include_adobe ? 'Yes' : 'No'],
+        ['Started', formatLocalTime(job.started_at)],
+        ['Completed', formatLocalTime(job.completed_at)],
+        ['Duration', formatJobDuration(job.started_at, job.completed_at)],
+      ];
+      if (job.cancellation_reason) rows.push(['Cancellation Reason', job.cancellation_reason]);
+      if (job.error_msg) rows.push(['Error', job.error_msg]);
+
+      rows.forEach(function(pair) {
+        var label = document.createElement('span');
+        label.className = 'timing-label';
+        label.textContent = pair[0];
+        var value = document.createElement('span');
+        value.textContent = pair[1];
+        grid.appendChild(label);
+        grid.appendChild(value);
+      });
+    }
+
+    // ── Re-run button ─────────────────────────────────────────────
+    document.getElementById('rerun-btn').addEventListener('click', async function() {
+      if (!confirm('Start a new job with the same settings?')) return;
+      try {
+        await API.post('/api/bulk/jobs', {
+          source_path: job.source_path,
+          output_path: job.output_path,
+          worker_count: job.worker_count || 4,
+          fidelity_tier: job.fidelity_tier || 2,
+          ocr_mode: job.ocr_mode || 'auto',
+          include_adobe: job.include_adobe ? true : false,
+        });
+        window.location.href = '/bulk.html';
+      } catch (e) {
+        showToast('Failed to re-run: ' + e.message, 'error');
+      }
+    });
+
+    // ── Init ──────────────────────────────────────────────────────
+    renderInfo();
+    loadFiles();
+    if (initialTab === 'errors') loadErrors();
+
+  })();
+  </script>
+  <script src="/static/js/global-status-bar.js" defer></script>
+  <script src="/static/js/help-link.js" defer></script>
+</body>
+</html>

@@ -4,6 +4,47 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.17.0 — Job Detail Page & Enhanced Viewer (2026-04-01)
+
+**Job Detail page (industry-standard batch job monitoring):**
+- Click any Job History row to open `/job-detail.html` with full job details.
+- Summary header: status badge, job ID, source/output paths, timing (started/finished/duration).
+- Cancellation/error reason banner — prominently displayed for cancelled/failed jobs.
+- Stats bar: total/converted/failed/skipped/adobe counts with color-coded segmented progress bar.
+- Three tabs: **Files** (paginated table with status filter chips + search), **Errors** (searchable
+  list with expandable error details), **Info** (full job configuration).
+- Re-run button starts a new job with identical settings.
+- Error links in Job History now navigate to the Errors tab (were: broken raw JSON links).
+
+**Cancellation reasons tracked:**
+- New `cancellation_reason` column on `bulk_jobs` (migration #17).
+- User cancel: "Cancelled by user". Error-rate abort: "Aborted: error rate X%...".
+- Fatal exceptions: "Fatal error: ...". Container restart orphans: "Cancelled: container restarted...".
+
+**Enhanced Document Viewer:**
+- Three view modes: Source (iframe), Rendered (markdown via marked.js + DOMPurify), Raw (line numbers).
+- In-document search: Ctrl+F opens search bar, highlights matches, navigate with arrows/Enter.
+- Word wrap toggle for raw view. Copy to clipboard button. Sticky toolbar.
+
+**Search preview upgrade:**
+- Preview popup now renders markdown (was: raw text truncated at 2000 chars).
+- Uses marked.js + DOMPurify for safe HTML rendering, shows up to 5000 chars.
+- "Open" link in preview header opens the full viewer page.
+- Proper CSS for tables, code blocks, and headings in preview popup.
+
+**Bug fix — Scanner `_is_excluded` scope error:**
+- `_is_excluded()` was a local function in `run_scan()` but referenced in `_walker_thread()`
+  inside `_parallel_scan()` — a separate method. Closures don't cross method boundaries.
+  All worker threads crashed with `NameError`, causing every scan to find 0 files.
+- Fix: moved to `BulkScanner._is_excluded()` class method.
+
+**Other:**
+- Job History rows: clickable with hover effect, show start time + finish time + duration.
+- Locations page: "Close & return to Bulk Jobs" link when opened from Manage link.
+- Job History timestamps: added "Started" / "Finished" labels and computed duration display.
+
+---
+
 ## v0.16.9 — Multi-Source Scanning (2026-04-01)
 
 **All source locations scanned in a single run:**

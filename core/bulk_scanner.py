@@ -131,6 +131,14 @@ class BulkScanner:
         self.source_path = Path(source_path)
         self.output_path = Path(output_path) if output_path else None
         self._yield_interval = 1000  # yield control every N files
+        self._exclusion_paths: list[str] = []
+
+    def _is_excluded(self, file_path: str) -> bool:
+        """Return True if file_path starts with any exclusion prefix."""
+        for ep in self._exclusion_paths:
+            if file_path.startswith(ep):
+                return True
+        return False
 
     async def scan(
         self,
@@ -172,13 +180,6 @@ class BulkScanner:
         self._exclusion_paths = await get_exclusion_paths()
         if self._exclusion_paths:
             log.info("scan_exclusions_loaded", count=len(self._exclusion_paths), paths=self._exclusion_paths)
-
-        def _is_excluded(file_path: str) -> bool:
-            """Return True if file_path starts with any exclusion prefix."""
-            for ep in self._exclusion_paths:
-                if file_path.startswith(ep):
-                    return True
-            return False
 
         # ── Storage probe — auto-detect optimal parallelism ──────────────
         max_threads_pref = await get_preference("scan_max_threads") or "auto"
@@ -352,12 +353,12 @@ class BulkScanner:
             dirnames[:] = [
                 d for d in dirnames
                 if not d.startswith(".") and d != "_markflow"
-                and not _is_excluded(str(Path(dirpath) / d))
+                and not self._is_excluded(str(Path(dirpath) / d))
             ]
 
             for filename in filenames:
                 file_path = Path(dirpath) / filename
-                if _is_excluded(str(file_path)):
+                if self._is_excluded(str(file_path)):
                     continue
                 old_count = file_count
                 file_count = await self._process_discovered_file(
@@ -446,7 +447,7 @@ class BulkScanner:
 
             def _stat_and_enqueue(file_path: Path) -> None:
                 # Skip excluded paths (prefix match)
-                if _is_excluded(str(file_path)):
+                if self._is_excluded(str(file_path)):
                     return
                 # Skip NTFS Alternate Data Streams (ADS) — filenames with ':'
                 if ":" in file_path.name:
@@ -523,7 +524,7 @@ class BulkScanner:
                     dirnames[:] = [
                         d for d in dirnames
                         if not d.startswith(".") and d != "_markflow"
-                        and not _is_excluded(str(Path(dirpath) / d))
+                        and not self._is_excluded(str(Path(dirpath) / d))
                     ]
                     for filename in filenames:
                         if _should_bail():

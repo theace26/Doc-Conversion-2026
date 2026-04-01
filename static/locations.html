@@ -53,6 +53,11 @@
   <div class="container page-content">
     <div id="error-banner" role="alert" hidden></div>
 
+    <div id="opened-from-banner" hidden style="margin-bottom:0.5rem">
+      <a href="#" id="close-tab-link" style="font-size:0.85rem;color:var(--text-muted);text-decoration:none;display:inline-flex;align-items:center;gap:0.3rem">
+        &larr; Close &amp; return to Bulk Jobs
+      </a>
+    </div>
     <div style="display:flex;justify-content:space-between;align-items:center">
       <h1 data-help="bulk-conversion#locations">Locations</h1>
       <button class="btn btn-primary" id="add-btn">+ Add Location</button>
@@ -596,6 +601,20 @@
   });
 
   loadExclusions();
+
+  // If opened from another page (e.g. Manage link on bulk.html), show close-tab link
+  if (window.opener) {
+    document.getElementById('opened-from-banner').hidden = false;
+    document.getElementById('close-tab-link').addEventListener('click', function(e) {
+      e.preventDefault();
+      window.close();
+    });
+    // Also close on browser back if this was the first page in the tab
+    if (window.history.length <= 1) {
+      window.addEventListener('popstate', function() { window.close(); });
+      window.history.pushState(null, '', window.location.href);
+    }
+  }
   </script>
 </body>
 </html>

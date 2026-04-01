@@ -26,19 +26,24 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.16.9
+## Current Status — v0.17.0
 
-v0.16.9: Multi-source scanning. Both lifecycle scanner and bulk jobs now scan
-all configured source locations sequentially within a single scan run / job.
-Lifecycle scanner resolves all source locations (not just the first), validates
-each, and walks them one at a time — shared counters, seen_paths, and error
-tracking accumulate across roots. Each root gets its own storage probe (mounts
-may be different hardware). Bulk jobs accept `scan_all_sources: bool` flag;
-`BulkJob` accepts `source_paths: list[Path]` and loops the scanning phase,
-merging `ScanResult` fields. Workers convert the combined queue as one batch.
-UI checkbox "Scan all source locations" on the Bulk page disables the dropdown
-and sends the flag. All existing settings (throttling, error-rate, exclusions,
-pipeline controls) apply per-root as before.
+v0.17.0: Job detail page, enhanced viewer, scanner fix. New `/job-detail.html`
+page with industry-standard batch job monitoring: summary header, stats bar,
+segmented progress, tabbed Files/Errors/Info views with search and filtering.
+Cancellation reasons tracked (`cancellation_reason` column, migration #17).
+Document viewer rewritten with three modes: Source (iframe), Rendered (marked.js
++ DOMPurify), Raw (line numbers + word wrap). In-document search with
+highlighting (Ctrl+F). Search preview popup now renders markdown instead of raw
+text. Bug fix: `_is_excluded` scope error caused all parallel scans to find 0
+files — moved from local function to `BulkScanner` class method. Job History
+rows now clickable, show start/finish times and computed duration.
+
+Previous (v0.16.9): Multi-source scanning. Both lifecycle scanner and bulk jobs
+now scan all configured source locations sequentially within a single scan
+run / job. Lifecycle scanner resolves all source locations (not just the first),
+validates each, walks them one at a time. Bulk jobs accept `scan_all_sources`
+flag; workers convert the combined queue as one batch.
 
 Previous (v0.16.8): Job History cleanup. Timestamps now use `formatLocalTime()` for
 human-readable display (e.g. "Apr 1, 2026, 3:13 PM" instead of raw ISO).
@@ -308,7 +313,8 @@ Critical files to know:
 | `core/flag_manager.py` | Flag business logic, blocklist checks, Meilisearch is_flagged sync, webhooks |
 | `api/routes/flags.py` | Flag API: user flagging + admin triage (dismiss/extend/remove/blocklist) |
 | `static/flagged.html` | Admin flagged files page with filters, sort, pagination |
-| `static/viewer.html` | Document viewer: source/markdown toggle, inline PDF, download |
+| `static/viewer.html` | Document viewer: source/rendered/raw modes, in-document search, markdown rendering (marked.js + DOMPurify) |
+| `static/job-detail.html` | Job detail page: summary header, stats, files/errors/info tabs with search and filtering |
 | `static/app.js` | Shared JS: API helpers, dynamic nav, toast |
 | `static/markflow.css` | Design system: CSS variables, dark mode |
 | `Dockerfile.base` | Base image: all apt system deps (build once, ~25 min on HDD) |
@@ -369,6 +375,9 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **Flag + index rebuild**: `search_indexer.py` checks `file_flags` during indexing and sets `is_flagged=true` for any file with an active/extended flag. Flag state survives re-indexing.
 - **Blocklist dual-match**: Scanner checks both `content_hash` and `source_path` against `blocklisted_files`. A file can be blocklisted by hash (catches copies) or by path (catches re-appearances).
 - **Flag routes ordering**: In `api/routes/flags.py`, fixed-path routes (`/mine`, `/stats`, `/blocklist`, `/lookup-source`) must be defined BEFORE `/{flag_id}` catch-all, or FastAPI matches the literal path segment as a flag_id.
+- **`_is_excluded` must be a class method on BulkScanner**: Was a local function in `run_scan()` but referenced in `_walker_thread()` inside `_parallel_scan()`. Closures don't cross method boundaries — all worker threads crashed with `NameError`. Now `self._is_excluded()`.
+- **Viewer markdown rendering**: Uses marked.js + DOMPurify (CDN). DOMPurify whitelist is explicit — no `script`, no event handlers. Raw view uses `textContent` only. In-document search uses `TreeWalker` to find text nodes.
+- **Job detail `cancellation_reason`**: Migration #17 adds column. Populated by cancel(), error-rate abort, fatal exceptions, and orphan cleanup. Displayed as a banner on the job detail page.
 
 ---
 

@@ -378,14 +378,16 @@ class BulkJob:
             # 4. Final status
             if self._cancel_event.is_set():
                 final_status = "cancelled"
+                cancel_reason = getattr(self, '_cancel_reason', 'Cancelled by user')
             else:
                 final_status = "completed"
+                cancel_reason = None
 
             duration_ms = int((time.perf_counter() - t_start) * 1000)
-            await update_bulk_job_status(
-                self.job_id, final_status,
-                completed_at=datetime.now(timezone.utc).isoformat(),
-            )
+            extra_fields = dict(completed_at=datetime.now(timezone.utc).isoformat())
+            if cancel_reason:
+                extra_fields["cancellation_reason"] = cancel_reason
+            await update_bulk_job_status(self.job_id, final_status, **extra_fields)
 
             _emit_bulk_event(self.job_id, "job_complete", {
                 "job_id": self.job_id,
@@ -414,6 +416,7 @@ class BulkJob:
             await update_bulk_job_status(
                 self.job_id, "failed",
                 error_msg=str(exc),
+                cancellation_reason=f"Fatal error: {str(exc)[:200]}",
                 completed_at=datetime.now(timezone.utc).isoformat(),
             )
             _emit_bulk_event(self.job_id, "done", {})
@@ -448,6 +451,7 @@ class BulkJob:
                     "error_rate": round(self._error_monitor.error_rate, 2),
                     "total_errors": self._error_monitor.total_errors,
                 })
+                self._cancel_reason = f"Aborted: error rate {round(self._error_monitor.error_rate * 100)}% exceeded threshold ({self._error_monitor.total_errors} errors)"
                 self._cancel_event.set()
                 self._pause_event.set()
                 continue  # drain queue
@@ -861,12 +865,13 @@ class BulkJob:
         _emit_bulk_event(self.job_id, "job_resumed", {"job_id": self.job_id})
         log.info("bulk_job_resumed", job_id=self.job_id)
 
-    async def cancel(self) -> None:
+    async def cancel(self, reason: str = "Cancelled by user") -> None:
         """Cancel the job. Workers drain queue and exit."""
+        self._cancel_reason = reason
         self._cancel_event.set()
         self._pause_event.set()  # unblock any paused workers so they can drain
         await update_bulk_job_status(self.job_id, "cancelled")
-        log.info("bulk_job_cancelled", job_id=self.job_id)
+        log.info("bulk_job_cancelled", job_id=self.job_id, reason=reason)
 
 
 # ── Gap-Fill SSE queues ────────────────────────────────────────────────────

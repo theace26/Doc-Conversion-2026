@@ -570,6 +570,9 @@ _MIGRATIONS: list[tuple[int, str, list[str]]] = [
     (16, "Source files FK on bulk_files", [
         "ALTER TABLE bulk_files ADD COLUMN source_file_id TEXT REFERENCES source_files(id)",
     ]),
+    (17, "Add cancellation_reason to bulk_jobs", [
+        "ALTER TABLE bulk_jobs ADD COLUMN cancellation_reason TEXT",
+    ]),
 ]
 
 
@@ -714,7 +717,8 @@ async def cleanup_orphaned_jobs() -> None:
     """Clean up jobs stuck in active states from a previous container run."""
     async with get_db() as conn:
         cursor = await conn.execute(
-            """UPDATE bulk_jobs SET status='cancelled', completed_at=datetime('now')
+            """UPDATE bulk_jobs SET status='cancelled', completed_at=datetime('now'),
+               cancellation_reason='Cancelled: container restarted while job was active'
                WHERE status IN ('scanning', 'running', 'pending')"""
         )
         cancelled_jobs = cursor.rowcount

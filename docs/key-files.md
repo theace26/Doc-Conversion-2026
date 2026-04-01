@@ -137,8 +137,9 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `static/markflow.css` | Shared design system: CSS variables, dark mode, components |
 | `static/app.js` | Shared JS: API helpers, formatters, toast, nav link highlighter |
 | `static/index.html` | Upload UI: drag-and-drop, direction toggle, format badges |
-| `static/search.html` | Search UI: unified multi-index search, format chips, per-page, multi-select, viewer links |
-| `static/viewer.html` | Document viewer: source/markdown toggle, inline PDF preview, download |
+| `static/search.html` | Search UI: unified multi-index search, format chips, per-page, multi-select, viewer links, rendered markdown preview |
+| `static/viewer.html` | Document viewer: source/rendered/raw modes, in-document search, line numbers, markdown rendering (marked.js + DOMPurify) |
+| `static/job-detail.html` | Job detail page: summary header, stats, files/errors/info tabs with search and filtering |
 | `static/bulk.html` | Bulk job UI: location dropdowns, SSE progress, pause/cancel |
 | `static/status.html` | Status page: per-job cards, STOP ALL, lifecycle scanner |
 | `static/history.html` | History browser: filter, sort, search, pagination, inline detail |

@@ -1339,10 +1339,32 @@ small, .text-sm { font-size: 0.85rem; }
   width: 100%; height: 100%; border: none; display: block;
 }
 .preview-popup .preview-body .preview-markdown {
-  padding: 0.75rem; font-size: 0.82rem; line-height: 1.5;
-  overflow-y: auto; color: var(--text); white-space: pre-wrap;
+  padding: 0.75rem; font-size: 0.78rem; line-height: 1.5;
+  overflow-y: auto; color: var(--text);
   font-family: var(--font-sans);
 }
+.preview-popup .preview-body .preview-markdown h1,
+.preview-popup .preview-body .preview-markdown h2,
+.preview-popup .preview-body .preview-markdown h3 {
+  font-size: 0.9rem; margin: 0.5em 0 0.3em; border-bottom: 1px solid var(--border);
+  padding-bottom: 0.2em;
+}
+.preview-popup .preview-body .preview-markdown pre {
+  background: var(--bg); padding: 0.5rem; border-radius: 3px;
+  overflow-x: auto; font-size: 0.75rem;
+}
+.preview-popup .preview-body .preview-markdown code {
+  background: var(--surface-alt); padding: 0.1em 0.25em;
+  border-radius: 2px; font-size: 0.85em;
+}
+.preview-popup .preview-body .preview-markdown table {
+  width: 100%; border-collapse: collapse; font-size: 0.75rem;
+}
+.preview-popup .preview-body .preview-markdown th,
+.preview-popup .preview-body .preview-markdown td {
+  padding: 0.25rem 0.5rem; border: 1px solid var(--border);
+}
+.preview-popup .preview-body .preview-markdown p { margin: 0.4em 0; }
 .preview-popup .preview-body .preview-unavailable {
   display: flex; align-items: center; justify-content: center;
   height: 100%; color: var(--text-muted); font-size: 0.85rem;

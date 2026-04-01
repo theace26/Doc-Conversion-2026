@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MarkFlow — Search</title>
   <link rel="stylesheet" href="/static/markflow.css">
+  <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
   <style>
     .search-box { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
     .search-autocomplete-wrapper { flex: 1; position: relative; }
@@ -226,6 +228,8 @@
     var body = clearPreviewBody();
     document.getElementById('preview-title').textContent = hit.title || '';
     document.getElementById('preview-badge').textContent = (hit.format || '').toUpperCase();
+    var viewerIdx = hit.source_index || 'documents';
+    document.getElementById('preview-open-viewer').href = '/viewer.html?index=' + encodeURIComponent(viewerIdx) + '&id=' + encodeURIComponent(hit.id);
 
     positionPreview(popup, anchorEl);
 
@@ -276,8 +280,20 @@
           var div = document.createElement('div');
           div.className = 'preview-markdown';
           div.style.height = bodyH + 'px';
-          div.textContent = text.substring(0, 2000);
-          if (text.length > 2000) div.textContent += '\n\n... (truncated)';
+          // Render markdown safely via DOMPurify (XSS-safe HTML sanitizer)
+          try {
+            var rawHtml = marked.parse(text.substring(0, 5000));
+            var safeHtml = DOMPurify.sanitize(rawHtml, {
+              ALLOWED_TAGS: ['h1','h2','h3','h4','h5','h6','p','a','ul','ol','li',
+                'table','thead','tbody','tr','th','td','pre','code','blockquote',
+                'em','strong','del','br','hr','span'],
+              ALLOWED_ATTR: ['href','title','class'],
+            });
+            // DOMPurify.sanitize returns safe HTML string — safe to insert
+            div.innerHTML = safeHtml; // nosec: sanitized by DOMPurify
+          } catch(e) {
+            div.textContent = text.substring(0, 2000);
+          }
           body.textContent = '';
           body.appendChild(div);
         })
@@ -875,6 +891,7 @@
   <div class="preview-header">
     <span class="preview-title" id="preview-title"></span>
     <span class="preview-badge" id="preview-badge"></span>
+    <a id="preview-open-viewer" href="#" target="_blank" style="font-size:0.7rem;color:var(--accent);text-decoration:none;margin-left:auto;pointer-events:auto">Open</a>
   </div>
   <div class="preview-body" id="preview-body"></div>
 </div>

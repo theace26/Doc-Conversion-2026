@@ -20,7 +20,8 @@
     .counters .counter { display: flex; flex-direction: column; align-items: center; }
     .counters .counter-value { font-weight: 700; font-size: 1.3rem; }
     .counters .counter-label { font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; }
-    .job-history-item { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+    .job-history-item { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; transition: background 0.15s; }
+    .job-history-item:hover { background: var(--surface-alt); }
     .job-history-item:last-child { border-bottom: none; }
     .job-status { padding: 0.15em 0.5em; border-radius: var(--radius-sm); font-size: 0.78rem; font-weight: 600; text-transform: uppercase; }
     .job-status.completed { background: rgba(22,163,74,0.12); color: var(--ok); }
@@ -712,6 +713,20 @@
     } catch (e) { showToast(e.message, 'error'); }
   }
 
+  function formatJobDuration(startIso, endIso) {
+    if (!startIso || !endIso) return '';
+    const ms = new Date(endIso) - new Date(startIso);
+    if (ms < 0) return '';
+    const totalSec = Math.floor(ms / 1000);
+    if (totalSec < 60) return `${totalSec}s`;
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    if (mins < 60) return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+    const hrs = Math.floor(mins / 60);
+    const remMins = mins % 60;
+    return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
+  }
+
   async function loadJobHistory() {
     try {
       const data = await API.get('/api/bulk/jobs');
@@ -727,21 +742,25 @@
         const statusLabel = (j.status || 'pending').charAt(0).toUpperCase() + (j.status || 'pending').slice(1);
         const errors = j.failed || 0;
         const errorsLink = errors > 0
-          ? ` <a href="/api/bulk/jobs/${j.id}/errors" class="text-sm" style="color:var(--error)">${errors.toLocaleString()} errors</a>`
+          ? ` <a href="/job-detail.html?id=${j.id}&tab=errors" class="text-sm" style="color:var(--error)" onclick="event.stopPropagation()">${errors.toLocaleString()} errors</a>`
           : '';
         const rqCount = j.review_queue_count || 0;
         const reviewLink = (rqCount > 0 && j.status === 'completed')
-          ? ` <a href="/bulk-review.html?job_id=${j.id}" class="text-sm" style="color:var(--warn)">${rqCount} need review</a>`
+          ? ` <a href="/bulk-review.html?job_id=${j.id}" class="text-sm" style="color:var(--warn)" onclick="event.stopPropagation()">${rqCount} need review</a>`
           : '';
         const converted = (j.converted || 0).toLocaleString();
         const total = j.total_files ? j.total_files.toLocaleString() : null;
         const statsText = total
           ? `${converted} of ${total} converted`
           : `${converted} converted`;
-        return `<div class="job-history-item">
+        const durationText = formatJobDuration(j.started_at, j.completed_at);
+        const finishedText = j.completed_at ? formatLocalTime(j.completed_at) : '';
+        return `<div class="job-history-item" style="cursor:pointer" onclick="window.location.href='/job-detail.html?id=${j.id}'">
           <div>
             <span class="job-status ${statusClass}">${statusLabel}</span>
-            <span class="text-sm text-muted" style="margin-left:0.5rem">${formatLocalTime(j.started_at)}</span>
+            <span class="text-sm text-muted" style="margin-left:0.5rem">Started ${formatLocalTime(j.started_at)}</span>
+            ${finishedText ? `<span class="text-sm text-muted" style="margin-left:0.25rem">— Finished ${finishedText}</span>` : ''}
+            ${durationText ? `<span class="text-sm" style="margin-left:0.25rem; color:var(--accent)">(${durationText})</span>` : ''}
           </div>
           <div class="text-sm" style="text-align:right">
             ${statsText}${errorsLink}${reviewLink}
