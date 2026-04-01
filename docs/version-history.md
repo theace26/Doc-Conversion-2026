@@ -4,6 +4,17 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.16.5 — Activity Log Pagination (2026-04-01)
+
+**Activity log UX improvements (Resources page):**
+- Per-page buttons (10/30/50/100/All) matching search page pattern for consistency.
+- Fixed-height scrollable container (600px max) with sticky table header.
+- Default reduced from 100 to 10 rows to keep page manageable.
+- "Showing X of Y events" count summary below table.
+- "All" sends limit=500 (API max).
+
+---
+
 ## v0.16.4 — Filename Search Normalization (2026-04-01)
 
 **Filename-aware search matching:**

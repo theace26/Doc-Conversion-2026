@@ -26,9 +26,14 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.16.4
+## Current Status — v0.16.5
 
-v0.16.4: Filename search normalization. New `filename_search` field in all three
+v0.16.5: Activity log pagination. Resources page activity log now uses per-page
+buttons (10/30/50/100/All) matching the search page pattern. Fixed-height
+scrollable container (600px max) with sticky header. Default reduced from 100
+to 10 rows. Shows "Showing X of Y events" count summary.
+
+Previous (v0.16.4): Filename search normalization. New `filename_search` field in all three
 Meilisearch indexes (documents, adobe-files, transcripts) normalizes filenames
 for search by splitting on underscores, dots, dashes, camelCase boundaries,
 and letter/number transitions. Searching "PENINSULA SMALL WORKS" now matches

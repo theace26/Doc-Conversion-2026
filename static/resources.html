@@ -170,6 +170,13 @@
             <option value="error">Errors</option>
             <option value="startup,shutdown">System</option>
           </select>
+          <div class="perpage-btns" id="events-perpage">
+            <button data-pp="10" class="active">10</button>
+            <button data-pp="30">30</button>
+            <button data-pp="50">50</button>
+            <button data-pp="100">100</button>
+            <button data-pp="0">All</button>
+          </div>
           <div class="range-selector" id="events-range">
             <button data-range="24h">24h</button>
             <button data-range="7d" class="active">7d</button>
@@ -180,12 +187,15 @@
       </div>
 
       <div id="events-loading" class="text-muted" style="padding:1rem 0">Loading...</div>
-      <table class="table" id="events-table" hidden>
-        <thead>
-          <tr><th style="width:140px">Time</th><th style="width:130px">Type</th><th>Description</th></tr>
-        </thead>
-        <tbody id="events-tbody"></tbody>
-      </table>
+      <div id="events-scroll" style="max-height:600px;overflow-y:auto">
+        <table class="table" id="events-table" hidden>
+          <thead style="position:sticky;top:0;z-index:1;background:var(--surface)">
+            <tr><th style="width:140px">Time</th><th style="width:130px">Type</th><th>Description</th></tr>
+          </thead>
+          <tbody id="events-tbody"></tbody>
+        </table>
+      </div>
+      <div id="events-count" class="text-sm text-muted" style="padding:0.5rem 0" hidden></div>
       <div id="events-empty" class="text-muted" style="text-align:center;padding:2rem 0" hidden>
         No activity events in this time range.
       </div>
@@ -501,6 +511,16 @@
     }
     .tm-big-number { font-size: 2rem; font-weight: 700; display: block; }
     .tm-note { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem; }
+
+    /* Per-page buttons (matches search.html) */
+    .perpage-btns { display: flex; gap: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .perpage-btns button {
+      padding: 0.25rem 0.6rem; border: none; border-right: 1px solid var(--border);
+      background: var(--surface); color: var(--text); cursor: pointer; font-size: 0.8rem;
+    }
+    .perpage-btns button:last-child { border-right: none; }
+    .perpage-btns button.active { background: var(--accent); color: #fff; }
+    .perpage-btns button:hover:not(.active) { background: var(--hover); }
 
     /* Activity log */
     .event-badge {
@@ -1034,16 +1054,19 @@
      * ════════════════════════════════════════════════════════════════════ */
 
     var currentEventsRange = '7d';
+    var currentEventsPerPage = 10;
 
     async function loadEvents(range) {
       currentEventsRange = range || currentEventsRange;
       var filter = document.getElementById('event-filter').value;
-      var url = '/api/resources/events?range=' + currentEventsRange + '&limit=100';
+      var limit = currentEventsPerPage === 0 ? 500 : currentEventsPerPage;
+      var url = '/api/resources/events?range=' + currentEventsRange + '&limit=' + limit;
       if (filter) url += '&type=' + encodeURIComponent(filter);
 
       document.getElementById('events-loading').hidden = false;
       document.getElementById('events-table').hidden = true;
       document.getElementById('events-empty').hidden = true;
+      document.getElementById('events-count').hidden = true;
 
       try {
         var d = await API.get(url);
@@ -1056,6 +1079,9 @@
 
         document.getElementById('events-table').hidden = false;
         var tbody = document.getElementById('events-tbody');
+        // NOTE: innerHTML used here with escapeHtml() on all user-sourced values
+        // (event_type, description, metadata). This is an existing pattern throughout
+        // the codebase for rendering table rows from API data.
         tbody.innerHTML = d.events.map(function(ev) {
           var dur = ev.duration_seconds ? '<span class="event-duration">(' + formatDurationShort(ev.duration_seconds) + ')</span>' : '';
           var meta = ev.metadata ? '<div class="event-meta">' + escapeHtml(JSON.stringify(ev.metadata, null, 2)) + '</div>' : '';
@@ -1065,12 +1091,31 @@
             '<td>' + escapeHtml(ev.description || '') + dur + meta + '</td>' +
           '</tr>';
         }).join('');
+
+        // Show count summary
+        var countEl = document.getElementById('events-count');
+        countEl.textContent = 'Showing ' + d.events.length + ' of ' + (d.total || d.events.length) + ' events';
+        countEl.hidden = false;
+
+        // Reset scroll to top
+        document.getElementById('events-scroll').scrollTop = 0;
       } catch (e) {
         document.getElementById('events-loading').textContent = 'Failed to load events.';
       }
     }
 
     document.getElementById('event-filter').addEventListener('change', function() { loadEvents(); });
+
+    // Per-page buttons for activity log
+    document.querySelectorAll('#events-perpage button').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        currentEventsPerPage = parseInt(btn.dataset.pp);
+        document.querySelectorAll('#events-perpage button').forEach(function(b) {
+          b.classList.toggle('active', parseInt(b.dataset.pp) === currentEventsPerPage);
+        });
+        loadEvents();
+      });
+    });
 
     /* ════════════════════════════════════════════════════════════════════════
      *  Section 6: Repository Overview
