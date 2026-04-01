@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-01
 **Scope:** Full codebase (core/, api/, formats/, static/)
-**Status:** 21 of 24 items RESOLVED in v0.16.1 (2026-04-01). Remaining: STR-05, STR-13 (partial), STR-17.
+**Status:** ALL 24 of 24 items RESOLVED. 21 in v0.16.1 (2026-04-01), final 3 in v0.16.2 (2026-04-01).
 
 ---
 
@@ -39,7 +39,7 @@
 - **Category:** Inconsistent patterns
 - **Description:** Every other module uses `get_search_indexer()` singleton accessor. flag_manager.py calls `SearchIndexer()` directly in two places, creating new HTTP client objects on every flag operation.
 
-### STR-05: database.py Is 1,800+ Lines Covering 10+ Domains -- DEFERRED (own session)
+### STR-05: database.py Is 1,800+ Lines Covering 10+ Domains -- RESOLVED
 - **File:** core/database.py
 - **Category:** Large file that should be split
 - **Description:** Single monolithic module handles schema DDL, migrations, preferences, bulk jobs, source files, Adobe indexing, locations, LLM providers, path issues, archive members, and flagging. Has internal logger inconsistency (_log vs log). Should be split into domain-specific modules (db/schema.py, db/bulk_jobs.py, db/source_files.py, etc.).
@@ -83,7 +83,7 @@
 - **Category:** Redundant operations
 - **Description:** Two separate try blocks each re-import and call get_search_indexer() -- once for document indexing, once for transcript indexing. Should consolidate.
 
-### STR-13: upsert_source_file Uses SELECT-then-INSERT/UPDATE Instead of SQLite UPSERT -- PARTIAL (adobe_index converted; source_file deferred due to dynamic fields)
+### STR-13: upsert_source_file Uses SELECT-then-INSERT/UPDATE Instead of SQLite UPSERT -- RESOLVED
 - **File:** core/database.py:1098-1152
 - **Category:** Inefficient patterns
 - **Description:** Two DB round-trips where one would suffice. SQLite supports INSERT ... ON CONFLICT DO UPDATE. Compare with set_preference() at line 850 which already uses the correct pattern. Hot path during scanning.
@@ -103,7 +103,7 @@
 - **Category:** Redundant operations
 - **Description:** formatDate() is legacy, formatLocalTime() is the standard per CLAUDE.md. formatDate should be removed or made to call formatLocalTime(). Callers should be audited.
 
-### STR-17: init_db() Has 40+ _add_column_if_missing Calls -- DEFERRED (own session)
+### STR-17: init_db() Has 40+ _add_column_if_missing Calls -- RESOLVED
 - **File:** core/database.py:683-761
 - **Category:** Overly complex function
 - **Description:** Each call does PRAGMA table_info() plus conditional ALTER TABLE. A schema_migrations table would let startup skip already-applied migrations. Will degrade as versions accumulate.

@@ -26,9 +26,23 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.16.1
+## Current Status — v0.16.2
 
-v0.16.1: Code streamlining pass. Resolved 21 of 24 identified code quality
+v0.16.2: Streamlining audit complete (24/24 resolved). Final 3 items from v0.16.1:
+**STR-05** — Split monolithic `database.py` (2,300 lines) into `core/db/` package
+with 8 domain modules (connection, schema, preferences, bulk, conversions,
+catalog, lifecycle, auth). `core/database.py` is now a backward-compatible
+re-export wrapper — all existing imports unchanged.
+**STR-13** — Converted `upsert_source_file()` from SELECT-then-INSERT/UPDATE
+to single-statement `INSERT ... ON CONFLICT DO UPDATE`, handling dynamic
+`**extra_fields` in both the insert and conflict-update clauses.
+**STR-17** — Replaced 40+ `_add_column_if_missing()` / `PRAGMA table_info()`
+calls with a `schema_migrations` table and 16 versioned migration batches.
+Startup now checks one table instead of running 40+ schema introspection queries.
+Security audit (62 findings) documented in `docs/security-audit.md` — not yet
+addressed (planned for dedicated session).
+
+Previous (v0.16.1): Code streamlining pass. Resolved 21 of 24 identified code quality
 issues. Key changes: shared ODF utils (`formats/odf_utils.py`), consolidated
 `now_iso()` and `db_write_with_retry()` in database.py, `ALLOWED_EXTENSIONS`
 now derived from handler registry (auto-syncs with new format handlers),
@@ -37,10 +51,7 @@ usage enforced in flag_manager, hoisted deferred imports in scheduler/lifecycle/
 bulk modules, `_count_by_status()` helper, `upsert_adobe_index` uses ON CONFLICT,
 removed legacy `formatDate()` (all callers use `formatLocalTime()`), extracted
 `_throwOnError()` helper in app.js, removed dead imports, fixed logger naming
-inconsistencies. Deferred: database.py module split (STR-05) and schema migration
-table (STR-17) — both need dedicated sessions. Full security audit (62 findings)
-and streamlining audit (24 findings) documented in `docs/security-audit.md` and
-`docs/streamlining-audit.md`.
+inconsistencies.
 
 Previous (v0.16.0): File flagging & content moderation. Self-service file flagging lets any
 authenticated user temporarily suppress a file from search and download. Admins
@@ -201,7 +212,8 @@ Critical files to know:
 | File | Purpose |
 |------|---------|
 | `main.py` | FastAPI app, lifespan, mounts all routers |
-| `core/database.py` | SQLite connection, schema, all DB helpers |
+| `core/database.py` | Backward-compatible re-export wrapper for core/db/ |
+| `core/db/` | Domain-split DB package: connection, schema, preferences, bulk, conversions, catalog, lifecycle, auth |
 | `core/converter.py` | Pipeline orchestrator (single-file conversion) |
 | `core/libreoffice_helper.py` | Shared LibreOffice headless conversion for legacy formats (.doc/.xls/.ppt) |
 | `core/bulk_worker.py` | Worker pool: BulkJob, pause/resume/cancel, SSE |

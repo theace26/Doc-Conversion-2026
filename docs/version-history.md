@@ -4,6 +4,28 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.16.2 — Streamlining Audit Complete (2026-04-01)
+
+**Final 3 streamlining items resolved (24/24 complete):**
+- **STR-05: database.py module split** — 2,300-line monolith split into `core/db/` package
+  with 8 domain modules: `connection.py` (path, get_db, helpers), `schema.py` (DDL, migrations,
+  init_db), `preferences.py`, `bulk.py` (jobs + files + source files), `conversions.py`
+  (history, batch state, OCR, review queue), `catalog.py` (adobe, locations, LLM providers,
+  unrecognized, archives), `lifecycle.py` (lifecycle queries, versions, path issues, scans,
+  maintenance), `auth.py` (API keys). `core/database.py` remains as a backward-compatible
+  re-export wrapper — all 40+ external import sites unchanged.
+- **STR-13: upsert_source_file UPSERT** — converted from SELECT-then-INSERT/UPDATE to
+  `INSERT ... ON CONFLICT(source_path) DO UPDATE SET ...`. Dynamic `**extra_fields` handled
+  in both insert columns and conflict-update clause. Single atomic statement replaces two
+  separate connection opens.
+- **STR-17: Schema migration table** — new `schema_migrations` table replaces 40+
+  `_add_column_if_missing()` calls (each doing `PRAGMA table_info()`). 16 versioned migration
+  batches covering all historical ALTER TABLE additions. On startup: check one table, skip
+  all applied migrations. First run on existing DBs: applies all (no-ops), records them.
+  Subsequent startups: zero schema introspection queries.
+
+---
+
 ## v0.16.1 — Code Streamlining + Security/Quality Audit (2026-04-01)
 
 **Code quality (21 of 24 items resolved):**
