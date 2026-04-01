@@ -255,6 +255,10 @@ app.include_router(help_routes.router)
 from api.routes import auto_convert as auto_convert_routes
 app.include_router(auto_convert_routes.router)
 
+# v0.14.0 — Pipeline control
+from api.routes import pipeline as pipeline_routes
+app.include_router(pipeline_routes.router)
+
 # v0.13.0 — Media transcript API
 from api.routes import media as media_routes
 app.include_router(media_routes.router)

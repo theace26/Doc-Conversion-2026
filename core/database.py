@@ -89,6 +89,9 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     "auto_convert_business_hours_start": "09:00",
     "auto_convert_business_hours_end": "18:00",
     "auto_convert_conservative_factor": "0.7",
+    # Pipeline (v0.14.0)
+    "pipeline_enabled": "true",
+    "pipeline_max_files_per_run": "0",
     # Scan parallelism (v0.13.1)
     "scan_max_threads": "auto",
     # Transcription (v0.13.0)

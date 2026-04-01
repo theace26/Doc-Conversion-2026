@@ -574,6 +574,10 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 - **Deferred conversion runner re-triggers lifecycle scan**: Re-evaluates decision with fresh data.
 
+- **Pipeline has two pause layers**: `pipeline_enabled` is a persistent DB preference (survives restarts). `_pipeline_paused` is in-memory state in `scheduler.py` (resets on container restart). The scheduler checks both before running lifecycle scans. "Run Now" bypasses both via `force=True`.
+
+- **pipeline_max_files_per_run caps batch size**: Applied in `_execute_auto_conversion()` in `lifecycle_scanner.py`. If set to a positive number, it overrides the auto-conversion engine's batch size decision (takes the minimum). 0 = no cap.
+
 ## Container & Dependencies
 
 - **Debian trixie package name**: `libgdk-pixbuf-2.0-0` (not `libgdk-pixbuf2.0-0`).

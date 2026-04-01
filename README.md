@@ -5,7 +5,7 @@ Drop in files — or point it at an entire repository — and MarkFlow handles t
 format detection, OCR, password recovery, media transcription, full-text search,
 and version tracking. Everything runs inside Docker with a browser-based UI.
 
-**Current version:** v0.13.7
+**Current version:** v0.14.0
 
 ---
 
@@ -27,7 +27,7 @@ and version tracking. Everything runs inside Docker with a browser-based UI.
 
 | Category | Formats |
 |----------|---------|
-| Office | .docx, .doc, .pdf, .pptx, .ppt, .xlsx, .xls, .csv, .tsv |
+| Office | .docx, .doc, .docm, .pdf, .pptx, .ppt, .xlsx, .xls, .csv, .tsv, .wpd |
 | Rich Text | .rtf |
 | OpenDocument | .odt, .ods, .odp |
 | Markdown & Text | .md, .txt, .log |
@@ -35,7 +35,8 @@ and version tracking. Everything runs inside Docker with a browser-based UI.
 | Data & Config | .json, .yaml, .yml, .ini, .cfg, .conf, .properties |
 | Email | .eml, .msg (with recursive attachment conversion) |
 | Archives | .zip, .tar, .tar.gz, .7z, .rar, .cab, .iso |
-| Adobe Creative | .psd, .ai, .indd, .aep, .prproj, .xd |
+| Adobe Creative | .psd, .ai, .indd, .aep, .prproj, .xd, .ait, .indt |
+| Images | .jpg, .jpeg, .png, .tif, .tiff, .bmp, .gif, .eps |
 | Audio | .mp3, .wav, .m4a, .flac, .ogg, .aac, .wma |
 | Video | .mp4, .mov, .avi, .mkv, .webm, .m4v, .wmv |
 | Captions | .srt, .vtt, .sbv |
@@ -46,6 +47,12 @@ Media files produce timestamped transcripts. Archives are recursively extracted 
 ---
 
 ## Key Features
+
+### Automated Pipeline
+- Fully automated scan-convert-index cycle — lifecycle scanner detects new/modified files and triggers bulk conversion automatically
+- Pipeline API for status, pause, resume, and on-demand runs
+- Configurable scan interval, worker count, and per-cycle file caps
+- Designed for headless deployment — runs unattended with self-healing DB maintenance
 
 ### Intelligent Bulk Processing
 - Adaptive scan parallelism — auto-detects storage type and adjusts thread count

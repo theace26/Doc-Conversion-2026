@@ -476,6 +476,32 @@
         </div>
       </div>
 
+      <!-- Pipeline section (v0.14.0) -->
+      <div class="section-title">Pipeline</div>
+      <div class="card">
+        <p class="text-sm text-muted" style="margin:0 0 1rem">
+          Master controls for the automated scan-and-convert pipeline. When enabled, the lifecycle
+          scanner runs on an interval and auto-converts new or modified files.
+        </p>
+
+        <div class="form-group">
+          <label>Pipeline enabled</label>
+          <label class="toggle">
+            <input type="checkbox" id="pref-pipeline_enabled" data-key="pipeline_enabled">
+            <span class="toggle-track"></span>
+            <span class="toggle-label" id="toggle-label-pipeline-enabled">OFF</span>
+          </label>
+          <p class="hint">Master on/off switch. When off, no scheduled scans or auto-conversions run.</p>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-pipeline_max_files_per_run">Max files per pipeline cycle (0 = unlimited)</label>
+          <input type="number" id="pref-pipeline_max_files_per_run" data-key="pipeline_max_files_per_run" min="0" max="10000">
+          <p class="hint">Cap on files converted per cycle. Overrides auto-conversion batch size if lower. 0 = no cap.</p>
+          <div class="inline-error" id="err-pipeline_max_files_per_run"></div>
+        </div>
+      </div>
+
       <!-- Auto-Conversion section -->
       <div class="section-title" data-help="auto-conversion">Auto-Conversion</div>
       <div class="card">
@@ -1190,6 +1216,22 @@
   if (scannerToggle) {
     scannerToggle.addEventListener('change', () => {
       document.getElementById('toggle-label-scanner').textContent = scannerToggle.checked ? 'ON' : 'OFF';
+    });
+  }
+
+  // ── Pipeline toggle label ─────────────────────────────────────────────
+  const pipelineToggle = document.getElementById('pref-pipeline_enabled');
+  if (pipelineToggle) {
+    pipelineToggle.addEventListener('change', () => {
+      document.getElementById('toggle-label-pipeline-enabled').textContent = pipelineToggle.checked ? 'ON' : 'OFF';
+    });
+  }
+
+  // ── Cloud fallback toggle label ───────────────────────────────────────
+  const cloudFallbackToggle = document.getElementById('pref-transcription_cloud_fallback');
+  if (cloudFallbackToggle) {
+    cloudFallbackToggle.addEventListener('change', () => {
+      document.getElementById('toggle-label-cloud-fallback').textContent = cloudFallbackToggle.checked ? 'ON' : 'OFF';
     });
   }
 

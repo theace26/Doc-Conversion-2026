@@ -777,10 +777,18 @@ async def _execute_auto_conversion(
     import asyncio as _asyncio
 
     from core.bulk_worker import BulkJob
-    from core.database import create_bulk_job, get_db_path
+    from core.database import create_bulk_job, get_db_path, get_preference
 
     try:
         output_path = os.getenv("BULK_OUTPUT_PATH", "/mnt/output-repo")
+
+        # Apply pipeline_max_files_per_run cap if set
+        pipeline_cap = int(await get_preference("pipeline_max_files_per_run") or "0")
+        if pipeline_cap > 0:
+            if decision.batch_size == 0:  # 0 = unlimited
+                decision.batch_size = pipeline_cap
+            else:
+                decision.batch_size = min(decision.batch_size, pipeline_cap)
 
         # Create a bulk job marked as auto-conversion
         import aiosqlite

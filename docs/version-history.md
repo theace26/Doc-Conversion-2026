@@ -4,6 +4,36 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.14.0 — Automated Conversion Pipeline (2026-03-31)
+
+**New features:**
+- **Pipeline control system** — the lifecycle scanner is now the sole trigger for conversion. When it
+  detects new or changed files, it automatically spins up bulk conversion. No manual scan/convert
+  triggers needed.
+- `pipeline_enabled` preference — master on/off for the entire scan+convert pipeline (default: true)
+- `pipeline_max_files_per_run` preference — cap on files converted per pipeline cycle (default: 0 = unlimited)
+- Pipeline API endpoints: `GET /api/pipeline/status`, `POST /api/pipeline/pause`, `POST /api/pipeline/resume`, `POST /api/pipeline/run-now`
+- Pipeline status card on Bulk Conversion page — shows mode, last/next scan, pending files, pause/resume/run-now controls
+- Pipeline settings section on Settings page — master toggle and per-cycle file cap
+
+**Modified files:**
+- `core/database.py` — added `pipeline_enabled` and `pipeline_max_files_per_run` default preferences
+- `core/scheduler.py` — pipeline master gate (checks `pipeline_enabled` and `_pipeline_paused`), `get_pipeline_status()`, `set_pipeline_paused()`/`is_pipeline_paused()` functions
+- `core/lifecycle_scanner.py` — `_execute_auto_conversion()` now applies `pipeline_max_files_per_run` cap
+- `api/routes/pipeline.py` — new router: status, pause, resume, run-now endpoints
+- `main.py` — register pipeline router
+- `static/bulk.html` — pipeline status card with live refresh
+- `static/settings.html` — pipeline settings section with toggle and max files input
+- `core/version.py` — bumped to 0.14.0
+
+**Design notes:**
+- Two layers of control: `pipeline_enabled` (persistent DB preference, survives restarts) and `_pipeline_paused` (in-memory, resets on restart)
+- "Run Now" bypasses both pause and business hours via `force=True`
+- Existing bulk job API endpoints are preserved for backward compatibility
+- Auto-conversion engine continues to handle worker count, batch size, and scheduling decisions
+
+---
+
 ## v0.13.9 — Source Files Dedup + Image/Format Support (2026-03-31)
 
 **New features:**

@@ -26,16 +26,21 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.13.9
+## Current Status — v0.14.0
 
-v0.13.9: Source files dedup + expanded format support. New `source_files`
+v0.14.0: Automated conversion pipeline. The lifecycle scanner is now the sole
+trigger for conversion — when it detects new or changed files, it automatically
+spins up bulk conversion. New `pipeline_enabled` master toggle and
+`pipeline_max_files_per_run` cap. Pipeline API (`/api/pipeline/status`,
+`pause`, `resume`, `run-now`). Pipeline status card on Bulk page with
+live refresh. Pipeline settings section on Settings page.
+
+Previous (v0.13.9): Source files dedup + expanded format support. New `source_files`
 table eliminates cross-job row duplication in `bulk_files` — one row per
 unique `source_path` with file-intrinsic data. All cross-job queries
 (admin stats, lifecycle, trash) now use `source_files`. Also: ImageHandler
 for .jpg/.png/.tif/.bmp/.gif/.eps, DocxHandler handles .docm/.wpd via
 LibreOffice, AdobeHandler handles .ait/.indt templates.
-
-Previous (v0.13.8): Image file support (superseded by v0.13.9).
 
 Previous (v0.13.7): Legacy Office format support + scheduler coordination.
 `.xls` and `.ppt` files now convert via LibreOffice preprocessing →
@@ -51,8 +56,7 @@ errors from concurrent DB access.
   - Set via Settings UI or `PUT /api/preferences/<key>`
 
 **Known issues:**
-- All previously unrecognized file types now have handlers: images (ImageHandler),
-  .docm/.wpd (DocxHandler via LibreOffice), .ait/.indt (AdobeHandler).
+- None currently blocking.
 
 Previous (v0.13.6): ErrorRateMonitor integrated across all I/O subsystems. Meilisearch
 index rebuild aborts early if search service is unreachable. Cloud transcriber
@@ -163,6 +167,7 @@ Critical files to know:
 | `core/transcript_formatter.py` | Output formatter: .md + .srt + .vtt generation |
 | `core/media_orchestrator.py` | Top-level media conversion coordinator |
 | `api/routes/media.py` | Media transcript API: get transcript, segments, download |
+| `api/routes/pipeline.py` | Pipeline control: status, pause, resume, run-now |
 | `static/app.js` | Shared JS: API helpers, dynamic nav, toast |
 | `static/markflow.css` | Design system: CSS variables, dark mode |
 | `Dockerfile.base` | Base image: all apt system deps (build once, ~25 min on HDD) |
@@ -186,6 +191,8 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **Source share is read-only**: `/mnt/source` mounted `:ro`, never write to it
 - **Lifecycle scanner needs a `bulk_jobs` parent row**: Creates synthetic job if none exists
 - **Lifecycle scan yields to bulk jobs**: `run_lifecycle_scan()` checks `get_all_active_jobs()` and skips if any bulk job is scanning/running/paused. Prevents "database is locked" contention.
+- **Pipeline has two pause layers**: `pipeline_enabled` (persistent DB preference, survives restarts) and `_pipeline_paused` (in-memory in `scheduler.py`, resets on restart). Scheduler checks both before lifecycle scans. "Run Now" bypasses both.
+- **pipeline_max_files_per_run caps batch size**: Applied in `_execute_auto_conversion()`. Overrides auto-conversion engine's batch size decision (takes minimum). 0 = no cap.
 - **Stop is cooperative**: Workers finish current file before stopping
 - **Password handling**: Preprocessing step before `handler.ingest()`, not a handler change
 - **MCP server is separate**: Port 8001, own process, no JWT auth (uses `MCP_AUTH_TOKEN`)

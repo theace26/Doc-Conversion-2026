@@ -114,6 +114,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `api/routes/logs.py` | GET /api/logs/download/{filename} — log file downloads + archive endpoints |
 | `api/routes/mcp_info.py` | GET /api/mcp/connection-info — MCP server status for settings UI |
 | `api/routes/media.py` | Media transcript API: get transcript, segments, download |
+| `api/routes/pipeline.py` | Pipeline control: status, pause, resume, run-now |
 
 ## Frontend
 

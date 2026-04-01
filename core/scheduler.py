@@ -16,6 +16,21 @@ log = structlog.get_logger(__name__)
 
 scheduler = AsyncIOScheduler()
 
+# ── Pipeline pause state (in-memory, resets on container restart) ─────────────
+_pipeline_paused: bool = False
+
+
+def is_pipeline_paused() -> bool:
+    """Return whether the pipeline is currently paused."""
+    return _pipeline_paused
+
+
+def set_pipeline_paused(paused: bool) -> None:
+    """Pause or resume the pipeline."""
+    global _pipeline_paused
+    _pipeline_paused = paused
+    log.info("pipeline.pause_state_changed", paused=paused)
+
 
 async def _is_business_hours_async() -> bool:
     """Check if current local time is within scan hours (Mon-Fri, reads DB preferences)."""
@@ -46,6 +61,18 @@ async def run_lifecycle_scan(force: bool = False) -> None:
     paused) — bulk jobs take priority over background lifecycle scans.
     """
     if not force:
+        # Pipeline master gate — if disabled, skip all scheduled scans
+        from core.database import get_preference
+        pipeline_enabled = await get_preference("pipeline_enabled")
+        if pipeline_enabled == "false":
+            log.debug("scheduler.scan_skipped_pipeline_disabled")
+            return
+
+        # Pipeline pause — temporary in-memory pause via API
+        if _pipeline_paused:
+            log.debug("scheduler.scan_skipped_pipeline_paused")
+            return
+
         in_hours = await _is_business_hours_async()
         if not in_hours:
             log.debug("scheduler.scan_skipped_outside_business_hours")
@@ -322,6 +349,17 @@ def start_scheduler() -> None:
 
     scheduler.start()
     log.info("scheduler.started", jobs=11)
+
+
+def get_pipeline_status() -> dict:
+    """Return pipeline-specific status including next scan time."""
+    scan_job = scheduler.get_job("lifecycle_scan") if scheduler.running else None
+    next_scan = scan_job.next_run_time.isoformat() if scan_job and scan_job.next_run_time else None
+    return {
+        "paused": _pipeline_paused,
+        "scheduler_running": scheduler.running,
+        "next_scan": next_scan,
+    }
 
 
 def get_scheduler_status() -> dict:

@@ -40,6 +40,28 @@
   <div class="container page-content">
     <div id="error-banner" role="alert" hidden></div>
 
+    <!-- Pipeline status card -->
+    <div id="pipeline-card" class="card mb-2" style="padding:1rem 1.25rem">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+        <div style="display:flex;align-items:center;gap:0.75rem">
+          <h3 style="margin:0">Pipeline</h3>
+          <span id="pl-status-pill" class="job-status">Loading</span>
+        </div>
+        <div style="display:flex;gap:0.5rem">
+          <button class="btn btn-ghost btn-sm" id="pl-pause-btn" onclick="togglePipelinePause()">Pause</button>
+          <button class="btn btn-primary btn-sm" id="pl-run-now-btn" onclick="pipelineRunNow()">Run Now</button>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.5rem;font-size:0.85rem">
+        <div><span class="text-muted">Mode</span><br><strong id="pl-mode">--</strong></div>
+        <div><span class="text-muted">Last Scan</span><br><strong id="pl-last-scan">--</strong></div>
+        <div><span class="text-muted">Next Scan</span><br><strong id="pl-next-scan">--</strong></div>
+        <div><span class="text-muted">Source Files</span><br><strong id="pl-total-files">--</strong></div>
+        <div><span class="text-muted">Pending</span><br><strong id="pl-pending">--</strong></div>
+        <div><span class="text-muted">Interval</span><br><strong id="pl-interval">--</strong></div>
+      </div>
+    </div>
+
     <!-- Lifecycle scan status bar -->
     <div id="lifecycle-scan-bar" class="lifecycle-scan-status">
       <span id="lsb-icon">&#128269;</span>
@@ -210,6 +232,74 @@
   let activeJobId = null;
   let eventSource = null;
   let totalPending = 0;
+
+  // ── Pipeline controls ──────────────────────────────────────────────────────
+  let _plPaused = false;
+
+  async function loadPipelineStatus() {
+    try {
+      const data = await API.get('/api/pipeline/status');
+      _plPaused = data.paused;
+
+      // Status pill
+      const pill = document.getElementById('pl-status-pill');
+      if (!data.pipeline_enabled) {
+        pill.textContent = 'Disabled'; pill.className = 'job-status cancelled';
+      } else if (data.paused) {
+        pill.textContent = 'Paused'; pill.className = 'job-status paused';
+      } else if (data.is_scan_running) {
+        pill.textContent = 'Scanning'; pill.className = 'job-status scanning';
+      } else {
+        pill.textContent = 'Active'; pill.className = 'job-status completed';
+      }
+
+      // Pause button label
+      document.getElementById('pl-pause-btn').textContent = data.paused ? 'Resume' : 'Pause';
+
+      // Stats
+      const modeLabels = { off: 'Off', immediate: 'Immediate', queued: 'Queued', scheduled: 'Scheduled' };
+      document.getElementById('pl-mode').textContent = modeLabels[data.auto_convert_mode] || data.auto_convert_mode;
+      document.getElementById('pl-interval').textContent = data.scanner_interval_minutes + ' min';
+      document.getElementById('pl-total-files').textContent = (data.total_source_files || 0).toLocaleString();
+      document.getElementById('pl-pending').textContent = (data.pending_conversion || 0).toLocaleString();
+
+      if (data.last_scan && data.last_scan.finished_at) {
+        const d = new Date(data.last_scan.finished_at);
+        document.getElementById('pl-last-scan').textContent = d.toLocaleTimeString();
+      } else {
+        document.getElementById('pl-last-scan').textContent = 'Never';
+      }
+      if (data.next_scan) {
+        const d = new Date(data.next_scan);
+        document.getElementById('pl-next-scan').textContent = d.toLocaleTimeString();
+      } else {
+        document.getElementById('pl-next-scan').textContent = '--';
+      }
+    } catch (e) {
+      document.getElementById('pl-status-pill').textContent = 'Error';
+      document.getElementById('pl-status-pill').className = 'job-status failed';
+    }
+  }
+
+  async function togglePipelinePause() {
+    const endpoint = _plPaused ? '/api/pipeline/resume' : '/api/pipeline/pause';
+    try {
+      await API.post(endpoint);
+      await loadPipelineStatus();
+    } catch (e) { showToast('Failed: ' + e.message, 'error'); }
+  }
+
+  async function pipelineRunNow() {
+    try {
+      await API.post('/api/pipeline/run-now');
+      showToast('Pipeline cycle triggered', 'success');
+      setTimeout(loadPipelineStatus, 2000);
+    } catch (e) { showToast('Failed: ' + e.message, 'error'); }
+  }
+
+  // Refresh pipeline status every 30 seconds
+  loadPipelineStatus();
+  setInterval(loadPipelineStatus, 30000);
 
   // Active workers state
   const activeWorkers = {};
