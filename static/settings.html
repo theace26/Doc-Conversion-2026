@@ -575,6 +575,23 @@
         </div>
       </div>
 
+      <!-- File Flagging section -->
+      <div class="section-title">File Flagging</div>
+      <div class="card">
+        <div class="form-group">
+          <label for="pref-flag_default_expiry_days">Default flag expiry (days)</label>
+          <input type="number" id="pref-flag_default_expiry_days" data-key="flag_default_expiry_days" min="1" max="365">
+          <span class="hint">How long flagged files stay hidden before auto-expiry.</span>
+          <div class="inline-error" id="err-flag_default_expiry_days"></div>
+        </div>
+        <div class="form-group">
+          <label for="pref-flag_webhook_url">Flag webhook URL</label>
+          <input type="url" id="pref-flag_webhook_url" data-key="flag_webhook_url" placeholder="https://hooks.example.com/markflow-flags">
+          <span class="hint">Receives POST notifications for all flag events. Leave blank to disable.</span>
+          <div class="inline-error" id="err-flag_webhook_url"></div>
+        </div>
+      </div>
+
       <!-- Auto-Conversion section -->
       <div class="section-title" data-help="auto-conversion">Auto-Conversion</div>
       <div class="card">
