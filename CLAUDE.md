@@ -26,11 +26,22 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.14.0
+## Current Status — v0.14.1
 
-v0.14.0: Automated conversion pipeline. The lifecycle scanner is now the sole
-trigger for conversion — when it detects new or changed files, it automatically
-spins up bulk conversion. New `pipeline_enabled` master toggle and
+v0.14.1: Health-gated startup + pipeline watchdog. Startup no longer does an
+immediate force-scan; instead `core/pipeline_startup.py` waits the configured
+delay (default 5 min), polls health checks, and only triggers the first scan
+once critical services (DB, disk) pass. Preferred services (Meilisearch,
+Tesseract, LibreOffice) produce warnings but do not block. New pipeline
+watchdog in `scheduler.py` logs WARN hourly and ERROR daily when the pipeline
+is disabled, then auto-re-enables after `pipeline_auto_reset_days` (default 3).
+Pipeline status API now includes `disabled_info` with auto-reset countdown.
+Bulk page shows a disabled warning banner. New preferences:
+`pipeline_startup_delay_minutes`, `pipeline_auto_reset_days`.
+
+Previous (v0.14.0): Automated conversion pipeline. The lifecycle scanner is now
+the sole trigger for conversion — when it detects new or changed files, it
+automatically spins up bulk conversion. New `pipeline_enabled` master toggle and
 `pipeline_max_files_per_run` cap. Pipeline API (`/api/pipeline/status`,
 `pause`, `resume`, `run-now`). Pipeline status card on Bulk page with
 live refresh. Pipeline settings section on Settings page.
@@ -145,6 +156,7 @@ Critical files to know:
 | `core/progress_tracker.py` | RollingWindowETA, ProgressSnapshot, format_eta for all job types |
 | `core/log_archiver.py` | Compress rotated logs to gzip archives, purge old archives |
 | `core/auto_converter.py` | Auto-conversion decision engine |
+| `core/pipeline_startup.py` | Health-gated startup: waits for services, triggers initial scan+convert |
 | `core/storage_probe.py` | Storage latency probe: auto-detects SSD/HDD/NAS for scan parallelism |
 | `formats/rtf_handler.py` | RTF ingest/export with control-word parser |
 | `formats/html_handler.py` | HTML/HTM with BeautifulSoup, font extraction |
@@ -193,6 +205,8 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **Lifecycle scan yields to bulk jobs**: `run_lifecycle_scan()` checks `get_all_active_jobs()` and skips if any bulk job is scanning/running/paused. Prevents "database is locked" contention.
 - **Pipeline has two pause layers**: `pipeline_enabled` (persistent DB preference, survives restarts) and `_pipeline_paused` (in-memory in `scheduler.py`, resets on restart). Scheduler checks both before lifecycle scans. "Run Now" bypasses both.
 - **pipeline_max_files_per_run caps batch size**: Applied in `_execute_auto_conversion()`. Overrides auto-conversion engine's batch size decision (takes minimum). 0 = no cap.
+- **Pipeline startup is health-gated**: `pipeline_startup.py` waits the configured delay then polls health checks. Critical services (DB, disk) must pass; preferred services (Meilisearch, Tesseract, LibreOffice) produce warnings but don't block. Max additional wait: 3 minutes of retries.
+- **Pipeline watchdog auto-reset**: When pipeline is disabled, `_pipeline_watchdog()` in `scheduler.py` logs hourly WARNINGs and daily ERRORs. After `pipeline_auto_reset_days` (default 3), it auto-re-enables. `pipeline_disabled_at` preference tracks the timestamp.
 - **Stop is cooperative**: Workers finish current file before stopping
 - **Password handling**: Preprocessing step before `handler.ingest()`, not a handler change
 - **MCP server is separate**: Port 8001, own process, no JWT auth (uses `MCP_AUTH_TOKEN`)

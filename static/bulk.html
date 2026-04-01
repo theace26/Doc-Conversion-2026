@@ -60,6 +60,10 @@
         <div><span class="text-muted">Pending</span><br><strong id="pl-pending">--</strong></div>
         <div><span class="text-muted">Interval</span><br><strong id="pl-interval">--</strong></div>
       </div>
+      <!-- Pipeline disabled warning -->
+      <div id="pl-disabled-warning" style="margin-top:0.75rem;padding:0.75rem 1rem;background:rgba(220,38,38,0.08);border:1px solid var(--error);border-radius:var(--radius);color:var(--error);font-size:0.85rem" hidden>
+        <strong>Pipeline is disabled.</strong> <span id="pl-disabled-msg"></span>
+      </div>
     </div>
 
     <!-- Lifecycle scan status bar -->
@@ -274,6 +278,15 @@
         document.getElementById('pl-next-scan').textContent = d.toLocaleTimeString();
       } else {
         document.getElementById('pl-next-scan').textContent = '--';
+      }
+
+      // Disabled warning
+      const warnEl = document.getElementById('pl-disabled-warning');
+      if (data.disabled_info) {
+        document.getElementById('pl-disabled-msg').textContent = data.disabled_info.message;
+        warnEl.hidden = false;
+      } else {
+        warnEl.hidden = true;
       }
     } catch (e) {
       document.getElementById('pl-status-pill').textContent = 'Error';

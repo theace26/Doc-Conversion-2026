@@ -176,6 +176,112 @@ async def run_stale_data_check() -> None:
         log.error("scheduler.stale_check_failed", error=str(exc))
 
 
+async def _pipeline_watchdog() -> None:
+    """Periodic check: warn loudly when pipeline is disabled, auto-reset after N days.
+
+    This job runs every hour. When the pipeline is off:
+    - Logs a WARNING every hour (visible in Grafana/Loki)
+    - Logs an ERROR once per day (ensures alerting rules fire)
+    - Tracks when it was disabled via `pipeline_disabled_at` preference
+    - Auto-re-enables after `pipeline_auto_reset_days` (default 3)
+    """
+    try:
+        from core.database import get_preference, set_preference
+
+        pipeline_enabled = await get_preference("pipeline_enabled")
+        if pipeline_enabled != "false":
+            # Pipeline is on — clear any stale disabled_at timestamp
+            disabled_at = await get_preference("pipeline_disabled_at")
+            if disabled_at:
+                await set_preference("pipeline_disabled_at", "")
+            return
+
+        # Pipeline is OFF — record when it was first disabled
+        disabled_at_str = await get_preference("pipeline_disabled_at")
+        now = datetime.now()
+
+        if not disabled_at_str:
+            # First detection — record timestamp
+            await set_preference("pipeline_disabled_at", now.isoformat())
+            disabled_at_str = now.isoformat()
+            log.error(
+                "pipeline.disabled",
+                message=(
+                    "PIPELINE IS DISABLED. MarkFlow is not scanning or converting files. "
+                    "This is not the intended operating state. The pipeline will auto-reset "
+                    "to enabled after the configured timeout. Check logs for the reason."
+                ),
+                disabled_at=disabled_at_str,
+            )
+            return
+
+        # Parse when it was disabled
+        try:
+            disabled_at = datetime.fromisoformat(disabled_at_str)
+        except ValueError:
+            disabled_at = now
+            await set_preference("pipeline_disabled_at", now.isoformat())
+
+        elapsed_hours = (now - disabled_at).total_seconds() / 3600
+        auto_reset_days = int(await get_preference("pipeline_auto_reset_days") or "3")
+        auto_reset_hours = auto_reset_days * 24
+        remaining_hours = max(0, auto_reset_hours - elapsed_hours)
+
+        # Check if it's time to auto-reset
+        if elapsed_hours >= auto_reset_hours:
+            await set_preference("pipeline_enabled", "true")
+            await set_preference("pipeline_disabled_at", "")
+            log.warning(
+                "pipeline.auto_reset",
+                message=(
+                    f"Pipeline was disabled for {auto_reset_days} days. "
+                    "Auto-resetting to ENABLED. If a real problem exists, "
+                    "it will surface in conversion logs."
+                ),
+                disabled_duration_hours=round(elapsed_hours, 1),
+            )
+            # Record activity event
+            try:
+                from core.metrics_collector import record_activity_event
+                await record_activity_event(
+                    "pipeline_auto_reset",
+                    f"Pipeline auto-reset after {auto_reset_days} days disabled",
+                )
+            except Exception:
+                pass
+            return
+
+        # Still disabled — log warnings
+        # ERROR once per day (at hour boundaries divisible by 24)
+        if int(elapsed_hours) > 0 and int(elapsed_hours) % 24 == 0:
+            log.error(
+                "pipeline.disabled_critical",
+                message=(
+                    f"PIPELINE HAS BEEN DISABLED FOR {int(elapsed_hours)} HOURS. "
+                    f"Auto-reset in {int(remaining_hours)} hours. "
+                    "MarkFlow is NOT scanning or converting files."
+                ),
+                disabled_at=disabled_at_str,
+                elapsed_hours=round(elapsed_hours, 1),
+                auto_reset_in_hours=round(remaining_hours, 1),
+            )
+        else:
+            # WARNING every hour
+            log.warning(
+                "pipeline.disabled_reminder",
+                message=(
+                    f"Pipeline disabled for {int(elapsed_hours)}h. "
+                    f"Auto-reset in {int(remaining_hours)}h. "
+                    "No scanning or conversion is running."
+                ),
+                disabled_at=disabled_at_str,
+                elapsed_hours=round(elapsed_hours, 1),
+                auto_reset_in_hours=round(remaining_hours, 1),
+            )
+    except Exception as exc:
+        log.error("pipeline.watchdog_failed", error=str(exc))
+
+
 async def _run_deferred_conversions() -> None:
     """Check for deferred auto-conversion jobs and start them if in-window.
 
@@ -347,8 +453,18 @@ def start_scheduler() -> None:
         misfire_grace_time=300,
     )
 
+    # v0.14.0: Pipeline watchdog — hourly check for disabled state + auto-reset
+    scheduler.add_job(
+        _pipeline_watchdog,
+        trigger=IntervalTrigger(hours=1),
+        id="pipeline_watchdog",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
     scheduler.start()
-    log.info("scheduler.started", jobs=11)
+    log.info("scheduler.started", jobs=12)
 
 
 def get_pipeline_status() -> dict:
@@ -374,6 +490,7 @@ def get_scheduler_status() -> dict:
         "purge_old_metrics": "metrics_purge_next",
         "auto_metrics_aggregation": "auto_metrics_aggregation_next",
         "deferred_conversion_runner": "deferred_conversion_next",
+        "pipeline_watchdog": "pipeline_watchdog_next",
         "log_archive": "log_archive_next",
     }
     for job_id, key in job_names.items():

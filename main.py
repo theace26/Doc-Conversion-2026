@@ -130,16 +130,19 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         log.warning("markflow.gpu_detection_failed", error=str(exc))
 
-    # Phase 9: Start scheduler and run initial lifecycle scan
-    from core.scheduler import start_scheduler, stop_scheduler, run_lifecycle_scan
-    from core.metrics_collector import collect_disk_snapshot, record_activity_event
+    # Phase 9: Start scheduler + health-gated initial pipeline cycle
+    from core.scheduler import start_scheduler, stop_scheduler
+    from core.metrics_collector import record_activity_event
     try:
         start_scheduler()
-        # Run one immediate scan on startup (regardless of business hours)
+
+        # Health-gated pipeline startup: waits for services, then runs
+        # initial scan+convert+index. Runs as background task so the app
+        # starts serving immediately (health endpoint, UI, API all available).
         import asyncio
-        asyncio.create_task(run_lifecycle_scan(force=True))
-        # Fire initial disk snapshot so Resources page has data on first load
-        asyncio.create_task(collect_disk_snapshot())
+        from core.pipeline_startup import wait_for_health_and_start_pipeline
+        asyncio.create_task(wait_for_health_and_start_pipeline())
+
         # Record startup event
         await record_activity_event("startup", "MarkFlow started", {
             "version": __version__,

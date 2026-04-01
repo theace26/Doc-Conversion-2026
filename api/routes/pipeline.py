@@ -8,6 +8,7 @@ POST /api/pipeline/run-now  -- Trigger immediate scan+convert cycle
 """
 
 import asyncio
+from datetime import datetime
 
 import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends
@@ -52,7 +53,7 @@ async def pipeline_status(
     )
     is_scan_running = bool(running_row)
 
-    # Pending files count (files discovered but not yet converted)
+    # Pending files count
     pending_row = await db_fetch_one(
         "SELECT COUNT(*) as cnt FROM source_files WHERE lifecycle_status = 'active'"
     )
@@ -64,6 +65,38 @@ async def pipeline_status(
     last_auto_run = await db_fetch_one(
         "SELECT * FROM auto_conversion_runs ORDER BY started_at DESC LIMIT 1"
     )
+
+    # Disabled-state info (for alerting UI)
+    disabled_info = None
+    if pipeline_enabled == "false":
+        disabled_at_str = await get_preference("pipeline_disabled_at") or ""
+        auto_reset_days = int(await get_preference("pipeline_auto_reset_days") or "3")
+        if disabled_at_str:
+            try:
+                disabled_at = datetime.fromisoformat(disabled_at_str)
+                elapsed_hours = (datetime.now() - disabled_at).total_seconds() / 3600
+                remaining_hours = max(0, auto_reset_days * 24 - elapsed_hours)
+                disabled_info = {
+                    "disabled_at": disabled_at_str,
+                    "elapsed_hours": round(elapsed_hours, 1),
+                    "auto_reset_in_hours": round(remaining_hours, 1),
+                    "auto_reset_days": auto_reset_days,
+                    "message": (
+                        f"Pipeline disabled {int(elapsed_hours)}h ago. "
+                        f"Will auto-reset in {int(remaining_hours)}h. "
+                        "No scanning or conversion is running."
+                    ),
+                }
+            except ValueError:
+                disabled_info = {
+                    "disabled_at": None,
+                    "message": "Pipeline is disabled. Auto-reset timer not started.",
+                }
+        else:
+            disabled_info = {
+                "disabled_at": None,
+                "message": "Pipeline is disabled. Watchdog will start tracking shortly.",
+            }
 
     return {
         "pipeline_enabled": pipeline_enabled == "true",
@@ -94,6 +127,7 @@ async def pipeline_status(
             "batch_size_chosen": last_auto_run.get("batch_size_chosen"),
             "reason": last_auto_run.get("reason"),
         } if last_auto_run else None,
+        "disabled_info": disabled_info,
     }
 
 

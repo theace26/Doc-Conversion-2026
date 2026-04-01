@@ -578,6 +578,20 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 - **pipeline_max_files_per_run caps batch size**: Applied in `_execute_auto_conversion()` in `lifecycle_scanner.py`. If set to a positive number, it overrides the auto-conversion engine's batch size decision (takes the minimum). 0 = no cap.
 
+- **Pipeline startup is health-gated**: `core/pipeline_startup.py` replaces the old immediate
+  force-scan at boot. After the configured `pipeline_startup_delay_minutes` delay (default 5 min),
+  it polls health checks. Critical services (DB, disk) must pass; preferred services (Meilisearch,
+  Tesseract, LibreOffice) produce warnings but do not block the first scan. Max additional retry
+  window: 3 minutes. If critical services never pass, the startup task logs an ERROR and aborts
+  without triggering a scan.
+
+- **Pipeline watchdog auto-reset**: When the pipeline is disabled, `_pipeline_watchdog()` in
+  `scheduler.py` runs hourly. It logs WARN every hour and ERROR every 24h. After
+  `pipeline_auto_reset_days` days (default 3), it auto-re-enables the pipeline and clears the
+  `pipeline_disabled_at` preference. This is a self-healing safeguard — operators don't need to
+  remember to re-enable after maintenance. `pipeline_disabled_at` is set whenever the pipeline is
+  disabled and read by the watchdog to compute the reset deadline.
+
 ## Container & Dependencies
 
 - **Debian trixie package name**: `libgdk-pixbuf-2.0-0` (not `libgdk-pixbuf2.0-0`).

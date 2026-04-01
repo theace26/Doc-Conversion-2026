@@ -5,7 +5,7 @@ Drop in files — or point it at an entire repository — and MarkFlow handles t
 format detection, OCR, password recovery, media transcription, full-text search,
 and version tracking. Everything runs inside Docker with a browser-based UI.
 
-**Current version:** v0.14.0
+**Current version:** v0.14.1
 
 ---
 
@@ -52,6 +52,7 @@ Media files produce timestamped transcripts. Archives are recursively extracted 
 - Fully automated scan-convert-index cycle — lifecycle scanner detects new/modified files and triggers bulk conversion automatically
 - Pipeline API for status, pause, resume, and on-demand runs
 - Configurable scan interval, worker count, and per-cycle file caps
+- Health-gated startup — waits for services before first scan, self-heals if pipeline is accidentally disabled
 - Designed for headless deployment — runs unattended with self-healing DB maintenance
 
 ### Intelligent Bulk Processing

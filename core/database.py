@@ -92,6 +92,8 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     # Pipeline (v0.14.0)
     "pipeline_enabled": "true",
     "pipeline_max_files_per_run": "0",
+    "pipeline_startup_delay_minutes": "5",
+    "pipeline_auto_reset_days": "3",
     # Scan parallelism (v0.13.1)
     "scan_max_threads": "auto",
     # Transcription (v0.13.0)

@@ -500,6 +500,20 @@
           <p class="hint">Cap on files converted per cycle. Overrides auto-conversion batch size if lower. 0 = no cap.</p>
           <div class="inline-error" id="err-pipeline_max_files_per_run"></div>
         </div>
+
+        <div class="form-group">
+          <label for="pref-pipeline_startup_delay_minutes">Startup delay (minutes)</label>
+          <input type="number" id="pref-pipeline_startup_delay_minutes" data-key="pipeline_startup_delay_minutes" min="1" max="30">
+          <p class="hint">Minimum wait after deployment before the first scan cycle. Services are health-checked after this delay.</p>
+          <div class="inline-error" id="err-pipeline_startup_delay_minutes"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-pipeline_auto_reset_days">Auto-reset if disabled (days)</label>
+          <input type="number" id="pref-pipeline_auto_reset_days" data-key="pipeline_auto_reset_days" min="1" max="30">
+          <p class="hint">If the pipeline is disabled, it auto-re-enables after this many days. Errors logged hourly while disabled.</p>
+          <div class="inline-error" id="err-pipeline_auto_reset_days"></div>
+        </div>
       </div>
 
       <!-- Auto-Conversion section -->

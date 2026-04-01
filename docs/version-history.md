@@ -4,6 +4,45 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.14.1 — Health-Gated Startup + Pipeline Watchdog (2026-03-31)
+
+**New features:**
+- **Health-gated startup** — `core/pipeline_startup.py` replaces the old immediate force-scan at
+  boot. On startup, the pipeline waits the configured delay (`pipeline_startup_delay_minutes`,
+  default 5), then polls health checks before triggering the first scan+convert cycle. Critical
+  services (DB, disk) must pass; preferred services (Meilisearch, Tesseract, LibreOffice) produce
+  warnings but do not block. Max additional wait: 3 minutes of retries.
+- **Pipeline watchdog** — `_pipeline_watchdog()` in `scheduler.py` runs hourly when the pipeline is
+  disabled. Logs WARN every hour and ERROR every 24h. After `pipeline_auto_reset_days` (default 3),
+  it auto-re-enables the pipeline and clears `pipeline_disabled_at`.
+- **`disabled_info` in pipeline status API** — `GET /api/pipeline/status` now includes
+  `disabled_info` with the disabled timestamp and auto-reset countdown (days/hours remaining).
+- **Disabled warning banner on Bulk page** — `static/bulk.html` shows a dismissible banner when the
+  pipeline is disabled, including the auto-reset countdown.
+- New preferences: `pipeline_startup_delay_minutes` (default 5), `pipeline_auto_reset_days`
+  (default 3), `pipeline_disabled_at` (auto-set timestamp when pipeline is disabled).
+
+**Modified files:**
+- `core/pipeline_startup.py` — new file: health-gated startup task
+- `core/scheduler.py` — `_pipeline_watchdog()` job, sets/clears `pipeline_disabled_at`
+- `core/database.py` — added `pipeline_startup_delay_minutes`, `pipeline_auto_reset_days`,
+  `pipeline_disabled_at` default preferences
+- `api/routes/pipeline.py` — `disabled_info` field in status response
+- `main.py` — launch `pipeline_startup.py` background task instead of immediate force-scan
+- `static/bulk.html` — disabled warning banner with auto-reset countdown
+- `static/settings.html` — pipeline startup delay and auto-reset days inputs
+- `core/version.py` — bumped to 0.14.1
+
+**Design notes:**
+- Startup delay prevents race conditions where the first scan fires before NAS mounts or
+  Meilisearch finishes initializing.
+- Watchdog auto-reset is a self-healing safeguard — if an operator accidentally disables the
+  pipeline and forgets, it recovers automatically after N days without manual intervention.
+- `pipeline_disabled_at` is set by the disable/pause path and cleared on re-enable; the watchdog
+  reads it to compute the auto-reset deadline.
+
+---
+
 ## v0.14.0 — Automated Conversion Pipeline (2026-03-31)
 
 **New features:**
