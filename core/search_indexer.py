@@ -40,6 +40,7 @@ DOCUMENTS_INDEX_SETTINGS = {
         "relative_path_prefix",
         "enrichment_level",
         "vision_provider",
+        "is_flagged",
     ],
     "sortableAttributes": [
         "converted_at",
@@ -51,7 +52,7 @@ DOCUMENTS_INDEX_SETTINGS = {
         "output_path", "source_path", "content_preview", "headings",
         "frame_descriptions", "fidelity_tier", "has_ocr", "converted_at",
         "file_size_bytes", "job_id", "enrichment_level", "vision_provider",
-        "scene_count",
+        "scene_count", "is_flagged",
     ],
     "rankingRules": [
         "words", "typo", "proximity", "attribute", "sort", "exactness",
@@ -60,22 +61,23 @@ DOCUMENTS_INDEX_SETTINGS = {
 
 TRANSCRIPTS_INDEX_SETTINGS = {
     "searchableAttributes": ["title", "raw_text", "language", "source_path"],
-    "filterableAttributes": ["source_format", "engine", "language"],
+    "filterableAttributes": ["source_format", "engine", "language", "is_flagged"],
     "sortableAttributes": ["duration_seconds", "word_count", "created_at"],
     "displayedAttributes": [
         "id", "title", "raw_text", "source_path", "source_format",
         "duration_seconds", "engine", "whisper_model", "language",
-        "word_count", "created_at",
+        "word_count", "created_at", "is_flagged",
     ],
 }
 
 ADOBE_INDEX_SETTINGS = {
     "searchableAttributes": ["title", "text_content", "source_filename", "keywords"],
-    "filterableAttributes": ["file_ext", "creator", "job_id"],
+    "filterableAttributes": ["file_ext", "creator", "job_id", "is_flagged"],
     "sortableAttributes": ["indexed_at"],
     "displayedAttributes": [
         "id", "source_filename", "file_ext", "source_path", "title",
         "creator", "keywords", "text_preview", "indexed_at", "job_id",
+        "is_flagged",
     ],
 }
 
@@ -133,6 +135,21 @@ class SearchIndexer:
         await self.client.update_index_settings("transcripts", TRANSCRIPTS_INDEX_SETTINGS)
 
         log.info("meilisearch_indexes_ready")
+
+    @staticmethod
+    async def _get_source_file_size(source_path: str, fallback_path: Path) -> int:
+        """Get original source file size from DB. Falls back to output file size."""
+        if source_path:
+            row = await db_fetch_one(
+                "SELECT file_size_bytes FROM source_files WHERE source_path = ?",
+                (source_path,),
+            )
+            if row and row["file_size_bytes"]:
+                return row["file_size_bytes"]
+        try:
+            return fallback_path.stat().st_size
+        except OSError:
+            return 0
 
     async def index_document(self, md_path: Path, job_id: str = "") -> bool:
         """
@@ -205,12 +222,22 @@ class SearchIndexer:
             "fidelity_tier": markflow_meta.get("fidelity_tier", 1),
             "has_ocr": markflow_meta.get("ocr_applied", False),
             "converted_at": markflow_meta.get("converted_at", ""),
-            "file_size_bytes": md_path.stat().st_size,
+            "file_size_bytes": await self._get_source_file_size(source_path, md_path),
             "job_id": job_id,
             "scene_count": scene_count,
             "enrichment_level": enrichment_level,
             "vision_provider": vision_provider,
         }
+
+        # Check if file is flagged
+        is_flagged = False
+        if source_path:
+            try:
+                from core.flag_manager import is_file_flagged_by_path
+                is_flagged = await is_file_flagged_by_path(source_path)
+            except Exception:
+                pass
+        doc["is_flagged"] = is_flagged
 
         task_uid = await self.client.add_documents("documents", [doc])
         return task_uid is not None
