@@ -30,7 +30,7 @@ _ALLOWED_SORT_COLUMNS = {
 # ── Meilisearch sync ────────────────────────────────────────────────────────
 
 async def _sync_is_flagged(
-    source_file_id: int, force_value: bool | None = None
+    source_file_id: str, force_value: bool | None = None
 ) -> None:
     """Update the ``is_flagged`` field in all Meilisearch indexes.
 
@@ -138,7 +138,7 @@ async def _fire_webhook(
 # ── Flag CRUD ────────────────────────────────────────────────────────────────
 
 async def create_flag(
-    source_file_id: int,
+    source_file_id: str,
     reason: str,
     flagged_by_sub: str,
     flagged_by_email: str,
@@ -288,10 +288,11 @@ async def extend_flag(
         (expires_at, now, admin_email, resolution_note, flag_id),
     )
 
+    await _sync_is_flagged(flag["source_file_id"], force_value=True)
     log.info("flag_extended", flag_id=flag_id, days=days, admin=admin_email)
 
     updated = await get_flag(flag_id)
-    await _fire_webhook("flag_extended", updated, admin_email)
+    await _fire_webhook("flag_extended", updated, admin_email, "admin")
     return updated
 
 
@@ -518,7 +519,7 @@ async def expire_flags() -> int:
 
 # ── Flag check helpers ───────────────────────────────────────────────────────
 
-async def is_file_flagged(source_file_id: int) -> bool:
+async def is_file_flagged(source_file_id: str) -> bool:
     """Return True if the source file has any active or extended flag."""
     row = await db_fetch_one(
         "SELECT COUNT(*) AS cnt FROM file_flags "
