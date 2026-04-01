@@ -182,6 +182,138 @@
   <script src="/static/app.js"></script>
   <script src="/static/js/lifecycle-badge.js"></script>
   <script>
+  // ── Preview State ──────────────────────────────────────────────────────────
+  var previewEnabled = false;
+  var previewSize = 'medium';
+  var previewDelayMs = 400;
+  var previewTimer = null;
+  var previewCurrentId = null;
+  var previewCache = {};  // { "index|doc_id": docInfo }
+
+  // Load preview preferences at startup
+  (async function loadPreviewPrefs() {
+    try {
+      var data = await API.get('/api/preferences');
+      var p = data.preferences || {};
+      previewEnabled = p.preview_enabled === 'true';
+      previewSize = p.preview_size || 'medium';
+      previewDelayMs = parseInt(p.preview_delay_ms) || 400;
+      var popup = document.getElementById('preview-popup');
+      popup.className = 'preview-popup size-' + previewSize;
+    } catch(e) { /* defaults are fine */ }
+  })();
+
+  function clearPreviewBody() {
+    var body = document.getElementById('preview-body');
+    body.textContent = '';
+    body.style.height = '';
+    return body;
+  }
+
+  function makePreviewMessage(text, cls) {
+    var div = document.createElement('div');
+    div.className = cls;
+    div.textContent = text;
+    return div;
+  }
+
+  function showPreview(hit, anchorEl) {
+    if (!previewEnabled) return;
+    var key = (hit.source_index || 'documents') + '|' + hit.id;
+    previewCurrentId = key;
+
+    var popup = document.getElementById('preview-popup');
+    var body = clearPreviewBody();
+    document.getElementById('preview-title').textContent = hit.title || '';
+    document.getElementById('preview-badge').textContent = (hit.format || '').toUpperCase();
+
+    positionPreview(popup, anchorEl);
+
+    body.appendChild(makePreviewMessage('Loading preview\u2026', 'preview-loading'));
+    popup.classList.add('visible');
+
+    if (previewCache[key]) {
+      renderPreviewContent(previewCache[key], hit);
+      return;
+    }
+
+    var idx = hit.source_index || 'documents';
+    API.get('/api/search/doc-info/' + encodeURIComponent(idx) + '/' + encodeURIComponent(hit.id))
+      .then(function(info) {
+        previewCache[key] = info;
+        if (previewCurrentId === key) renderPreviewContent(info, hit);
+      })
+      .catch(function() {
+        if (previewCurrentId === key) {
+          var b = clearPreviewBody();
+          b.appendChild(makePreviewMessage('Cannot render preview', 'preview-unavailable'));
+        }
+      });
+  }
+
+  function renderPreviewContent(info, hit) {
+    var body = clearPreviewBody();
+    var popup = document.getElementById('preview-popup');
+    var headerH = popup.querySelector('.preview-header').offsetHeight;
+    var bodyH = popup.offsetHeight - headerH;
+    body.style.height = bodyH + 'px';
+
+    var idx = hit.source_index || 'documents';
+
+    if (info.can_inline) {
+      // PDFs, images, text — load source directly in sandboxed iframe
+      var iframe = document.createElement('iframe');
+      iframe.src = '/api/search/source/' + encodeURIComponent(idx) + '/' + encodeURIComponent(hit.id);
+      iframe.sandbox = 'allow-same-origin';
+      iframe.style.cssText = 'width:100%;height:100%;border:none;display:block';
+      body.appendChild(iframe);
+    } else if (info.has_markdown) {
+      // Load converted markdown as text preview
+      fetch('/api/search/view/' + encodeURIComponent(idx) + '/' + encodeURIComponent(hit.id))
+        .then(function(r) { return r.text(); })
+        .then(function(text) {
+          if (previewCurrentId !== (idx + '|' + hit.id)) return;
+          var div = document.createElement('div');
+          div.className = 'preview-markdown';
+          div.style.height = bodyH + 'px';
+          div.textContent = text.substring(0, 2000);
+          if (text.length > 2000) div.textContent += '\n\n... (truncated)';
+          body.textContent = '';
+          body.appendChild(div);
+        })
+        .catch(function() {
+          body.textContent = '';
+          body.appendChild(makePreviewMessage('Cannot render preview', 'preview-unavailable'));
+        });
+    } else {
+      body.appendChild(makePreviewMessage('Cannot render preview', 'preview-unavailable'));
+    }
+  }
+
+  function positionPreview(popup, anchorEl) {
+    var rect = anchorEl.getBoundingClientRect();
+    var pw = popup.offsetWidth || 480;
+    var ph = popup.offsetHeight || 360;
+
+    var left = rect.right + 12;
+    if (left + pw > window.innerWidth - 16) left = rect.left - pw - 12;
+    if (left < 8) left = 8;
+
+    var top = rect.top;
+    if (top + ph > window.innerHeight - 16) top = window.innerHeight - ph - 16;
+    if (top < 8) top = 8;
+
+    popup.style.left = left + 'px';
+    popup.style.top = top + 'px';
+  }
+
+  function hidePreview() {
+    clearTimeout(previewTimer);
+    previewTimer = null;
+    previewCurrentId = null;
+    document.getElementById('preview-popup').classList.remove('visible');
+  }
+
   // ── State ──────────────────────────────────────────────────────────────────
   var currentPage = 1;
   var currentSort = 'relevance';
@@ -453,6 +585,16 @@
 
       body.appendChild(link);
       row.appendChild(body);
+
+      // Hover preview (debounced)
+      (function(hitData, rowEl) {
+        rowEl.addEventListener('mouseenter', function() {
+          clearTimeout(previewTimer);
+          previewTimer = setTimeout(function() { showPreview(hitData, rowEl); }, previewDelayMs);
+        });
+        rowEl.addEventListener('mouseleave', function() { hidePreview(); });
+      })(hit, row);
+
       list.appendChild(row);
     });
 
@@ -727,6 +869,15 @@
       });
   }
   </script>
+
+<!-- Preview Popup -->
+<div id="preview-popup" class="preview-popup size-medium">
+  <div class="preview-header">
+    <span class="preview-title" id="preview-title"></span>
+    <span class="preview-badge" id="preview-badge"></span>
+  </div>
+  <div class="preview-body" id="preview-body"></div>
+</div>
 
 <!-- Flag File Modal -->
 <div id="flag-modal-backdrop" class="dialog-backdrop">

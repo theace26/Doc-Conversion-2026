@@ -325,6 +325,28 @@ _PREFERENCE_SCHEMA: dict[str, dict] = {
         "description": "Resource usage caution level. 0.3 = very conservative, 1.0 = full utilization.",
         "section": "auto_conversion",
     },
+    # ── Search Preview (v0.16.3) ──
+    "preview_enabled": {
+        "type": "toggle",
+        "label": "Hover Preview",
+        "description": "Show a preview popup when hovering over search results.",
+        "section": "search_preview",
+    },
+    "preview_size": {
+        "type": "select",
+        "options": ["small", "medium", "large"],
+        "label": "Preview Size",
+        "description": "Size of the hover preview popup.",
+        "section": "search_preview",
+    },
+    "preview_delay_ms": {
+        "type": "number",
+        "min": 100,
+        "max": 2000,
+        "label": "Preview Delay (ms)",
+        "description": "How long to hover before the preview appears. Lower = faster, higher = less accidental popups.",
+        "section": "search_preview",
+    },
     # ── Scan Performance ──
     "scan_max_threads": {
         "type": "select",

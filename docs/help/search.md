@@ -69,6 +69,7 @@ Each result shows:
 | **Path**           | Where the source file lives                               |
 | **Snippet**        | A highlighted excerpt showing where your keywords appear  |
 | **Date**           | When the file was converted                               |
+| **Hover preview**  | A popup showing file content when you hover (configurable) |
 
 Keywords in the snippet are highlighted so you can quickly see why each result matched.
 
@@ -185,9 +186,36 @@ If you see a search result for a file that has been deleted:
 The index is updated during lifecycle scans, so deleted files are eventually removed from search results.
 
 
+## Hover Preview
+
+When you hover over a search result, a preview popup appears showing the file content. This saves you from opening every result in a new tab just to check if it is the right file.
+
+### What the Preview Shows
+
+| File type | Preview content |
+|-----------|----------------|
+| PDF, images, text, HTML, CSV | The original source file rendered inline |
+| Word, PowerPoint, Excel, and other converted files | The first portion of the converted Markdown text |
+| Files without a preview | A "Cannot render preview" message |
+
+The preview appears after a short delay (default 400ms) so it does not pop up when you are simply scrolling past results. Move your mouse away from the result to dismiss it.
+
+### Preview Settings
+
+You can configure the preview from the Settings page under **Search Preview**:
+
+| Setting | Default | What It Does |
+|---------|---------|-------------|
+| Hover Preview | On | Enable or disable the preview popup entirely |
+| Preview size | Medium | Popup dimensions: Small, Medium, or Large |
+| Hover delay | 400ms | How long to hover before the preview appears |
+
+> **Tip:** If previews feel intrusive, increase the hover delay to 800ms or higher. If you want them faster, drop it to 200ms. You can also turn them off entirely.
+
+
 ## Search Settings
 
-There are no user-facing search settings to configure. Search works automatically once documents are converted. The following are managed by administrators:
+Search works automatically once documents are converted. The following are managed by administrators:
 
 | Setting                  | What it controls                                  | Managed by    |
 |--------------------------|---------------------------------------------------|---------------|

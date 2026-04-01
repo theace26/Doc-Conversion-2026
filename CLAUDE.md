@@ -26,9 +26,17 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.16.2
+## Current Status — v0.16.3
 
-v0.16.2: Streamlining audit complete (24/24 resolved) + search viewer UX fix.
+v0.16.3: Search hover preview. Hovering over a search result shows a preview
+popup of the file content. Smart hybrid strategy: inline source for PDFs/images/
+text (via sandboxed iframe), converted markdown text for other formats, snippet
+fallback when neither is available. User-configurable via Settings page:
+`preview_enabled` (on/off), `preview_size` (small/medium/large), `preview_delay_ms`
+(100-2000ms hover delay before popup appears). Preview cache avoids redundant
+API calls. Doc-info metadata fetched on hover to determine best preview strategy.
+
+Previous (v0.16.2): Streamlining audit complete (24/24 resolved) + search viewer UX fix.
 Search viewer back button now closes the tab (returning to search results)
 instead of navigating within the viewer tab. Final 3 streamlining items:
 **STR-05** — Split monolithic `database.py` (2,300 lines) into `core/db/` package

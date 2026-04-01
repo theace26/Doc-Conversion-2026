@@ -575,6 +575,35 @@
         </div>
       </div>
 
+      <!-- Search Preview section -->
+      <div class="section-title">Search Preview</div>
+      <div class="card">
+        <div class="form-group">
+          <label class="toggle">
+            <input type="checkbox" id="pref-preview_enabled" data-key="preview_enabled">
+            <span class="toggle-track"></span>
+            <span class="toggle-label" id="toggle-label-preview-enabled">OFF</span>
+          </label>
+          <span class="hint">Show a preview popup when hovering over search results.</span>
+        </div>
+        <div class="form-group">
+          <label for="pref-preview_size">Preview size</label>
+          <select id="pref-preview_size" data-key="preview_size">
+            <option value="small">Small</option>
+            <option value="medium">Medium</option>
+            <option value="large">Large</option>
+          </select>
+          <span class="hint">Dimensions of the hover preview popup.</span>
+          <div class="inline-error" id="err-preview_size"></div>
+        </div>
+        <div class="form-group">
+          <label for="pref-preview_delay_ms">Hover delay (ms): <output id="preview-delay-output">400</output></label>
+          <input type="range" id="pref-preview_delay_ms" data-key="preview_delay_ms" min="100" max="2000" step="50">
+          <span class="hint">How long to hover before the preview appears. Lower = faster.</span>
+          <div class="inline-error" id="err-preview_delay_ms"></div>
+        </div>
+      </div>
+
       <!-- File Flagging section -->
       <div class="section-title">File Flagging</div>
       <div class="card">
@@ -1338,6 +1367,28 @@
     cloudFallbackToggle.addEventListener('change', () => {
       document.getElementById('toggle-label-cloud-fallback').textContent = cloudFallbackToggle.checked ? 'ON' : 'OFF';
     });
+  }
+
+  // ── Search Preview toggle + slider ─────────────────────────────────────
+  const previewToggle = document.getElementById('pref-preview_enabled');
+  if (previewToggle) {
+    previewToggle.addEventListener('change', () => {
+      document.getElementById('toggle-label-preview-enabled').textContent = previewToggle.checked ? 'ON' : 'OFF';
+    });
+    // Set initial label once prefs are loaded
+    setTimeout(() => {
+      document.getElementById('toggle-label-preview-enabled').textContent = previewToggle.checked ? 'ON' : 'OFF';
+    }, 500);
+  }
+
+  const previewDelaySlider = document.getElementById('pref-preview_delay_ms');
+  if (previewDelaySlider) {
+    previewDelaySlider.addEventListener('input', () => {
+      document.getElementById('preview-delay-output').textContent = previewDelaySlider.value;
+    });
+    setTimeout(() => {
+      document.getElementById('preview-delay-output').textContent = previewDelaySlider.value || '400';
+    }, 500);
   }
 
   // ── Auto-Conversion conservatism slider ────────────────────────────────

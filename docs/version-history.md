@@ -4,6 +4,26 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.16.3 — Search Hover Preview (2026-04-01)
+
+**Search result hover preview:**
+- Hovering over a search result shows a preview popup of the file content after a
+  configurable delay (default 400ms). Smart hybrid strategy selects the best preview:
+  - **Inline-able files** (PDF, images, text, HTML, CSV) — rendered in a sandboxed iframe
+    via the existing `/api/search/source/` endpoint
+  - **Other converted files** — first 2000 characters of the converted markdown shown as
+    plain text via `/api/search/view/`
+  - **No preview available** — displays "Cannot render preview" message
+- Preview popup positioned to the right of the hovered result, flips left when near
+  viewport edge, clamped to stay on screen.
+- Client-side doc-info cache avoids redundant API calls on repeated hovers.
+- Three new user preferences (Settings > Search Preview):
+  - `preview_enabled` — toggle on/off (default: on)
+  - `preview_size` — small (320x240), medium (480x360), large (640x480)
+  - `preview_delay_ms` — hover delay before popup appears (100-2000ms, default: 400)
+
+---
+
 ## v0.16.2 — Streamlining Audit Complete + Search UX Fix (2026-04-01)
 
 **Search viewer back-button fix:**

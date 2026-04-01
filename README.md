@@ -5,7 +5,7 @@ Drop in files — or point it at an entire repository — and MarkFlow handles t
 format detection, OCR, password recovery, media transcription, full-text search,
 and version tracking. Everything runs inside Docker with a browser-based UI.
 
-**Current version:** v0.15.0
+**Current version:** v0.16.3
 
 ---
 
@@ -59,6 +59,7 @@ Media files produce timestamped transcripts. Archives are recursively extracted 
 - Adaptive scan parallelism — auto-detects storage type and adjusts thread count
 - Feedback-loop throttling — dynamically parks/restores workers based on real-time I/O latency
 - Error-rate monitoring — auto-aborts gracefully on NAS disconnects or cascading failures
+- Cloud file prefetch — background prefetch for cloud-synced directories (OneDrive, Google Drive, Nextcloud, Dropbox, iCloud, NAS tiered storage) with rate limiting and adaptive timeouts
 - Pause, resume, and cancel jobs at any time
 - Per-worker active file display with real-time SSE progress
 
@@ -86,6 +87,10 @@ Media files produce timestamped transcripts. Archives are recursively extracted 
 ### Search & Integration
 - Meilisearch full-text search across all documents, Adobe metadata, and transcripts
 - Search autocomplete with keyboard navigation
+- Hover preview — hover over search results to see file content without opening a new tab (configurable size and delay)
+- Document viewer with source/markdown toggle, inline PDF preview, and download
+- Faceted format filtering with clickable chips, sort by relevance/date/size/format
+- Batch download via multi-select checkboxes (creates ZIP)
 - MCP server (port 8001) exposes 10 tools to Claude.ai / Cowork
 - REST API with interactive docs at `/docs`
 - API key service accounts for programmatic access
@@ -97,6 +102,13 @@ Media files produce timestamped transcripts. Archives are recursively extracted 
 - Configurable structured logging (three levels: Normal, Elevated, Developer)
 - Log rotation with automatic gzip archiving (90-day retention)
 - In-app help wiki with 19 searchable articles and contextual help links
+
+### Content Moderation
+- Self-service file flagging — any authenticated user can suppress a file from search and download
+- Admin triage with three-action escalation: dismiss (restore), extend (keep suppressed), or remove (permanent blocklist)
+- Webhook notifications for all flag events
+- Hourly auto-expiry with configurable default expiry period
+- Blocklist enforcement during scanning — prevents re-indexing of removed files
 
 ### File Lifecycle
 - Scheduled scans detect new, modified, moved, and deleted source files
@@ -227,6 +239,12 @@ Adjust in **Settings** (`/settings.html`) or via the API. Key settings:
 | `scan_max_threads` | `auto` | Scan parallelism (auto-detected or manual) |
 | `retention_days` | `30` | Days before auto-cleanup of output files |
 | `log_level` | `normal` | Logging verbosity (normal / elevated / developer) |
+| `preview_enabled` | `true` | Show hover preview popup on search results |
+| `preview_size` | `medium` | Preview popup size (small / medium / large) |
+| `preview_delay_ms` | `400` | Hover delay before preview appears (100-2000ms) |
+| `cloud_prefetch_enabled` | `true` | Background prefetch for cloud-synced source files |
+| `flag_default_expiry_days` | `14` | Days before flagged files auto-expire |
+| `pipeline_enabled` | `true` | Master toggle for automated scan-convert pipeline |
 
 GPU acceleration, password recovery, transcription, and visual enrichment each have dedicated settings sections.
 

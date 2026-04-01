@@ -80,6 +80,10 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     "flag_default_expiry_days": "14",
     # Scan parallelism (v0.13.1)
     "scan_max_threads": "auto",
+    # Search preview (v0.16.3)
+    "preview_enabled": "true",
+    "preview_size": "medium",
+    "preview_delay_ms": "400",
     # Transcription (v0.13.0)
     "whisper_model": "base",
     "whisper_language": "auto",

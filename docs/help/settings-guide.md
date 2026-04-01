@@ -82,6 +82,18 @@ Control how much detail MarkFlow writes to its logs.
 
 > **Note:** Developer mode also enables frontend action tracking, which logs every button click and page navigation. Disable when not actively debugging.
 
+## Search Preview
+
+Configure the hover preview that appears when you hover over search results.
+
+| Setting | Default | What It Does |
+|---------|---------|-------------|
+| Hover Preview | On | Show or hide the preview popup on hover |
+| Preview size | Medium | Popup dimensions: Small (320x240), Medium (480x360), Large (640x480) |
+| Hover delay | 400ms | How long to hover before the preview appears (100-2000ms) |
+
+> **Tip:** If you find previews distracting, turn them off or increase the delay. If you want instant previews, set the delay to 100ms.
+
 ## File Lifecycle
 
 Configure automatic change detection and file management.
