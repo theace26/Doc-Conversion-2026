@@ -221,7 +221,7 @@
         <td>${formatBadge(r.source_format)}${mediaBadge}</td>
         <td>${statusBadge}</td>
         <td class="text-mono text-sm">${isMedia && mediaDuration ? mediaDuration : formatDuration(r.duration_ms)}</td>
-        <td class="text-sm">${formatDate(r.created_at)}</td>
+        <td class="text-sm">${formatLocalTime(r.created_at)}</td>
         <td>${ocrBadge}</td>
       </tr>
       <tr class="detail-row" id="detail-${r.id}">

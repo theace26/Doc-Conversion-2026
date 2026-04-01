@@ -10,13 +10,12 @@ import json
 from datetime import datetime, timedelta
 from typing import Optional
 
-import aiosqlite
 import psutil
 import structlog
 
 from core.database import get_preference, get_db, get_db_path
 
-logger = structlog.get_logger(__name__)
+log = structlog.get_logger(__name__)
 
 
 class AutoConvertDecision:
@@ -136,7 +135,7 @@ class AutoConversionEngine:
             raise ValueError(f"Invalid mode: {mode}. Must be one of {valid}")
         self._mode_override = mode
         self._override_expiry = datetime.now() + timedelta(minutes=duration_minutes)
-        logger.info(
+        log.info(
             "auto_convert_mode_override_set",
             override_mode=mode,
             expires_at=self._override_expiry.isoformat(),
@@ -148,7 +147,7 @@ class AutoConversionEngine:
         was = self._mode_override
         self._mode_override = None
         self._override_expiry = None
-        logger.info(
+        log.info(
             "auto_convert_mode_override_cleared",
             previous_mode=was,
         )
@@ -257,7 +256,7 @@ class AutoConversionEngine:
                     }
 
         except Exception as e:
-            logger.warning("auto_convert_historical_query_failed", error=str(e))
+            log.warning("auto_convert_historical_query_failed", error=str(e))
 
         return {
             "has_history": False,
@@ -355,7 +354,7 @@ class AutoConversionEngine:
         try:
             windows = json.loads(windows_json)
         except json.JSONDecodeError:
-            logger.warning("auto_convert_invalid_schedule_json", raw=windows_json)
+            log.warning("auto_convert_invalid_schedule_json", raw=windows_json)
             return False
 
         now = datetime.now()
@@ -491,9 +490,9 @@ class AutoConversionEngine:
             log_data["metrics_snapshot"] = decision.metrics_snapshot
 
         if decision.should_convert:
-            logger.info("auto_convert_decision", **log_data)
+            log.info("auto_convert_decision", **log_data)
         else:
-            logger.debug("auto_convert_decision", **log_data)
+            log.debug("auto_convert_decision", **log_data)
 
         # Persist to auto_conversion_runs table
         try:
@@ -525,7 +524,7 @@ class AutoConversionEngine:
                 )
                 await conn.commit()
         except Exception as e:
-            logger.warning("auto_convert_run_insert_failed", error=str(e))
+            log.warning("auto_convert_run_insert_failed", error=str(e))
 
 
 # ── Module-level singleton ─────────────────────────────────────

@@ -32,7 +32,7 @@ from core.database import (
 from core.logging_config import bind_batch_context, bind_file_context
 from core.metadata import generate_manifest, generate_sidecar
 import formats  # noqa: F401 — triggers handler self-registration
-from formats.base import get_handler_for_path
+from formats.base import get_handler_for_path, list_supported_extensions
 
 log = structlog.get_logger(__name__)
 
@@ -52,29 +52,9 @@ def _emit_event(batch_id: str, event: str, data: dict) -> None:
         except asyncio.QueueFull:
             pass  # drop event if queue is full (shouldn't happen)
 
-# Allowed extensions for upload
-ALLOWED_EXTENSIONS = {
-    # Office documents
-    ".docx", ".doc", ".pdf", ".pptx", ".xlsx", ".csv", ".tsv", ".rtf",
-    # OpenDocument
-    ".odt", ".ods", ".odp",
-    # Markdown & text
-    ".md", ".txt", ".log", ".text",
-    # Web & data
-    ".html", ".htm", ".xml", ".epub",
-    # Data & config
-    ".json", ".yaml", ".yml", ".ini", ".cfg", ".conf", ".properties",
-    # Email
-    ".eml", ".msg",
-    # Archives
-    ".zip", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2",
-    ".tar.xz", ".txz", ".7z", ".rar", ".cab", ".iso",
-    # Adobe creative suite
-    ".psd", ".ai", ".indd", ".aep", ".prproj", ".xd",
-    # Media (audio/video — indexed for metadata/scene detection)
-    ".mp3", ".mp4", ".mov", ".avi", ".mkv", ".wav", ".flac", ".ogg",
-    ".webm", ".m4a", ".m4v", ".wmv", ".aac", ".wma",
-}
+# Allowed extensions for upload — derived from handler registry so new formats
+# are automatically supported without maintaining a separate list.
+ALLOWED_EXTENSIONS = {"." + ext for ext in list_supported_extensions()}
 
 # Max file sizes (in bytes)
 DEFAULT_MAX_FILE_MB = int(os.getenv("MAX_UPLOAD_MB", "100"))

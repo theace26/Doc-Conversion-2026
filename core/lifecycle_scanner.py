@@ -12,6 +12,7 @@ Deletion and move detection queries source_files (deduplicated) to avoid
 overcounting from duplicate bulk_files rows across scan jobs.
 """
 
+import asyncio
 import hashlib
 import json
 import os
@@ -25,7 +26,8 @@ import structlog
 
 from core.stop_controller import should_stop
 from core.storage_probe import ErrorRateMonitor, ScanThrottler, probe_storage_latency
-from core.bulk_scanner import ALL_SUPPORTED, CONVERTIBLE_EXTENSIONS, ADOBE_EXTENSIONS
+from core.bulk_scanner import ALL_SUPPORTED, CONVERTIBLE_EXTENSIONS, ADOBE_EXTENSIONS, verify_source_mount
+from core.metrics_collector import record_activity_event
 from core.database import (
     create_scan_run,
     create_version_snapshot,
@@ -33,6 +35,7 @@ from core.database import (
     get_source_file_by_path,
     get_next_version_number,
     get_scan_run,
+    now_iso,
     update_bulk_file,
     update_scan_run,
     upsert_bulk_file,
@@ -110,21 +113,18 @@ async def run_lifecycle_scan(
         await create_scan_run(scan_run_id)
         await update_scan_run(scan_run_id, {
             "status": "failed",
-            "finished_at": _now_iso(),
+            "finished_at": now_iso(),
             "error_log": json.dumps([{"path": str(source_root), "error": "Source share not accessible"}]),
         })
         log.error("lifecycle_scan.source_unavailable", path=str(source_root))
         return scan_run_id
 
     # Verify the mount is actually populated (empty mountpoint = SMB not connected)
-    try:
-        with os.scandir(source_root) as it:
-            next(it)
-    except (StopIteration, PermissionError, OSError):
+    if not verify_source_mount(str(source_root)):
         await create_scan_run(scan_run_id)
         await update_scan_run(scan_run_id, {
             "status": "failed",
-            "finished_at": _now_iso(),
+            "finished_at": now_iso(),
             "error_log": json.dumps([{"path": str(source_root), "error": "Source mount is empty — not mounted?"}]),
         })
         log.error("lifecycle_scan.mount_not_ready", path=str(source_root),
@@ -156,7 +156,6 @@ async def run_lifecycle_scan(
     _scan_state["eta_seconds"] = None
 
     # Pre-count files for progress estimate
-    import asyncio
     try:
         total_estimate = await asyncio.wait_for(
             asyncio.to_thread(_count_files_sync, source_root),
@@ -169,7 +168,6 @@ async def run_lifecycle_scan(
 
     # Record activity event for scan start
     try:
-        from core.metrics_collector import record_activity_event
         await record_activity_event("lifecycle_scan_start", "Lifecycle scan started")
     except Exception:
         pass
@@ -189,7 +187,6 @@ async def run_lifecycle_scan(
             log.info("lifecycle_scan.created_synthetic_job", job_id=job_id)
 
     # ── Storage probe for adaptive parallelism ─────────────────────────────
-    import asyncio as _aio
     from core.database import get_preference as _get_pref
     max_threads_pref = await _get_pref("scan_max_threads") or "auto"
     if max_threads_pref == "auto":
@@ -226,14 +223,14 @@ async def run_lifecycle_scan(
     except Exception as exc:
         await update_scan_run(scan_run_id, {
             "status": "failed",
-            "finished_at": _now_iso(),
+            "finished_at": now_iso(),
             "errors": counters["errors"] + 1,
             "error_log": json.dumps(error_entries + [{"path": str(source_root), "error": str(exc)}]),
         })
         _scan_state["running"] = False
         _scan_state["current_file"] = None
         _scan_state["eta_seconds"] = None
-        _scan_state["last_scan_at"] = _now_iso()
+        _scan_state["last_scan_at"] = now_iso()
         _scan_state["last_scan_run_id"] = scan_run_id
         log.error("lifecycle_scan.walk_failed", error=str(exc))
         return scan_run_id
@@ -286,7 +283,7 @@ async def run_lifecycle_scan(
     # ── Finalize scan run ────────────────────────────────────────────────────
     await update_scan_run(scan_run_id, {
         "status": "complete",
-        "finished_at": _now_iso(),
+        "finished_at": now_iso(),
         "files_scanned": counters["files_scanned"],
         "files_new": counters["files_new"],
         "files_modified": counters["files_modified"],
@@ -303,7 +300,7 @@ async def run_lifecycle_scan(
     _scan_state["pct"] = None
     _scan_state["current_file"] = None
     _scan_state["eta_seconds"] = None
-    _scan_state["last_scan_at"] = _now_iso()
+    _scan_state["last_scan_at"] = now_iso()
     _scan_state["last_scan_run_id"] = scan_run_id
 
     elapsed_s = round((datetime.now(timezone.utc) - _started_at_dt).total_seconds(), 1)
@@ -315,7 +312,6 @@ async def run_lifecycle_scan(
 
     # Record activity event for scan end
     try:
-        from core.metrics_collector import record_activity_event
         await record_activity_event(
             "lifecycle_scan_end",
             f"Lifecycle scan: {counters['files_scanned']} files, {counters['files_new']} new, {counters['files_modified']} modified, {counters['files_deleted']} deleted",
@@ -508,7 +504,6 @@ async def _parallel_lifecycle_walk(
     baseline_ms: float = 1.0,
 ) -> None:
     """Parallel walk with feedback-loop throttling for NAS/SMB sources."""
-    import asyncio
     import time as _time
 
     throttler = ScanThrottler(baseline_ms=baseline_ms, max_threads=thread_count)
@@ -793,8 +788,6 @@ async def _execute_auto_conversion(
     Uses the existing BulkJob infrastructure — auto-conversion is just
     a programmatically-created bulk job with specific worker/batch settings.
     """
-    import asyncio as _asyncio
-
     from core.bulk_worker import BulkJob
     from core.database import create_bulk_job, get_db_path, get_preference
 
@@ -863,7 +856,7 @@ async def _execute_auto_conversion(
             await job.run()
         elif decision.mode in ("queued", "scheduled"):
             # Background task — scanner moves on
-            _asyncio.create_task(job.run())
+            asyncio.create_task(job.run())
 
     except Exception as exc:
         log.error(
@@ -873,5 +866,3 @@ async def _execute_auto_conversion(
         )
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()

@@ -17,6 +17,7 @@ from pathlib import Path
 import structlog
 
 from core.database import db_fetch_one
+from core.metrics_collector import record_activity_event
 from core.search_client import MeilisearchClient, get_meili_client
 from core.storage_probe import ErrorRateMonitor
 
@@ -380,7 +381,6 @@ class SearchIndexer:
 
         # Record activity event for index rebuild
         try:
-            from core.metrics_collector import record_activity_event
             total_indexed = status.documents_indexed + status.adobe_indexed
             desc = f"Meilisearch index rebuild: {total_indexed} documents"
             if error_monitor.aborted:

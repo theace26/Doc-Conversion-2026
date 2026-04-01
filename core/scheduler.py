@@ -12,6 +12,9 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 import structlog
 
+from core.database import get_preference, set_preference
+from core.metrics_collector import record_activity_event
+
 log = structlog.get_logger(__name__)
 
 scheduler = AsyncIOScheduler()
@@ -39,7 +42,6 @@ async def _is_business_hours_async() -> bool:
         return False
 
     try:
-        from core.database import get_preference
         start_str = await get_preference("scanner_business_hours_start") or "06:00"
         end_str = await get_preference("scanner_business_hours_end") or "22:00"
         start_hour, start_min = map(int, start_str.split(":"))
@@ -62,7 +64,6 @@ async def run_lifecycle_scan(force: bool = False) -> None:
     """
     if not force:
         # Pipeline master gate — if disabled, skip all scheduled scans
-        from core.database import get_preference
         pipeline_enabled = await get_preference("pipeline_enabled")
         if pipeline_enabled == "false":
             log.debug("scheduler.scan_skipped_pipeline_disabled")
@@ -80,7 +81,6 @@ async def run_lifecycle_scan(force: bool = False) -> None:
 
     try:
         # Check if scanner is enabled
-        from core.database import get_preference
         enabled = await get_preference("scanner_enabled")
         if enabled == "false" and not force:
             log.debug("scheduler.scan_disabled")
@@ -103,7 +103,7 @@ async def run_lifecycle_scan(force: bool = False) -> None:
 async def run_trash_expiry() -> None:
     """Move expired marked_for_deletion to trash, purge expired trash."""
     try:
-        from core.database import get_source_files_pending_trash, get_source_files_pending_purge, get_preference, db_fetch_all
+        from core.database import get_source_files_pending_trash, get_source_files_pending_purge, db_fetch_all
         from core.lifecycle_manager import move_to_trash, purge_file
 
         # Get configurable periods
@@ -152,7 +152,7 @@ async def run_db_compaction() -> None:
         from core.db_maintenance import run_compaction
         await run_compaction()
 
-        from core.metrics_collector import record_activity_event
+
         await record_activity_event("db_maintenance", "Scheduled DB maintenance (VACUUM/integrity check)")
     except Exception as exc:
         log.error("scheduler.compaction_failed", error=str(exc))
@@ -186,8 +186,6 @@ async def _pipeline_watchdog() -> None:
     - Auto-re-enables after `pipeline_auto_reset_days` (default 3)
     """
     try:
-        from core.database import get_preference, set_preference
-
         pipeline_enabled = await get_preference("pipeline_enabled")
         if pipeline_enabled != "false":
             # Pipeline is on — clear any stale disabled_at timestamp
@@ -242,7 +240,7 @@ async def _pipeline_watchdog() -> None:
             )
             # Record activity event
             try:
-                from core.metrics_collector import record_activity_event
+        
                 await record_activity_event(
                     "pipeline_auto_reset",
                     f"Pipeline auto-reset after {auto_reset_days} days disabled",
@@ -289,7 +287,6 @@ async def _run_deferred_conversions() -> None:
     conversion window and picks up any pending deferred runs.
     """
     try:
-        from core.database import get_preference
         mode = await get_preference("auto_convert_mode") or "off"
         if mode != "scheduled":
             return

@@ -13,13 +13,13 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from sqlite3 import OperationalError
 from typing import Any
 
 import structlog
 
 from core.progress_tracker import RollingWindowETA, ETA_UPDATE_INTERVAL, format_eta
 from core.stop_controller import should_stop, register_task, unregister_task
+from core.metrics_collector import record_activity_event
 from core.storage_probe import ErrorRateMonitor
 from core.bulk_scanner import (
     ADOBE_EXTENSIONS,
@@ -29,6 +29,7 @@ from core.bulk_scanner import (
 )
 from core.database import (
     add_to_review_queue,
+    db_write_with_retry,
     get_ocr_gap_fill_candidates,
     get_preference,
     get_review_queue_count,
@@ -43,23 +44,6 @@ from core.database import (
 )
 
 log = structlog.get_logger(__name__)
-
-
-async def _db_write_with_retry(fn, retries=3, base_delay=0.5):
-    """Retry a DB write on lock contention with exponential backoff."""
-    for attempt in range(retries):
-        try:
-            return await fn()
-        except OperationalError as e:
-            if "database is locked" in str(e) and attempt < retries - 1:
-                delay = base_delay * (2 ** attempt)
-                log.warning("db_write_retry",
-                            attempt=attempt + 1,
-                            delay=delay,
-                            error=str(e))
-                await asyncio.sleep(delay)
-            else:
-                raise
 
 
 # ── SSE progress queues (per bulk job_id) ────────────────────────────────────
@@ -317,7 +301,7 @@ class BulkJob:
 
             # Record activity event for job start
             try:
-                from core.metrics_collector import record_activity_event
+
                 source_name = self.source_path.name if hasattr(self.source_path, 'name') else str(self.source_path)
                 await record_activity_event("bulk_start", f"Bulk job started: {scan_result.total_discovered} files from {source_name}", {
                     "job_id": self.job_id, "file_count": scan_result.total_discovered, "source": str(self.source_path),
@@ -385,7 +369,7 @@ class BulkJob:
 
             # Record activity event for job end
             try:
-                from core.metrics_collector import record_activity_event
+
                 elapsed_s = round(duration_ms / 1000, 1)
                 await record_activity_event("bulk_end", f"Bulk job {final_status}: {self._converted}/{scan_result.total_discovered} files in {elapsed_s}s", {
                     "job_id": self.job_id, "converted": self._converted, "failed": self._failed,
@@ -498,13 +482,13 @@ class BulkJob:
                     file_id=file_id,
                     error=str(exc),
                 )
-                await _db_write_with_retry(lambda: update_bulk_file(
+                await db_write_with_retry(lambda: update_bulk_file(
                     file_id,
                     status="failed",
                     error_msg=str(exc),
                 ))
                 self._failed += 1
-                await _db_write_with_retry(lambda: increment_bulk_job_counter(self.job_id, "failed"))
+                await db_write_with_retry(lambda: increment_bulk_job_counter(self.job_id, "failed"))
 
                 _emit_bulk_event(self.job_id, "file_failed", {
                     "job_id": self.job_id,
@@ -533,7 +517,7 @@ class BulkJob:
                         "percent": snap.to_dict()["percent"],
                     })
                     try:
-                        await _db_write_with_retry(lambda: update_bulk_job_status(
+                        await db_write_with_retry(lambda: update_bulk_job_status(
                             self.job_id, "running",
                             eta_seconds=snap.eta_seconds,
                             files_per_second=snap.files_per_second,
@@ -683,7 +667,7 @@ class BulkJob:
                     actual_output.read_bytes()
                 ).hexdigest()
 
-            await _db_write_with_retry(lambda: update_bulk_file(
+            await db_write_with_retry(lambda: update_bulk_file(
                 file_id,
                 status="converted",
                 output_path=result.output_path,
@@ -703,11 +687,11 @@ class BulkJob:
                 if source_mtime:
                     sf_fields["stored_mtime"] = source_mtime
                 if sf_fields:
-                    await _db_write_with_retry(lambda: update_source_file(sf_id, **sf_fields))
+                    await db_write_with_retry(lambda: update_source_file(sf_id, **sf_fields))
 
             self._converted += 1
             self.dir_stats[top_dir]["converted"] += 1
-            await _db_write_with_retry(lambda: increment_bulk_job_counter(self.job_id, "converted"))
+            await db_write_with_retry(lambda: increment_bulk_job_counter(self.job_id, "converted"))
 
             _emit_bulk_event(self.job_id, "file_converted", {
                 "job_id": self.job_id,
@@ -727,17 +711,12 @@ class BulkJob:
                 indexer = get_search_indexer()
                 if indexer and actual_output and actual_output.exists():
                     await indexer.index_document(actual_output, self.job_id)
-            except Exception as exc:
-                log.warning("bulk_meili_index_fail", file_id=file_id, error=str(exc))
 
-            # Index transcript in Meilisearch if this was a media file (best-effort)
-            media_exts = {".mp3", ".mp4", ".mov", ".avi", ".mkv", ".wav", ".flac",
-                          ".ogg", ".webm", ".m4a", ".m4v", ".wmv", ".aac", ".wma"}
-            if source_path.suffix.lower() in media_exts:
-                try:
-                    from core.search_indexer import get_search_indexer
-                    indexer = get_search_indexer()
-                    if indexer and actual_output and actual_output.exists():
+                    # Also index transcript if this was a media file
+                    from formats.audio_handler import AudioHandler
+                    from formats.media_handler import MediaHandler
+                    _media_exts = {"." + e for e in AudioHandler.EXTENSIONS + MediaHandler.EXTENSIONS}
+                    if source_path.suffix.lower() in _media_exts:
                         md_content = actual_output.read_text(encoding="utf-8")
                         await indexer.index_transcript(
                             history_id=str(file_id),
@@ -751,21 +730,21 @@ class BulkJob:
                             language=None,
                             word_count=len(md_content.split()),
                         )
-                        await _db_write_with_retry(
+                        await db_write_with_retry(
                             lambda: increment_bulk_job_counter(self.job_id, "transcribed")
                         )
-                except Exception as exc:
-                    log.warning("bulk_meili_transcript_fail", file_id=file_id, error=str(exc))
+            except Exception as exc:
+                log.warning("bulk_meili_index_fail", file_id=file_id, error=str(exc))
 
         else:
-            await _db_write_with_retry(lambda: update_bulk_file(
+            await db_write_with_retry(lambda: update_bulk_file(
                 file_id,
                 status="failed",
                 error_msg=result.error_message,
             ))
             self._failed += 1
             self.dir_stats[top_dir]["failed"] += 1
-            await _db_write_with_retry(lambda: increment_bulk_job_counter(self.job_id, "failed"))
+            await db_write_with_retry(lambda: increment_bulk_job_counter(self.job_id, "failed"))
 
             _emit_bulk_event(self.job_id, "file_failed", {
                 "job_id": self.job_id,

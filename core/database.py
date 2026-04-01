@@ -32,6 +32,39 @@ def get_db_path() -> str:
     """Return the database file path as a string."""
     return str(DB_PATH)
 
+
+async def db_write_with_retry(fn, retries=3, base_delay=0.5):
+    """Retry a DB write on lock contention with exponential backoff.
+
+    Usage: ``await db_write_with_retry(lambda: update_bulk_file(...))``
+    """
+    import asyncio
+    from sqlite3 import OperationalError
+
+    for attempt in range(retries):
+        try:
+            return await fn()
+        except OperationalError as e:
+            if "database is locked" in str(e) and attempt < retries - 1:
+                delay = base_delay * (2 ** attempt)
+                log.warning("db_write_retry",
+                            attempt=attempt + 1,
+                            delay=delay,
+                            error=str(e))
+                await asyncio.sleep(delay)
+            else:
+                raise
+
+
+def _count_by_status(rows: list, known_statuses: dict[str, int]) -> dict[str, int]:
+    """Build a status→count dict from GROUP BY rows, adding a total."""
+    for row in rows:
+        if row["status"] in known_statuses:
+            known_statuses[row["status"]] = row["cnt"]
+    known_statuses["total"] = sum(known_statuses.values())
+    return known_statuses
+
+
 # ── Default preferences ───────────────────────────────────────────────────────
 DEFAULT_PREFERENCES: dict[str, str] = {
     "last_save_directory": "",
@@ -777,7 +810,6 @@ async def cleanup_orphaned_jobs() -> None:
     container starts is by definition orphaned — the workers that owned them
     no longer exist.
     """
-    _log = structlog.get_logger(__name__)
     async with get_db() as conn:
         # Cancel stuck bulk jobs
         cursor = await conn.execute(
@@ -796,11 +828,11 @@ async def cleanup_orphaned_jobs() -> None:
         await conn.commit()
 
     if cancelled_jobs or interrupted_scans:
-        _log.warning("startup.orphan_cleanup",
+        log.warning("startup.orphan_cleanup",
                      cancelled_jobs=cancelled_jobs,
                      interrupted_scans=interrupted_scans)
     else:
-        _log.info("startup.orphan_cleanup", msg="No orphaned jobs found")
+        log.info("startup.orphan_cleanup", msg="No orphaned jobs found")
 
 
 async def _init_preferences(conn: aiosqlite.Connection) -> None:
@@ -968,16 +1000,13 @@ async def get_flags_for_batch(
     batch_id: str, status: str | None = None
 ) -> list[dict[str, Any]]:
     """Return OCR flags for a batch, optionally filtered by status."""
+    sql = "SELECT * FROM ocr_flags WHERE batch_id=?"
+    params: list[Any] = [batch_id]
     if status:
-        rows = await db_fetch_all(
-            "SELECT * FROM ocr_flags WHERE batch_id=? AND status=? ORDER BY page_num, flag_id",
-            (batch_id, status),
-        )
-    else:
-        rows = await db_fetch_all(
-            "SELECT * FROM ocr_flags WHERE batch_id=? ORDER BY page_num, flag_id",
-            (batch_id,),
-        )
+        sql += " AND status=?"
+        params.append(status)
+    sql += " ORDER BY page_num, flag_id"
+    rows = await db_fetch_all(sql, tuple(params))
     # Deserialise region_bbox from JSON
     for row in rows:
         if isinstance(row.get("region_bbox"), str):
@@ -1019,16 +1048,12 @@ async def get_flag_counts(batch_id: str) -> dict[str, int]:
         "SELECT status, COUNT(*) AS cnt FROM ocr_flags WHERE batch_id=? GROUP BY status",
         (batch_id,),
     )
-    counts = {"pending": 0, "accepted": 0, "edited": 0, "skipped": 0}
-    for row in rows:
-        counts[row["status"]] = row["cnt"]
-    counts["total"] = sum(counts.values())
-    return counts
+    return _count_by_status(rows, {"pending": 0, "accepted": 0, "edited": 0, "skipped": 0})
 
 
 # ── Bulk job helpers ─────────────────────────────────────────────────────────
 
-def _now_iso() -> str:
+def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
@@ -1051,7 +1076,7 @@ async def create_bulk_job(
             (
                 job_id, source_path, output_path, "pending",
                 worker_count, int(include_adobe), fidelity_tier, ocr_mode,
-                _now_iso(),
+                now_iso(),
             ),
         )
         await conn.commit()
@@ -1113,7 +1138,7 @@ async def upsert_source_file(
 
     if row is not None:
         source_file_id = row["id"]
-        updates: dict[str, Any] = {"updated_at": _now_iso()}
+        updates: dict[str, Any] = {"updated_at": now_iso()}
         if file_size_bytes is not None:
             updates["file_size_bytes"] = file_size_bytes
         if source_mtime is not None:
@@ -1283,33 +1308,32 @@ async def upsert_adobe_index(
     """Insert or update an adobe_index record. Returns entry id."""
     metadata_json = json.dumps(metadata) if metadata else None
     text_json = json.dumps(text_layers) if text_layers else None
-    now = _now_iso()
+    now = now_iso()
+    entry_id = uuid.uuid4().hex
 
     async with get_db() as conn:
+        await conn.execute(
+            """INSERT INTO adobe_index
+               (id, source_path, file_ext, file_size_bytes, metadata, text_layers,
+                indexing_level, meili_indexed, indexed_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(source_path) DO UPDATE SET
+                 file_ext=excluded.file_ext,
+                 file_size_bytes=excluded.file_size_bytes,
+                 metadata=excluded.metadata,
+                 text_layers=excluded.text_layers,
+                 updated_at=excluded.updated_at,
+                 meili_indexed=0""",
+            (entry_id, source_path, file_ext, file_size_bytes,
+             metadata_json, text_json, 2, 0, now, now),
+        )
+        # Retrieve the actual id (could be existing row if conflict)
         async with conn.execute(
             "SELECT id FROM adobe_index WHERE source_path=?", (source_path,)
         ) as cur:
             row = await cur.fetchone()
-
-        if row is not None:
-            entry_id = row["id"]
-            await conn.execute(
-                """UPDATE adobe_index SET file_ext=?, file_size_bytes=?,
-                   metadata=?, text_layers=?, updated_at=?, meili_indexed=0
-                   WHERE id=?""",
-                (file_ext, file_size_bytes, metadata_json, text_json, now, entry_id),
-            )
-        else:
-            entry_id = uuid.uuid4().hex
-            await conn.execute(
-                """INSERT INTO adobe_index
-                   (id, source_path, file_ext, file_size_bytes, metadata, text_layers,
-                    indexing_level, meili_indexed, indexed_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                (entry_id, source_path, file_ext, file_size_bytes,
-                 metadata_json, text_json, 2, 0, now, now),
-            )
-
+            if row:
+                entry_id = row["id"]
         await conn.commit()
     return entry_id
 
@@ -1362,7 +1386,7 @@ async def create_location(
         raise ValueError(f"Location name already exists: {name}")
 
     location_id = uuid.uuid4().hex
-    now = _now_iso()
+    now = now_iso()
     async with get_db() as conn:
         await conn.execute(
             """INSERT INTO locations (id, name, path, type, notes, created_at, updated_at)
@@ -1408,7 +1432,7 @@ async def update_location(location_id: str, **fields) -> None:
         if existing:
             raise ValueError(f"Location name already exists: {fields['name']}")
 
-    fields["updated_at"] = _now_iso()
+    fields["updated_at"] = now_iso()
     sets = [f"{k}=?" for k in fields]
     values = list(fields.values()) + [location_id]
     async with get_db() as conn:
@@ -1495,11 +1519,7 @@ async def get_review_queue_summary(job_id: str) -> dict[str, int]:
         "SELECT status, COUNT(*) AS cnt FROM bulk_review_queue WHERE job_id=? GROUP BY status",
         (job_id,),
     )
-    summary = {"pending": 0, "converted": 0, "skipped_permanently": 0, "converting": 0, "review_requested": 0}
-    for row in rows:
-        summary[row["status"]] = row["cnt"]
-    summary["total"] = sum(summary.values())
-    return summary
+    return _count_by_status(rows, {"pending": 0, "converted": 0, "skipped_permanently": 0, "converting": 0, "review_requested": 0})
 
 
 async def get_review_queue_count(job_id: str, status: str | None = None) -> int:
@@ -1571,7 +1591,7 @@ async def record_path_issue(
 ) -> str:
     """Insert into bulk_path_issues. Returns id."""
     issue_id = uuid.uuid4().hex
-    now = _now_iso()
+    now = now_iso()
     async with get_db() as conn:
         await conn.execute(
             """INSERT INTO bulk_path_issues
@@ -1653,7 +1673,7 @@ async def create_llm_provider(
     from core.crypto import encrypt_value
 
     provider_id = uuid.uuid4().hex
-    now = _now_iso()
+    now = now_iso()
     encrypted_key = encrypt_value(api_key) if api_key else None
 
     async with get_db() as conn:
@@ -1702,7 +1722,7 @@ async def update_llm_provider(provider_id: str, **fields) -> None:
     if "api_key" in fields and fields["api_key"]:
         from core.crypto import encrypt_value
         fields["api_key"] = encrypt_value(fields["api_key"])
-    fields["updated_at"] = _now_iso()
+    fields["updated_at"] = now_iso()
     sets = [f"{k}=?" for k in fields]
     values = list(fields.values()) + [provider_id]
     async with get_db() as conn:
@@ -1725,7 +1745,7 @@ async def set_active_provider(provider_id: str) -> None:
         await conn.execute("UPDATE llm_providers SET is_active=0")
         await conn.execute(
             "UPDATE llm_providers SET is_active=1, updated_at=? WHERE id=?",
-            (_now_iso(), provider_id),
+            (now_iso(), provider_id),
         )
         await conn.commit()
 
@@ -2027,7 +2047,7 @@ async def get_maintenance_log(limit: int = 50) -> list[dict[str, Any]]:
 
 async def create_api_key(key_id: str, label: str, key_hash: str) -> str:
     """Insert an API key record. Returns key_id."""
-    now = _now_iso()
+    now = now_iso()
     async with get_db() as conn:
         await conn.execute(
             """INSERT INTO api_keys (key_id, label, key_hash, is_active, created_at)
@@ -2070,7 +2090,7 @@ async def touch_api_key(key_id: str) -> None:
     async with get_db() as conn:
         await conn.execute(
             "UPDATE api_keys SET last_used_at=? WHERE key_id=?",
-            (_now_iso(), key_id),
+            (now_iso(), key_id),
         )
         await conn.commit()
 
@@ -2133,7 +2153,7 @@ async def upsert_archive_member(
 ) -> str:
     """Insert an archive_members record. Returns member id."""
     member_id = uuid.uuid4().hex
-    now = _now_iso()
+    now = now_iso()
     async with get_db() as conn:
         await conn.execute(
             """INSERT INTO archive_members
@@ -2156,7 +2176,7 @@ async def update_archive_member(member_id: str, **fields) -> None:
     """Update any combination of archive_members fields."""
     if not fields:
         return
-    fields["updated_at"] = _now_iso()
+    fields["updated_at"] = now_iso()
     sets = [f"{k}=?" for k in fields]
     values = list(fields.values()) + [member_id]
     async with get_db() as conn:
@@ -2234,7 +2254,7 @@ async def update_source_file(source_file_id: str, **fields) -> None:
     """Update any combination of source_files fields."""
     if not fields:
         return
-    fields["updated_at"] = _now_iso()
+    fields["updated_at"] = now_iso()
     sets = [f"{k}=?" for k in fields]
     values = list(fields.values()) + [source_file_id]
     async with get_db() as conn:

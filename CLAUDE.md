@@ -26,9 +26,23 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.16.0
+## Current Status — v0.16.1
 
-v0.16.0: File flagging & content moderation. Self-service file flagging lets any
+v0.16.1: Code streamlining pass. Resolved 21 of 24 identified code quality
+issues. Key changes: shared ODF utils (`formats/odf_utils.py`), consolidated
+`now_iso()` and `db_write_with_retry()` in database.py, `ALLOWED_EXTENSIONS`
+now derived from handler registry (auto-syncs with new format handlers),
+`verify_source_mount()` shared between scanners, singleton `get_search_indexer()`
+usage enforced in flag_manager, hoisted deferred imports in scheduler/lifecycle/
+bulk modules, `_count_by_status()` helper, `upsert_adobe_index` uses ON CONFLICT,
+removed legacy `formatDate()` (all callers use `formatLocalTime()`), extracted
+`_throwOnError()` helper in app.js, removed dead imports, fixed logger naming
+inconsistencies. Deferred: database.py module split (STR-05) and schema migration
+table (STR-17) — both need dedicated sessions. Full security audit (62 findings)
+and streamlining audit (24 findings) documented in `docs/security-audit.md` and
+`docs/streamlining-audit.md`.
+
+Previous (v0.16.0): File flagging & content moderation. Self-service file flagging lets any
 authenticated user temporarily suppress a file from search and download. Admins
 manage flags through dedicated page with three-action escalation: dismiss (restore),
 extend (keep suppressed longer), or remove (permanent blocklist). New `file_flags`

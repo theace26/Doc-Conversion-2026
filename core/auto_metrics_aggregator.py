@@ -5,13 +5,12 @@ and inserts one row into auto_metrics. Also tracks conversion activity
 and user request counts from activity_events.
 """
 
-import aiosqlite
 import structlog
 from datetime import datetime, timedelta
 
 from core.database import get_db, get_db_path, get_preference
 
-logger = structlog.get_logger(__name__)
+log = structlog.get_logger(__name__)
 
 
 async def aggregate_hourly_metrics():
@@ -52,7 +51,7 @@ async def aggregate_hourly_metrics():
             )
 
             if not rows or rows[0]["sample_count"] == 0:
-                logger.debug(
+                log.debug(
                     "auto_metrics_no_samples",
                     hour_bucket=bucket,
                 )
@@ -144,7 +143,7 @@ async def aggregate_hourly_metrics():
             )
             await conn.commit()
 
-            logger.info(
+            log.info(
                 "auto_metrics_aggregated",
                 hour_bucket=bucket,
                 cpu_avg=round(r["cpu_avg"], 1),
@@ -154,7 +153,7 @@ async def aggregate_hourly_metrics():
             )
 
     except Exception as e:
-        logger.error("auto_metrics_aggregation_failed", error=str(e))
+        log.error("auto_metrics_aggregation_failed", error=str(e))
 
 
 async def purge_old_auto_metrics():
@@ -183,7 +182,7 @@ async def purge_old_auto_metrics():
             await conn.commit()
 
             if deleted > 0 or deleted_runs > 0:
-                logger.info(
+                log.info(
                     "auto_metrics_purged",
                     metrics_deleted=deleted,
                     runs_deleted=deleted_runs,
@@ -191,4 +190,4 @@ async def purge_old_auto_metrics():
                 )
 
     except Exception as e:
-        logger.error("auto_metrics_purge_failed", error=str(e))
+        log.error("auto_metrics_purge_failed", error=str(e))

@@ -10,9 +10,10 @@ Metadata generation and parsing for MarkFlow output files.
 
 import json
 import re
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from core.database import now_iso
 
 import yaml
 
@@ -32,7 +33,7 @@ def generate_frontmatter(model: DocumentModel) -> str:
         "markflow": {
             "source_file": meta.source_file,
             "source_format": meta.source_format,
-            "converted_at": meta.converted_at or _now_iso(),
+            "converted_at": meta.converted_at or now_iso(),
             "markflow_version": meta.markflow_version,
             "ocr_applied": meta.ocr_applied,
             "style_ref": meta.style_ref or "",
@@ -83,7 +84,7 @@ def generate_manifest(batch_id: str, files: list[dict[str, Any]]) -> dict[str, A
 
     return {
         "batch_id": batch_id,
-        "created_at": _now_iso(),
+        "created_at": now_iso(),
         "total_files": len(files),
         "success_count": success_count,
         "error_count": error_count,
@@ -106,7 +107,7 @@ def generate_sidecar(
         "schema_version": SCHEMA_VERSION,
         "source_format": model.metadata.source_format,
         "source_file": model.metadata.source_file,
-        "converted_at": model.metadata.converted_at or _now_iso(),
+        "converted_at": model.metadata.converted_at or now_iso(),
         "document_level": doc_level,
         "elements": elements,
     }
@@ -128,6 +129,3 @@ def load_sidecar(path: Path) -> dict[str, Any]:
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()

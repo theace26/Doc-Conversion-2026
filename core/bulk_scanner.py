@@ -25,6 +25,7 @@ from core.progress_tracker import RollingWindowETA, ETA_UPDATE_INTERVAL, format_
 from core.stop_controller import should_stop
 from core.storage_probe import ErrorRateMonitor, ScanThrottler, StorageProfile, probe_storage_latency
 from core.database import db_fetch_one, get_preference, record_path_issue, update_bulk_file, update_bulk_job_status, update_source_file, upsert_bulk_file
+from core.metrics_collector import record_activity_event
 from core.path_utils import PathSafetyResult, run_path_safety_pass
 
 log = structlog.get_logger(__name__)
@@ -106,7 +107,7 @@ class BulkFileRecord:
     status: str = "pending"
 
 
-def _verify_source_mount(source_path: str) -> bool:
+def verify_source_mount(source_path: str) -> bool:
     """Verify the source path is mounted and accessible.
 
     Checks that the path exists, is a directory, and contains at least
@@ -151,7 +152,7 @@ class BulkScanner:
         file_count = 0
         self._convertible_paths: list[Path] = []
 
-        if not _verify_source_mount(str(self.source_path)):
+        if not verify_source_mount(str(self.source_path)):
             log.error("bulk_scan_mount_not_ready",
                       job_id=self.job_id,
                       source_path=str(self.source_path),
@@ -928,8 +929,6 @@ async def _persist_throttle_events(
 ) -> None:
     """Persist throttle adjustments and error-rate events to activity_events."""
     try:
-        from core.metrics_collector import record_activity_event
-
         # Record each throttle adjustment
         for adj in throttler.adjustments:
             await record_activity_event(

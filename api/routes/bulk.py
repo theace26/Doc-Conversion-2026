@@ -36,6 +36,7 @@ from core.bulk_worker import (
 from core.database import (
     create_bulk_job,
     get_bulk_files,
+    now_iso,
     get_bulk_file_count,
     get_bulk_job,
     get_location,
@@ -619,7 +620,7 @@ async def resolve_all_review(
         raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
 
     pending = await get_review_queue(job_id, status="pending", limit=10000, offset=0)
-    now = _now_iso()
+    now = now_iso()
 
     if req.action == "skip":
         for entry in pending:
@@ -660,7 +661,7 @@ async def resolve_review_entry(
     if not entry or entry["job_id"] != job_id:
         raise HTTPException(status_code=404, detail="Review queue entry not found.")
 
-    now = _now_iso()
+    now = now_iso()
 
     if req.action == "skip":
         await update_review_queue_entry(
@@ -699,10 +700,6 @@ async def resolve_review_entry(
 
 # ── Internal helpers ──────────────────────────────────────────────────────
 
-def _now_iso() -> str:
-    from datetime import datetime, timezone
-    return datetime.now(timezone.utc).isoformat()
-
 
 async def _convert_single_review_entry(job_id: str, entry: dict) -> str | None:
     """Convert a single review queue file. Returns batch_id or None on failure."""
@@ -715,7 +712,7 @@ async def _convert_single_review_entry(job_id: str, entry: dict) -> str | None:
             status="converted",
             resolution="converted",
             notes="Source file not found",
-            resolved_at=_now_iso(),
+            resolved_at=now_iso(),
         )
         return None
 
@@ -724,7 +721,7 @@ async def _convert_single_review_entry(job_id: str, entry: dict) -> str | None:
         orch = ConversionOrchestrator()
         results = await orch.convert_batch([source_path], "to_md", batch_id)
 
-        now = _now_iso()
+        now = now_iso()
         if results and results[0].status == "success":
             await update_review_queue_entry(
                 entry["id"],
@@ -766,7 +763,7 @@ async def _convert_single_review_entry(job_id: str, entry: dict) -> str | None:
             status="converted",
             resolution="converted",
             notes=f"Error: {exc}",
-            resolved_at=_now_iso(),
+            resolved_at=now_iso(),
         )
         _emit_review_event(job_id, "review_item_failed", {
             "entry_id": entry["id"],

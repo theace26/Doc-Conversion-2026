@@ -159,35 +159,14 @@ class OdtHandler(FormatHandler):
 
     def _extract_fonts(self, doc) -> list[str]:
         """Extract font declarations from the document."""
-        fonts = set()
-        try:
-            font_decls = doc.fontfacedecls
-            if font_decls:
-                for child in font_decls.childNodes:
-                    if hasattr(child, "getAttribute"):
-                        name = child.getAttribute("name")
-                        family = child.getAttribute("fontfamily")
-                        if name:
-                            fonts.add(name)
-                        if family:
-                            fonts.add(family)
-        except Exception:
-            pass
-        return sorted(fonts)
+        from formats.odf_utils import extract_odf_fonts
+        return extract_odf_fonts(doc, include_fontfamily=True)
 
     @staticmethod
     def _get_text(node) -> str:
         """Recursively extract text from an ODF node."""
-        if hasattr(node, "data"):
-            return node.data or ""
-        parts: list[str] = []
-        if hasattr(node, "childNodes"):
-            for child in node.childNodes:
-                if hasattr(child, "data"):
-                    parts.append(child.data or "")
-                elif hasattr(child, "childNodes"):
-                    parts.append(OdtHandler._get_text(child))
-        return "".join(parts)
+        from formats.odf_utils import get_odf_text
+        return get_odf_text(node)
 
     # ── Export ─────────────────────────────────────────────────────────────────
 

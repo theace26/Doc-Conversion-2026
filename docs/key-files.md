@@ -74,6 +74,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `formats/ini_handler.py` | INI/CFG/CONF/properties with section-aware parsing, .conf plain-text fallback |
 | `formats/rtf_handler.py` | RTF ingest/export with control-word parser |
 | `formats/html_handler.py` | HTML/HTM ingest/export with BeautifulSoup, font extraction |
+| `formats/odf_utils.py` | Shared ODF helpers: font extraction, text node traversal |
 | `formats/odt_handler.py` | OpenDocument Text via odfpy |
 | `formats/ods_handler.py` | OpenDocument Spreadsheet via odfpy |
 | `formats/odp_handler.py` | OpenDocument Presentation via odfpy |

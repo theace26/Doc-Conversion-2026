@@ -4,6 +4,42 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.16.1 — Code Streamlining + Security/Quality Audit (2026-04-01)
+
+**Code quality (21 of 24 items resolved):**
+- **Shared ODF utils** — new `formats/odf_utils.py` with `extract_odf_fonts()` and `get_odf_text()`.
+  Replaces 3 near-identical implementations across odt/ods/odp handlers.
+- **ALLOWED_EXTENSIONS from registry** — `converter.py` now derives upload extensions from the
+  handler registry (`list_supported_extensions()`), auto-syncing when new formats are added.
+- **`db_write_with_retry()` exported** — moved from private `bulk_worker.py` function to
+  public `database.py` export. Available to all concurrent DB writers.
+- **`now_iso()` consolidated** — single source in `database.py`, removed 3 duplicate definitions
+  in lifecycle_scanner, metadata, and bulk routes.
+- **`verify_source_mount()` shared** — renamed from `_verify_source_mount` in bulk_scanner,
+  imported by lifecycle_scanner (replaced inline duplicate).
+- **Singleton indexer enforced** — `flag_manager.py` now uses `get_search_indexer()` instead of
+  `SearchIndexer()` direct instantiation.
+- **Hoisted deferred imports** — `asyncio` in lifecycle_scanner (4 sites), `get_preference` in
+  scheduler (5 sites), `record_activity_event` in 6 files.
+- **`upsert_adobe_index`** — converted to `INSERT ... ON CONFLICT DO UPDATE` (single DB call).
+- **`_count_by_status()` helper** — shared GROUP BY status reduce logic in database.py.
+- **Removed legacy `formatDate()`** — all callers migrated to `formatLocalTime()`.
+- **`_throwOnError()` helper** — deduplicated 4-copy API error extraction in app.js. `err.data`
+  now consistently available on all error methods.
+- **Dead code cleanup** — removed unused `aiosqlite` imports (auto_converter, auto_metrics_aggregator),
+  redundant `_log` in database.py, inline `import os` in flag_manager.
+- **Logger naming** — renamed `logger` to `log` in auto_converter and auto_metrics_aggregator.
+
+**Deferred to future sessions:**
+- STR-05: Split `database.py` into domain modules (1,800+ lines, 40+ importers)
+- STR-17: Replace `_add_column_if_missing` chain with schema migration table
+
+**Audit documentation:**
+- `docs/security-audit.md` — 62 findings (10 critical, 18 high, 22 medium, 12 low/info)
+- `docs/streamlining-audit.md` — 24 findings with resolution status
+
+---
+
 ## v0.16.0 — File Flagging & Content Moderation (2026-04-01)
 
 **New features:**

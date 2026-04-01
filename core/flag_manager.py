@@ -7,6 +7,7 @@ blocklist queries, Meilisearch sync, webhook dispatch, and auto-expiry.
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import httpx
 import structlog
@@ -38,15 +39,10 @@ async def _sync_is_flagged(
     whether any active/extended flag exists for the file.
     """
     # Lazy imports to avoid circular dependency with search_indexer
-    from core.search_indexer import SearchIndexer, _doc_id
+    from core.search_indexer import get_search_indexer, _doc_id
 
     if force_value is None:
-        row = await db_fetch_one(
-            "SELECT COUNT(*) AS cnt FROM file_flags "
-            "WHERE source_file_id = ? AND status IN ('active', 'extended')",
-            (source_file_id,),
-        )
-        force_value = (row["cnt"] > 0) if row else False
+        force_value = await is_file_flagged(source_file_id)
 
     sf = await db_fetch_one(
         "SELECT source_path, output_path FROM source_files WHERE id = ?",
@@ -65,7 +61,9 @@ async def _sync_is_flagged(
     if not doc_ids:
         return
 
-    indexer = SearchIndexer()
+    indexer = get_search_indexer()
+    if not indexer:
+        return
     for index_name in _MEILI_INDEXES:
         for did in doc_ids:
             try:
@@ -95,8 +93,7 @@ async def _fire_webhook(
         (flag.get("source_file_id"),),
     )
     source_path = sf["source_path"] if sf else ""
-    import os
-    source_filename = os.path.basename(source_path) if source_path else ""
+    source_filename = Path(source_path).name if source_path else ""
 
     payload = {
         "event": event,
@@ -333,7 +330,7 @@ async def remove_and_blocklist(
         await conn.commit()
 
     # Delete from all Meilisearch indexes
-    from core.search_indexer import SearchIndexer, _doc_id
+    from core.search_indexer import get_search_indexer, _doc_id
 
     doc_ids: set[str] = set()
     if source_path:
@@ -342,8 +339,10 @@ async def remove_and_blocklist(
     if output_path:
         doc_ids.add(_doc_id(output_path))
 
-    indexer = SearchIndexer()
-    for index_name in _MEILI_INDEXES:
+    indexer = get_search_indexer()
+    if not indexer:
+        log.warning("flag_manager.no_indexer", msg="SearchIndexer not available, skipping Meilisearch delete")
+    for index_name in (_MEILI_INDEXES if indexer else []):
         for did in doc_ids:
             try:
                 await indexer.client.delete_document(index_name, did)

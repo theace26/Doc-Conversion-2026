@@ -3,16 +3,20 @@
  * Loaded on all pages.
  */
 
+function _throwOnError(res, fallbackMsg) {
+    return res.json().catch(() => ({})).then(data => {
+        const msg = data.detail || fallbackMsg;
+        const err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+        err.status = res.status;
+        err.data = data;
+        throw err;
+    });
+}
+
 const API = {
     async get(url) {
         const res = await fetch(url);
-        if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
-            const msg = body.detail || `GET ${url} failed (${res.status})`;
-            const err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
-            err.status = res.status;
-            throw err;
-        }
+        if (!res.ok) return _throwOnError(res, `GET ${url} failed (${res.status})`);
         return res.json();
     },
     async post(url, body) {
@@ -21,36 +25,17 @@ const API = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
         });
-        if (!res.ok) {
-            const data = await res.json().catch(() => ({}));
-            const msg = data.detail || `POST ${url} failed (${res.status})`;
-            const err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
-            err.status = res.status;
-            throw err;
-        }
+        if (!res.ok) return _throwOnError(res, `POST ${url} failed (${res.status})`);
         return res.json();
     },
     async upload(url, formData) {
         const res = await fetch(url, { method: 'POST', body: formData });
-        if (!res.ok) {
-            const data = await res.json().catch(() => ({}));
-            const msg = data.detail || `Upload failed (${res.status})`;
-            const err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
-            err.status = res.status;
-            throw err;
-        }
+        if (!res.ok) return _throwOnError(res, `Upload failed (${res.status})`);
         return res.json();
     },
     async del(url) {
         const res = await fetch(url, { method: 'DELETE' });
-        if (!res.ok && res.status !== 204) {
-            const data = await res.json().catch(() => ({}));
-            const msg = data.detail || `DELETE ${url} failed (${res.status})`;
-            const err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
-            err.status = res.status;
-            err.data = data;
-            throw err;
-        }
+        if (!res.ok && res.status !== 204) return _throwOnError(res, `DELETE ${url} failed (${res.status})`);
         if (res.status === 204) return null;
         return res.json();
     },
@@ -60,13 +45,7 @@ const API = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
         });
-        if (!res.ok) {
-            const data = await res.json().catch(() => ({}));
-            const msg = data.detail || `PUT ${url} failed (${res.status})`;
-            const err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
-            err.status = res.status;
-            throw err;
-        }
+        if (!res.ok) return _throwOnError(res, `PUT ${url} failed (${res.status})`);
         return res.json();
     },
 };
@@ -107,20 +86,6 @@ function timeAgo(isoString) {
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
     return `${Math.floor(diff / 86400)}d ago`;
-}
-
-function formatDate(isoString) {
-    if (!isoString) return '—';
-    try {
-        const d = new Date(isoString);
-        if (isNaN(d.getTime())) return isoString;
-        const now = new Date();
-        const today = now.toDateString();
-        const yesterday = new Date(now - 86400000).toDateString();
-        if (d.toDateString() === today) return 'Today ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-        if (d.toDateString() === yesterday) return 'Yesterday ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-        return d.toLocaleDateString([], {year:'numeric', month:'short', day:'numeric'}) + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-    } catch { return isoString; }
 }
 
 /**
