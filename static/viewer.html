@@ -99,10 +99,23 @@
   var docId = params.get('id') || '';
   var returnQuery = params.get('q') || '';
 
-  // Set back link
+  // Back button: close this tab (opened via target="_blank" from search results).
+  // Falls back to navigating to search page if window.close() is blocked.
   var backLink = '/search.html';
   if (returnQuery) backLink += '?q=' + encodeURIComponent(returnQuery);
   document.getElementById('btn-back').href = backLink;
+  document.getElementById('btn-back').addEventListener('click', function(e) {
+    e.preventDefault();
+    window.close();
+    // If window.close() was blocked (not opened by script), navigate instead
+    setTimeout(function() { location.href = backLink; }, 100);
+  });
+  // Browser back button also closes this tab
+  history.pushState(null, '', location.href);
+  window.addEventListener('popstate', function() {
+    window.close();
+    setTimeout(function() { location.href = backLink; }, 100);
+  });
 
   function formatLocalTime(isoStr) {
     if (!isoStr) return '';
