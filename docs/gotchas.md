@@ -252,6 +252,16 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 - **httpx is a runtime dependency**: Moved from testing section in Phase 7.
 
+- **source_path DB fallback in indexer**: `search_indexer.py` looks up `source_path` from the
+  `source_files` DB table when the converted file's frontmatter doesn't contain it. This is
+  needed for older converted files that predate the frontmatter change. Without the fallback,
+  source file serving and batch download silently fail (no path to resolve).
+
+- **Competing input handlers in search (fixed v0.15.0)**: The search page had both a debounced
+  `input` handler and an autocomplete `input` handler on the same field, causing race conditions
+  where typing triggered both a full search and an autocomplete request. Fixed by consolidating
+  into a single handler that dispatches to the appropriate code path.
+
 ## Locations & Browse
 
 - **Locations validate endpoint timeout**: `file_count_estimate` capped at 10s. Null is not an error.
@@ -342,6 +352,23 @@ the relevant subsystem. Referenced from CLAUDE.md.
 - **Source mount verification**: Both `BulkScanner.scan()` and `run_lifecycle_scan()` verify
   the source path is populated before scanning. An empty mountpoint (SMB not connected) aborts
   gracefully with status `failed`. Uses `os.scandir()` + `next()` to check for at least one entry.
+
+- **AD-credentialed folders**: All `os.walk()` calls in `bulk_scanner.py`, `lifecycle_scanner.py`,
+  and `storage_probe.py` use `onerror` callbacks that log `scan_permission_denied` with an AD hint
+  (e.g., "check folder ACL or AD group membership"). Without this, PermissionError from
+  domain-controlled folders is silently swallowed by `os.walk()` and the folder is just skipped.
+
+- **NTFS Alternate Data Streams**: Files with `:` in the name (e.g., `file.txt:Zone.Identifier`)
+  are NTFS ADS metadata, not real user files. Scanners filter these out to prevent downstream
+  errors (the colon is illegal in most file operations outside NTFS).
+
+- **AV quarantine race condition**: Antivirus can quarantine a file between `os.walk()` discovering
+  it and the subsequent `os.stat()` call. Scanners catch `FileNotFoundError` from `stat()` and log
+  it as `scan_file_quarantined` rather than crashing the scan.
+
+- **Stale SMB connection retry**: On `OSError` during `os.walk()`, scanners log the error with a
+  hint to check SMB connectivity. The error-rate monitor handles sustained failures via its
+  existing abort threshold.
 
 - **Adaptive scan parallelism**: `storage_probe.py` runs a ~200ms latency probe before each
   scan, measuring sequential vs random `stat()` times. The ratio discriminates storage types:

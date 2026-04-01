@@ -4,6 +4,59 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.15.0 — Search UX Overhaul + Enterprise Scanner Robustness (2026-03-31)
+
+**New features:**
+- **Unified search** — New `/api/search/all` endpoint searches all 3 Meilisearch indexes
+  (documents, adobe-files, transcripts) concurrently and merges results. Faceted format filtering
+  with clickable chips. Sort by relevance/date/size/format.
+- **Document viewer** — New `static/viewer.html` page. Click a search result to view the original
+  source file (PDF inline, other formats show fallback). Toggle between Source and Markdown views.
+  Download button.
+- **Source file serving** — New endpoints: `/api/search/source/{index}/{doc_id}` (view original),
+  `/api/search/download/{index}/{doc_id}` (download original),
+  `/api/search/doc-info/{index}/{doc_id}` (metadata for viewer).
+- **Batch download** — `POST /api/search/batch-download` accepts a list of doc IDs, creates a ZIP
+  of original source files. Multi-select checkboxes on search results.
+- **Search UX improvements** — Per-page buttons (10/30/50/100), fixed autocomplete (was broken due
+  to competing input handlers), local time display instead of UTC, middle-click opens viewer in
+  new tab.
+- **Source path in search index** — `search_indexer.py` now looks up `source_path` from the
+  `source_files` DB table when frontmatter doesn't have it.
+- **AD-credentialed folder handling** — All `os.walk()` calls in `bulk_scanner.py`,
+  `lifecycle_scanner.py`, and `storage_probe.py` now use `onerror` callbacks that log
+  `scan_permission_denied` with an AD hint instead of silently skipping.
+- **Enterprise scanner robustness** — FileNotFoundError handling (AV quarantine), NTFS ADS
+  filtering (skip files with `:` in name), stale SMB connection retry, explicit PermissionError
+  logging.
+- **Global `formatLocalTime()`** — Added to `app.js` for consistent local time display across all
+  pages.
+
+**New files:**
+- `static/viewer.html` — document viewer page
+
+**Modified files:**
+- `api/routes/search.py` — all new endpoints (unified search, source file serving, batch download)
+- `static/search.html` — complete UX redesign (format chips, per-page, multi-select, viewer links)
+- `static/app.js` — `formatLocalTime()` helper
+- `core/search_indexer.py` — source_path DB lookup, source_format made sortable
+- `core/bulk_scanner.py` — AD/permission/ADS/quarantine handling on all walks
+- `core/lifecycle_scanner.py` — AD/permission handling on all walks
+- `core/storage_probe.py` — permission handling on probe walk
+- `core/version.py` — bumped to 0.15.0
+
+**Design notes:**
+- Unified search merges results from all 3 indexes in a single response, deduplicating by source
+  path where applicable. Each result carries its index origin for viewer routing.
+- Source file serving resolves the original file path from the Meilisearch document's `source_path`
+  field, with a DB fallback for older entries that predate the frontmatter change.
+- AD-credentialed folders are common on enterprise file servers. The `onerror` callback pattern
+  ensures nothing is silently skipped — operators see exactly which folders need ACL adjustments.
+- NTFS Alternate Data Streams (files with `:` in the name) are metadata, not user files. Skipping
+  them prevents confusing errors downstream.
+
+---
+
 ## v0.14.1 — Health-Gated Startup + Pipeline Watchdog (2026-03-31)
 
 **New features:**

@@ -462,7 +462,14 @@ async def _serial_lifecycle_walk(
     """Serial walk for local SSD/HDD sources with error-rate abort."""
     error_monitor = ErrorRateMonitor()
 
-    for dirpath, dirnames, filenames in os.walk(source_root):
+    def _lifecycle_walk_error(err: OSError) -> None:
+        if isinstance(err, PermissionError):
+            log.warning("lifecycle_permission_denied", path=str(err.filename or ""),
+                        hint="folder may be gated by Active Directory")
+        else:
+            log.warning("lifecycle_walk_error", path=str(err.filename or ""), error=str(err))
+
+    for dirpath, dirnames, filenames in os.walk(source_root, onerror=_lifecycle_walk_error):
         if should_stop() or error_monitor.should_abort():
             log.warning("lifecycle_scan_stopped", scan_run_id=scan_run_id,
                         aborted=error_monitor.aborted,
@@ -560,10 +567,17 @@ async def _parallel_lifecycle_walk(
                     return
             _stat_and_enqueue(source_root / filename)
 
+        def _par_walk_error(err: OSError) -> None:
+            if isinstance(err, PermissionError):
+                log.warning("lifecycle_permission_denied", path=str(err.filename or ""),
+                            hint="folder may be gated by Active Directory")
+            else:
+                log.warning("lifecycle_walk_error", path=str(err.filename or ""), error=str(err))
+
         for subdir in dirs_to_walk:
             if _should_bail():
                 return
-            for dirpath, dirnames, filenames in os.walk(subdir):
+            for dirpath, dirnames, filenames in os.walk(subdir, onerror=_par_walk_error):
                 if _should_bail():
                     return
                 dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "_markflow"]
@@ -756,8 +770,13 @@ def _update_scan_progress(
 
 def _count_files_sync(source_root: Path) -> int:
     """Count all files in source tree (synchronous, for use in a thread)."""
+    def _count_walk_error(err: OSError) -> None:
+        if isinstance(err, PermissionError):
+            log.warning("lifecycle_count_permission_denied", path=str(err.filename or ""),
+                        hint="folder may be gated by Active Directory")
+
     count = 0
-    for _, dirnames, filenames in os.walk(source_root):
+    for _, dirnames, filenames in os.walk(source_root, onerror=_count_walk_error):
         dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "_markflow"]
         count += len(filenames)
     return count

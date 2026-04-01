@@ -26,9 +26,27 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.14.1
+## Current Status — v0.15.0
 
-v0.14.1: Health-gated startup + pipeline watchdog. Startup no longer does an
+v0.15.0: Search UX overhaul + enterprise scanner robustness. New unified search
+endpoint (`/api/search/all`) queries all 3 Meilisearch indexes concurrently
+(documents, adobe-files, transcripts) and merges results. Faceted format
+filtering with clickable chips, sort by relevance/date/size/format. New
+document viewer page (`viewer.html`) — click a search result to view the
+original source file (PDF inline, other formats show fallback), toggle between
+Source and Markdown views, download button. Source file serving endpoints:
+`/api/search/source/{index}/{doc_id}`, `/api/search/download/{index}/{doc_id}`,
+`/api/search/doc-info/{index}/{doc_id}`. Batch download via
+`POST /api/search/batch-download` (multi-select checkboxes, creates ZIP).
+Per-page buttons (10/30/50/100), fixed autocomplete (was broken due to
+competing input handlers), local time display via global `formatLocalTime()`.
+`search_indexer.py` now looks up `source_path` from `source_files` DB table
+when frontmatter lacks it. Enterprise scanner robustness: AD-credentialed
+folder `onerror` callbacks on all `os.walk()` calls, FileNotFoundError
+handling (AV quarantine), NTFS ADS filtering (skip files with `:` in name),
+stale SMB connection retry, explicit PermissionError logging.
+
+Previous (v0.14.1): Health-gated startup + pipeline watchdog. Startup no longer does an
 immediate force-scan; instead `core/pipeline_startup.py` waits the configured
 delay (default 5 min), polls health checks, and only triggers the first scan
 once critical services (DB, disk) pass. Preferred services (Meilisearch,
@@ -180,6 +198,8 @@ Critical files to know:
 | `core/media_orchestrator.py` | Top-level media conversion coordinator |
 | `api/routes/media.py` | Media transcript API: get transcript, segments, download |
 | `api/routes/pipeline.py` | Pipeline control: status, pause, resume, run-now |
+| `api/routes/search.py` | Search API: unified search, autocomplete, source file serving, batch download |
+| `static/viewer.html` | Document viewer: source/markdown toggle, inline PDF, download |
 | `static/app.js` | Shared JS: API helpers, dynamic nav, toast |
 | `static/markflow.css` | Design system: CSS variables, dark mode |
 | `Dockerfile.base` | Base image: all apt system deps (build once, ~25 min on HDD) |
@@ -232,6 +252,10 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **Scan throttler (backpressure)**: `ScanThrottler` in `storage_probe.py` monitors rolling stat() latency during parallel scans. Workers call `should_pause(worker_id)` — if congested, higher-ID workers sleep. Consumer calls `check_and_adjust()` every 500 files. 5-second cooldown prevents oscillation. Overhead is negligible (~0.001ms per stat call).
 - **source_files vs bulk_files**: File-intrinsic data (path, size, hash, lifecycle) lives in `source_files`. Job-specific data (status, error_msg, converted_at) lives in `bulk_files`. Always update both when changing file-intrinsic fields. Cross-job queries must use `source_files` to avoid counting duplicates.
 - **Error-rate abort**: `ErrorRateMonitor` in `storage_probe.py` tracks rolling success/failure. If >50% of last 100 ops fail or 20 consecutive errors, triggers abort. Used by both scanners (stat failures) and bulk worker (conversion failures). Protects against NAS disconnects mid-operation.
+- **AD-credentialed folders**: All `os.walk()` calls in scanners and storage probe use `onerror` callbacks that log `scan_permission_denied` with an AD hint. Without this, permission-denied folders are silently skipped.
+- **NTFS ADS filtering**: Files with `:` in the name (NTFS Alternate Data Streams) are skipped during scanning. These are metadata streams, not real files.
+- **Search source_path DB fallback**: `search_indexer.py` looks up `source_path` from the `source_files` DB table when frontmatter doesn't contain it. Without this fallback, source file serving and batch download fail for older converted files.
+- **AV quarantine FileNotFoundError**: Scanners catch `FileNotFoundError` from `os.stat()` — antivirus can quarantine a file between `os.walk()` discovering it and `stat()` reading it.
 
 ---
 

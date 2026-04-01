@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MarkFlow — Document Viewer</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+  <style>
+    .viewer-toolbar {
+      display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;
+      margin-bottom: 1rem; padding: 0.75rem 1rem;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+    .viewer-toolbar .btn { font-size: 0.85rem; padding: 0.4rem 0.8rem; }
+    .viewer-info {
+      flex: 1; display: flex; gap: 1rem; align-items: center;
+      font-size: 0.85rem; color: var(--text-muted); min-width: 0;
+    }
+    .viewer-info .title {
+      font-weight: 600; font-size: 1rem; color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .viewer-info .badge {
+      font-size: 0.72rem; text-transform: uppercase; padding: 0.15em 0.5em;
+      border-radius: 3px; background: var(--bg); color: var(--text-muted);
+      border: 1px solid var(--border); letter-spacing: 0.03em; flex-shrink: 0;
+    }
+    .viewer-frame {
+      width: 100%; border: 1px solid var(--border); border-radius: var(--radius);
+      background: #fff; min-height: 70vh;
+    }
+    .viewer-frame iframe {
+      width: 100%; height: 80vh; border: none; border-radius: var(--radius);
+    }
+    .viewer-fallback {
+      padding: 2rem; text-align: center; color: var(--text-muted);
+    }
+    .viewer-fallback h3 { margin-bottom: 0.5rem; color: var(--text); }
+    .viewer-fallback .file-icon { font-size: 3rem; margin-bottom: 1rem; opacity: 0.4; }
+    .viewer-meta {
+      display: flex; gap: 1.5rem; font-size: 0.82rem; color: var(--text-muted);
+      margin-top: 0.5rem; flex-wrap: wrap;
+    }
+    .md-preview {
+      padding: 1.5rem; background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); font-family: var(--font-mono);
+      font-size: 0.85rem; line-height: 1.6; white-space: pre-wrap;
+      max-height: 80vh; overflow-y: auto;
+    }
+    .view-toggle { display: flex; gap: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .view-toggle button {
+      padding: 0.4rem 0.8rem; border: none; background: var(--surface);
+      color: var(--text-muted); font-size: 0.82rem; cursor: pointer;
+      border-right: 1px solid var(--border);
+    }
+    .view-toggle button:last-child { border-right: none; }
+    .view-toggle button.active { background: var(--accent); color: #fff; }
+  </style>
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="/" class="nav-logo">MarkFlow</a>
+    <div id="main-nav" class="nav-links"></div>
+  </nav>
+
+  <div class="container page-content">
+    <div id="error-banner" role="alert" hidden></div>
+
+    <div id="loading" class="empty-state">
+      <p>Loading document...</p>
+    </div>
+
+    <div id="viewer-content" hidden>
+      <div class="viewer-toolbar">
+        <div class="viewer-info">
+          <span id="doc-title" class="title"></span>
+          <span id="doc-badge" class="badge"></span>
+        </div>
+        <div class="view-toggle" id="view-toggle">
+          <button id="btn-source" class="active">Source</button>
+          <button id="btn-markdown">Markdown</button>
+        </div>
+        <button class="btn btn-primary" id="btn-download">Download</button>
+        <a href="#" class="btn" id="btn-back">Back to Search</a>
+      </div>
+
+      <div id="doc-meta" class="viewer-meta"></div>
+
+      <div id="source-view" class="viewer-frame"></div>
+      <div id="markdown-view" hidden></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script>
+  var params = new URLSearchParams(location.search);
+  var docIndex = params.get('index') || 'documents';
+  var docId = params.get('id') || '';
+  var returnQuery = params.get('q') || '';
+
+  // Set back link
+  var backLink = '/search.html';
+  if (returnQuery) backLink += '?q=' + encodeURIComponent(returnQuery);
+  document.getElementById('btn-back').href = backLink;
+
+  function formatLocalTime(isoStr) {
+    if (!isoStr) return '';
+    var d = new Date(isoStr);
+    if (isNaN(d.getTime())) return isoStr;
+    return d.toLocaleString(undefined, {
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: 'numeric', minute: '2-digit'
+    });
+  }
+
+  function formatSize(bytes) {
+    if (!bytes) return '';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1048576).toFixed(1) + ' MB';
+  }
+
+  (async function() {
+    if (!docId) {
+      document.getElementById('loading').textContent = 'No document ID provided.';
+      return;
+    }
+
+    try {
+      var info = await API.get('/api/search/doc-info/' + encodeURIComponent(docIndex) + '/' + encodeURIComponent(docId));
+
+      document.getElementById('loading').hidden = true;
+      document.getElementById('viewer-content').hidden = false;
+
+      // Title and badge
+      document.getElementById('doc-title').textContent = info.title || info.source_filename || 'Untitled';
+      document.getElementById('doc-badge').textContent = (info.source_format || '').toUpperCase();
+
+      // Meta
+      var metaEl = document.getElementById('doc-meta');
+      var parts = [];
+      if (info.source_size) parts.push('Size: ' + formatSize(info.source_size));
+      if (info.date) parts.push('Converted: ' + formatLocalTime(info.date));
+      if (info.fidelity_tier) parts.push('Fidelity: Tier ' + info.fidelity_tier);
+      if (info.has_ocr) parts.push('OCR applied');
+      metaEl.textContent = '';
+      parts.forEach(function(p) {
+        var span = document.createElement('span');
+        span.textContent = p;
+        metaEl.appendChild(span);
+      });
+
+      // Source view
+      var sourceView = document.getElementById('source-view');
+      if (info.has_source && info.can_inline) {
+        var iframe = document.createElement('iframe');
+        iframe.src = '/api/search/source/' + encodeURIComponent(docIndex) + '/' + encodeURIComponent(docId);
+        iframe.title = 'Document preview';
+        sourceView.appendChild(iframe);
+      } else if (info.has_source) {
+        var fallback = document.createElement('div');
+        fallback.className = 'viewer-fallback';
+        var icon = document.createElement('div');
+        icon.className = 'file-icon';
+        icon.textContent = (info.source_format || '').toUpperCase();
+        fallback.appendChild(icon);
+        var h3 = document.createElement('h3');
+        h3.textContent = info.source_filename || info.title;
+        fallback.appendChild(h3);
+        var p = document.createElement('p');
+        p.textContent = 'This file type cannot be previewed in the browser. Click Download to get the file.';
+        fallback.appendChild(p);
+        sourceView.appendChild(fallback);
+      } else {
+        var noSource = document.createElement('div');
+        noSource.className = 'viewer-fallback';
+        var h3ns = document.createElement('h3');
+        h3ns.textContent = 'Source file not found';
+        noSource.appendChild(h3ns);
+        var pns = document.createElement('p');
+        pns.textContent = 'The original file is no longer available. You can still view the Markdown conversion.';
+        noSource.appendChild(pns);
+        sourceView.appendChild(noSource);
+        // Auto-switch to markdown
+        switchView('markdown');
+      }
+
+      // Download button
+      document.getElementById('btn-download').addEventListener('click', function() {
+        if (info.has_source) {
+          window.location.href = '/api/search/download/' + encodeURIComponent(docIndex) + '/' + encodeURIComponent(docId);
+        } else {
+          showError('Source file not available for download.');
+        }
+      });
+
+      // View toggle
+      document.getElementById('btn-source').addEventListener('click', function() { switchView('source'); });
+      document.getElementById('btn-markdown').addEventListener('click', function() { switchView('markdown'); });
+
+      if (!info.has_markdown) {
+        document.getElementById('btn-markdown').disabled = true;
+        document.getElementById('btn-markdown').title = 'No markdown conversion available';
+      }
+
+    } catch(e) {
+      document.getElementById('loading').textContent = 'Error loading document: ' + e.message;
+    }
+  })();
+
+  var mdLoaded = false;
+
+  function switchView(view) {
+    var srcBtn = document.getElementById('btn-source');
+    var mdBtn = document.getElementById('btn-markdown');
+    var srcView = document.getElementById('source-view');
+    var mdView = document.getElementById('markdown-view');
+
+    if (view === 'markdown') {
+      srcBtn.classList.remove('active');
+      mdBtn.classList.add('active');
+      srcView.hidden = true;
+      mdView.hidden = false;
+
+      if (!mdLoaded) {
+        mdLoaded = true;
+        loadMarkdown();
+      }
+    } else {
+      srcBtn.classList.add('active');
+      mdBtn.classList.remove('active');
+      srcView.hidden = false;
+      mdView.hidden = true;
+    }
+  }
+
+  async function loadMarkdown() {
+    var mdView = document.getElementById('markdown-view');
+    try {
+      var resp = await fetch('/api/search/view/' + encodeURIComponent(docIndex) + '/' + encodeURIComponent(docId));
+      if (!resp.ok) throw new Error('Failed to load markdown');
+      var text = await resp.text();
+      var pre = document.createElement('pre');
+      pre.className = 'md-preview';
+      pre.textContent = text;
+      mdView.textContent = '';
+      mdView.appendChild(pre);
+    } catch(e) {
+      mdView.textContent = 'Could not load markdown preview.';
+    }
+  }
+  </script>
+</body>
+</html>

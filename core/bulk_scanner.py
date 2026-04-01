@@ -309,7 +309,18 @@ class BulkScanner:
         last_eta_write = time.monotonic()
         error_monitor = ErrorRateMonitor()
 
-        for dirpath, dirnames, filenames in os.walk(self.source_path):
+        def _serial_walk_error(err: OSError) -> None:
+            if isinstance(err, PermissionError):
+                log.warning(
+                    "scan_permission_denied",
+                    path=str(err.filename or ""),
+                    error=str(err),
+                    hint="folder may be gated by Active Directory",
+                )
+            else:
+                log.warning("scan_walk_error", path=str(err.filename or ""), error=str(err))
+
+        for dirpath, dirnames, filenames in os.walk(self.source_path, onerror=_serial_walk_error):
             if should_stop() or error_monitor.should_abort():
                 reason = "high_error_rate" if error_monitor.aborted else "global_stop_requested"
                 log.warning("scan_stopped_early", job_id=self.job_id,
@@ -417,12 +428,31 @@ class BulkScanner:
             import time as _time
 
             def _stat_and_enqueue(file_path: Path) -> None:
+                # Skip NTFS Alternate Data Streams (ADS) — filenames with ':'
+                if ":" in file_path.name:
+                    return
                 t0 = _time.perf_counter()
                 try:
                     st = file_path.stat()
+                except FileNotFoundError:
+                    # File vanished between walk() and stat() — AV quarantine or deletion
+                    log.debug("scan_file_vanished", path=str(file_path))
+                    return
+                except PermissionError:
+                    log.debug("scan_file_permission_denied", path=str(file_path))
+                    error_monitor.record_error(f"permission denied: {file_path}")
+                    return
                 except OSError as exc:
                     error_monitor.record_error(str(exc))
-                    return
+                    # Stale SMB connection or timeout — brief retry
+                    if "reset" in str(exc).lower() or "timed out" in str(exc).lower():
+                        _time.sleep(0.5)
+                        try:
+                            st = file_path.stat()
+                        except OSError:
+                            return
+                    else:
+                        return
                 latency_ms = (_time.perf_counter() - t0) * 1000
                 throttler.record_latency(latency_ms)
                 error_monitor.record_success()
@@ -442,11 +472,32 @@ class BulkScanner:
                         return
                 _stat_and_enqueue(self.source_path / filename)
 
+            def _walk_error(err: OSError) -> None:
+                """Handle os.walk errors (e.g. AD-credentialed folders)."""
+                if isinstance(err, PermissionError):
+                    log.warning(
+                        "scan_permission_denied",
+                        path=str(err.filename or ""),
+                        error=str(err),
+                        hint="folder may be gated by Active Directory",
+                    )
+                else:
+                    log.warning("scan_walk_error", path=str(err.filename or ""), error=str(err))
+
             # Walk assigned subdirectories
             for subdir in dirs_to_walk:
                 if _should_bail():
                     return
-                for dirpath, dirnames, filenames in os.walk(subdir):
+                try:
+                    walker = os.walk(subdir, onerror=_walk_error)
+                except PermissionError:
+                    log.warning(
+                        "scan_permission_denied",
+                        path=str(subdir),
+                        hint="folder may be gated by Active Directory",
+                    )
+                    continue
+                for dirpath, dirnames, filenames in walker:
                     if _should_bail():
                         return
                     dirnames[:] = [
@@ -594,12 +645,22 @@ class BulkScanner:
         file_count: int,
     ) -> int:
         """Process a single discovered file — stat, classify, upsert. Returns updated count."""
+        # Skip NTFS Alternate Data Streams
+        if ":" in file_path.name:
+            return file_count
+
         ext = _get_effective_extension(file_path)
 
         try:
             stat = file_path.stat()
             file_size = stat.st_size
             mtime = stat.st_mtime
+        except FileNotFoundError:
+            log.debug("scan_file_vanished", path=str(file_path))
+            return file_count
+        except PermissionError:
+            log.debug("scan_file_permission_denied", path=str(file_path))
+            return file_count
         except OSError as exc:
             log.warning("bulk_scan_stat_error", path=str(file_path), error=str(exc))
             return file_count
@@ -672,9 +733,19 @@ class BulkScanner:
         total = 0
         update_interval = 2000  # stream count to tracker every N files
 
+        def _count_walk_error(err: OSError) -> None:
+            if isinstance(err, PermissionError):
+                log.warning(
+                    "scan_count_permission_denied",
+                    path=str(err.filename or ""),
+                    hint="folder may be gated by Active Directory",
+                )
+            else:
+                log.warning("scan_count_walk_error", path=str(err.filename or ""), error=str(err))
+
         def _walk_sync() -> int:
             nonlocal total
-            for _, dirnames, filenames in os.walk(self.source_path):
+            for _, dirnames, filenames in os.walk(self.source_path, onerror=_count_walk_error):
                 dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "_markflow"]
                 total += len(filenames)
             return total

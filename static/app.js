@@ -113,12 +113,29 @@ function formatDate(isoString) {
     if (!isoString) return '—';
     try {
         const d = new Date(isoString);
+        if (isNaN(d.getTime())) return isoString;
         const now = new Date();
         const today = now.toDateString();
         const yesterday = new Date(now - 86400000).toDateString();
         if (d.toDateString() === today) return 'Today ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
         if (d.toDateString() === yesterday) return 'Yesterday ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-        return d.toLocaleDateString([], {month:'short', day:'numeric'}) + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+        return d.toLocaleDateString([], {year:'numeric', month:'short', day:'numeric'}) + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    } catch { return isoString; }
+}
+
+/**
+ * Format an ISO timestamp as local time, always showing full date + time.
+ * Use this anywhere a date/time is displayed to the user.
+ */
+function formatLocalTime(isoString) {
+    if (!isoString) return '—';
+    try {
+        const d = new Date(isoString);
+        if (isNaN(d.getTime())) return isoString;
+        return d.toLocaleString(undefined, {
+            year: 'numeric', month: 'short', day: 'numeric',
+            hour: 'numeric', minute: '2-digit',
+        });
     } catch { return isoString; }
 }
 

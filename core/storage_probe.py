@@ -303,7 +303,12 @@ def _collect_sample_files(source_path: Path, max_files: int = 20) -> tuple[list[
 
     try:
         # First pass: find a directory with enough files for sequential test
-        for dirpath, dirnames, filenames in os.walk(source_path):
+        def _probe_walk_error(err: OSError) -> None:
+            if isinstance(err, PermissionError):
+                log.warning("probe_permission_denied", path=str(err.filename or ""),
+                            hint="folder may be gated by Active Directory")
+
+        for dirpath, dirnames, filenames in os.walk(source_path, onerror=_probe_walk_error):
             # Skip hidden dirs and _markflow
             dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "_markflow"]
 

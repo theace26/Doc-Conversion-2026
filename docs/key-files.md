@@ -96,7 +96,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `api/routes/review.py` | OCR review endpoints: list, counts, single-flag, resolve, accept-all |
 | `api/routes/debug.py` | Debug dashboard API |
 | `api/routes/bulk.py` | Bulk job API: create, list, status, pause/resume/cancel, files, errors, SSE |
-| `api/routes/search.py` | Full-text search API: search, autocomplete, index status, rebuild |
+| `api/routes/search.py` | Search API: unified multi-index search, autocomplete, source file serving, batch download, rebuild |
 | `api/routes/cowork.py` | AI assistant search: full .md content inline, token-budget-aware |
 | `api/routes/locations.py` | Locations CRUD API + path validation endpoint |
 | `api/routes/browse.py` | Directory browser API with path traversal protection |
@@ -124,7 +124,8 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `static/markflow.css` | Shared design system: CSS variables, dark mode, components |
 | `static/app.js` | Shared JS: API helpers, formatters, toast, nav link highlighter |
 | `static/index.html` | Upload UI: drag-and-drop, direction toggle, format badges |
-| `static/search.html` | Search UI: debounced search, highlights, format/index filters |
+| `static/search.html` | Search UI: unified multi-index search, format chips, per-page, multi-select, viewer links |
+| `static/viewer.html` | Document viewer: source/markdown toggle, inline PDF preview, download |
 | `static/bulk.html` | Bulk job UI: location dropdowns, SSE progress, pause/cancel |
 | `static/status.html` | Status page: per-job cards, STOP ALL, lifecycle scanner |
 | `static/history.html` | History browser: filter, sort, search, pagination, inline detail |

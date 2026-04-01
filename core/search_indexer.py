@@ -16,6 +16,7 @@ from pathlib import Path
 
 import structlog
 
+from core.database import db_fetch_one
 from core.search_client import MeilisearchClient, get_meili_client
 from core.storage_probe import ErrorRateMonitor
 
@@ -43,6 +44,7 @@ DOCUMENTS_INDEX_SETTINGS = {
     "sortableAttributes": [
         "converted_at",
         "file_size_bytes",
+        "source_format",
     ],
     "displayedAttributes": [
         "id", "title", "source_filename", "source_format", "relative_path",
@@ -151,6 +153,18 @@ class SearchIndexer:
         source_filename = markflow_meta.get("source_file", md_path.stem)
         source_format = markflow_meta.get("source_format", "")
         source_path = markflow_meta.get("source_path", "")
+
+        # If frontmatter lacks source_path, look it up from the source_files table
+        if not source_path:
+            try:
+                row = await db_fetch_one(
+                    "SELECT source_path FROM source_files WHERE output_path = ?",
+                    (str(md_path),),
+                )
+                if row and row["source_path"]:
+                    source_path = row["source_path"]
+            except Exception:
+                pass  # non-critical — index with empty source_path
 
         # Strip for indexing
         indexable_content = _strip_for_indexing(body)
