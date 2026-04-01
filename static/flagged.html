@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MarkFlow — Flagged Files</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+  <style>
+    .flag-summary {
+      display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem;
+    }
+    .flag-stat {
+      flex: 1; min-width: 120px; padding: 0.75rem 1rem;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); text-align: center;
+    }
+    .flag-stat .count { font-size: 1.5rem; font-weight: 700; }
+    .flag-stat .label { font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .flag-stat.stat-active { border-color: var(--error); }
+    .flag-stat.stat-extended { border-color: var(--warn); }
+
+    .tabs {
+      display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 1rem;
+    }
+    .tab {
+      padding: 0.6rem 1.25rem; cursor: pointer; font-size: 0.88rem; font-weight: 500;
+      color: var(--text-muted); border-bottom: 2px solid transparent;
+      margin-bottom: -2px; background: none; border-top: none; border-left: none; border-right: none;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    .flag-filters {
+      display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem; align-items: flex-end;
+    }
+    .flag-filters .form-group { margin-bottom: 0; }
+    .flag-filters label { display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.2rem; }
+    .flag-filters select,
+    .flag-filters input {
+      padding: 0.4rem 0.6rem; font-size: 0.85rem; border: 1px solid var(--border);
+      border-radius: var(--radius); background: var(--surface); color: var(--text);
+    }
+
+    .flag-table {
+      width: 100%; border-collapse: collapse; font-size: 0.85rem;
+    }
+    .flag-table th {
+      text-align: left; padding: 0.6rem 0.75rem; font-size: 0.75rem;
+      text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);
+      border-bottom: 2px solid var(--border); white-space: nowrap;
+    }
+    .flag-table td {
+      padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .flag-table tbody tr:hover { background: rgba(128,128,128,0.04); }
+
+    .reason-badge {
+      display: inline-block; padding: 0.15em 0.5em; border-radius: 3px;
+      font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+    }
+    .reason-pii { background: rgba(220,38,38,0.12); color: #dc2626; }
+    .reason-confidential { background: rgba(217,119,6,0.12); color: #d97706; }
+    .reason-unauthorized { background: rgba(79,70,229,0.12); color: #4f46e5; }
+    .reason-other { background: rgba(128,128,128,0.12); color: var(--text-muted); }
+
+    .path-cell {
+      max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-muted);
+    }
+    .note-cell {
+      max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-size: 0.82rem;
+    }
+    .action-btns { display: flex; gap: 0.4rem; white-space: nowrap; }
+
+    .pagination {
+      display: flex; gap: 0.4rem; justify-content: center; margin-top: 1rem;
+    }
+    .pagination button {
+      padding: 0.35rem 0.7rem; font-size: 0.82rem; border: 1px solid var(--border);
+      border-radius: var(--radius); background: var(--surface); color: var(--text); cursor: pointer;
+    }
+    .pagination button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .pagination button:disabled { opacity: 0.4; cursor: default; }
+
+    .status-badge {
+      display: inline-block; padding: 0.12em 0.45em; border-radius: 3px;
+      font-size: 0.73rem; font-weight: 600; text-transform: uppercase;
+    }
+    .status-active { background: rgba(220,38,38,0.12); color: #dc2626; }
+    .status-extended { background: rgba(217,119,6,0.12); color: #d97706; }
+    .status-dismissed { background: rgba(128,128,128,0.12); color: var(--text-muted); }
+    .status-expired { background: rgba(128,128,128,0.12); color: var(--text-muted); }
+    .status-removed { background: rgba(79,70,229,0.12); color: #4f46e5; }
+    .status-retracted { background: rgba(128,128,128,0.12); color: var(--text-muted); }
+
+    .hash-cell {
+      font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="/" class="nav-logo">MarkFlow</a>
+    <div id="main-nav" class="nav-links"></div>
+  </nav>
+
+  <div class="container page-content">
+    <div id="error-banner" role="alert" hidden></div>
+
+    <h1>Flagged Files</h1>
+    <p class="text-muted text-sm" style="margin-bottom:1.25rem">Content moderation: review, dismiss, extend, or remove flagged files.</p>
+
+    <!-- Summary stats -->
+    <div class="flag-summary" id="flag-summary"></div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab active" data-tab="active">Active</button>
+      <button class="tab" data-tab="history">History</button>
+      <button class="tab" data-tab="blocklist">Blocklist</button>
+    </div>
+
+    <!-- Filters -->
+    <div class="flag-filters" id="flag-filters">
+      <div class="form-group">
+        <label for="filter-reason">Reason</label>
+        <select id="filter-reason">
+          <option value="">All</option>
+          <option value="pii">PII</option>
+          <option value="confidential">Confidential</option>
+          <option value="unauthorized">Unauthorized</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="filter-flagged-by">Flagged By</label>
+        <input type="text" id="filter-flagged-by" placeholder="email" size="18">
+      </div>
+      <div class="form-group">
+        <label for="filter-path">Path Prefix</label>
+        <input type="text" id="filter-path" placeholder="/mnt/source/..." size="22">
+      </div>
+      <div class="form-group">
+        <label for="filter-sort">Sort By</label>
+        <select id="filter-sort">
+          <option value="expires_at:asc">Expires soonest</option>
+          <option value="created_at:desc">Flagged newest</option>
+          <option value="reason:asc">Reason</option>
+          <option value="flagged_by_email:asc">Flagged By</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="card" style="padding:0;overflow:auto">
+      <table class="flag-table" id="flag-table">
+        <thead id="flag-thead"></thead>
+        <tbody id="flag-tbody"></tbody>
+      </table>
+    </div>
+
+    <div id="empty-state" class="empty-state" hidden>
+      <h3 id="empty-title">No flagged files</h3>
+      <p id="empty-desc">There are no flags matching this filter.</p>
+    </div>
+
+    <div class="pagination" id="pagination"></div>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script>
+  /* --- State --- */
+  let currentTab = 'active';
+  let currentPage = 1;
+  const perPage = 25;
+
+  const REASON_LABELS = { pii: 'PII', confidential: 'Confidential', unauthorized: 'Unauthorized', other: 'Other' };
+  const REASON_CLASSES = { pii: 'reason-pii', confidential: 'reason-confidential', unauthorized: 'reason-unauthorized', other: 'reason-other' };
+
+  /* --- Helpers --- */
+  function clearChildren(el) {
+    while (el.firstChild) el.removeChild(el.firstChild);
+  }
+
+  function showLoadingRow(tbody, colspan) {
+    clearChildren(tbody);
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = colspan;
+    td.style.textAlign = 'center';
+    td.style.padding = '2rem';
+    const spinner = document.createElement('span');
+    spinner.className = 'spinner';
+    td.appendChild(spinner);
+    td.appendChild(document.createTextNode(' Loading...'));
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+
+  function timeAgo(dateStr) {
+    if (!dateStr) return '';
+    const now = Date.now();
+    const d = new Date(dateStr).getTime();
+    const diff = d - now;
+    if (diff > 0) {
+      const days = Math.ceil(diff / 86400000);
+      if (days === 1) return 'in 1 day';
+      return 'in ' + days + ' days';
+    }
+    const elapsed = now - d;
+    const mins = Math.floor(elapsed / 60000);
+    if (mins < 60) return mins + 'm ago';
+    const hrs = Math.floor(elapsed / 3600000);
+    if (hrs < 24) return hrs + 'h ago';
+    const days = Math.floor(elapsed / 86400000);
+    return days + 'd ago';
+  }
+
+  function makeReasonBadge(reason) {
+    const span = document.createElement('span');
+    span.className = 'reason-badge ' + (REASON_CLASSES[reason] || 'reason-other');
+    span.textContent = REASON_LABELS[reason] || reason || 'Unknown';
+    return span;
+  }
+
+  function makeStatusBadge(status) {
+    const span = document.createElement('span');
+    span.className = 'status-badge status-' + (status || 'active');
+    span.textContent = (status || 'active').charAt(0).toUpperCase() + (status || 'active').slice(1);
+    return span;
+  }
+
+  function filename(path) {
+    if (!path) return '';
+    return path.split('/').pop() || path.split('\\').pop() || path;
+  }
+
+  /* --- Stats --- */
+  async function loadStats() {
+    try {
+      const s = await API.get('/api/flags/stats');
+      const container = document.getElementById('flag-summary');
+      clearChildren(container);
+      const items = [
+        { key: 'active', label: 'Active', cls: 'stat-active' },
+        { key: 'extended', label: 'Extended', cls: 'stat-extended' },
+        { key: 'dismissed', label: 'Dismissed', cls: '' },
+        { key: 'expired', label: 'Expired', cls: '' },
+        { key: 'removed', label: 'Removed', cls: '' },
+      ];
+      for (const item of items) {
+        const div = document.createElement('div');
+        div.className = 'flag-stat' + (item.cls ? ' ' + item.cls : '');
+        const countEl = document.createElement('div');
+        countEl.className = 'count';
+        countEl.textContent = s[item.key] != null ? s[item.key] : 0;
+        const labelEl = document.createElement('div');
+        labelEl.className = 'label';
+        labelEl.textContent = item.label;
+        div.appendChild(countEl);
+        div.appendChild(labelEl);
+        container.appendChild(div);
+      }
+    } catch (err) {
+      showError(err.message);
+    }
+  }
+
+  /* --- Tabs --- */
+  document.querySelectorAll('.tab').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+      btn.classList.add('active');
+      currentTab = btn.dataset.tab;
+      currentPage = 1;
+      document.getElementById('flag-filters').hidden = (currentTab === 'blocklist');
+      loadData();
+    });
+  });
+
+  /* --- Build table headers --- */
+  function buildHeaders() {
+    const thead = document.getElementById('flag-thead');
+    clearChildren(thead);
+    const tr = document.createElement('tr');
+    var cols;
+    if (currentTab === 'active') {
+      cols = ['File', 'Path', 'Reason', 'Note', 'Flagged By', 'Flagged', 'Expires', 'Actions'];
+    } else if (currentTab === 'history') {
+      cols = ['File', 'Path', 'Reason', 'Note', 'Flagged By', 'Flagged', 'Status', 'Resolved By'];
+    } else {
+      cols = ['Source Path', 'Hash', 'Reason', 'Added By', 'Date', 'Action'];
+    }
+    for (var i = 0; i < cols.length; i++) {
+      var th = document.createElement('th');
+      th.textContent = cols[i];
+      tr.appendChild(th);
+    }
+    thead.appendChild(tr);
+  }
+
+  /* --- Load data --- */
+  async function loadData() {
+    buildHeaders();
+    var tbody = document.getElementById('flag-tbody');
+    var colCount = currentTab === 'blocklist' ? 6 : 8;
+    showLoadingRow(tbody, colCount);
+    document.getElementById('empty-state').hidden = true;
+    document.getElementById('flag-table').closest('.card').hidden = false;
+    clearChildren(document.getElementById('pagination'));
+
+    try {
+      if (currentTab === 'blocklist') {
+        await loadBlocklist();
+      } else {
+        await loadFlags();
+      }
+    } catch (err) {
+      showError(err.message);
+    }
+  }
+
+  async function loadFlags() {
+    var reason = document.getElementById('filter-reason').value;
+    var flaggedBy = document.getElementById('filter-flagged-by').value.trim();
+    var pathPrefix = document.getElementById('filter-path').value.trim();
+    var sortVal = document.getElementById('filter-sort').value;
+    var parts = sortVal.split(':');
+    var sortBy = parts[0];
+    var sortDir = parts[1];
+
+    var status = currentTab === 'active' ? 'active' : '';
+
+    var url = '/api/flags?page=' + currentPage + '&per_page=' + perPage;
+    if (status) url += '&status=' + encodeURIComponent(status);
+    if (reason) url += '&reason=' + encodeURIComponent(reason);
+    if (flaggedBy) url += '&flagged_by=' + encodeURIComponent(flaggedBy);
+    if (pathPrefix) url += '&path_prefix=' + encodeURIComponent(pathPrefix);
+    url += '&sort_by=' + encodeURIComponent(sortBy) + '&sort_dir=' + encodeURIComponent(sortDir);
+
+    var data = await API.get(url);
+    renderFlags(data);
+  }
+
+  async function loadBlocklist() {
+    var url = '/api/flags/blocklist?page=' + currentPage + '&per_page=' + perPage;
+    var data = await API.get(url);
+    renderBlocklist(data);
+  }
+
+  /* --- Render flags table --- */
+  function renderFlags(data) {
+    var items = data.items || [];
+    var tbody = document.getElementById('flag-tbody');
+    var tableCard = document.getElementById('flag-table').closest('.card');
+    var emptyState = document.getElementById('empty-state');
+
+    clearChildren(tbody);
+
+    if (items.length === 0) {
+      tableCard.hidden = true;
+      emptyState.hidden = false;
+      document.getElementById('empty-title').textContent = currentTab === 'active' ? 'No active flags' : 'No flag history';
+      document.getElementById('empty-desc').textContent = currentTab === 'active'
+        ? 'No files are currently flagged.'
+        : 'No flags match the current filters.';
+      return;
+    }
+
+    tableCard.hidden = false;
+    emptyState.hidden = true;
+
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var tr = document.createElement('tr');
+
+      // File
+      var tdFile = document.createElement('td');
+      tdFile.textContent = filename(item.source_path);
+      tdFile.style.fontWeight = '500';
+      tr.appendChild(tdFile);
+
+      // Path
+      var tdPath = document.createElement('td');
+      tdPath.className = 'path-cell';
+      tdPath.textContent = item.source_path || '';
+      tdPath.title = item.source_path || '';
+      tr.appendChild(tdPath);
+
+      // Reason
+      var tdReason = document.createElement('td');
+      tdReason.appendChild(makeReasonBadge(item.reason));
+      tr.appendChild(tdReason);
+
+      // Note
+      var tdNote = document.createElement('td');
+      tdNote.className = 'note-cell';
+      tdNote.textContent = item.note || '';
+      tdNote.title = item.note || '';
+      tr.appendChild(tdNote);
+
+      // Flagged By
+      var tdBy = document.createElement('td');
+      tdBy.className = 'text-sm';
+      tdBy.textContent = item.flagged_by_email || '';
+      tr.appendChild(tdBy);
+
+      // Flagged (time ago)
+      var tdFlagged = document.createElement('td');
+      tdFlagged.className = 'text-sm text-muted';
+      tdFlagged.textContent = timeAgo(item.created_at);
+      tdFlagged.title = item.created_at || '';
+      tr.appendChild(tdFlagged);
+
+      if (currentTab === 'active') {
+        // Expires
+        var tdExpires = document.createElement('td');
+        tdExpires.className = 'text-sm';
+        tdExpires.textContent = timeAgo(item.expires_at);
+        tdExpires.title = item.expires_at || '';
+        tr.appendChild(tdExpires);
+
+        // Actions
+        var tdActions = document.createElement('td');
+        tdActions.className = 'action-btns';
+
+        var btnDismiss = document.createElement('button');
+        btnDismiss.className = 'btn btn-ghost btn-sm';
+        btnDismiss.textContent = 'Dismiss';
+        btnDismiss.addEventListener('click', (function(id) { return function() { dismissFlag(id); }; })(item.id));
+
+        var btnExtend = document.createElement('button');
+        btnExtend.className = 'btn btn-ghost btn-sm';
+        btnExtend.textContent = 'Extend';
+        btnExtend.addEventListener('click', (function(id) { return function() { extendFlag(id); }; })(item.id));
+
+        var btnRemove = document.createElement('button');
+        btnRemove.className = 'btn btn-danger btn-sm';
+        btnRemove.textContent = 'Remove';
+        btnRemove.addEventListener('click', (function(id) { return function() { removeFlag(id); }; })(item.id));
+
+        tdActions.appendChild(btnDismiss);
+        tdActions.appendChild(btnExtend);
+        tdActions.appendChild(btnRemove);
+        tr.appendChild(tdActions);
+      } else {
+        // Status
+        var tdStatus = document.createElement('td');
+        tdStatus.appendChild(makeStatusBadge(item.status));
+        tr.appendChild(tdStatus);
+
+        // Resolved By
+        var tdResolved = document.createElement('td');
+        tdResolved.className = 'text-sm';
+        tdResolved.textContent = item.resolved_by_email || '';
+        tr.appendChild(tdResolved);
+      }
+
+      tbody.appendChild(tr);
+    }
+
+    renderPagination(data.total, data.page, data.per_page);
+  }
+
+  /* --- Render blocklist table --- */
+  function renderBlocklist(data) {
+    var items = data.items || [];
+    var tbody = document.getElementById('flag-tbody');
+    var tableCard = document.getElementById('flag-table').closest('.card');
+    var emptyState = document.getElementById('empty-state');
+
+    clearChildren(tbody);
+
+    if (items.length === 0) {
+      tableCard.hidden = true;
+      emptyState.hidden = false;
+      document.getElementById('empty-title').textContent = 'Blocklist empty';
+      document.getElementById('empty-desc').textContent = 'No content hashes are currently blocklisted.';
+      return;
+    }
+
+    tableCard.hidden = false;
+    emptyState.hidden = true;
+
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var tr = document.createElement('tr');
+
+      // Source Path
+      var tdPath = document.createElement('td');
+      tdPath.className = 'path-cell';
+      tdPath.textContent = item.source_path || '';
+      tdPath.title = item.source_path || '';
+      tr.appendChild(tdPath);
+
+      // Hash (truncated)
+      var tdHash = document.createElement('td');
+      tdHash.className = 'hash-cell';
+      var hash = item.content_hash || '';
+      tdHash.textContent = hash.length > 16 ? hash.substring(0, 16) + '...' : hash;
+      tdHash.title = hash;
+      tr.appendChild(tdHash);
+
+      // Reason
+      var tdReason = document.createElement('td');
+      tdReason.textContent = item.reason || '';
+      tr.appendChild(tdReason);
+
+      // Added By
+      var tdAddedBy = document.createElement('td');
+      tdAddedBy.className = 'text-sm';
+      tdAddedBy.textContent = item.added_by_email || '';
+      tr.appendChild(tdAddedBy);
+
+      // Date
+      var tdDate = document.createElement('td');
+      tdDate.className = 'text-sm text-muted';
+      tdDate.textContent = timeAgo(item.created_at);
+      tdDate.title = item.created_at || '';
+      tr.appendChild(tdDate);
+
+      // Action
+      var tdAction = document.createElement('td');
+      var btnUnblock = document.createElement('button');
+      btnUnblock.className = 'btn btn-ghost btn-sm';
+      btnUnblock.textContent = 'Un-blocklist';
+      btnUnblock.addEventListener('click', (function(id) { return function() { unblocklist(id); }; })(item.id));
+      tdAction.appendChild(btnUnblock);
+      tr.appendChild(tdAction);
+
+      tbody.appendChild(tr);
+    }
+
+    renderPagination(data.total, data.page, data.per_page);
+  }
+
+  /* --- Pagination --- */
+  function renderPagination(total, page, pp) {
+    var container = document.getElementById('pagination');
+    clearChildren(container);
+    var totalPages = Math.ceil(total / pp);
+    if (totalPages <= 1) return;
+
+    var prevBtn = document.createElement('button');
+    prevBtn.textContent = 'Prev';
+    prevBtn.disabled = page <= 1;
+    prevBtn.addEventListener('click', function() { currentPage = page - 1; loadData(); });
+    container.appendChild(prevBtn);
+
+    for (var i = 1; i <= totalPages; i++) {
+      if (totalPages > 7 && i > 3 && i < totalPages - 1 && Math.abs(i - page) > 1) {
+        if (i === 4 || i === totalPages - 2) {
+          var dot = document.createElement('button');
+          dot.textContent = '...';
+          dot.disabled = true;
+          container.appendChild(dot);
+        }
+        continue;
+      }
+      var btn = document.createElement('button');
+      btn.textContent = i;
+      if (i === page) btn.classList.add('active');
+      btn.addEventListener('click', (function(p) { return function() { currentPage = p; loadData(); }; })(i));
+      container.appendChild(btn);
+    }
+
+    var nextBtn = document.createElement('button');
+    nextBtn.textContent = 'Next';
+    nextBtn.disabled = page >= totalPages;
+    nextBtn.addEventListener('click', function() { currentPage = page + 1; loadData(); });
+    container.appendChild(nextBtn);
+  }
+
+  /* --- Admin actions --- */
+  async function dismissFlag(id) {
+    var note = prompt('Resolution note (optional):');
+    if (note === null) return;
+    try {
+      var body = {};
+      if (note) body.resolution_note = note;
+      await API.put('/api/flags/' + id + '/dismiss', body);
+      showToast('Flag dismissed');
+      loadStats();
+      loadData();
+    } catch (err) {
+      showError(err.message);
+    }
+  }
+
+  async function extendFlag(id) {
+    var days = prompt('Extend by how many days?', '30');
+    if (days === null) return;
+    var parsed = parseInt(days, 10);
+    if (isNaN(parsed) || parsed <= 0) {
+      showToast('Invalid number of days');
+      return;
+    }
+    try {
+      var body = { days: parsed };
+      var note = prompt('Resolution note (optional):');
+      if (note === null) return;
+      if (note) body.resolution_note = note;
+      await API.put('/api/flags/' + id + '/extend', body);
+      showToast('Flag extended by ' + parsed + ' days');
+      loadStats();
+      loadData();
+    } catch (err) {
+      showError(err.message);
+    }
+  }
+
+  async function removeFlag(id) {
+    if (!confirm('Remove this file? This will mark the file for removal from the system.')) return;
+    var note = prompt('Resolution note (optional):');
+    if (note === null) return;
+    try {
+      var body = {};
+      if (note) body.resolution_note = note;
+      await API.put('/api/flags/' + id + '/remove', body);
+      showToast('File marked for removal');
+      loadStats();
+      loadData();
+    } catch (err) {
+      showError(err.message);
+    }
+  }
+
+  async function unblocklist(id) {
+    if (!confirm('Remove this hash from the blocklist?')) return;
+    try {
+      await API.del('/api/flags/blocklist/' + id);
+      showToast('Removed from blocklist');
+      loadData();
+    } catch (err) {
+      showError(err.message);
+    }
+  }
+
+  /* --- Filter change listeners --- */
+  document.getElementById('filter-reason').addEventListener('change', function() { currentPage = 1; loadData(); });
+  document.getElementById('filter-sort').addEventListener('change', function() { currentPage = 1; loadData(); });
+  var filterTimeout;
+  document.getElementById('filter-flagged-by').addEventListener('input', function() {
+    clearTimeout(filterTimeout);
+    filterTimeout = setTimeout(function() { currentPage = 1; loadData(); }, 400);
+  });
+  document.getElementById('filter-path').addEventListener('input', function() {
+    clearTimeout(filterTimeout);
+    filterTimeout = setTimeout(function() { currentPage = 1; loadData(); }, 400);
+  });
+
+  /* --- Init --- */
+  loadStats();
+  loadData();
+  </script>
+</body>
+</html>
