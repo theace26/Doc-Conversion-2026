@@ -143,6 +143,18 @@ async def lifespan(app: FastAPI):
         from core.pipeline_startup import wait_for_health_and_start_pipeline
         asyncio.create_task(wait_for_health_and_start_pipeline())
 
+        # Initialize cloud file prefetch if enabled
+        prefetch_enabled = (await get_preference("cloud_prefetch_enabled") or "false").lower() == "true"
+        if prefetch_enabled:
+            from core.cloud_prefetch import init_prefetch_manager
+            pfx_concurrency = int(await get_preference("cloud_prefetch_concurrency") or "5")
+            pfx_rate = int(await get_preference("cloud_prefetch_rate_limit") or "30")
+            pfx_timeout = int(await get_preference("cloud_prefetch_timeout_seconds") or "120")
+            pfx_min_size = int(await get_preference("cloud_prefetch_min_size_bytes") or "0")
+            pfx_probe_all = (await get_preference("cloud_prefetch_probe_all") or "false").lower() == "true"
+            await init_prefetch_manager(pfx_concurrency, pfx_rate, pfx_timeout, pfx_min_size, pfx_probe_all)
+            log.info("markflow.cloud_prefetch_enabled", concurrency=pfx_concurrency, rate_limit=pfx_rate)
+
         # Record startup event
         await record_activity_event("startup", "MarkFlow started", {
             "version": __version__,
@@ -162,6 +174,11 @@ async def lifespan(app: FastAPI):
         stop_scheduler()
     except Exception as exc:
         log.warning("markflow.scheduler_stop_error", error=str(exc))
+    try:
+        from core.cloud_prefetch import shutdown_prefetch_manager
+        await shutdown_prefetch_manager()
+    except Exception as exc:
+        log.warning("markflow.prefetch_shutdown_error", error=str(exc))
     log.info("markflow.shutdown")
 
 
