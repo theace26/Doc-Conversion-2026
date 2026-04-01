@@ -21,6 +21,8 @@ from typing import Any
 import aiosqlite
 import structlog
 
+log = structlog.get_logger(__name__)
+
 # ── Path resolution ───────────────────────────────────────────────────────────
 _DEFAULT_DB = os.getenv("DB_PATH", "markflow.db")
 DB_PATH = Path(_DEFAULT_DB)
@@ -200,6 +202,42 @@ CREATE TABLE IF NOT EXISTS bulk_files (
 );
 CREATE INDEX IF NOT EXISTS idx_bulk_files_job_status ON bulk_files(job_id, status);
 CREATE INDEX IF NOT EXISTS idx_bulk_files_source_path ON bulk_files(source_path);
+
+CREATE TABLE IF NOT EXISTS source_files (
+    id              TEXT PRIMARY KEY,
+    source_path     TEXT NOT NULL UNIQUE,
+    file_ext        TEXT NOT NULL,
+    file_size_bytes INTEGER,
+    source_mtime    REAL,
+    stored_mtime    REAL,
+    content_hash    TEXT,
+    output_path     TEXT,
+    mime_type       TEXT,
+    file_category   TEXT,
+    lifecycle_status TEXT NOT NULL DEFAULT 'active',
+    marked_for_deletion_at DATETIME,
+    moved_to_trash_at DATETIME,
+    purged_at       DATETIME,
+    previous_path   TEXT,
+    protection_type TEXT DEFAULT 'none',
+    password_method TEXT,
+    password_attempts INTEGER DEFAULT 0,
+    is_archive      INTEGER NOT NULL DEFAULT 0,
+    archive_member_count INTEGER,
+    archive_total_uncompressed INTEGER,
+    is_media        INTEGER NOT NULL DEFAULT 0,
+    media_engine    TEXT,
+    ocr_confidence_mean REAL,
+    ocr_skipped_reason TEXT,
+    first_seen_job_id TEXT REFERENCES bulk_jobs(id),
+    last_seen_job_id  TEXT REFERENCES bulk_jobs(id),
+    created_at      DATETIME DEFAULT (datetime('now')),
+    updated_at      DATETIME DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_source_files_path ON source_files(source_path);
+CREATE INDEX IF NOT EXISTS idx_source_files_lifecycle ON source_files(lifecycle_status);
+CREATE INDEX IF NOT EXISTS idx_source_files_ext ON source_files(file_ext);
+CREATE INDEX IF NOT EXISTS idx_source_files_hash ON source_files(content_hash);
 
 CREATE TABLE IF NOT EXISTS adobe_index (
     id              TEXT PRIMARY KEY,
@@ -506,6 +544,93 @@ async def _add_column_if_missing(
         await conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
 
 
+async def _migrate_bulk_files_to_source_files(conn: aiosqlite.Connection) -> int:
+    """One-time migration: populate source_files from distinct bulk_files rows.
+
+    Idempotent — skips if source_files already has data.
+    Uses ``conn`` directly (runs inside init_db before module helpers are ready).
+    Returns count of migrated files, or 0 if skipped.
+    """
+    # Check if source_files already has data
+    async with conn.execute("SELECT COUNT(*) AS cnt FROM source_files") as cur:
+        row = await cur.fetchone()
+        if row and row[0] > 0:
+            return 0
+
+    # Check if bulk_files has any data to migrate
+    async with conn.execute("SELECT COUNT(*) AS cnt FROM bulk_files") as cur:
+        row = await cur.fetchone()
+        if not row or row[0] == 0:
+            return 0
+
+    # Get distinct source_paths from bulk_files (most recent row per path via MAX(ROWID))
+    async with conn.execute(
+        """SELECT bf.*
+           FROM bulk_files bf
+           INNER JOIN (
+               SELECT source_path, MAX(ROWID) AS max_rowid
+               FROM bulk_files
+               GROUP BY source_path
+           ) latest ON bf.source_path = latest.source_path AND bf.ROWID = latest.max_rowid"""
+    ) as cur:
+        rows = await cur.fetchall()
+
+    if not rows:
+        return 0
+
+    count = 0
+    for r in rows:
+        source_file_id = uuid.uuid4().hex
+        await conn.execute(
+            """INSERT INTO source_files
+               (id, source_path, file_ext, file_size_bytes, source_mtime, stored_mtime,
+                content_hash, output_path, mime_type, file_category, lifecycle_status,
+                marked_for_deletion_at, moved_to_trash_at, purged_at, previous_path,
+                protection_type, password_method, password_attempts,
+                is_archive, archive_member_count, archive_total_uncompressed,
+                is_media, media_engine, ocr_confidence_mean, ocr_skipped_reason,
+                last_seen_job_id)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                source_file_id,
+                r["source_path"],
+                r["file_ext"],
+                r["file_size_bytes"],
+                r["source_mtime"],
+                r["stored_mtime"],
+                r["content_hash"],
+                r["output_path"],
+                r["mime_type"] if "mime_type" in r.keys() else None,
+                r["file_category"] if "file_category" in r.keys() else None,
+                r["lifecycle_status"] if "lifecycle_status" in r.keys() else "active",
+                r["marked_for_deletion_at"] if "marked_for_deletion_at" in r.keys() else None,
+                r["moved_to_trash_at"] if "moved_to_trash_at" in r.keys() else None,
+                r["purged_at"] if "purged_at" in r.keys() else None,
+                r["previous_path"] if "previous_path" in r.keys() else None,
+                r["protection_type"] if "protection_type" in r.keys() else "none",
+                r["password_method"] if "password_method" in r.keys() else None,
+                r["password_attempts"] if "password_attempts" in r.keys() else 0,
+                r["is_archive"] if "is_archive" in r.keys() else 0,
+                r["archive_member_count"] if "archive_member_count" in r.keys() else None,
+                r["archive_total_uncompressed"] if "archive_total_uncompressed" in r.keys() else None,
+                r["is_media"] if "is_media" in r.keys() else 0,
+                r["media_engine"] if "media_engine" in r.keys() else None,
+                r["ocr_confidence_mean"] if "ocr_confidence_mean" in r.keys() else None,
+                r["ocr_skipped_reason"] if "ocr_skipped_reason" in r.keys() else None,
+                r["job_id"],
+            ),
+        )
+        # Update all bulk_files rows with this source_path to point to the new source_file
+        await conn.execute(
+            "UPDATE bulk_files SET source_file_id=? WHERE source_path=?",
+            (source_file_id, r["source_path"]),
+        )
+        count += 1
+
+    await conn.commit()
+    return count
+
+
 async def init_db() -> None:
     """Create tables and insert default preferences (idempotent)."""
     async with get_db() as conn:
@@ -582,12 +707,18 @@ async def init_db() -> None:
         # v0.13.0: transcription counters on bulk_jobs
         await _add_column_if_missing(conn, "bulk_jobs", "transcribed", "INTEGER NOT NULL DEFAULT 0")
         await _add_column_if_missing(conn, "bulk_jobs", "transcript_failed", "INTEGER NOT NULL DEFAULT 0")
+        # v0.14.0: source_files dedup — FK from bulk_files to source_files
+        await _add_column_if_missing(conn, "bulk_files", "source_file_id", "TEXT REFERENCES source_files(id)")
         await conn.commit()
         # Phase 9: WAL mode and pragmas
         await conn.execute("PRAGMA journal_mode = WAL")
         await conn.execute("PRAGMA wal_autocheckpoint = 1000")
         await conn.execute("PRAGMA foreign_keys = ON")
         await _init_preferences(conn)
+        # Migrate existing bulk_files data into source_files (idempotent)
+        migrated = await _migrate_bulk_files_to_source_files(conn)
+        if migrated:
+            log.info("db.source_files_migration", migrated_count=migrated)
 
 
 async def cleanup_orphaned_jobs() -> None:
@@ -913,6 +1044,65 @@ async def increment_bulk_job_counter(job_id: str, counter: str, amount: int = 1)
         await conn.commit()
 
 
+# ── Source file helpers ──────────────────────────────────────────────────────
+
+async def upsert_source_file(
+    source_path: str,
+    file_ext: str,
+    file_size_bytes: int | None = None,
+    source_mtime: float | None = None,
+    job_id: str | None = None,
+    **extra_fields,
+) -> str:
+    """Insert or update a source_files record by source_path (UNIQUE key).
+
+    Returns the source_file_id.
+    """
+    row = await db_fetch_one(
+        "SELECT id FROM source_files WHERE source_path=?", (source_path,),
+    )
+
+    if row is not None:
+        source_file_id = row["id"]
+        updates: dict[str, Any] = {"updated_at": _now_iso()}
+        if file_size_bytes is not None:
+            updates["file_size_bytes"] = file_size_bytes
+        if source_mtime is not None:
+            updates["source_mtime"] = source_mtime
+        if job_id is not None:
+            updates["last_seen_job_id"] = job_id
+        updates.update(extra_fields)
+        sets = [f"{k}=?" for k in updates]
+        values = list(updates.values()) + [source_file_id]
+        async with get_db() as conn:
+            await conn.execute(
+                f"UPDATE source_files SET {', '.join(sets)} WHERE id=?", values,
+            )
+            await conn.commit()
+    else:
+        source_file_id = uuid.uuid4().hex
+        cols = {
+            "id": source_file_id,
+            "source_path": source_path,
+            "file_ext": file_ext,
+            "file_size_bytes": file_size_bytes,
+            "source_mtime": source_mtime,
+            "first_seen_job_id": job_id,
+            "last_seen_job_id": job_id,
+        }
+        cols.update(extra_fields)
+        col_names = ", ".join(cols.keys())
+        placeholders = ", ".join(["?"] * len(cols))
+        async with get_db() as conn:
+            await conn.execute(
+                f"INSERT INTO source_files ({col_names}) VALUES ({placeholders})",
+                tuple(cols.values()),
+            )
+            await conn.commit()
+
+    return source_file_id
+
+
 # ── Bulk file helpers ────────────────────────────────────────────────────────
 
 async def upsert_bulk_file(
@@ -922,9 +1112,21 @@ async def upsert_bulk_file(
     file_size_bytes: int,
     source_mtime: float,
 ) -> str:
-    """Insert or update a bulk_files record. Returns file_id."""
+    """Insert or update a bulk_files record. Returns file_id.
+
+    Also upserts the corresponding source_files row and links via source_file_id.
+    """
+    # Step 1: upsert global source_files registry
+    source_file_id = await upsert_source_file(
+        source_path=source_path,
+        file_ext=file_ext,
+        file_size_bytes=file_size_bytes,
+        source_mtime=source_mtime,
+        job_id=job_id,
+    )
+
+    # Step 2: check if this job already has a bulk_files row for this path
     async with get_db() as conn:
-        # Check if this file already exists for this job
         async with conn.execute(
             "SELECT id, stored_mtime FROM bulk_files WHERE job_id=? AND source_path=?",
             (job_id, source_path),
@@ -935,24 +1137,28 @@ async def upsert_bulk_file(
             file_id = row["id"]
             stored_mtime = row["stored_mtime"]
             if stored_mtime is not None and stored_mtime == source_mtime:
-                # Unchanged — mark as skipped
+                # Unchanged — mark as skipped, link source_file_id
                 await conn.execute(
-                    "UPDATE bulk_files SET status='skipped', source_mtime=?, file_size_bytes=? WHERE id=?",
-                    (source_mtime, file_size_bytes, file_id),
+                    """UPDATE bulk_files SET status='skipped', source_mtime=?,
+                       file_size_bytes=?, source_file_id=? WHERE id=?""",
+                    (source_mtime, file_size_bytes, source_file_id, file_id),
                 )
             else:
                 # Changed or never successfully converted — reset to pending
                 await conn.execute(
-                    "UPDATE bulk_files SET status='pending', source_mtime=?, file_size_bytes=? WHERE id=?",
-                    (source_mtime, file_size_bytes, file_id),
+                    """UPDATE bulk_files SET status='pending', source_mtime=?,
+                       file_size_bytes=?, source_file_id=? WHERE id=?""",
+                    (source_mtime, file_size_bytes, source_file_id, file_id),
                 )
         else:
             file_id = uuid.uuid4().hex
             await conn.execute(
                 """INSERT INTO bulk_files
-                   (id, job_id, source_path, file_ext, file_size_bytes, source_mtime, status)
-                   VALUES (?,?,?,?,?,?,?)""",
-                (file_id, job_id, source_path, file_ext, file_size_bytes, source_mtime, "pending"),
+                   (id, job_id, source_path, file_ext, file_size_bytes,
+                    source_mtime, status, source_file_id)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (file_id, job_id, source_path, file_ext, file_size_bytes,
+                 source_mtime, "pending", source_file_id),
             )
 
         await conn.commit()
@@ -1946,3 +2152,95 @@ async def get_archive_member_count(bulk_file_id: str) -> dict[str, int]:
         counts[row["status"]] = row["cnt"]
     counts["total"] = sum(counts.values())
     return counts
+
+
+# ── Source file query helpers ───────────────────────────────────────────────
+
+
+async def get_source_file_by_path(source_path: str) -> dict[str, Any] | None:
+    """Return a single source_files row by its unique source_path."""
+    return await db_fetch_one(
+        "SELECT * FROM source_files WHERE source_path=?", (source_path,),
+    )
+
+
+async def get_source_file_count(
+    lifecycle_status: str | None = None,
+    file_ext: str | None = None,
+) -> int:
+    """Return count of source_files, optionally filtered by lifecycle_status and/or file_ext."""
+    sql = "SELECT COUNT(*) AS cnt FROM source_files WHERE 1=1"
+    params: list[Any] = []
+    if lifecycle_status is not None:
+        sql += " AND lifecycle_status=?"
+        params.append(lifecycle_status)
+    if file_ext is not None:
+        sql += " AND file_ext=?"
+        params.append(file_ext)
+    row = await db_fetch_one(sql, tuple(params))
+    return row["cnt"] if row else 0
+
+
+async def update_source_file(source_file_id: str, **fields) -> None:
+    """Update any combination of source_files fields."""
+    if not fields:
+        return
+    fields["updated_at"] = _now_iso()
+    sets = [f"{k}=?" for k in fields]
+    values = list(fields.values()) + [source_file_id]
+    async with get_db() as conn:
+        await conn.execute(
+            f"UPDATE source_files SET {', '.join(sets)} WHERE id=?", values,
+        )
+        await conn.commit()
+
+
+async def get_source_files_by_lifecycle_status(
+    status: str,
+    limit: int = 500,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    """Return source_files rows matching a lifecycle_status, with pagination."""
+    return await db_fetch_all(
+        """SELECT * FROM source_files
+           WHERE lifecycle_status=?
+           ORDER BY source_path
+           LIMIT ? OFFSET ?""",
+        (status, limit, offset),
+    )
+
+
+async def get_source_files_pending_trash(
+    grace_period_hours: int = 36,
+) -> list[dict[str, Any]]:
+    """Return source_files marked for deletion whose grace period has expired.
+
+    These files have lifecycle_status='marked_for_deletion' and were marked
+    more than ``grace_period_hours`` ago.
+    """
+    return await db_fetch_all(
+        """SELECT * FROM source_files
+           WHERE lifecycle_status='marked_for_deletion'
+             AND marked_for_deletion_at IS NOT NULL
+             AND datetime(marked_for_deletion_at, '+' || ? || ' hours') <= datetime('now')
+           ORDER BY marked_for_deletion_at""",
+        (grace_period_hours,),
+    )
+
+
+async def get_source_files_pending_purge(
+    trash_retention_days: int = 60,
+) -> list[dict[str, Any]]:
+    """Return source_files in trash whose retention period has expired.
+
+    These files have lifecycle_status='trashed' and were moved to trash
+    more than ``trash_retention_days`` ago.
+    """
+    return await db_fetch_all(
+        """SELECT * FROM source_files
+           WHERE lifecycle_status='trashed'
+             AND moved_to_trash_at IS NOT NULL
+             AND datetime(moved_to_trash_at, '+' || ? || ' days') <= datetime('now')
+           ORDER BY moved_to_trash_at""",
+        (trash_retention_days,),
+    )
