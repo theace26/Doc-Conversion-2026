@@ -387,12 +387,12 @@ async def list_deleted_files(
     or to review the purge history before it's too late to restore.
     """
     try:
-        from core.database import get_bulk_files_by_lifecycle_status
+        from core.database import get_source_files_by_lifecycle_status
 
         if status not in ("marked_for_deletion", "in_trash", "purged"):
             return f"Invalid status '{status}'. Use: marked_for_deletion, in_trash, or purged."
 
-        files = await get_bulk_files_by_lifecycle_status(status)
+        files = await get_source_files_by_lifecycle_status(status)
         if not files:
             status_labels = {
                 "marked_for_deletion": "marked for deletion",
@@ -440,15 +440,17 @@ async def get_file_history(source_path: str) -> str:
     when it was last modified, or why it might have been deleted.
     """
     try:
-        from core.database import get_bulk_file_by_path, get_version_history
+        from core.database import get_source_file_by_path, get_bulk_file_by_path, get_version_history
         import json
 
-        file_rec = await get_bulk_file_by_path(source_path)
+        file_rec = await get_source_file_by_path(source_path)
         if not file_rec:
             return f"File not found: {source_path}"
 
-        file_id = file_rec["id"]
-        versions = await get_version_history(file_id)
+        # Version history references bulk_file_id, look up via bulk_files
+        bulk_rec = await get_bulk_file_by_path(source_path)
+        bulk_file_id = bulk_rec["id"] if bulk_rec else None
+        versions = await get_version_history(bulk_file_id) if bulk_file_id else []
 
         if not versions:
             return (

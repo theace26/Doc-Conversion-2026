@@ -281,7 +281,10 @@ class SearchIndexer:
         else:
             from core.database import db_fetch_all
             files = await db_fetch_all(
-                "SELECT * FROM bulk_files WHERE status='converted'"
+                """SELECT sf.*, bf.status, bf.converted_at
+                   FROM source_files sf
+                   JOIN bulk_files bf ON bf.source_file_id = sf.id AND bf.status = 'converted'
+                   GROUP BY sf.id"""
             )
 
         for f in files:

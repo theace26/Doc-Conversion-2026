@@ -24,7 +24,7 @@ import structlog
 from core.progress_tracker import RollingWindowETA, ETA_UPDATE_INTERVAL, format_eta
 from core.stop_controller import should_stop
 from core.storage_probe import ErrorRateMonitor, ScanThrottler, StorageProfile, probe_storage_latency
-from core.database import get_preference, record_path_issue, update_bulk_file, update_bulk_job_status, upsert_bulk_file
+from core.database import db_fetch_one, get_preference, record_path_issue, update_bulk_file, update_bulk_job_status, update_source_file, upsert_bulk_file
 from core.path_utils import PathSafetyResult, run_path_safety_pass
 
 log = structlog.get_logger(__name__)
@@ -719,6 +719,14 @@ class BulkScanner:
             mime_type=mime_type,
             file_category=category,
         )
+
+        # Propagate MIME classification to source_files
+        sf_row = await db_fetch_one(
+            "SELECT source_file_id FROM bulk_files WHERE id = ?", (file_id,)
+        )
+        sf_id = sf_row.get("source_file_id") if sf_row else None
+        if sf_id:
+            await update_source_file(sf_id, mime_type=mime_type, file_category=category)
 
     async def _run_path_safety_pass(self, scan_result: ScanResult) -> PathSafetyResult:
         """Run path length and collision checks on all convertible files."""

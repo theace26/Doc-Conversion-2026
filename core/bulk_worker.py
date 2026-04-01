@@ -39,6 +39,7 @@ from core.database import (
     update_bulk_job_status,
     update_history_ocr_stats,
     get_bulk_file_count,
+    update_source_file,
 )
 
 log = structlog.get_logger(__name__)
@@ -596,6 +597,11 @@ class BulkJob:
             ocr_skipped_reason="below_threshold",
             ocr_confidence_mean=estimated_conf,
         )
+        # Propagate OCR confidence to source_files
+        sf_id = file_dict.get("source_file_id")
+        if sf_id:
+            await update_source_file(sf_id, ocr_confidence_mean=estimated_conf)
+
         await increment_bulk_job_counter(self.job_id, "skipped")
         await increment_bulk_job_counter(self.job_id, "review_queue_count")
         self._skipped += 1
@@ -676,6 +682,20 @@ class BulkJob:
                 content_hash=content_hash,
                 converted_at=datetime.now(timezone.utc).isoformat(),
             ))
+
+            # Propagate file-intrinsic data to source_files
+            sf_id = file_dict.get("source_file_id")
+            if sf_id:
+                sf_fields: dict[str, Any] = {}
+                if result.output_path:
+                    sf_fields["output_path"] = result.output_path
+                if content_hash:
+                    sf_fields["content_hash"] = content_hash
+                if source_mtime:
+                    sf_fields["stored_mtime"] = source_mtime
+                if sf_fields:
+                    await _db_write_with_retry(lambda: update_source_file(sf_id, **sf_fields))
+
             self._converted += 1
             self.dir_stats[top_dir]["converted"] += 1
             await _db_write_with_retry(lambda: increment_bulk_job_counter(self.job_id, "converted"))

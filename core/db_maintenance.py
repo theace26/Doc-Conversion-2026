@@ -129,8 +129,8 @@ async def run_stale_data_check() -> dict:
     # 2. Missing .md files (active + success but output doesn't exist)
     try:
         rows = await db_fetch_all(
-            """SELECT id, output_path FROM bulk_files
-               WHERE lifecycle_status='active' AND status='converted'
+            """SELECT id, source_path, output_path FROM source_files
+               WHERE lifecycle_status='active'
                AND output_path IS NOT NULL"""
         )
         from pathlib import Path
@@ -150,7 +150,7 @@ async def run_stale_data_check() -> dict:
                 # Check which IDs don't correspond to active bulk_files
                 import hashlib
                 active_rows = await db_fetch_all(
-                    "SELECT source_path FROM bulk_files WHERE lifecycle_status='active'"
+                    "SELECT source_path FROM source_files WHERE lifecycle_status='active'"
                 )
                 active_ids = {hashlib.sha256(r["source_path"].encode()).hexdigest()[:16] for r in active_rows}
                 stale = meili_ids - active_ids
@@ -167,7 +167,7 @@ async def run_stale_data_check() -> dict:
         from core.lifecycle_manager import get_trash_path, OUTPUT_REPO_ROOT
         from pathlib import Path
         rows = await db_fetch_all(
-            "SELECT id, output_path FROM bulk_files WHERE lifecycle_status='in_trash'"
+            "SELECT id, output_path FROM source_files WHERE lifecycle_status='in_trash'"
         )
         dangling = 0
         for r in rows:
