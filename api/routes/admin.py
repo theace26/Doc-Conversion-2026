@@ -266,7 +266,9 @@ async def _query_bulk_files() -> dict | None:
 
     return {
         "total": total,
+        "by_status": by_lifecycle,  # frontend reads bf.by_status
         "by_lifecycle": by_lifecycle,
+        "unrecognized_by_category": by_category,  # frontend reads bf.unrecognized_by_category
         "by_category": by_category,
         "ocr_review_pending": (ocr_pending or {}).get("c", 0),
         "ocr_permanently_skipped": (ocr_skipped or {}).get("c", 0),

@@ -11,6 +11,11 @@ the relevant subsystem. Referenced from CLAUDE.md.
   `conn = await aiosqlite.connect(path)` then `async with conn` (starts the thread twice → RuntimeError).
   All DB helpers use `@asynccontextmanager` + `async with aiosqlite.connect()`.
 
+- **source_files vs bulk_files**: File-intrinsic data (path, size, hash, lifecycle) lives in
+  `source_files` (unique per source_path). Job-specific data (status, error_msg, converted_at)
+  lives in `bulk_files` (linked via `source_file_id`). Always update both when changing
+  file-intrinsic fields. Cross-job queries must use `source_files` to avoid counting duplicates.
+
 - **DB path**: `DB_PATH` env var (default `markflow.db` locally, `/app/data/markflow.db` in container).
   The Docker volume `markflow-db` mounts to `/app/data`.
 

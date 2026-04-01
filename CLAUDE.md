@@ -26,13 +26,16 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.13.8
+## Current Status — v0.13.9
 
-v0.13.8: Image file support. `.jpg`, `.jpeg`, `.png`, `.tif`, `.tiff`,
-`.bmp`, `.gif`, `.eps` files now handled by `ImageHandler` — extracts
-metadata (dimensions, color mode, EXIF) via Pillow + exiftool and embeds
-the image in the DocumentModel. Previously the largest group of
-unrecognized files (~7,347 images).
+v0.13.9: Source files dedup + expanded format support. New `source_files`
+table eliminates cross-job row duplication in `bulk_files` — one row per
+unique `source_path` with file-intrinsic data. All cross-job queries
+(admin stats, lifecycle, trash) now use `source_files`. Also: ImageHandler
+for .jpg/.png/.tif/.bmp/.gif/.eps, DocxHandler handles .docm/.wpd via
+LibreOffice, AdobeHandler handles .ait/.indt templates.
+
+Previous (v0.13.8): Image file support (superseded by v0.13.9).
 
 Previous (v0.13.7): Legacy Office format support + scheduler coordination.
 `.xls` and `.ppt` files now convert via LibreOffice preprocessing →
@@ -47,10 +50,7 @@ errors from concurrent DB access.
   - `lifecycle_trash_retention_days`: currently **7** (production: 60+)
   - Set via Settings UI or `PUT /api/preferences/<key>`
 
-**Known issues (v0.13.7):**
-- `bulk_files` table duplicates rows across jobs (keyed by `job_id + source_path`).
-  12,847 distinct source files → 34K+ rows after 5 scan jobs. Per-job counts are
-  accurate; cross-job aggregation overcounts. Needs a dedup or global file registry.
+**Known issues:**
 - All previously unrecognized file types now have handlers: images (ImageHandler),
   .docm/.wpd (DocxHandler via LibreOffice), .ait/.indt (AdobeHandler).
 
@@ -116,6 +116,9 @@ Phase 1 implementation instructions (historical): [`docs/phase-1-instructions.md
 - **Format registry** — handlers register by extension, converter looks up by extension
 - **Unified scanning** — no separate Adobe/convertible split; all formats go through same pipeline
 - **Font recognition** — handlers extract font declarations in `extract_styles()` for Tier 2 reconstruction
+- **Source files registry** — `source_files` table is the single source of truth for file-intrinsic data
+  (path, size, lifecycle status). `bulk_files` links jobs to source files via `source_file_id`.
+  Cross-job queries (admin stats, lifecycle, trash) use `source_files`. Per-job queries use `bulk_files`.
 - **Folder drop** — Convert page accepts entire folders via drag-and-drop, auto-scans for valid formats
 
 ---
@@ -206,11 +209,12 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **Adaptive scan parallelism**: `storage_probe.py` probes sequential-vs-random stat() latency before each scan. Ratio > 3x = HDD (stay serial), ratio < 2x + high latency = NAS (go parallel). Never parallelize HDD — causes seek thrashing. Default preference `scan_max_threads` = `"auto"`.
 - **Parallel scan architecture**: Thread workers walk subdirectories concurrently, push `(path, ext, size, mtime)` to `queue.Queue`. Single async consumer drains to SQLite. Both `BulkScanner` and lifecycle scanner use this pattern.
 - **Scan throttler (backpressure)**: `ScanThrottler` in `storage_probe.py` monitors rolling stat() latency during parallel scans. Workers call `should_pause(worker_id)` — if congested, higher-ID workers sleep. Consumer calls `check_and_adjust()` every 500 files. 5-second cooldown prevents oscillation. Overhead is negligible (~0.001ms per stat call).
+- **source_files vs bulk_files**: File-intrinsic data (path, size, hash, lifecycle) lives in `source_files`. Job-specific data (status, error_msg, converted_at) lives in `bulk_files`. Always update both when changing file-intrinsic fields. Cross-job queries must use `source_files` to avoid counting duplicates.
 - **Error-rate abort**: `ErrorRateMonitor` in `storage_probe.py` tracks rolling success/failure. If >50% of last 100 ops fail or 20 consecutive errors, triggers abort. Used by both scanners (stat failures) and bulk worker (conversion failures). Protects against NAS disconnects mid-operation.
 
 ---
 
-## Supported Formats (v0.13.8)
+## Supported Formats (v0.13.9)
 
 | Category | Extensions | Handler |
 |----------|-----------|---------|

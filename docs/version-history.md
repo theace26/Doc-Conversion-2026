@@ -4,7 +4,45 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.13.9 — Source Files Dedup + Image/Format Support (2026-03-31)
+
+**New features:**
+- **Global file registry (`source_files` table)** — eliminates cross-job row duplication in `bulk_files`.
+  `source_files` holds one row per unique `source_path` with all file-intrinsic data. `bulk_files`
+  retains per-job data and links via `source_file_id` FK. Existing data auto-migrated on startup.
+- Image files (.jpg, .jpeg, .png, .tif, .tiff, .bmp, .gif, .eps) via ImageHandler
+- `.docm` (macro-enabled Word) and `.wpd` (WordPerfect) via DocxHandler + LibreOffice
+- `.ait` / `.indt` (Adobe templates) via AdobeHandler
+- All previously unrecognized file types now have handlers
+
+**Modified files:**
+- `core/database.py` — source_files CREATE TABLE, migration, upsert_source_file, query helpers
+- `core/lifecycle_manager.py` — lifecycle transitions update source_files alongside bulk_files
+- `core/lifecycle_scanner.py` — deletion/move detection queries source_files
+- `core/bulk_worker.py` — propagates file-intrinsic data to source_files after conversion
+- `core/bulk_scanner.py` — propagates MIME classification to source_files
+- `core/scheduler.py` — trash expiry uses source_files pending functions
+- `core/db_maintenance.py` — integrity checks use source_files
+- `core/search_indexer.py` — reindex joins source_files for dedup
+- `api/routes/admin.py` — cross-job stats query source_files
+- `api/routes/trash.py` — trash view queries source_files
+- `mcp_server/tools.py` — file lookup uses source_files
+- `formats/image_handler.py` — new ImageHandler
+- `formats/docx_handler.py` — added .docm, .wpd extensions
+- `formats/adobe_handler.py` — added .ait, .indt extensions
+
+**Design notes:**
+- source_files UNIQUE(source_path) prevents duplication regardless of scan job count
+- Migration is idempotent — safe to run multiple times
+- Admin stats response includes both old keys (by_status, unrecognized_by_category) and new keys (by_lifecycle, by_category) for frontend backward compatibility
+
+---
+
 ## v0.13.8 — Image File Support (2026-03-31)
+
+NOTE: Superseded by v0.13.9 which includes all v0.13.8 features plus dedup.
+
+## Previous v0.13.8 — Image File Support (2026-03-31)
 
 **New features:**
 - Image files (.jpg, .jpeg, .png, .tif, .tiff, .bmp, .gif, .eps) now supported via `ImageHandler`
