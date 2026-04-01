@@ -272,6 +272,22 @@ async def run_health_check() -> dict:
     except Exception:
         components["gpu"] = {"ok": False, "execution_path": "none", "error": "detection_failed"}
 
+    # Cloud prefetch status
+    try:
+        from core.cloud_prefetch import get_prefetch_manager
+        pfx = get_prefetch_manager()
+        if pfx is not None:
+            pfx_stats = await pfx.stats()
+            components["cloud_prefetch"] = {
+                "ok": True,
+                "version": f"{pfx_stats['total_prefetched']} prefetched, {pfx_stats['queue_depth']} queued",
+                **pfx_stats,
+            }
+        else:
+            components["cloud_prefetch"] = {"ok": True, "version": "disabled"}
+    except Exception:
+        components["cloud_prefetch"] = {"ok": True, "version": "disabled"}
+
     all_ok = all(
         c.get("ok", False) for k, c in components.items()
         if k != "gpu" and isinstance(c, dict)
