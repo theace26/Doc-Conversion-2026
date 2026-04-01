@@ -516,6 +516,65 @@
         </div>
       </div>
 
+      <!-- Cloud Prefetch section -->
+      <div class="section-title">Cloud Prefetch</div>
+      <div class="card">
+        <p class="text-sm text-muted" style="margin:0 0 1rem">
+          Controls for prefetching files from cloud storage before conversion.
+          Tune concurrency, rate limiting, and size filters to match your cloud provider's constraints.
+        </p>
+
+        <div class="form-group">
+          <label>Enable Cloud Prefetch</label>
+          <label class="toggle">
+            <input type="checkbox" id="pref-cloud_prefetch_enabled" data-key="cloud_prefetch_enabled">
+            <span class="toggle-track"></span>
+            <span class="toggle-label" id="toggle-label-cloud-prefetch-enabled">OFF</span>
+          </label>
+          <p class="hint">Master toggle for cloud prefetch. When off, files are not prefetched from cloud storage.</p>
+          <div class="inline-error" id="err-cloud_prefetch_enabled"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-cloud_prefetch_concurrency">Concurrent Workers</label>
+          <input type="number" id="pref-cloud_prefetch_concurrency" data-key="cloud_prefetch_concurrency" min="1" max="20">
+          <p class="hint">Number of files to prefetch in parallel. Higher values increase throughput but may hit rate limits.</p>
+          <div class="inline-error" id="err-cloud_prefetch_concurrency"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-cloud_prefetch_rate_limit">Rate Limit (per minute)</label>
+          <input type="number" id="pref-cloud_prefetch_rate_limit" data-key="cloud_prefetch_rate_limit" min="1" max="100">
+          <p class="hint">Maximum number of cloud requests per minute. Lower this if your provider enforces strict rate limits.</p>
+          <div class="inline-error" id="err-cloud_prefetch_rate_limit"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-cloud_prefetch_timeout_seconds">Timeout per File (seconds)</label>
+          <input type="number" id="pref-cloud_prefetch_timeout_seconds" data-key="cloud_prefetch_timeout_seconds" min="10" max="600">
+          <p class="hint">How long to wait for a single file download before abandoning it and moving on.</p>
+          <div class="inline-error" id="err-cloud_prefetch_timeout_seconds"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-cloud_prefetch_min_size_bytes">Min File Size (bytes, 0=all)</label>
+          <input type="number" id="pref-cloud_prefetch_min_size_bytes" data-key="cloud_prefetch_min_size_bytes" min="0">
+          <p class="hint">Skip prefetching files smaller than this size. Set to 0 to prefetch all files regardless of size.</p>
+          <div class="inline-error" id="err-cloud_prefetch_min_size_bytes"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Probe All Files</label>
+          <label class="toggle">
+            <input type="checkbox" id="pref-cloud_prefetch_probe_all" data-key="cloud_prefetch_probe_all">
+            <span class="toggle-track"></span>
+            <span class="toggle-label" id="toggle-label-cloud-prefetch-probe-all">OFF</span>
+          </label>
+          <p class="hint">When enabled, all files are probed for cloud availability even if they appear local. Slower but more thorough.</p>
+          <div class="inline-error" id="err-cloud_prefetch_probe_all"></div>
+        </div>
+      </div>
+
       <!-- Auto-Conversion section -->
       <div class="section-title" data-help="auto-conversion">Auto-Conversion</div>
       <div class="card">
@@ -1238,6 +1297,21 @@
   if (pipelineToggle) {
     pipelineToggle.addEventListener('change', () => {
       document.getElementById('toggle-label-pipeline-enabled').textContent = pipelineToggle.checked ? 'ON' : 'OFF';
+    });
+  }
+
+  // ── Cloud Prefetch toggle labels ──────────────────────────────────────
+  const cloudPrefetchEnabledToggle = document.getElementById('pref-cloud_prefetch_enabled');
+  if (cloudPrefetchEnabledToggle) {
+    cloudPrefetchEnabledToggle.addEventListener('change', () => {
+      document.getElementById('toggle-label-cloud-prefetch-enabled').textContent = cloudPrefetchEnabledToggle.checked ? 'ON' : 'OFF';
+    });
+  }
+
+  const cloudPrefetchProbeAllToggle = document.getElementById('pref-cloud_prefetch_probe_all');
+  if (cloudPrefetchProbeAllToggle) {
+    cloudPrefetchProbeAllToggle.addEventListener('change', () => {
+      document.getElementById('toggle-label-cloud-prefetch-probe-all').textContent = cloudPrefetchProbeAllToggle.checked ? 'ON' : 'OFF';
     });
   }
 
