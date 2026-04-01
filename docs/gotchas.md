@@ -546,6 +546,33 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 - **Host worker queue is fire-and-forget**: Jobs accumulate if worker not running.
 
+## Cloud Prefetch
+
+- **Cloud prefetch is purely additive**: Disabling `cloud_prefetch_enabled` changes nothing about
+  existing behavior. The wait in `converter.py` short-circuits immediately when prefetch is off.
+  No conversion logic or file-handling paths are altered.
+
+- **Prefetch state is ephemeral**: The queue and worker pool are in-memory only. Container restart
+  clears all state. The next lifecycle or bulk scan re-enqueues any remaining placeholders
+  automatically — no manual recovery needed.
+
+- **Rate limit tokens refill per minute, not per second**: `PrefetchManager` uses a token-bucket
+  with a per-minute refill interval. Bursty traffic is expected at startup when many placeholders
+  are discovered at once; the bucket smooths sustained throughput over time, not within a single
+  second.
+
+- **`st_blocks` check may not detect all placeholders on all mount types**: On most FUSE-based
+  cloud mounts (OneDrive, Google Drive, Nextcloud), `st_blocks == 0` reliably identifies
+  placeholders. Some mount types do not populate `st_blocks` correctly. Set
+  `cloud_prefetch_probe_all = true` to force the timed read-latency probe on every file, or use it
+  as a diagnostic when placeholder detection seems unreliable.
+
+- **Inline prefetch in converter runs when file wasn't in the queue**: If a file reaches
+  `converter.py` without having been pre-queued (single-file upload, file discovered after queue
+  drain), the converter performs an inline prefetch that blocks the conversion worker. This is
+  correct behavior — never a failure — but it is slower than pre-queued prefetch. Pre-queued
+  prefetch is always preferred because it runs concurrently with the scan.
+
 - **HASHCAT_QUEUE_DIR must be a bind mount**: Not a named volume.
 
 - **hashcat exit codes**: 0=cracked, 1=exhausted. Check output file, not exit code.

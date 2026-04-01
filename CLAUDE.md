@@ -26,9 +26,20 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.15.0
+## Current Status — v0.15.1
 
-v0.15.0: Search UX overhaul + enterprise scanner robustness. New unified search
+v0.15.1: Cloud file prefetch system. Platform-agnostic background prefetch for
+cloud-synced source directories (OneDrive, Google Drive, Nextcloud, Dropbox,
+iCloud, NAS tiered storage). `CloudDetector` probes files via disk block
+allocation and read latency. `PrefetchManager` runs background workers with
+rate limiting, adaptive timeouts, retry with backoff, and backpressure. Scanner
+enqueues files for prefetch; converter waits for prefetch before reading. New
+preferences: `cloud_prefetch_enabled`, `cloud_prefetch_concurrency`,
+`cloud_prefetch_rate_limit`, `cloud_prefetch_timeout_seconds`,
+`cloud_prefetch_min_size_bytes`, `cloud_prefetch_probe_all`. Health check shows
+prefetch stats. Settings page has Cloud Prefetch section.
+
+Previous (v0.15.0): Search UX overhaul + enterprise scanner robustness. New unified search
 endpoint (`/api/search/all`) queries all 3 Meilisearch indexes concurrently
 (documents, adobe-files, transcripts) and merges results. Faceted format
 filtering with clickable chips, sort by relevance/date/size/format. New
@@ -176,6 +187,8 @@ Critical files to know:
 | `core/auto_converter.py` | Auto-conversion decision engine |
 | `core/pipeline_startup.py` | Health-gated startup: waits for services, triggers initial scan+convert |
 | `core/storage_probe.py` | Storage latency probe: auto-detects SSD/HDD/NAS for scan parallelism |
+| `core/cloud_detector.py` | Platform-agnostic cloud placeholder detection (disk blocks + read latency) |
+| `core/cloud_prefetch.py` | Background prefetch worker pool with rate limiting, adaptive timeouts |
 | `formats/rtf_handler.py` | RTF ingest/export with control-word parser |
 | `formats/html_handler.py` | HTML/HTM with BeautifulSoup, font extraction |
 | `formats/odt_handler.py` | OpenDocument Text via odfpy |

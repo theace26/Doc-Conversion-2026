@@ -4,6 +4,57 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.15.1 — Cloud File Prefetch (2026-03-31)
+
+**New features:**
+- **CloudDetector** — Platform-agnostic detection of cloud placeholder files. Probes via disk block
+  allocation (`st_blocks == 0`) and a timed read-latency test. Covers OneDrive, Google Drive,
+  Nextcloud, Dropbox, iCloud, and NAS tiered storage. Configurable via `cloud_prefetch_probe_all`
+  to force-probe all files regardless of block count.
+- **PrefetchManager** — Background worker pool that materializes cloud placeholders before
+  conversion. Features: configurable concurrency, per-minute token-bucket rate limiting, adaptive
+  per-file timeouts, retry with exponential backoff, and backpressure via queue size cap.
+- **Scanner integration** — `bulk_scanner.py` and `lifecycle_scanner.py` enqueue detected
+  placeholder files to the prefetch queue during scan, so prefetch runs ahead of conversion.
+- **Converter integration** — `converter.py` waits for in-flight prefetch before opening a file.
+  Falls back to inline prefetch if the file was never queued (still works, just slower).
+- **Health check** — Prefetch stats (queue depth, active workers, completion rate) added to
+  `/api/health` response.
+- **Settings page** — New Cloud Prefetch section with all preference controls.
+- **New preferences**: `cloud_prefetch_enabled` (default `true`),
+  `cloud_prefetch_concurrency` (default `4`), `cloud_prefetch_rate_limit` (requests/min, default `60`),
+  `cloud_prefetch_timeout_seconds` (default `120`), `cloud_prefetch_min_size_bytes` (default `0`),
+  `cloud_prefetch_probe_all` (default `false`).
+
+**New files:**
+- `core/cloud_detector.py` — placeholder detection via st_blocks + read latency
+- `core/cloud_prefetch.py` — background prefetch worker pool
+
+**Modified files:**
+- `core/bulk_scanner.py` — enqueue files for prefetch during scan
+- `core/lifecycle_scanner.py` — enqueue files for prefetch during lifecycle scan
+- `core/converter.py` — wait for prefetch before reading file; inline prefetch fallback
+- `core/health.py` — prefetch stats in health response
+- `core/database.py` — cloud prefetch preference defaults
+- `static/settings.html` — Cloud Prefetch settings section
+- `core/version.py` — bumped to 0.15.1
+
+**Design notes:**
+- Prefetch is purely additive — disabling `cloud_prefetch_enabled` restores original behavior
+  exactly. No code paths change; the wait in converter.py short-circuits immediately.
+- Prefetch state is ephemeral — the queue and worker pool are in-memory only. Container restart
+  clears all state; the next scan re-enqueues any remaining placeholders.
+- Rate limit tokens refill per minute, not per second. Expect bursty traffic at startup when
+  many placeholders are discovered at once; the token bucket smooths sustained throughput.
+- `st_blocks == 0` is a reliable placeholder signal on most FUSE-based cloud mounts, but some
+  mount types do not populate `st_blocks` correctly. The timed read-latency probe is the fallback
+  for those cases.
+- Inline prefetch in converter.py covers files that were not pre-queued (e.g., single-file
+  uploads, or files discovered after the queue was already drained). It is slower than pre-queued
+  prefetch because it blocks the conversion worker, but it is never a correctness failure.
+
+---
+
 ## v0.15.0 — Search UX Overhaul + Enterprise Scanner Robustness (2026-03-31)
 
 **New features:**

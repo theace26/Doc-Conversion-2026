@@ -42,6 +42,8 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `core/gpu_detector.py` | Dual-path GPU detection: container NVIDIA + host worker capabilities |
 | `core/auto_converter.py` | Auto-conversion decision engine: mode resolution, worker/batch sizing |
 | `core/pipeline_startup.py` | Health-gated startup: waits for services before triggering initial scan+convert cycle |
+| `core/cloud_detector.py` | Platform-agnostic cloud placeholder detection (disk blocks + read latency) |
+| `core/cloud_prefetch.py` | Background prefetch worker pool with rate limiting, adaptive timeouts, retry with backoff |
 | `core/auto_metrics_aggregator.py` | Hourly rollup of system_metrics into auto_metrics |
 | `core/progress_tracker.py` | RollingWindowETA, ProgressSnapshot, format_eta for scan/bulk jobs |
 | `core/log_archiver.py` | Compress rotated logs to gzip archives, purge old archives |
