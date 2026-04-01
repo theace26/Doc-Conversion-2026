@@ -19,6 +19,7 @@ from core.database import (
     create_version_snapshot,
     get_next_version_number,
     update_bulk_file,
+    update_source_file,
     db_fetch_one,
 )
 
@@ -78,6 +79,10 @@ async def mark_file_for_deletion(bulk_file_id: str, scan_run_id: str) -> None:
         marked_for_deletion_at=now,
     )
 
+    sf_id = file_rec.get("source_file_id") if file_rec else None
+    if sf_id:
+        await update_source_file(sf_id, lifecycle_status="marked_for_deletion", marked_for_deletion_at=now)
+
     version_num = await get_next_version_number(bulk_file_id)
     await create_version_snapshot(bulk_file_id, {
         "version_number": version_num,
@@ -103,6 +108,10 @@ async def restore_file(bulk_file_id: str, scan_run_id: str) -> None:
         lifecycle_status="active",
         marked_for_deletion_at=None,
     )
+
+    sf_id = file_rec.get("source_file_id") if file_rec else None
+    if sf_id:
+        await update_source_file(sf_id, lifecycle_status="active", marked_for_deletion_at=None)
 
     # If was in trash, move .md back from .trash/ to original output path
     if was_in_trash and file_rec:
@@ -177,6 +186,10 @@ async def move_to_trash(bulk_file_id: str) -> None:
         moved_to_trash_at=now,
     )
 
+    sf_id = file_rec.get("source_file_id") if file_rec else None
+    if sf_id:
+        await update_source_file(sf_id, lifecycle_status="in_trash", moved_to_trash_at=now)
+
     version_num = await get_next_version_number(bulk_file_id)
     await create_version_snapshot(bulk_file_id, {
         "version_number": version_num,
@@ -213,6 +226,10 @@ async def purge_file(bulk_file_id: str) -> None:
         purged_at=now,
     )
 
+    sf_id = file_rec.get("source_file_id") if file_rec else None
+    if sf_id:
+        await update_source_file(sf_id, lifecycle_status="purged", purged_at=now)
+
     version_num = await get_next_version_number(bulk_file_id)
     await create_version_snapshot(bulk_file_id, {
         "version_number": version_num,
@@ -228,6 +245,8 @@ async def record_file_move(
     bulk_file_id: str, old_path: str, new_path: str, scan_run_id: str
 ) -> None:
     """Record that a file was moved (detected via content hash match)."""
+    file_rec = await _get_bulk_file(bulk_file_id)
+
     await update_bulk_file(
         bulk_file_id,
         source_path=new_path,
@@ -235,7 +254,10 @@ async def record_file_move(
         lifecycle_status="active",
     )
 
-    file_rec = await _get_bulk_file(bulk_file_id)
+    sf_id = file_rec.get("source_file_id") if file_rec else None
+    if sf_id:
+        await update_source_file(sf_id, source_path=str(new_path), previous_path=str(old_path), lifecycle_status="active")
+
     version_num = await get_next_version_number(bulk_file_id)
     await create_version_snapshot(bulk_file_id, {
         "version_number": version_num,
