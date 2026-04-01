@@ -58,6 +58,10 @@
           <span class="kpi-value" id="kpi-pending">--</span>
           <span class="kpi-label">Pending Conversion</span>
         </div>
+        <div class="kpi-card kpi-danger" style="cursor:pointer;" onclick="window.location.href='/flagged.html'">
+          <span class="kpi-value" id="kpi-flagged">--</span>
+          <span class="kpi-label">Flagged Files</span>
+        </div>
       </div>
 
       <!-- Detail grid -->
@@ -537,6 +541,12 @@
       setText('kpi-failed',        fmt(ch.by_status?.failed));
       setText('kpi-ocr-pending',   fmt(ocr.pending));
       setText('kpi-pending',       fmt(bf.by_status?.pending));
+
+      // Load flag stats
+      try {
+        var flagStats = await API.get('/api/flags/stats');
+        setText('kpi-flagged', fmt((flagStats.active || 0) + (flagStats.extended || 0)));
+      } catch (e) { setText('kpi-flagged', '--'); }
 
       // File status table
       fillTable('file-status-table', Object.entries(bf.by_status || {}).map(([k, v]) => [

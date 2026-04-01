@@ -190,6 +190,7 @@ const NAV_ITEMS = [
     { href: "/trash.html",      label: "Trash",     minRole: "manager"     },
     { href: "/resources.html",  label: "Resources", minRole: "manager"     },
     { href: "/settings.html",   label: "Settings",  minRole: "manager"     },
+    { href: "/flagged.html",    label: "Flagged",   minRole: "admin"       },
     { href: "/admin.html",      label: "Admin",     minRole: "admin"       },
     { href: "/help.html",       label: "Help",      minRole: "search_user" },
 ];
