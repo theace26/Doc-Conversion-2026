@@ -4,6 +4,18 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.16.8 — Job History Cleanup (2026-04-01)
+
+**Job History readability improvements (Bulk page):**
+- Timestamps now use `formatLocalTime()` — displays as "Apr 1, 2026, 3:13 PM"
+  instead of raw ISO strings like `2026-04-01T15:13:45.077192+00:00`.
+- Status labels title-cased: "Completed" instead of "COMPLETED".
+- Stats show "X of Y converted" when total file count is available.
+- Exclusion count now shown in Settings page Locations summary card
+  (e.g. "3 locations: 2 source · 1 output · 1 exclusion").
+
+---
+
 ## v0.16.7 — Collapsible Settings Sections (2026-04-01)
 
 **Settings page UX cleanup:**
