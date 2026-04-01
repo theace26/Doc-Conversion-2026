@@ -989,16 +989,22 @@
       document.getElementById('loading').innerHTML = `<span class="status-error">Failed to load settings: ${e.message}</span>`;
     }
 
-    // Load location count
+    // Load location + exclusion counts
     try {
-      const locs = await API.get('/api/locations');
+      const [locs, exclusions] = await Promise.all([
+        API.get('/api/locations'),
+        API.get('/api/locations/exclusions'),
+      ]);
       const sourceCount = locs.filter(l => l.type === 'source' || l.type === 'both').length;
       const outputCount = locs.filter(l => l.type === 'output' || l.type === 'both').length;
+      const exclCount = exclusions.length;
       const el = document.getElementById('location-count');
-      if (locs.length === 0) {
+      if (locs.length === 0 && exclCount === 0) {
         el.textContent = 'No locations configured';
       } else {
-        el.textContent = `${locs.length} location${locs.length !== 1 ? 's' : ''} configured: ${sourceCount} source · ${outputCount} output`;
+        let summary = `${locs.length} location${locs.length !== 1 ? 's' : ''}: ${sourceCount} source \u00b7 ${outputCount} output`;
+        if (exclCount > 0) summary += ` \u00b7 ${exclCount} exclusion${exclCount !== 1 ? 's' : ''}`;
+        el.textContent = summary;
       }
     } catch { document.getElementById('location-count').textContent = ''; }
 
