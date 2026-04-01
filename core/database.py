@@ -94,6 +94,13 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     "pipeline_max_files_per_run": "0",
     "pipeline_startup_delay_minutes": "5",
     "pipeline_auto_reset_days": "3",
+    # Cloud file prefetch (v0.15.1)
+    "cloud_prefetch_enabled": "false",
+    "cloud_prefetch_concurrency": "5",
+    "cloud_prefetch_rate_limit": "30",
+    "cloud_prefetch_timeout_seconds": "120",
+    "cloud_prefetch_min_size_bytes": "0",
+    "cloud_prefetch_probe_all": "false",
     # Scan parallelism (v0.13.1)
     "scan_max_threads": "auto",
     # Transcription (v0.13.0)
