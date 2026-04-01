@@ -101,6 +101,9 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     "cloud_prefetch_timeout_seconds": "120",
     "cloud_prefetch_min_size_bytes": "0",
     "cloud_prefetch_probe_all": "false",
+    # File flagging (v0.16.0)
+    "flag_webhook_url": "",
+    "flag_default_expiry_days": "14",
     # Scan parallelism (v0.13.1)
     "scan_max_threads": "auto",
     # Transcription (v0.13.0)
@@ -528,6 +531,40 @@ CREATE TABLE IF NOT EXISTS transcript_segments (
 );
 CREATE INDEX IF NOT EXISTS idx_segments_history
     ON transcript_segments(history_id, segment_index);
+
+-- v0.16.0: File flagging & content moderation
+CREATE TABLE IF NOT EXISTS file_flags (
+    id                TEXT PRIMARY KEY,
+    source_file_id    TEXT NOT NULL REFERENCES source_files(id),
+    flagged_by_sub    TEXT NOT NULL,
+    flagged_by_email  TEXT NOT NULL,
+    reason            TEXT NOT NULL,
+    note              TEXT,
+    status            TEXT NOT NULL DEFAULT 'active',
+    expires_at        DATETIME NOT NULL,
+    created_at        DATETIME NOT NULL DEFAULT (datetime('now')),
+    resolved_at       DATETIME,
+    resolved_by_email TEXT,
+    resolution_note   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_file_flags_source_status
+    ON file_flags(source_file_id, status);
+CREATE INDEX IF NOT EXISTS idx_file_flags_status_expires
+    ON file_flags(status, expires_at);
+CREATE INDEX IF NOT EXISTS idx_file_flags_user
+    ON file_flags(flagged_by_email);
+
+CREATE TABLE IF NOT EXISTS blocklisted_files (
+    id              TEXT PRIMARY KEY,
+    content_hash    TEXT,
+    source_path     TEXT,
+    reason          TEXT,
+    added_by_email  TEXT NOT NULL,
+    flag_id         TEXT REFERENCES file_flags(id),
+    created_at      DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_blocklist_hash ON blocklisted_files(content_hash);
+CREATE INDEX IF NOT EXISTS idx_blocklist_path ON blocklisted_files(source_path);
 """
 
 
