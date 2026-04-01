@@ -343,6 +343,17 @@ async def _run_deferred_conversions() -> None:
         log.error("deferred_conversion_runner_failed", error=str(exc))
 
 
+async def _expire_flags() -> None:
+    """Hourly job: expire flags past their expires_at."""
+    try:
+        from core.flag_manager import expire_flags
+        expired = await expire_flags()
+        if expired:
+            log.info("flag_expiry_run", expired_count=expired)
+    except Exception as exc:
+        log.error("flag_expiry_failed", error=str(exc))
+
+
 def start_scheduler() -> None:
     """Register all jobs and start the scheduler. Called from lifespan."""
     from core.metrics_collector import collect_metrics, collect_disk_snapshot, purge_old_metrics
@@ -463,8 +474,18 @@ def start_scheduler() -> None:
         coalesce=True,
     )
 
+    # v0.16.0: Flag expiry — hourly
+    scheduler.add_job(
+        _expire_flags,
+        trigger=IntervalTrigger(hours=1),
+        id="flag_expiry",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
     scheduler.start()
-    log.info("scheduler.started", jobs=12)
+    log.info("scheduler.started", jobs=13)
 
 
 def get_pipeline_status() -> dict:

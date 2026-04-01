@@ -649,6 +649,12 @@ class BulkScanner:
         if ":" in file_path.name:
             return file_count
 
+        # Check blocklist
+        from core.flag_manager import is_blocklisted
+        if await is_blocklisted(str(file_path)):
+            log.debug("blocklisted_file_skipped", path=str(file_path), matched_by="path")
+            return file_count
+
         ext = _get_effective_extension(file_path)
 
         try:
