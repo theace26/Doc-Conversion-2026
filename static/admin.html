@@ -142,6 +142,12 @@
           <p class="stats-note"><a href="/db-health.html">Database Health &rarr;</a></p>
         </div>
 
+        <!-- Pipeline Funnel (v0.18.0) -->
+        <div class="stats-card">
+          <h3 class="stats-card-title">Pipeline Funnel</h3>
+          <div id="pipeline-funnel-body"><span class="spinner"></span> Loading...</div>
+        </div>
+
         <!-- Recent errors (full width) -->
         <div class="stats-card stats-card-full">
           <h3>Recent Conversion Errors <span class="text-muted text-sm">(last 10)</span></h3>
@@ -511,6 +517,44 @@
      *  Stats Dashboard
      * ════════════════════════════════════════════════════════════════════ */
 
+    async function loadPipelineFunnel() {
+      var container = document.getElementById('pipeline-funnel-body');
+      try {
+        var d = await API.get('/api/pipeline/stats');
+        var f = function(n) { return n == null ? 'N/A' : n.toLocaleString(); };
+        var rows = [
+          ['Scanned',              f(d.scanned)],
+          ['Pending Conversion',   f(d.pending_conversion)],
+          ['Failed',               f(d.failed)],
+          ['Unrecognized',         f(d.unrecognized)],
+          ['Pending Analysis',     f(d.pending_analysis)],
+          ['Batched for Analysis', f(d.batched_for_analysis)],
+          ['Analysis Failed',      f(d.analysis_failed)],
+          ['In Search Index',      f(d.in_search_index)],
+        ];
+        container.textContent = '';
+        var table = document.createElement('table');
+        table.className = 'stats-table';
+        var tbody = document.createElement('tbody');
+        rows.forEach(function(r) {
+          var tr = document.createElement('tr');
+          var td1 = document.createElement('td');
+          td1.textContent = r[0];
+          var td2 = document.createElement('td');
+          td2.style.textAlign = 'right';
+          td2.style.fontWeight = '600';
+          td2.textContent = r[1];
+          tr.appendChild(td1);
+          tr.appendChild(td2);
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        container.appendChild(table);
+      } catch(e) {
+        container.textContent = 'Failed to load pipeline stats';
+      }
+    }
+
     async function loadStats() {
       const btn = document.getElementById('stats-refresh-btn');
       btn.disabled = true;
@@ -527,6 +571,7 @@
         btn.disabled = false;
         btn.textContent = '\u21BB Refresh';
       }
+      loadPipelineFunnel();
     }
 
     function renderStats(d) {
