@@ -618,6 +618,11 @@ the relevant subsystem. Referenced from CLAUDE.md.
   `${OUTPUT_DIR}`, `${DRIVE_C}`, `${DRIVE_D}`. Each machine gets its own `.env` (gitignored).
   See `.env.example` for the template. Never hardcode host paths in the compose file.
 
+- **macOS `.env` must set `DRIVE_C`/`DRIVE_D`**: Defaults are `C:/` and `D:/` (Windows).
+  On macOS, Docker fails with `invalid volume specification: 'C:/:/host/c:ro'`. Set
+  `DRIVE_C=/Users/yourname` and `DRIVE_D=/Users/yourname/Documents` (or any valid path).
+  The `Scripts/macos/reset-markflow.sh` handles this automatically.
+
 - **No OpenCL on Apple Silicon**: Metal backend only for ARM Macs.
 
 - **Rosetta hashcat has no Metal**: Must be native arm64 binary.
@@ -778,6 +783,16 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 - **Search preview also renders markdown**: `search.html` preview popup loads marked.js +
   DOMPurify and renders the first 5000 chars of markdown. Same DOMPurify whitelist as viewer.
+
+- **Preview popup `pointer-events`**: The popup uses `pointer-events: auto` (not `none`) so
+  users can interact with it (scroll, click "Open" link). A `previewMouseOnPopup` flag prevents
+  the row's `mouseleave` from hiding the popup when the mouse moves onto it. 300ms grace period
+  bridges the gap between leaving the row and entering the popup.
+
+- **Preview auto-dodge idle timer**: After 2s of no `mousemove` on the popup, it applies a
+  `.dodged` class (`transform: translateY(120vh)`) to slide offscreen. `mouseenter` and
+  `mousemove` on the popup remove `.dodged` and restart the idle timer. The dodge is visual
+  only — DOM content stays loaded.
 
 - **Job detail `cancellation_reason` column**: Added via migration #17. Populated by:
   user cancel ("Cancelled by user"), error-rate abort ("Aborted: error rate X%..."),

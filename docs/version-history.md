@@ -4,6 +4,30 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.17.4 — Interactive Search Preview with Auto-Dodge (2026-04-01)
+
+**Interactive hover preview:**
+- Search result hover preview popup is now interactive (`pointer-events: auto`).
+- Users can scroll preview content, click the "Open" link to view in the document
+  viewer, and interact with embedded iframes.
+- After 2 seconds of mouse inactivity on the popup, it slides offscreen via CSS
+  `transform: translateY(120vh)` with a smooth 0.3s ease transition ("dodge").
+- If the mouse re-enters the dodged popup, it slides back and interaction resumes.
+- Each period of 2 seconds idle triggers another dodge — the cycle repeats.
+- 300ms grace period on row `mouseleave` prevents flicker when moving between the
+  search result row and the preview popup.
+
+**macOS deployment scripts:**
+- New `Scripts/macos/` directory with `build-base.sh`, `reset-markflow.sh`, and
+  `refresh-markflow.sh` for personal macOS machine.
+- Hardcoded source/output paths for local development.
+- `reset-markflow.sh` generates `.env` with hardware-tuned settings (worker count,
+  Meilisearch memory) and macOS-compatible `DRIVE_C`/`DRIVE_D` variables.
+- `.env` now includes `DRIVE_C` and `DRIVE_D` for macOS drive browser mounts
+  (replaces Windows `C:/` and `D:/` defaults that caused container startup failure).
+
+---
+
 ## v0.17.3 — Skip Reason Tracking & Startup Crash Fix (2026-04-01)
 
 **Skip reason tracking:**

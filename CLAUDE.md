@@ -26,9 +26,17 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.17.3
+## Current Status — v0.17.4
 
-v0.17.3: Skip reason tracking + startup crash fix. New `skip_reason` column on
+v0.17.4: Interactive search preview with auto-dodge. Hover preview popup is now
+interactive — users can scroll content and click the "Open" link. After 2 seconds
+of mouse inactivity on the popup, it slides offscreen (dodge). If the mouse
+re-enters the popup, it reappears for interaction. Repeated idle periods trigger
+repeated dodges. Smooth CSS transition (0.3s ease). Also adds macOS deployment
+scripts (`Scripts/macos/`) with hardcoded paths for personal machine, `.env`
+`DRIVE_C`/`DRIVE_D` variables for macOS-compatible drive browser mounts.
+
+Previous (v0.17.3): Skip reason tracking + startup crash fix. New `skip_reason` column on
 `bulk_files` (migration #18) records why each file was skipped during conversion:
 path too long, output collision, OCR confidence below threshold, unchanged since
 last scan. Job detail page displays skip reasons in the Details column (amber text,
@@ -385,6 +393,8 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **Search empty query = browse all**: `/api/search/all` accepts `q=""`. Meilisearch returns all docs. Empty queries skip highlighting and sort by date. "Browse All" button on search page.
 - **Per-job overrides**: `BulkJob.overrides` dict stores per-job settings. Scanner/converter should use `self.overrides.get(key)` with fallback to global preference.
 - **`skip_reason` on bulk_files**: General-purpose column (migration #18) recording why a file was skipped. Set at every skip point: unchanged mtime, path safety, OCR threshold. The older `ocr_skipped_reason` is retained for OCR-specific queries. Path safety skips now properly mark status as `"skipped"` with counter increments (previously left as `"pending"` forever).
+- **Preview popup is interactive**: `pointer-events: auto` on `.preview-popup`. A `previewMouseOnPopup` flag + 300ms grace period on row `mouseleave` prevents hiding when the mouse moves from the row to the popup. After 2s idle, popup dodges offscreen via CSS transform.
+- **macOS `.env` must set `DRIVE_C`/`DRIVE_D`**: Defaults are `C:/`/`D:/` (Windows). On macOS, Docker fails with `invalid volume specification`. Set to valid macOS paths (e.g. `$HOME`, `$HOME/Documents`).
 
 ---
 
