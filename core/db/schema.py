@@ -576,6 +576,29 @@ _MIGRATIONS: list[tuple[int, str, list[str]]] = [
     (18, "Add skip_reason to bulk_files", [
         "ALTER TABLE bulk_files ADD COLUMN skip_reason TEXT",
     ]),
+    (19, "Image analysis queue", [
+        """CREATE TABLE IF NOT EXISTS analysis_queue (
+            id             TEXT PRIMARY KEY,
+            source_path    TEXT NOT NULL,
+            file_category  TEXT NOT NULL DEFAULT 'image',
+            job_id         TEXT,
+            scan_run_id    TEXT,
+            enqueued_at    TEXT NOT NULL,
+            status         TEXT NOT NULL DEFAULT 'pending',
+            batch_id       TEXT,
+            batched_at     TEXT,
+            analyzed_at    TEXT,
+            description    TEXT,
+            extracted_text TEXT,
+            provider_id    TEXT,
+            model          TEXT,
+            error          TEXT,
+            content_hash   TEXT,
+            retry_count    INTEGER NOT NULL DEFAULT 0
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_analysis_queue_status ON analysis_queue(status)",
+        "CREATE INDEX IF NOT EXISTS idx_analysis_queue_source_path ON analysis_queue(source_path)",
+    ]),
 ]
 
 
