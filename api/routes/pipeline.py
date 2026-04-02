@@ -20,6 +20,8 @@ from core.database import (
     get_latest_scan_run,
     get_preference,
 )
+from core.db.analysis import get_analysis_stats
+from core.search_client import get_meili_client
 from core.scan_coordinator import (
     get_coordinator_status,
     is_any_bulk_active,
@@ -205,3 +207,52 @@ async def coordinator_status(
 ) -> dict:
     """Return scan coordinator state for debugging."""
     return get_coordinator_status()
+
+
+@router.get("/stats")
+async def pipeline_stats(
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+) -> dict:
+    """Pipeline funnel statistics across all processing stages."""
+
+    async def _safe(coro):
+        try:
+            return await coro
+        except Exception:
+            return None
+
+    async def _count(query: str) -> int:
+        row = await db_fetch_one(query)
+        return row["cnt"] if row else 0
+
+    async def _count_search_index() -> int | None:
+        client = get_meili_client()
+        if not client:
+            return None
+        total = 0
+        for index in ("documents", "adobe-files", "transcripts"):
+            stats = await client.get_index_stats(index)
+            total += stats.get("numberOfDocuments", 0)
+        return total
+
+    scanned, pending_conv, failed, unrecognized, analysis, search_count = await asyncio.gather(
+        _safe(_count("SELECT COUNT(*) AS cnt FROM source_files WHERE lifecycle_status = 'active'")),
+        _safe(_count("SELECT COUNT(*) AS cnt FROM bulk_files WHERE status = 'pending'")),
+        _safe(_count("SELECT COUNT(*) AS cnt FROM bulk_files WHERE status = 'failed'")),
+        _safe(_count("SELECT COUNT(*) AS cnt FROM bulk_files WHERE status = 'unrecognized'")),
+        _safe(get_analysis_stats()),
+        _safe(_count_search_index()),
+    )
+
+    analysis = analysis or {}
+
+    return {
+        "scanned": scanned or 0,
+        "pending_conversion": pending_conv or 0,
+        "failed": failed or 0,
+        "unrecognized": unrecognized or 0,
+        "pending_analysis": analysis.get("pending", 0),
+        "batched_for_analysis": analysis.get("batched", 0),
+        "analysis_failed": analysis.get("failed", 0),
+        "in_search_index": search_count,
+    }
