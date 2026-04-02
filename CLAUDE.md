@@ -26,12 +26,20 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.17.2
+## Current Status — v0.17.3
 
-v0.17.2: UI layout cleanup and pending files viewer. System Status health check
-moved from Convert page to Status page. Pending Files viewer on History page
-with live count, search, pagination, color-coded status. Convert page: Browse
-button for output dir, session-sticky path, Conversion Options with disclaimer.
+v0.17.3: Skip reason tracking + startup crash fix. New `skip_reason` column on
+`bulk_files` (migration #18) records why each file was skipped during conversion:
+path too long, output collision, OCR confidence below threshold, unchanged since
+last scan. Job detail page displays skip reasons in the Details column (amber text,
+matching error_msg pattern). Also fixed missing `Query` import in
+`api/routes/bulk.py` that caused the container to crash-loop on startup.
+
+Previous (v0.17.2): UI layout cleanup and pending files viewer. System Status
+health check moved from Convert page to Status page. Pending Files viewer on
+History page with live count, search, pagination, color-coded status. Convert
+page: Browse button for output dir, session-sticky path, Conversion Options
+with disclaimer.
 
 Previous (v0.17.1): Job config modal with per-job overrides, "Browse All" on
 search page, auto-converter backlog fix for orphaned pending files.
@@ -376,6 +384,7 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **Auto-converter backlog detection**: `on_scan_complete()` now checks `bulk_files WHERE status='pending'` when 0 new files found. Prevents orphaned pending files from failed jobs sitting forever. Only triggers if no active job is running.
 - **Search empty query = browse all**: `/api/search/all` accepts `q=""`. Meilisearch returns all docs. Empty queries skip highlighting and sort by date. "Browse All" button on search page.
 - **Per-job overrides**: `BulkJob.overrides` dict stores per-job settings. Scanner/converter should use `self.overrides.get(key)` with fallback to global preference.
+- **`skip_reason` on bulk_files**: General-purpose column (migration #18) recording why a file was skipped. Set at every skip point: unchanged mtime, path safety, OCR threshold. The older `ocr_skipped_reason` is retained for OCR-specific queries. Path safety skips now properly mark status as `"skipped"` with counter increments (previously left as `"pending"` forever).
 
 ---
 

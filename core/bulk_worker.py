@@ -506,8 +506,14 @@ class BulkJob:
                 # Check resolved_paths — skip files flagged by path safety
                 resolved = self._resolved_paths.get(str(source_path))
                 if resolved and resolved[0] is None:
+                    skip_reason = resolved[1]
                     log.debug("bulk_worker_path_skip", file_id=file_id,
-                              reason=resolved[1])
+                              reason=skip_reason)
+                    await db_write_with_retry(lambda fid=file_id, sr=skip_reason: update_bulk_file(
+                        fid, status="skipped", skip_reason=sr,
+                    ))
+                    self._skipped += 1
+                    await db_write_with_retry(lambda: increment_bulk_job_counter(self.job_id, "skipped"))
                     continue
                 await self._process_convertible(file_dict, worker_id)
                 self._error_monitor.record_success()
@@ -617,6 +623,7 @@ class BulkJob:
             status="skipped",
             ocr_skipped_reason="below_threshold",
             ocr_confidence_mean=estimated_conf,
+            skip_reason=f"OCR confidence {estimated_conf:.0f}% below threshold {threshold:.0f}%",
         )
         # Propagate OCR confidence to source_files
         sf_id = file_dict.get("source_file_id")

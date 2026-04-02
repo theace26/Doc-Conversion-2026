@@ -573,6 +573,9 @@ _MIGRATIONS: list[tuple[int, str, list[str]]] = [
     (17, "Add cancellation_reason to bulk_jobs", [
         "ALTER TABLE bulk_jobs ADD COLUMN cancellation_reason TEXT",
     ]),
+    (18, "Add skip_reason to bulk_files", [
+        "ALTER TABLE bulk_files ADD COLUMN skip_reason TEXT",
+    ]),
 ]
 
 

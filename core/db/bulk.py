@@ -169,7 +169,8 @@ async def upsert_bulk_file(
             if stored_mtime is not None and stored_mtime == source_mtime:
                 await conn.execute(
                     """UPDATE bulk_files SET status='skipped', source_mtime=?,
-                       file_size_bytes=?, source_file_id=? WHERE id=?""",
+                       file_size_bytes=?, source_file_id=?,
+                       skip_reason='Unchanged since last scan' WHERE id=?""",
                     (source_mtime, file_size_bytes, source_file_id, file_id),
                 )
             else:

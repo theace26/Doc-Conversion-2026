@@ -234,6 +234,12 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 - **`dir_stats` tracks top-level directories only**: Prevents unbounded dict on deep repos.
 
+- **`skip_reason` column on `bulk_files`**: General-purpose skip reason (migration #18). Set at every
+  skip point: unchanged mtime (upsert), path safety (worker), OCR threshold (prescan). The older
+  `ocr_skipped_reason` column is retained for OCR-specific queries but `skip_reason` is now the
+  single column to check for any skip reason. Path safety skips now properly mark status as
+  `"skipped"` with counter increments (previously left as `"pending"` forever).
+
 ## Path Safety & Collisions
 
 - **Path safety pass runs during scan, not conversion**: Worker trusts resolved_paths.

@@ -4,6 +4,38 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.17.3 — Skip Reason Tracking & Startup Crash Fix (2026-04-01)
+
+**Skip reason tracking:**
+- New `skip_reason` column on `bulk_files` table (schema migration #18).
+- Every file skip now records a human-readable reason:
+  - **Path too long**: `"Output path too long (X chars, max Y)"`
+  - **Output collision**: `"Output collision (skip strategy)"`
+  - **OCR below threshold**: `"OCR confidence X% below threshold Y%"`
+  - **Unchanged file**: `"Unchanged since last scan"`
+- Path safety skips now properly update `bulk_files` status to `"skipped"` with
+  counter increments (previously silently skipped with status left as `"pending"`).
+- Job detail page displays skip reasons in amber text in the Details column,
+  matching the existing `error_msg` pattern for failed files.
+
+**Startup crash fix:**
+- Fixed missing `Query` import in `api/routes/bulk.py` that caused a `NameError`
+  on container startup, crash-looping the markflow service. The pending files
+  endpoint (added in v0.17.2) used `Query()` for parameter validation without
+  importing it from FastAPI.
+
+---
+
+## v0.17.2 — UI Layout Cleanup & Pending Files Viewer (2026-04-01)
+
+- System Status health check moved from Convert page to Status page.
+- Pending Files viewer on History page with live count, search, pagination,
+  color-coded status badges.
+- Convert page: Browse button for output directory, session-sticky path,
+  Conversion Options section with disclaimer.
+
+---
+
 ## v0.17.1 — Job Config Modal, Browse All, Auto-Convert Backlog Fix (2026-04-01)
 
 **Job configuration modal:**

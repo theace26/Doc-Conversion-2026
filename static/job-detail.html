@@ -57,6 +57,7 @@
     .file-status.pending { background: rgba(107,112,132,0.08); color: var(--text-muted); }
     .file-status.for_review { background: rgba(79,91,213,0.12); color: var(--accent); }
     .error-msg-cell { color: var(--error); font-size: 0.8rem; word-break: break-word; }
+    .skip-reason-cell { color: var(--warn); font-size: 0.8rem; word-break: break-word; }
     .file-path { word-break: break-all; max-width: 500px; }
     .file-ext { color: var(--text-muted); }
     .pagination { display: flex; gap: 0.5rem; align-items: center; justify-content: center; margin: 1rem 0; font-size: 0.85rem; }
@@ -379,6 +380,12 @@
           errDiv.className = 'error-msg-cell';
           errDiv.textContent = f.error_msg;
           tdDetails.appendChild(errDiv);
+        }
+        if (f.skip_reason) {
+          var skipDiv = document.createElement('div');
+          skipDiv.className = 'skip-reason-cell';
+          skipDiv.textContent = f.skip_reason;
+          tdDetails.appendChild(skipDiv);
         }
 
         tr.appendChild(tdPath);
