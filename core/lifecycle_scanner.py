@@ -25,6 +25,7 @@ from pathlib import Path
 import structlog
 
 from core.stop_controller import should_stop
+from core.db.analysis import enqueue_for_analysis as enqueue_image_for_analysis, _IMAGE_EXTENSIONS as _LIFECYCLE_IMAGE_EXTS
 from core.scan_coordinator import (
     is_lifecycle_cancelled,
     register_lifecycle_scan,
@@ -440,6 +441,16 @@ async def _process_file(
             "scan_run_id": scan_run_id,
         })
         counters["files_new"] += 1
+        if ext.lower() in _LIFECYCLE_IMAGE_EXTS:
+            try:
+                await enqueue_image_for_analysis(
+                    source_path=path_str,
+                    content_hash=content_hash,
+                    scan_run_id=scan_run_id,
+                )
+            except Exception as exc:
+                log.warning("lifecycle_scanner.analysis_enqueue_failed",
+                            path=path_str, error=str(exc))
         return
 
     # File exists in DB
@@ -478,6 +489,16 @@ async def _process_file(
         # Record content change (diff will be computed if old .md exists)
         await record_content_change(file_id, old_md_path, old_md_path, scan_run_id)
         counters["files_modified"] += 1
+        if ext.lower() in _LIFECYCLE_IMAGE_EXTS:
+            try:
+                await enqueue_image_for_analysis(
+                    source_path=path_str,
+                    content_hash=content_hash,
+                    scan_run_id=scan_run_id,
+                )
+            except Exception as exc:
+                log.warning("lifecycle_scanner.analysis_enqueue_failed",
+                            path=path_str, error=str(exc))
 
 
 async def _find_hash_match_in_seen(
@@ -921,7 +942,7 @@ async def _execute_auto_conversion(
 
         job = BulkJob(
             job_id=new_job_id,
-            source_path=str(source_root),
+            source_paths=str(source_root),
             output_path=output_path,
             worker_count=decision.workers,
             max_files=decision.batch_size if decision.batch_size > 0 else None,
