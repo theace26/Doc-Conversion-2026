@@ -476,11 +476,11 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 ## Scheduler & Metrics
 
-- **Lifecycle scan yields to bulk jobs**: `run_lifecycle_scan()` checks
-  `get_all_active_jobs()` and skips if any bulk job is scanning/running/paused.
-  Bulk jobs hold the DB heavily — running both concurrently causes "database is locked"
-  errors. The deferred conversion runner also inherits this guard since it calls
-  `run_lifecycle_scan()` internally.
+- **All scheduled jobs yield to bulk jobs**: Lifecycle scan, trash expiry, DB
+  compaction, integrity check, and stale data check all call `get_all_active_jobs()`
+  and skip if any bulk job is scanning/running/paused. Bulk jobs hold the DB heavily —
+  running both concurrently causes "database is locked" errors. The deferred conversion
+  runner also inherits this guard since it calls `run_lifecycle_scan()` internally.
 
 - **collect_metrics interval**: 120s with `coalesce=True`, `misfire_grace_time=60`.
   Do not reduce below 60s — causes massive skip storms under bulk load.

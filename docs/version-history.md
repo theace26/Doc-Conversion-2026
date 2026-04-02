@@ -4,6 +4,18 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.17.6 — Scheduler Yield Guards (2026-04-01)
+
+**Scheduled jobs yield to bulk jobs:**
+- Trash expiry, DB compaction, integrity check, and stale data check now all
+  yield to active bulk jobs (matching the existing lifecycle scan pattern).
+- Each job calls `get_all_active_jobs()` and returns early if any bulk job
+  has status scanning/running/paused.
+- Previously only the lifecycle scan checked for active jobs; trash moves
+  during bulk scans caused "database is locked" errors.
+
+---
+
 ## v0.17.5 — Scrollable Interactive Search Preview (2026-04-01)
 
 - Preview popup body changed from `overflow: hidden` to `overflow: auto` —
@@ -52,6 +64,12 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
   counter increments (previously silently skipped with status left as `"pending"`).
 - Job detail page displays skip reasons in amber text in the Details column,
   matching the existing `error_msg` pattern for failed files.
+
+**Scheduled jobs yield to bulk jobs:**
+- Trash expiry, DB compaction, integrity check, and stale data check now all
+  yield to active bulk jobs (matching the existing lifecycle scan pattern).
+  Previously only the lifecycle scan checked for active jobs; trash moves
+  during bulk scans caused "database is locked" errors.
 
 **Startup crash fix:**
 - Fixed missing `Query` import in `api/routes/bulk.py` that caused a `NameError`

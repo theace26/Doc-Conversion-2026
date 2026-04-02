@@ -26,9 +26,14 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.17.5
+## Current Status — v0.17.6
 
-v0.17.5: Scrollable interactive search preview. Preview popup body and markdown
+v0.17.6: Scheduler yield guards. All scheduled jobs (trash expiry, DB compaction,
+integrity check, stale data check) now yield to active bulk jobs — previously
+only the lifecycle scan had this guard, causing "database is locked" errors
+during bulk runs.
+
+Previous (v0.17.5): Scrollable interactive search preview. Preview popup body and markdown
 content now scroll both vertically and horizontally (`overflow: auto`). Users
 can scroll through long documents and wide tables/code blocks inside the hover
 preview. Re-applied interactive preview + auto-dodge from v0.17.4 (code was
@@ -42,12 +47,13 @@ repeated dodges. Smooth CSS transition (0.3s ease). Also adds macOS deployment
 scripts (`Scripts/macos/`) with hardcoded paths for personal machine, `.env`
 `DRIVE_C`/`DRIVE_D` variables for macOS-compatible drive browser mounts.
 
-Previous (v0.17.3): Skip reason tracking + startup crash fix. New `skip_reason` column on
-`bulk_files` (migration #18) records why each file was skipped during conversion:
-path too long, output collision, OCR confidence below threshold, unchanged since
-last scan. Job detail page displays skip reasons in the Details column (amber text,
-matching error_msg pattern). Also fixed missing `Query` import in
-`api/routes/bulk.py` that caused the container to crash-loop on startup.
+Previous (v0.17.3): Skip reason tracking, scheduler yield guards, startup crash
+fix. New `skip_reason` column on `bulk_files` (migration #18) records why each
+file was skipped during conversion: path too long, output collision, OCR confidence
+below threshold, unchanged since last scan. Job detail page displays skip reasons
+in the Details column (amber text, matching error_msg pattern). Also fixed missing
+`Query` import in `api/routes/bulk.py` that caused the container to crash-loop
+on startup.
 
 Previous (v0.17.2): UI layout cleanup and pending files viewer. System Status
 health check moved from Convert page to Status page. Pending Files viewer on
@@ -354,7 +360,7 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **`python-jose` not `PyJWT`** — they conflict
 - **Source share is read-only**: `/mnt/source` mounted `:ro`, never write to it
 - **Lifecycle scanner needs a `bulk_jobs` parent row**: Creates synthetic job if none exists
-- **Lifecycle scan yields to bulk jobs**: `run_lifecycle_scan()` checks `get_all_active_jobs()` and skips if any bulk job is scanning/running/paused. Prevents "database is locked" contention.
+- **Scheduled jobs yield to bulk jobs**: Lifecycle scan, trash expiry, DB compaction, integrity check, and stale data check all call `get_all_active_jobs()` and skip if any bulk job is scanning/running/paused. Prevents "database is locked" contention.
 - **Pipeline has two pause layers**: `pipeline_enabled` (persistent DB preference, survives restarts) and `_pipeline_paused` (in-memory in `scheduler.py`, resets on restart). Scheduler checks both before lifecycle scans. "Run Now" bypasses both.
 - **pipeline_max_files_per_run caps batch size**: Applied in `_execute_auto_conversion()`. Overrides auto-conversion engine's batch size decision (takes minimum). 0 = no cap.
 - **Pipeline startup is health-gated**: `pipeline_startup.py` waits the configured delay then polls health checks. Critical services (DB, disk) must pass; preferred services (Meilisearch, Tesseract, LibreOffice) produce warnings but don't block. Max additional wait: 3 minutes of retries.

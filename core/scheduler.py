@@ -103,6 +103,13 @@ async def run_lifecycle_scan(force: bool = False) -> None:
 async def run_trash_expiry() -> None:
     """Move expired marked_for_deletion to trash, purge expired trash."""
     try:
+        # Yield to active bulk jobs — they hold the DB heavily
+        from core.bulk_worker import get_all_active_jobs
+        active = await get_all_active_jobs()
+        if any(j["status"] in ("scanning", "running", "paused") for j in active):
+            log.info("scheduler.trash_expiry_skipped_bulk_job_active")
+            return
+
         from core.database import get_source_files_pending_trash, get_source_files_pending_purge, db_fetch_all
         from core.lifecycle_manager import move_to_trash, purge_file
 
@@ -149,6 +156,13 @@ async def run_trash_expiry() -> None:
 async def run_db_compaction() -> None:
     """Run DB compaction. Safe to run alongside scans in WAL mode."""
     try:
+        # Yield to active bulk jobs — VACUUM can block writes
+        from core.bulk_worker import get_all_active_jobs
+        active = await get_all_active_jobs()
+        if any(j["status"] in ("scanning", "running", "paused") for j in active):
+            log.info("scheduler.compaction_skipped_bulk_job_active")
+            return
+
         from core.db_maintenance import run_compaction
         await run_compaction()
 
@@ -161,6 +175,13 @@ async def run_db_compaction() -> None:
 async def run_db_integrity_check() -> None:
     """Run DB integrity check."""
     try:
+        # Yield to active bulk jobs — integrity check is read-heavy
+        from core.bulk_worker import get_all_active_jobs
+        active = await get_all_active_jobs()
+        if any(j["status"] in ("scanning", "running", "paused") for j in active):
+            log.info("scheduler.integrity_check_skipped_bulk_job_active")
+            return
+
         from core.db_maintenance import run_integrity_check
         await run_integrity_check()
     except Exception as exc:
@@ -170,6 +191,13 @@ async def run_db_integrity_check() -> None:
 async def run_stale_data_check() -> None:
     """Run stale data check."""
     try:
+        # Yield to active bulk jobs — stale check queries bulk_files
+        from core.bulk_worker import get_all_active_jobs
+        active = await get_all_active_jobs()
+        if any(j["status"] in ("scanning", "running", "paused") for j in active):
+            log.info("scheduler.stale_check_skipped_bulk_job_active")
+            return
+
         from core.db_maintenance import run_stale_data_check
         await run_stale_data_check()
     except Exception as exc:
