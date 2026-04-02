@@ -26,24 +26,19 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.17.1
+## Current Status — v0.17.2
 
-v0.17.1: Job config modal, browse all, auto-convert backlog fix. "Start Job"
-now opens a configuration modal with per-job overrides for scan threads,
-collision strategy, OCR confidence, password recovery, and more. API extended
-with optional override fields passed through `BulkJob.overrides` dict. New
-"Browse All" button on Search page shows all indexed documents (empty-query
-search sorted by date). Auto-converter now detects pending backlog from prior
-failed jobs — if 60K+ files are stuck as `pending` in `bulk_files`, the next
-lifecycle scan triggers conversion instead of silently skipping.
+v0.17.2: UI layout cleanup and pending files viewer. System Status health check
+moved from Convert page to Status page. Pending Files viewer on History page
+with live count, search, pagination, color-coded status. Convert page: Browse
+button for output dir, session-sticky path, Conversion Options with disclaimer.
 
-Previous (v0.17.0): Job detail page, enhanced viewer, scanner fix. New
-`/job-detail.html` with Files/Errors/Info tabs, search, filtering. Document
-viewer rewritten: Source/Rendered/Raw modes, in-document search, marked.js +
-DOMPurify. Scanner `_is_excluded` scope bug fixed.
+Previous (v0.17.1): Job config modal with per-job overrides, "Browse All" on
+search page, auto-converter backlog fix for orphaned pending files.
 
-Previous (v0.16.9): Multi-source scanning. Lifecycle scanner and bulk jobs scan
-all configured source locations sequentially within a single run.
+Previous (v0.17.0): Job detail page, enhanced viewer, scanner fix.
+
+Previous (v0.16.9): Multi-source scanning within single job/run.
 
 Previous (v0.16.8): Job History cleanup. Timestamps now use `formatLocalTime()` for
 human-readable display (e.g. "Apr 1, 2026, 3:13 PM" instead of raw ISO).
