@@ -31,6 +31,14 @@ class FrameDescription:
     error: str | None = None
 
 
+@dataclass
+class BatchImageResult:
+    index: int
+    description: str
+    extracted_text: str
+    error: str | None = None
+
+
 class VisionAdapter:
     """
     Adds image/vision capability to the existing LLM provider system.
@@ -99,6 +107,261 @@ class VisionAdapter:
                 model=self._model,
                 error=f"[vision unavailable -- {e.__class__.__name__}: {e}]",
             )
+
+    async def describe_batch(
+        self, image_paths: list[Path], prompt: str | None = None
+    ) -> list["BatchImageResult"]:
+        """
+        Describe multiple images in a single API call.
+        Returns one BatchImageResult per input path, in input order.
+        Never raises — all exceptions captured in BatchImageResult.error.
+        """
+        if not image_paths:
+            return []
+
+        if not self.supports_vision():
+            return [
+                BatchImageResult(
+                    index=i, description="", extracted_text="",
+                    error=f"[vision unavailable -- {self._provider} does not support image input]",
+                )
+                for i in range(len(image_paths))
+            ]
+
+        if prompt is None:
+            prompt = (
+                "For each image provided (in order), return a JSON array where each element has:\n"
+                "  'description': a factual description of the image content (objects, people, "
+                "scenes, charts, diagrams, any visible text). Be concise.\n"
+                "  'extracted_text': any legible text found in the image verbatim. "
+                "Empty string if none.\n"
+                "Return ONLY the JSON array with no prose before or after."
+            )
+
+        try:
+            if self._provider == "anthropic":
+                return await self._batch_anthropic(image_paths, prompt)
+            elif self._provider == "openai":
+                return await self._batch_openai(image_paths, prompt)
+            elif self._provider == "gemini":
+                return await self._batch_gemini(image_paths, prompt)
+            elif self._provider == "ollama":
+                return await self._batch_ollama(image_paths, prompt)
+            else:
+                return [
+                    BatchImageResult(
+                        index=i, description="", extracted_text="",
+                        error=f"[vision unavailable -- unknown provider {self._provider}]",
+                    )
+                    for i in range(len(image_paths))
+                ]
+        except Exception as exc:
+            log.error(
+                "vision_adapter.describe_batch_failed",
+                provider=self._provider,
+                count=len(image_paths),
+                error=str(exc),
+            )
+            return [
+                BatchImageResult(index=i, description="", extracted_text="", error=str(exc))
+                for i in range(len(image_paths))
+            ]
+
+    def _parse_batch_response(self, text: str, count: int) -> list[dict]:
+        """Parse JSON array from LLM response. Extracts from prose if needed."""
+        import json
+        import re
+
+        text = text.strip()
+
+        try:
+            data = json.loads(text)
+            if isinstance(data, list):
+                return data
+        except json.JSONDecodeError:
+            pass
+
+        match = re.search(r"\[.*\]", text, re.DOTALL)
+        if match:
+            try:
+                data = json.loads(match.group())
+                if isinstance(data, list):
+                    return data
+            except json.JSONDecodeError:
+                pass
+
+        log.warning(
+            "vision_adapter.batch_parse_failed",
+            provider=self._provider,
+            response_preview=text[:200],
+        )
+        return [
+            {"description": "", "extracted_text": "", "error": "failed to parse LLM response"}
+            for _ in range(count)
+        ]
+
+    async def _batch_anthropic(self, image_paths: list[Path], prompt: str) -> list["BatchImageResult"]:
+        base = self._base_url or "https://api.anthropic.com"
+        content: list[dict] = []
+        for path in image_paths:
+            image_b64 = base64.b64encode(path.read_bytes()).decode()
+            mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+            content.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": mime, "data": image_b64},
+            })
+        content.append({"type": "text", "text": prompt})
+
+        timeout = max(_TIMEOUT, _TIMEOUT * len(image_paths) / 3)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(
+                f"{base}/v1/messages",
+                headers={
+                    "x-api-key": self._api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": self._model,
+                    "max_tokens": 400 * len(image_paths),
+                    "messages": [{"role": "user", "content": content}],
+                },
+            )
+            resp.raise_for_status()
+            text = "".join(
+                block.get("text", "")
+                for block in resp.json().get("content", [])
+                if block.get("type") == "text"
+            )
+
+        parsed = self._parse_batch_response(text, len(image_paths))
+        return [
+            BatchImageResult(
+                index=i,
+                description=item.get("description", ""),
+                extracted_text=item.get("extracted_text", ""),
+                error=item.get("error"),
+            )
+            for i, item in enumerate(parsed)
+        ]
+
+    async def _batch_openai(self, image_paths: list[Path], prompt: str) -> list["BatchImageResult"]:
+        content: list[dict] = [{"type": "text", "text": prompt}]
+        for path in image_paths:
+            image_b64 = base64.b64encode(path.read_bytes()).decode()
+            mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:{mime};base64,{image_b64}", "detail": "low"},
+            })
+
+        timeout = max(_TIMEOUT, _TIMEOUT * len(image_paths) / 3)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": self._model or "gpt-4o",
+                    "max_tokens": 400 * len(image_paths),
+                    "messages": [{"role": "user", "content": content}],
+                },
+            )
+            resp.raise_for_status()
+            text = resp.json()["choices"][0]["message"]["content"]
+
+        parsed = self._parse_batch_response(text, len(image_paths))
+        return [
+            BatchImageResult(
+                index=i,
+                description=item.get("description", ""),
+                extracted_text=item.get("extracted_text", ""),
+                error=item.get("error"),
+            )
+            for i, item in enumerate(parsed)
+        ]
+
+    async def _batch_gemini(self, image_paths: list[Path], prompt: str) -> list["BatchImageResult"]:
+        base = self._base_url or "https://generativelanguage.googleapis.com"
+        parts: list[dict] = [{"text": prompt}]
+        for path in image_paths:
+            image_b64 = base64.b64encode(path.read_bytes()).decode()
+            mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+            parts.append({"inline_data": {"mime_type": mime, "data": image_b64}})
+
+        timeout = max(_TIMEOUT, _TIMEOUT * len(image_paths) / 3)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(
+                f"{base}/v1beta/models/{self._model}:generateContent",
+                params={"key": self._api_key},
+                headers={"Content-Type": "application/json"},
+                json={
+                    "contents": [{"parts": parts}],
+                    "generationConfig": {"maxOutputTokens": 400 * len(image_paths)},
+                },
+            )
+            resp.raise_for_status()
+            text = "".join(
+                part.get("text", "")
+                for candidate in resp.json().get("candidates", [])
+                for part in candidate.get("content", {}).get("parts", [])
+            )
+
+        parsed = self._parse_batch_response(text, len(image_paths))
+        return [
+            BatchImageResult(
+                index=i,
+                description=item.get("description", ""),
+                extracted_text=item.get("extracted_text", ""),
+                error=item.get("error"),
+            )
+            for i, item in enumerate(parsed)
+        ]
+
+    async def _batch_ollama(self, image_paths: list[Path], prompt: str) -> list["BatchImageResult"]:
+        """Try multi-image batch; fall back to sequential describe_frame() calls if model rejects it."""
+        base = self._base_url or "http://localhost:11434"
+        images_b64 = [base64.b64encode(p.read_bytes()).decode() for p in image_paths]
+
+        try:
+            async with httpx.AsyncClient(timeout=120.0 * len(image_paths)) as client:
+                resp = await client.post(
+                    f"{base}/api/generate",
+                    json={
+                        "model": self._model or "llava",
+                        "prompt": prompt,
+                        "images": images_b64,
+                        "stream": False,
+                    },
+                )
+                resp.raise_for_status()
+                text = resp.json().get("response", "").strip()
+
+            parsed = self._parse_batch_response(text, len(image_paths))
+            results = [
+                BatchImageResult(
+                    index=i,
+                    description=item.get("description", ""),
+                    extracted_text=item.get("extracted_text", ""),
+                    error=item.get("error"),
+                )
+                for i, item in enumerate(parsed)
+            ]
+            if all(r.error for r in results):
+                raise ValueError("all results failed — falling back to sequential")
+            return results
+
+        except Exception:
+            log.info("vision_adapter.ollama_batch_fallback_sequential", count=len(image_paths))
+            out = []
+            for i, path in enumerate(image_paths):
+                fd = await self.describe_frame(path, prompt, scene_index=i)
+                out.append(BatchImageResult(
+                    index=i,
+                    description=fd.description,
+                    extracted_text="",
+                    error=fd.error,
+                ))
+            return out
 
     async def health_check(self) -> tuple[bool, str]:
         """Fast connectivity check (5s timeout). Never raises."""
