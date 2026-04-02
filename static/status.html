@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Active Jobs — MarkFlow</title>
+  <title>Status — MarkFlow</title>
   <link rel="stylesheet" href="/static/markflow.css">
 </head>
 <body>
@@ -34,6 +34,19 @@
     <!-- Lifecycle scanner card -->
     <div id="lifecycle-container" style="margin-top:1.5rem"></div>
 
+    <!-- Pending Jobs -->
+    <div id="pending-container" style="margin-top:1.5rem">
+      <div class="job-card">
+        <div class="job-card__header">
+          <div class="job-card__title">
+            <span class="status-pill status-pill--pending">PENDING</span>
+            <span class="text-muted text-sm" id="pending-label">Loading...</span>
+          </div>
+        </div>
+        <div id="pending-content" class="text-sm" style="margin-top:0.5rem"></div>
+      </div>
+    </div>
+
     <!-- Auto-Conversion override card -->
     <div id="auto-convert-container" style="margin-top:1.5rem">
       <div class="job-card">
@@ -63,6 +76,18 @@
           <button class="btn btn-sm btn-ghost" id="ac-override-clear" hidden>Clear Override</button>
         </div>
         <div id="ac-last-decision" class="text-sm text-muted" style="margin-top:0.5rem"></div>
+      </div>
+    </div>
+    <!-- System Status (Health Check) -->
+    <div style="margin-top:1.5rem">
+      <div class="job-card">
+        <div class="job-card__header">
+          <div class="job-card__title">
+            <span class="status-pill status-pill--done">SYSTEM</span>
+            <span class="text-muted text-sm">Health Check</span>
+          </div>
+        </div>
+        <div id="health-status" style="margin-top:0.5rem"><span class="spinner"></span> Checking...</div>
       </div>
     </div>
   </main>
@@ -420,6 +445,93 @@
 
     loadAutoConvertStatus();
     setInterval(loadAutoConvertStatus, 15000);
+  })();
+
+  // ── Pending Jobs ──────────────────────────────────────────────────────────
+  (async function loadPending() {
+    try {
+      var data = await API.get('/api/pipeline/status');
+      var pending = data.pending_conversion || 0;
+      var totalSource = data.total_source_files || 0;
+      var label = document.getElementById('pending-label');
+      var content = document.getElementById('pending-content');
+
+      label.textContent = pending.toLocaleString() + ' files pending conversion';
+
+      var lines = [];
+      lines.push('Source files tracked: ' + totalSource.toLocaleString());
+      lines.push('Pending conversion: ' + pending.toLocaleString());
+      if (data.last_scan) {
+        lines.push('Last scan: ' + (data.last_scan.files_scanned || 0).toLocaleString() + ' files'
+          + ' (' + (data.last_scan.files_new || 0) + ' new, '
+          + (data.last_scan.files_modified || 0) + ' modified)'
+          + ' — ' + data.last_scan.status);
+      }
+      if (data.last_auto_conversion) {
+        lines.push('Last auto-conversion: ' + (data.last_auto_conversion.status || 'unknown')
+          + ' (' + (data.last_auto_conversion.files_discovered || 0) + ' files, '
+          + (data.last_auto_conversion.workers_chosen || 0) + ' workers)');
+      }
+      if (data.next_scan) {
+        var nextDate = new Date(data.next_scan);
+        lines.push('Next scan: ' + nextDate.toLocaleString(undefined, { hour: 'numeric', minute: '2-digit' }));
+      }
+
+      content.textContent = '';
+      lines.forEach(function(line) {
+        var div = document.createElement('div');
+        div.textContent = line;
+        div.style.padding = '0.15rem 0';
+        content.appendChild(div);
+      });
+    } catch(e) {
+      document.getElementById('pending-label').textContent = 'Could not load';
+    }
+    setTimeout(loadPending, 30000);
+  })();
+
+  // ── System Health Check ───────────────────────────────────────────────────
+  (async function loadHealth() {
+    try {
+      var health = await API.get('/api/health');
+      var comps = health.components || health;
+      var container = document.getElementById('health-status');
+      container.textContent = '';
+
+      var table = document.createElement('table');
+      table.className = 'data-table';
+      Object.entries(comps).forEach(function(pair) {
+        var dep = pair[0];
+        var s = pair[1];
+        var tr = document.createElement('tr');
+
+        var tdName = document.createElement('td');
+        tdName.textContent = dep;
+        tr.appendChild(tdName);
+
+        var tdStatus = document.createElement('td');
+        var span = document.createElement('span');
+        span.className = s.ok ? 'status-ok' : 'status-error';
+        span.textContent = s.ok ? 'OK' : 'FAIL';
+        tdStatus.appendChild(span);
+        tr.appendChild(tdStatus);
+
+        var tdDetail = document.createElement('td');
+        tdDetail.className = 'text-sm text-muted';
+        tdDetail.textContent = s.version || s.error || (s.free_gb != null ? s.free_gb + ' GB free' : '');
+        tr.appendChild(tdDetail);
+
+        table.appendChild(tr);
+      });
+      container.appendChild(table);
+    } catch(e) {
+      var el = document.getElementById('health-status');
+      el.textContent = '';
+      var err = document.createElement('span');
+      err.className = 'status-error';
+      err.textContent = 'Could not reach server.';
+      el.appendChild(err);
+    }
   })();
   </script>
 </body>

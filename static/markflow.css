@@ -1183,6 +1183,7 @@ small, .text-sm { font-size: 0.85rem; }
 .status-pill--done, .status-pill--completed { background: var(--ok); color: #fff; }
 .status-pill--stopped, .status-pill--cancelled { background: #9e9e9e; color: #fff; }
 .status-pill--failed   { background: var(--error); color: #fff; }
+.status-pill--pending  { background: rgba(79,91,213,0.15); color: var(--accent); }
 
 /* Shared helpers used on status page */
 .text-ok  { color: var(--ok); }

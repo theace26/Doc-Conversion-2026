@@ -18,12 +18,6 @@
     <h1 data-help="document-conversion">Document Conversion</h1>
     <p class="text-muted mb-2">Convert documents to and from Markdown. Drop files or entire folders.</p>
 
-    <!-- System status -->
-    <div class="card mb-2" id="health-card">
-      <div class="card-header">System Status</div>
-      <div id="health-status"><span class="spinner"></span> Checking dependencies...</div>
-    </div>
-
     <!-- Conversion form -->
     <div class="card">
       <div class="card-header">Convert Documents</div>
@@ -105,6 +99,7 @@
       <!-- Conversion options (shown on Convert click) -->
       <details id="convert-options" style="margin-bottom:1rem">
         <summary style="cursor:pointer;font-weight:600;font-size:0.9rem;color:var(--text-muted)">Conversion Options</summary>
+        <p class="text-sm text-muted" style="margin:0.5rem 0 0;font-style:italic">These options apply to this session only and will revert to defaults when your session expires.</p>
         <div style="display:grid;grid-template-columns:140px 1fr;gap:0.5rem 0.75rem;align-items:center;padding:0.75rem 0;font-size:0.85rem">
           <label for="cv-fidelity" style="font-weight:500">Fidelity tier</label>
           <select id="cv-fidelity" style="padding:0.35rem 0.55rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:0.85rem">
@@ -140,23 +135,6 @@
   <script src="/static/app.js"></script>
   <script src="/static/js/folder-picker.js"></script>
   <script>
-  // ── Health check ──────────────────────────────────────────────────────────
-  (async () => {
-    try {
-      const health = await API.get('/api/health');
-      const comps = health.components || health;
-      const rows = Object.entries(comps).map(([dep, s]) => {
-        const ok = s.ok ? '<span class="status-ok">OK</span>' : '<span class="status-error">FAIL</span>';
-        const detail = s.version || s.error || (s.free_gb != null ? `${s.free_gb} GB free` : '');
-        return `<tr><td>${dep}</td><td>${ok}</td><td class="text-sm text-muted">${detail || ''}</td></tr>`;
-      }).join('');
-      document.getElementById('health-status').innerHTML = `<table class="data-table">${rows}</table>`;
-    } catch (e) {
-      document.getElementById('health-status').innerHTML =
-        '<span class="status-error">Could not reach server.</span>';
-    }
-  })();
-
   // ── Load preferences ──────────────────────────────────────────────────────
   let globalPrefs = {};
   (async () => {
