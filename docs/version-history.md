@@ -4,6 +4,17 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.17.5 — Scrollable Interactive Search Preview (2026-04-01)
+
+- Preview popup body changed from `overflow: hidden` to `overflow: auto` —
+  enables vertical and horizontal scrolling of preview content.
+- Markdown preview changed from `overflow-y: auto` to `overflow: auto` —
+  wide tables and code blocks now scroll horizontally.
+- Re-applied v0.17.4 interactive preview + auto-dodge code that was overwritten
+  by a concurrent git pull (pointer-events, idle timer, dodge transition).
+
+---
+
 ## v0.17.4 — Interactive Search Preview with Auto-Dodge (2026-04-01)
 
 **Interactive hover preview:**

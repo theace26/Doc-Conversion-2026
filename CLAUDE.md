@@ -26,9 +26,15 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.17.4
+## Current Status — v0.17.5
 
-v0.17.4: Interactive search preview with auto-dodge. Hover preview popup is now
+v0.17.5: Scrollable interactive search preview. Preview popup body and markdown
+content now scroll both vertically and horizontally (`overflow: auto`). Users
+can scroll through long documents and wide tables/code blocks inside the hover
+preview. Re-applied interactive preview + auto-dodge from v0.17.4 (code was
+overwritten by a concurrent git pull).
+
+Previous (v0.17.4): Interactive search preview with auto-dodge. Hover preview popup is now
 interactive — users can scroll content and click the "Open" link. After 2 seconds
 of mouse inactivity on the popup, it slides offscreen (dodge). If the mouse
 re-enters the popup, it reappears for interaction. Repeated idle periods trigger

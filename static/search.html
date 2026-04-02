@@ -192,6 +192,9 @@
   var previewTimer = null;
   var previewCurrentId = null;
   var previewCache = {};  // { "index|doc_id": docInfo }
+  var previewMouseOnPopup = false;   // true when mouse is over the popup
+  var previewIdleTimer = null;       // fires dodge after 2s of no mouse movement
+  var PREVIEW_IDLE_MS = 2000;        // idle time before popup dodges
 
   // Load preview preferences at startup
   (async function loadPreviewPrefs() {
@@ -235,7 +238,9 @@
     positionPreview(popup, anchorEl);
 
     body.appendChild(makePreviewMessage('Loading preview\u2026', 'preview-loading'));
+    popup.classList.remove('dodged');
     popup.classList.add('visible');
+    startPreviewIdleTimer();
 
     if (previewCache[key]) {
       renderPreviewContent(previewCache[key], hit);
@@ -326,10 +331,46 @@
 
   function hidePreview() {
     clearTimeout(previewTimer);
+    clearTimeout(previewIdleTimer);
     previewTimer = null;
+    previewIdleTimer = null;
     previewCurrentId = null;
-    document.getElementById('preview-popup').classList.remove('visible');
+    previewMouseOnPopup = false;
+    var popup = document.getElementById('preview-popup');
+    popup.classList.remove('visible', 'dodged');
   }
+
+  function startPreviewIdleTimer() {
+    clearTimeout(previewIdleTimer);
+    previewIdleTimer = setTimeout(function() {
+      document.getElementById('preview-popup').classList.add('dodged');
+    }, PREVIEW_IDLE_MS);
+  }
+
+  // Wire up popup mouse interaction
+  (function() {
+    var popup = document.getElementById('preview-popup');
+
+    popup.addEventListener('mouseenter', function() {
+      previewMouseOnPopup = true;
+      popup.classList.remove('dodged');
+      startPreviewIdleTimer();
+    });
+
+    popup.addEventListener('mousemove', function() {
+      popup.classList.remove('dodged');
+      startPreviewIdleTimer();
+    });
+
+    popup.addEventListener('mouseleave', function() {
+      previewMouseOnPopup = false;
+      clearTimeout(previewIdleTimer);
+      previewIdleTimer = null;
+      previewTimer = setTimeout(function() {
+        if (!previewMouseOnPopup) hidePreview();
+      }, 300);
+    });
+  })();
 
   // ── State ──────────────────────────────────────────────────────────────────
   var currentPage = 1;
@@ -608,9 +649,16 @@
       (function(hitData, rowEl) {
         rowEl.addEventListener('mouseenter', function() {
           clearTimeout(previewTimer);
+          var popup = document.getElementById('preview-popup');
+          popup.classList.remove('dodged');
           previewTimer = setTimeout(function() { showPreview(hitData, rowEl); }, previewDelayMs);
         });
-        rowEl.addEventListener('mouseleave', function() { hidePreview(); });
+        rowEl.addEventListener('mouseleave', function() {
+          clearTimeout(previewTimer);
+          previewTimer = setTimeout(function() {
+            if (!previewMouseOnPopup) hidePreview();
+          }, 300);
+        });
       })(hit, row);
 
       list.appendChild(row);
