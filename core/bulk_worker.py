@@ -48,6 +48,15 @@ from core.database import (
 log = structlog.get_logger(__name__)
 
 
+_IMAGE_EXTENSIONS_BW = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".gif", ".eps"}
+
+
+def _should_enqueue_for_analysis(source_path) -> bool:
+    """Return True if source_path is an image file eligible for LLM vision analysis."""
+    from pathlib import Path
+    return Path(source_path).suffix.lower() in _IMAGE_EXTENSIONS_BW
+
+
 # ── SSE progress queues (per bulk job_id) ────────────────────────────────────
 _bulk_progress_queues: dict[str, asyncio.Queue] = {}
 
@@ -784,6 +793,22 @@ class BulkJob:
                         )
             except Exception as exc:
                 log.warning("bulk_meili_index_fail", file_id=file_id, error=str(exc))
+
+            # Enqueue image files for LLM vision analysis
+            if _should_enqueue_for_analysis(source_path):
+                try:
+                    from core.db.analysis import enqueue_for_analysis
+                    await enqueue_for_analysis(
+                        source_path=str(source_path),
+                        content_hash=file_dict.get("content_hash"),
+                        job_id=self.job_id,
+                    )
+                except Exception as exc:
+                    log.warning(
+                        "bulk_worker.analysis_enqueue_failed",
+                        path=str(source_path),
+                        error=str(exc),
+                    )
 
         else:
             await db_write_with_retry(lambda: update_bulk_file(
