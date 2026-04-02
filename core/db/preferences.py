@@ -68,6 +68,9 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     "pipeline_max_files_per_run": "0",
     "pipeline_startup_delay_minutes": "5",
     "pipeline_auto_reset_days": "3",
+    # Image analysis queue (v0.18.0)
+    "analysis_enabled": "true",
+    "analysis_batch_size": "10",
     # Cloud file prefetch (v0.15.1)
     "cloud_prefetch_enabled": "false",
     "cloud_prefetch_concurrency": "5",

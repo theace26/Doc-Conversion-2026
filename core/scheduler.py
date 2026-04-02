@@ -515,8 +515,20 @@ def start_scheduler() -> None:
         coalesce=True,
     )
 
+    # v0.18.0: Image analysis queue drain — every 5 minutes
+    from core.analysis_worker import run_analysis_drain
+    scheduler.add_job(
+        run_analysis_drain,
+        trigger=IntervalTrigger(minutes=5),
+        id="analysis_drain",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=60,
+    )
+
     scheduler.start()
-    log.info("scheduler.started", jobs=13)
+    log.info("scheduler.started", jobs=14)
 
 
 def get_pipeline_status() -> dict:
@@ -544,6 +556,7 @@ def get_scheduler_status() -> dict:
         "deferred_conversion_runner": "deferred_conversion_next",
         "pipeline_watchdog": "pipeline_watchdog_next",
         "log_archive": "log_archive_next",
+        "analysis_drain": "analysis_drain_next",
     }
     for job_id, key in job_names.items():
         try:
