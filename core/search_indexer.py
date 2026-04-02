@@ -304,6 +304,23 @@ class SearchIndexer:
                 pass
         doc["is_flagged"] = is_flagged
 
+        # Augment content with LLM vision analysis results if available
+        try:
+            from core.db.analysis import get_analysis_result
+            if source_path:
+                analysis = await get_analysis_result(source_path)
+                if analysis:
+                    analysis_parts = []
+                    if analysis.get("description"):
+                        analysis_parts.append(analysis["description"])
+                    if analysis.get("extracted_text"):
+                        analysis_parts.append(analysis["extracted_text"])
+                    if analysis_parts:
+                        doc["content"] = (doc["content"] + "\n\n" + "\n".join(analysis_parts)).strip()
+                        doc["content_preview"] = doc["content"][:500]
+        except Exception:
+            pass  # Non-critical — index without analysis results if lookup fails
+
         task_uid = await self.client.add_documents("documents", [doc])
         return task_uid is not None
 
