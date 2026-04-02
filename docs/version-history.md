@@ -4,6 +4,31 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.17.7 — Scan Priority Coordinator (2026-04-01)
+
+**Scan priority hierarchy: Bulk Job > Run Now > Lifecycle Scan:**
+- New `core/scan_coordinator.py` manages mutual exclusion between scan types
+  using asyncio Events for cancel/pause signaling.
+- **Bulk jobs** are highest priority: starting a bulk job cancels any active
+  lifecycle scan (clean cancel, releases DB) and pauses any active run-now
+  scan (resumes automatically when bulk completes).
+- **Run-now** is mid priority: cancels lifecycle scans on start. If a bulk
+  job is active, run-now pauses and waits for it to finish before proceeding.
+- **Lifecycle scans** are lowest priority: never pause, only cancel. On
+  cancellation, the scan finalizes with status "cancelled", skips deletion
+  detection (incomplete seen_paths would incorrectly mark files as deleted),
+  skips auto-conversion trigger, and picks up at the next scheduled interval.
+- Lifecycle scanner walker loops (`_serial_lifecycle_walk`,
+  `_parallel_lifecycle_walk`, `_walker_thread`) now check
+  `is_lifecycle_cancelled()` alongside `should_stop()` at every file.
+- `BulkJob.run()` calls `notify_bulk_started()` on entry and
+  `notify_bulk_completed()` in `finally` block.
+- New `/api/pipeline/coordinator` debug endpoint exposes coordinator state.
+- Eliminates "database is locked" errors from concurrent lifecycle + bulk
+  DB writes — lifecycle cleanly exits before bulk starts writing.
+
+---
+
 ## v0.17.6 — Scheduler Yield Guards (2026-04-01)
 
 **Scheduled jobs yield to bulk jobs:**

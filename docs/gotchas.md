@@ -668,6 +668,12 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 - **Deferred conversion runner re-triggers lifecycle scan**: Re-evaluates decision with fresh data.
 
+- **Scan priority coordinator**: `core/scan_coordinator.py` manages priority: Bulk > Run Now > Lifecycle. Bulk starting cancels lifecycle and pauses run-now. Run-now starting cancels lifecycle. Lifecycle never pauses — only cancels and waits for next scheduled run. All signals use asyncio Events (cheap bool reads in walker loops).
+
+- **Lifecycle cancel skips deletion detection**: When a lifecycle scan is cancelled mid-walk, it must NOT run deletion detection. The `seen_paths` set is incomplete, so any file not yet walked would be incorrectly marked as deleted. The cancelled scan sets `status='cancelled'` and returns.
+
+- **Run-now pause/resume on bulk**: When a bulk job starts while run-now is active, run-now blocks on `_run_now_pause` Event (cleared = blocked). When all bulk jobs finish, `notify_bulk_completed()` sets the event, unblocking run-now. If run-now hasn't started scanning yet and bulk is active, it waits before calling `run_lifecycle_scan()`.
+
 - **Pipeline has two pause layers**: `pipeline_enabled` is a persistent DB preference (survives restarts). `_pipeline_paused` is in-memory state in `scheduler.py` (resets on container restart). The scheduler checks both before running lifecycle scans. "Run Now" bypasses both via `force=True`.
 
 - **pipeline_max_files_per_run caps batch size**: Applied in `_execute_auto_conversion()` in `lifecycle_scanner.py`. If set to a positive number, it overrides the auto-conversion engine's batch size decision (takes the minimum). 0 = no cap.

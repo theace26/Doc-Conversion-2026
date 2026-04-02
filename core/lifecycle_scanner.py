@@ -25,6 +25,11 @@ from pathlib import Path
 import structlog
 
 from core.stop_controller import should_stop
+from core.scan_coordinator import (
+    is_lifecycle_cancelled,
+    register_lifecycle_scan,
+    unregister_lifecycle_scan,
+)
 from core.storage_probe import ErrorRateMonitor, ScanThrottler, probe_storage_latency
 from core.bulk_scanner import ALL_SUPPORTED, CONVERTIBLE_EXTENSIONS, ADOBE_EXTENSIONS, verify_source_mount
 from core.metrics_collector import record_activity_event
@@ -48,6 +53,12 @@ from core.lifecycle_manager import (
 )
 
 log = structlog.get_logger(__name__)
+
+
+def _should_cancel() -> bool:
+    """Combined check: global stop OR coordinator cancel."""
+    return should_stop() or is_lifecycle_cancelled()
+
 
 # ── In-memory scan state (resets on container restart) ────────────────────────
 _scan_state: dict = {
@@ -138,6 +149,7 @@ async def run_lifecycle_scan(
                  paths=[str(r) for r in valid_roots])
 
     await create_scan_run(scan_run_id)
+    register_lifecycle_scan()
 
     counters = {
         "files_scanned": 0,
@@ -208,9 +220,13 @@ async def run_lifecycle_scan(
         except ValueError:
             _max_override = None
 
+    cancelled = False
     for source_root in valid_roots:
-        if should_stop():
-            log.warning("lifecycle_scan.stopped_between_roots", completed_roots=valid_roots.index(source_root))
+        if _should_cancel():
+            log.warning("lifecycle_scan.cancelled_between_roots",
+                        completed_roots=valid_roots.index(source_root),
+                        reason="coordinator_cancel" if is_lifecycle_cancelled() else "global_stop")
+            cancelled = True
             break
 
         log.info("lifecycle_scan.walking_root", path=str(source_root),
@@ -249,54 +265,64 @@ async def run_lifecycle_scan(
             error_entries.append({"path": str(source_root), "error": str(exc)})
             log.error("lifecycle_scan.walk_failed", path=str(source_root), error=str(exc))
 
+    # ── Check if scan was cancelled before heavy deletion detection ──────────
+    if _should_cancel():
+        cancelled = True
+
     # ── Detect deletions (files not seen but still active) ────────────────────
     # Query source_files (deduplicated) instead of bulk_files to avoid
     # overcounting from duplicate rows across scan jobs.
-    try:
-        active_files = await db_fetch_all(
-            "SELECT * FROM source_files WHERE lifecycle_status='active' ORDER BY source_path",
-        )
-
-        # Build set of newly seen paths that don't have DB records yet
-        # for move detection via content hash
-        disappeared: list[dict] = []
-        for f in active_files:
-            if f["source_path"] not in seen_paths:
-                disappeared.append(f)
-
-        # Move detection: check if disappeared file's content_hash matches a new file
-        for f in disappeared:
-            content_hash = f.get("content_hash")
-            if content_hash:
-                # Look for a newly created file with the same hash
-                match = await _find_hash_match_in_seen(content_hash, seen_paths)
-                if match:
-                    # Look up all linked bulk_files rows and record the move
-                    bf_rows = await db_fetch_all(
-                        "SELECT id FROM bulk_files WHERE source_file_id = ? AND lifecycle_status = 'active'",
-                        (f["id"],),
-                    )
-                    for bf in bf_rows:
-                        await record_file_move(bf["id"], f["source_path"], match, scan_run_id)
-                    counters["files_moved"] += 1  # count once per source file
-                    continue
-
-            # File is gone — mark all linked bulk_files rows for deletion
-            bf_rows = await db_fetch_all(
-                "SELECT id FROM bulk_files WHERE source_file_id = ? AND lifecycle_status = 'active'",
-                (f["id"],),
+    # Skip deletion detection if cancelled — incomplete seen_paths would
+    # incorrectly mark files as deleted.
+    if cancelled:
+        log.info("lifecycle_scan.skipping_deletion_detection_cancelled")
+    else:
+        try:
+            active_files = await db_fetch_all(
+                "SELECT * FROM source_files WHERE lifecycle_status='active' ORDER BY source_path",
             )
-            for bf in bf_rows:
-                await mark_file_for_deletion(bf["id"], scan_run_id)
-            counters["files_deleted"] += 1  # count once per source file, not per bulk_file row
-    except Exception as exc:
-        counters["errors"] += 1
-        error_entries.append({"path": "deletion_detection", "error": str(exc)})
-        log.error("lifecycle_scan.deletion_detection_error", error=str(exc))
+
+            # Build set of newly seen paths that don't have DB records yet
+            # for move detection via content hash
+            disappeared: list[dict] = []
+            for f in active_files:
+                if f["source_path"] not in seen_paths:
+                    disappeared.append(f)
+
+            # Move detection: check if disappeared file's content_hash matches a new file
+            for f in disappeared:
+                content_hash = f.get("content_hash")
+                if content_hash:
+                    # Look for a newly created file with the same hash
+                    match = await _find_hash_match_in_seen(content_hash, seen_paths)
+                    if match:
+                        # Look up all linked bulk_files rows and record the move
+                        bf_rows = await db_fetch_all(
+                            "SELECT id FROM bulk_files WHERE source_file_id = ? AND lifecycle_status = 'active'",
+                            (f["id"],),
+                        )
+                        for bf in bf_rows:
+                            await record_file_move(bf["id"], f["source_path"], match, scan_run_id)
+                        counters["files_moved"] += 1  # count once per source file
+                        continue
+
+                # File is gone — mark all linked bulk_files rows for deletion
+                bf_rows = await db_fetch_all(
+                    "SELECT id FROM bulk_files WHERE source_file_id = ? AND lifecycle_status = 'active'",
+                    (f["id"],),
+                )
+                for bf in bf_rows:
+                    await mark_file_for_deletion(bf["id"], scan_run_id)
+                counters["files_deleted"] += 1  # count once per source file, not per bulk_file row
+        except Exception as exc:
+            counters["errors"] += 1
+            error_entries.append({"path": "deletion_detection", "error": str(exc)})
+            log.error("lifecycle_scan.deletion_detection_error", error=str(exc))
 
     # ── Finalize scan run ────────────────────────────────────────────────────
+    final_status = "cancelled" if cancelled else "complete"
     await update_scan_run(scan_run_id, {
-        "status": "complete",
+        "status": final_status,
         "finished_at": now_iso(),
         "files_scanned": counters["files_scanned"],
         "files_new": counters["files_new"],
@@ -308,7 +334,7 @@ async def run_lifecycle_scan(
         "error_log": json.dumps(error_entries) if error_entries else None,
     })
 
-    # Update scan state to idle
+    # Update scan state to idle and unregister from coordinator
     _scan_state["running"] = False
     _scan_state["scanned"] = counters["files_scanned"]
     _scan_state["pct"] = None
@@ -316,19 +342,25 @@ async def run_lifecycle_scan(
     _scan_state["eta_seconds"] = None
     _scan_state["last_scan_at"] = now_iso()
     _scan_state["last_scan_run_id"] = scan_run_id
+    unregister_lifecycle_scan()
 
     elapsed_s = round((datetime.now(timezone.utc) - _started_at_dt).total_seconds(), 1)
     log.info(
-        "lifecycle_scan.complete",
+        f"lifecycle_scan.{final_status}",
         scan_run_id=scan_run_id,
         **counters,
     )
 
     # Record activity event for scan end
     try:
+        event_detail = (
+            f"Lifecycle scan cancelled after {counters['files_scanned']} files"
+            if cancelled else
+            f"Lifecycle scan: {counters['files_scanned']} files, {counters['files_new']} new, {counters['files_modified']} modified, {counters['files_deleted']} deleted"
+        )
         await record_activity_event(
             "lifecycle_scan_end",
-            f"Lifecycle scan: {counters['files_scanned']} files, {counters['files_new']} new, {counters['files_modified']} modified, {counters['files_deleted']} deleted",
+            event_detail,
             {
                 "scanned": counters["files_scanned"],
                 "new": counters["files_new"],
@@ -336,13 +368,18 @@ async def run_lifecycle_scan(
                 "deleted": counters["files_deleted"],
                 "errors": counters["errors"],
                 "duration": elapsed_s,
+                "cancelled": cancelled,
             },
             duration_seconds=elapsed_s,
         )
     except Exception:
         pass
 
-    # ── Auto-conversion trigger ──────────────────────────────────────────────
+    # ── Auto-conversion trigger (skip if cancelled — incomplete scan) ────────
+    if cancelled:
+        log.info("lifecycle_scan.auto_convert_skipped_cancelled")
+        return scan_run_id
+
     try:
         from core.auto_converter import get_auto_conversion_engine
 
@@ -485,8 +522,9 @@ async def _serial_lifecycle_walk(
             log.warning("lifecycle_walk_error", path=str(err.filename or ""), error=str(err))
 
     for dirpath, dirnames, filenames in os.walk(source_root, onerror=_lifecycle_walk_error):
-        if should_stop() or error_monitor.should_abort():
+        if _should_cancel() or error_monitor.should_abort():
             log.warning("lifecycle_scan_stopped", scan_run_id=scan_run_id,
+                        cancelled=is_lifecycle_cancelled(),
                         aborted=error_monitor.aborted,
                         errors=error_monitor.total_errors)
             _scan_state["running"] = False
@@ -585,7 +623,7 @@ async def _parallel_lifecycle_walk(
             file_queue.put((file_path, ext, st.st_mtime, st.st_size))
 
         def _should_bail() -> bool:
-            return should_stop() or error_monitor.should_abort()
+            return _should_cancel() or error_monitor.should_abort()
 
         for filename in root_file_subset:
             if _should_bail():

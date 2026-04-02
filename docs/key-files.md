@@ -23,6 +23,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `core/ocr.py` | OCR engine: `needs_ocr`, `preprocess_image`, `ocr_page`, `flag_low_confidence`, `run_ocr` |
 | `core/bulk_scanner.py` | File discovery: walks source dir, upserts to bulk_files, adaptive parallel scan |
 | `core/storage_probe.py` | Storage latency probe: auto-detects SSD/HDD/NAS, recommends scan thread count |
+| `core/scan_coordinator.py` | Scan priority coordinator: Bulk > Run Now > Lifecycle, cancel/pause signals |
 | `core/bulk_worker.py` | Worker pool: BulkJob class, pause/resume/cancel, SSE events, job registry |
 | `core/adobe_indexer.py` | Adobe Level 2 indexing: exiftool metadata + text extraction (.ai/.psd) |
 | `core/search_client.py` | Thin async Meilisearch HTTP client via httpx, graceful degradation |

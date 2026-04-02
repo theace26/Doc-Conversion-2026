@@ -61,6 +61,11 @@ async def run_lifecycle_scan(force: bool = False) -> None:
 
     Also skips if any bulk job is currently active (scanning, running, or
     paused) — bulk jobs take priority over background lifecycle scans.
+
+    The scan coordinator handles mid-scan cancellation: if a bulk job or
+    run-now starts while the lifecycle scan is walking files, the coordinator
+    sets a cancel flag that the walker checks at each file. The scan exits
+    cleanly and picks up at the next scheduled interval.
     """
     if not force:
         # Pipeline master gate — if disabled, skip all scheduled scans
@@ -86,7 +91,8 @@ async def run_lifecycle_scan(force: bool = False) -> None:
             log.debug("scheduler.scan_disabled")
             return
 
-        # Yield to active bulk jobs — they hold the DB heavily
+        # Pre-check: skip if bulk job is already active (fast path avoids
+        # starting a scan only to immediately cancel it)
         from core.bulk_worker import get_all_active_jobs
         active = await get_all_active_jobs()
         if any(j["status"] in ("scanning", "running", "paused") for j in active):

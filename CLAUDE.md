@@ -26,9 +26,18 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.17.6
+## Current Status — v0.17.7
 
-v0.17.6: Scheduler yield guards. All scheduled jobs (trash expiry, DB compaction,
+v0.17.7: Scan priority coordinator. New `core/scan_coordinator.py` enforces
+a strict priority hierarchy: Bulk Job > Run Now > Lifecycle Scan. Bulk jobs
+cancel lifecycle scans and pause run-now scans (which resume automatically
+when bulk completes). Run-now cancels lifecycle scans. Lifecycle scans never
+pause — they cleanly cancel and pick up at the next scheduled interval.
+Cancelled scans skip deletion detection (incomplete data would cause false
+deletes) and auto-conversion. Eliminates "database is locked" errors from
+concurrent scan DB writes.
+
+Previous (v0.17.6): Scheduler yield guards. All scheduled jobs (trash expiry, DB compaction,
 integrity check, stale data check) now yield to active bulk jobs — previously
 only the lifecycle scan had this guard, causing "database is locked" errors
 during bulk runs.
@@ -300,6 +309,7 @@ Critical files to know:
 | `core/db/` | Domain-split DB package: connection, schema, preferences, bulk, conversions, catalog, lifecycle, auth |
 | `core/converter.py` | Pipeline orchestrator (single-file conversion) |
 | `core/libreoffice_helper.py` | Shared LibreOffice headless conversion for legacy formats (.doc/.xls/.ppt) |
+| `core/scan_coordinator.py` | Scan priority: Bulk > Run Now > Lifecycle, cancel/pause signals |
 | `core/bulk_worker.py` | Worker pool: BulkJob, pause/resume/cancel, SSE |
 | `core/auth.py` | JWT validation, role hierarchy, API key verification |
 | `core/scheduler.py` | APScheduler: lifecycle scan, trash expiry, DB maintenance, log archive |
@@ -360,6 +370,7 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **`python-jose` not `PyJWT`** — they conflict
 - **Source share is read-only**: `/mnt/source` mounted `:ro`, never write to it
 - **Lifecycle scanner needs a `bulk_jobs` parent row**: Creates synthetic job if none exists
+- **Scan priority coordinator**: `core/scan_coordinator.py` enforces Bulk > Run Now > Lifecycle. Bulk starting cancels lifecycle (clean cancel, releases DB) and pauses run-now (auto-resumes when bulk completes). Run-now cancels lifecycle. Lifecycle never pauses — only cancels and picks up at next scheduled interval. Cancelled lifecycle scans skip deletion detection and auto-conversion trigger.
 - **Scheduled jobs yield to bulk jobs**: Lifecycle scan, trash expiry, DB compaction, integrity check, and stale data check all call `get_all_active_jobs()` and skip if any bulk job is scanning/running/paused. Prevents "database is locked" contention.
 - **Pipeline has two pause layers**: `pipeline_enabled` (persistent DB preference, survives restarts) and `_pipeline_paused` (in-memory in `scheduler.py`, resets on restart). Scheduler checks both before lifecycle scans. "Run Now" bypasses both.
 - **pipeline_max_files_per_run caps batch size**: Applied in `_execute_auto_conversion()`. Overrides auto-conversion engine's batch size decision (takes minimum). 0 = no cap.

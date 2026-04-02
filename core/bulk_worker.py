@@ -18,6 +18,7 @@ from typing import Any
 import structlog
 
 from core.progress_tracker import RollingWindowETA, ETA_UPDATE_INTERVAL, format_eta
+from core.scan_coordinator import notify_bulk_started, notify_bulk_completed
 from core.stop_controller import should_stop, register_task, unregister_task
 from core.metrics_collector import record_activity_event
 from core.storage_probe import ErrorRateMonitor
@@ -255,6 +256,9 @@ class BulkJob:
         register_task(self.job_id, asyncio.current_task())
         _bulk_progress_queues[self.job_id] = asyncio.Queue(maxsize=500)
 
+        # Signal coordinator — cancels lifecycle scan, pauses run-now
+        notify_bulk_started(job_id=self.job_id)
+
         try:
             # 1. Scanning phase — scan each source root sequentially
             await update_bulk_job_status(self.job_id, "scanning")
@@ -423,6 +427,7 @@ class BulkJob:
             )
             _emit_bulk_event(self.job_id, "done", {})
         finally:
+            notify_bulk_completed(job_id=self.job_id)
             unregister_task(self.job_id)
             deregister_job(self.job_id)
 

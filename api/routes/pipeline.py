@@ -20,6 +20,15 @@ from core.database import (
     get_latest_scan_run,
     get_preference,
 )
+from core.scan_coordinator import (
+    get_coordinator_status,
+    is_any_bulk_active,
+    is_run_now_cancelled,
+    notify_run_now_started,
+    register_run_now_scan,
+    unregister_run_now_scan,
+    wait_if_run_now_paused,
+)
 from core.scheduler import (
     get_pipeline_status,
     is_pipeline_paused,
@@ -154,11 +163,45 @@ async def run_pipeline_now(
     background_tasks: BackgroundTasks,
     user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
 ) -> dict:
-    """Trigger an immediate scan+convert cycle (bypasses pause and business hours)."""
+    """Trigger an immediate scan+convert cycle (bypasses pause and business hours).
+
+    Run-now has higher priority than lifecycle scans (cancels them) but lower
+    priority than bulk jobs. If a bulk job is active, run-now will pause and
+    automatically resume once all bulk jobs complete.
+    """
 
     async def _run():
-        await run_lifecycle_scan(force=True)
+        register_run_now_scan()
+        try:
+            # Signal coordinator — cancels any active lifecycle scan
+            notify_run_now_started()
+
+            # If a bulk job is active, wait for it to finish before scanning
+            if is_any_bulk_active():
+                log.info("pipeline.run_now_waiting_for_bulk")
+                await wait_if_run_now_paused()
+                if is_run_now_cancelled():
+                    log.info("pipeline.run_now_cancelled_while_waiting")
+                    return
+
+            await run_lifecycle_scan(force=True)
+        finally:
+            unregister_run_now_scan()
 
     background_tasks.add_task(_run)
     log.info("pipeline.run_now_triggered")
+
+    if is_any_bulk_active():
+        return {
+            "message": "Run-now queued. A bulk job is active — scan will start automatically when it finishes.",
+            "paused_for_bulk": True,
+        }
     return {"message": "Pipeline cycle triggered. Scan will start shortly."}
+
+
+@router.get("/coordinator")
+async def coordinator_status(
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+) -> dict:
+    """Return scan coordinator state for debugging."""
+    return get_coordinator_status()
