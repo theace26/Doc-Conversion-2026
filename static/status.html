@@ -28,6 +28,19 @@
       <button class="btn btn-danger" id="stop-all-btn">Stop All Jobs</button>
     </div>
 
+    <!-- Pipeline stat strip -->
+    <div id="pipeline-stats-strip" style="display:flex;flex-wrap:wrap;gap:0.5rem;margin:0.75rem 0 1rem 0;padding:0.75rem 1rem;background:var(--bg-secondary,#1a1a2e);border-radius:8px;">
+      <span style="color:var(--text-muted,#888);align-self:center;margin-right:0.25rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;font-size:0.75rem;">Pipeline</span>
+      <span class="stat-pill" id="ps-scanned">— scanned</span>
+      <span class="stat-pill" id="ps-pending">— pending</span>
+      <span class="stat-pill" id="ps-failed">— failed</span>
+      <span class="stat-pill" id="ps-unrecognized">— unrecognized</span>
+      <span class="stat-pill stat-pill--analysis" id="ps-panalysis">— pending analysis</span>
+      <span class="stat-pill stat-pill--batched"   id="ps-batched">— batched</span>
+      <span class="stat-pill stat-pill--afailed"   id="ps-afailed">— analysis failed</span>
+      <span class="stat-pill stat-pill--indexed"   id="ps-indexed">— indexed</span>
+    </div>
+
     <!-- Job cards container -->
     <div id="jobs-container"></div>
 
@@ -99,6 +112,23 @@
     var lastData  = null;
 
     // ── Polling ───────────────────────────────────────────────────────────
+    async function updatePipelineStats() {
+      try {
+        var res = await fetch('/api/pipeline/stats');
+        if (!res.ok) return;
+        var d = await res.json();
+        var f = function(n) { return n == null ? '?' : n.toLocaleString(); };
+        document.getElementById('ps-scanned').textContent    = f(d.scanned) + ' scanned';
+        document.getElementById('ps-pending').textContent    = f(d.pending_conversion) + ' pending';
+        document.getElementById('ps-failed').textContent     = f(d.failed) + ' failed';
+        document.getElementById('ps-unrecognized').textContent = f(d.unrecognized) + ' unrecognized';
+        document.getElementById('ps-panalysis').textContent  = f(d.pending_analysis) + ' pending analysis';
+        document.getElementById('ps-batched').textContent    = f(d.batched_for_analysis) + ' batched';
+        document.getElementById('ps-afailed').textContent    = f(d.analysis_failed) + ' analysis failed';
+        document.getElementById('ps-indexed').textContent    = f(d.in_search_index) + ' indexed';
+      } catch(e) { /* non-critical */ }
+    }
+
     async function poll() {
       try {
         var res = await fetch('/api/admin/active-jobs');
@@ -112,6 +142,8 @@
         var ls = await fetch('/api/scanner/progress');
         if (ls.ok) renderLifecycle(await ls.json());
       } catch (e) { /* ignore */ }
+
+      updatePipelineStats();
     }
 
     function startPolling() {

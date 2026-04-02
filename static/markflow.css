@@ -1381,3 +1381,10 @@ small, .text-sm { font-size: 0.85rem; }
 .preview-popup.size-small  { width: 320px; height: 240px; }
 .preview-popup.size-medium { width: 480px; height: 360px; }
 .preview-popup.size-large  { width: 640px; height: 480px; }
+
+/* Pipeline stat pills (v0.18.0) */
+.stat-pill { display:inline-flex;align-items:center;padding:0.2rem 0.6rem;border-radius:999px;background:var(--bg-tertiary,#252540);color:var(--text-secondary,#aaa);white-space:nowrap;font-size:0.78rem; }
+.stat-pill--analysis { background:rgba(99,102,241,.15);color:#818cf8; }
+.stat-pill--batched   { background:rgba(245,158,11,.15);color:#fbbf24; }
+.stat-pill--afailed   { background:rgba(239,68,68,.15);color:#f87171; }
+.stat-pill--indexed   { background:rgba(34,197,94,.15);color:#4ade80; }
