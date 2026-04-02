@@ -26,9 +26,25 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.17.7
+## Current Status — v0.18.0
 
-v0.17.7: Scan priority coordinator. New `core/scan_coordinator.py` enforces
+v0.18.0: Image analysis queue + pipeline stats. Standalone image files (JPG, PNG,
+TIFF, BMP, GIF, EPS) are now enqueued for LLM vision analysis by the bulk worker
+and lifecycle scanner. A new APScheduler job (`core/analysis_worker.py`, 5-min
+interval) drains the queue in batches via `VisionAdapter.describe_batch()` — a
+single multi-image API call per batch. Results (description + extracted text) stored
+in `analysis_queue` (migration 19) and included in Meilisearch. Pipeline stage
+counts exposed via `GET /api/pipeline/stats` and shown on Status and Admin pages.
+
+Bug fixed: `lifecycle_scanner.py:924` called `BulkJob(source_path=...)` but
+`BulkJob.__init__` expects `source_paths=` (plural). Auto-conversion via lifecycle
+scanner was silently broken since v0.17.x. Fixed.
+
+GPU staleness fix: `gpu_detector.py` now validates `worker.lock` presence and
+timestamp freshness before trusting `worker_capabilities.json`. Hashcat worker
+writes a 2-minute heartbeat. Stale workstation GPU no longer shown as active.
+
+Previous (v0.17.7): Scan priority coordinator. New `core/scan_coordinator.py` enforces
 a strict priority hierarchy: Bulk Job > Run Now > Lifecycle Scan. Bulk jobs
 cancel lifecycle scans and pause run-now scans (which resume automatically
 when bulk completes). Run-now cancels lifecycle scans. Lifecycle scans never

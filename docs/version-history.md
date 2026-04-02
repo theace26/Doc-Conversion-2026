@@ -4,6 +4,44 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.18.0 — Image Analysis Queue + Pipeline Stats (2026-04-02)
+
+**Decoupled LLM vision analysis for standalone image files:**
+- New `analysis_queue` table (migration 19): `pending -> batched -> completed | failed`.
+- Bulk worker enqueues image files after successful conversion.
+- Lifecycle scanner enqueues new and content-changed image files on discovery.
+- New `core/analysis_worker.py` (APScheduler, 5-min interval): claims up to
+  `analysis_batch_size` pending rows, marks them `batched`, calls
+  `VisionAdapter.describe_batch()` (one API call for all), writes results, re-indexes.
+- `VisionAdapter.describe_batch()`: single multi-image call for Anthropic, OpenAI,
+  Gemini. Ollama falls back to sequential if model rejects multiple images.
+- LLM description + extracted text appended to Meilisearch `content` field — image
+  files are searchable by visual content.
+- Retry: failed batches reset to `pending` up to 3 times, then permanently `failed`.
+- New preferences: `analysis_enabled` (kill switch), `analysis_batch_size` (default 10).
+
+**Pipeline funnel statistics:**
+- `GET /api/pipeline/stats`: scanned, pending conversion, failed, unrecognized,
+  pending analysis, batched for analysis, analysis failed, in search index.
+- Status page: stat strip above job cards.
+- Admin page: Pipeline Funnel stats card.
+
+**Bug fix — lifecycle scanner auto-conversion (source_path kwarg):**
+- `core/lifecycle_scanner.py:924` was calling `BulkJob(source_path=...)` but
+  `BulkJob.__init__` expects `source_paths=` (plural). Every auto-conversion
+  triggered by the lifecycle scanner was silently failing with
+  `BulkJob.__init__() got an unexpected keyword argument 'source_path'` since
+  approximately 2026-04-02T12:06. Fixed by correcting the kwarg name.
+
+**Bug fix — stale GPU display:**
+- `core/gpu_detector.py`: `_read_host_worker_report()` now checks `worker.lock`
+  existence and timestamp age before trusting `worker_capabilities.json`.
+  Stale workstation GPU (e.g. NVIDIA 1660 Ti from disconnected workstation) no
+  longer displayed as the active GPU.
+- `tools/markflow-hashcat-worker.py`: writes heartbeat timestamp every 2 minutes.
+
+---
+
 ## v0.17.7 — Scan Priority Coordinator (2026-04-01)
 
 **Scan priority hierarchy: Bulk Job > Run Now > Lifecycle Scan:**
