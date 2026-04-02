@@ -17,7 +17,7 @@ import json
 from pathlib import Path
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from core.auth import AuthenticatedUser, UserRole, require_role
