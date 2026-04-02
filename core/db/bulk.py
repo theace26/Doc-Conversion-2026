@@ -227,6 +227,34 @@ async def get_bulk_file_count(job_id: str, status: str | None = None) -> int:
     return row["cnt"] if row else 0
 
 
+async def get_pending_files_global(
+    status: str = "pending",
+    limit: int = 50,
+    offset: int = 0,
+    search: str | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    """Return pending/failed bulk_files across all jobs with total count."""
+    base_where = "WHERE bf.status = ?"
+    params: list[Any] = [status]
+    if search:
+        base_where += " AND bf.source_path LIKE ?"
+        params.append(f"%{search}%")
+
+    count_sql = f"SELECT COUNT(*) as cnt FROM bulk_files bf {base_where}"
+    count_row = await db_fetch_one(count_sql, tuple(params))
+    total = count_row["cnt"] if count_row else 0
+
+    data_sql = f"""SELECT bf.*, bj.started_at as job_started_at, bj.status as job_status
+                   FROM bulk_files bf
+                   LEFT JOIN bulk_jobs bj ON bf.job_id = bj.id
+                   {base_where}
+                   ORDER BY bf.source_path
+                   LIMIT ? OFFSET ?"""
+    data_params = params + [limit, offset]
+    rows = await db_fetch_all(data_sql, tuple(data_params))
+    return rows, total
+
+
 async def update_bulk_file(file_id: str, **fields) -> None:
     """Update any combination of bulk_files fields."""
     if not fields:

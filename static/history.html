@@ -35,6 +35,38 @@
     <h1 data-help="document-conversion#history">Conversion History</h1>
     <div id="stats-row" class="stats-row mt-1 mb-2"></div>
 
+    <!-- Pending Files Card -->
+    <div class="card mb-2" id="pending-card" hidden>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h3 style="margin:0">
+          Pending Files
+          <span id="pending-count-badge" style="font-size:0.8rem;padding:0.15em 0.5em;border-radius:var(--radius-sm);background:rgba(79,91,213,0.12);color:var(--accent);margin-left:0.5rem">0</span>
+        </h3>
+        <div style="display:flex;gap:0.5rem;align-items:center">
+          <select id="pending-status-filter" style="font-size:0.82rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text)">
+            <option value="pending">Pending</option>
+            <option value="failed">Failed</option>
+          </select>
+          <input type="search" id="pending-search" placeholder="Search..." style="font-size:0.82rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);width:180px">
+        </div>
+      </div>
+      <div style="overflow-x:auto;margin-top:0.75rem">
+        <table class="data-table" style="font-size:0.82rem">
+          <thead>
+            <tr>
+              <th style="width:45%">File</th>
+              <th style="width:60px">Type</th>
+              <th style="width:70px">Size</th>
+              <th style="width:100px">Job Started</th>
+              <th>Status / Error</th>
+            </tr>
+          </thead>
+          <tbody id="pending-tbody"></tbody>
+        </table>
+      </div>
+      <div id="pending-pagination" style="display:flex;gap:0.5rem;align-items:center;justify-content:center;margin-top:0.75rem;font-size:0.82rem"></div>
+    </div>
+
     <!-- Filters -->
     <div class="filter-bar">
       <select id="filter-format">
@@ -400,6 +432,148 @@
 
   // Initial load
   loadHistory();
+
+  // ── Pending Files ─────────────────────────────────────────────────────────
+  var pendingPage = 1;
+  var pendingPerPage = 50;
+  var pendingRefreshTimer = null;
+
+  async function loadPending() {
+    var statusFilter = document.getElementById('pending-status-filter').value;
+    var search = document.getElementById('pending-search').value.trim();
+    var qs = 'status=' + statusFilter + '&page=' + pendingPage + '&per_page=' + pendingPerPage;
+    if (search) qs += '&search=' + encodeURIComponent(search);
+
+    try {
+      var data = await API.get('/api/bulk/pending?' + qs);
+      var card = document.getElementById('pending-card');
+      card.hidden = false;
+
+      document.getElementById('pending-count-badge').textContent = data.total.toLocaleString();
+      // Color the badge based on status filter
+      var badge = document.getElementById('pending-count-badge');
+      if (statusFilter === 'failed') {
+        badge.style.background = 'rgba(220,38,38,0.12)';
+        badge.style.color = 'var(--error)';
+      } else {
+        badge.style.background = 'rgba(79,91,213,0.12)';
+        badge.style.color = 'var(--accent)';
+      }
+
+      var tbody = document.getElementById('pending-tbody');
+      tbody.textContent = '';
+
+      if (!data.files || !data.files.length) {
+        var tr = document.createElement('tr');
+        var td = document.createElement('td');
+        td.colSpan = 5;
+        td.style.textAlign = 'center';
+        td.style.padding = '1.5rem';
+        td.style.color = 'var(--text-muted)';
+        td.textContent = statusFilter === 'failed' ? 'No failed files.' : 'No pending files.';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        document.getElementById('pending-pagination').textContent = '';
+        return;
+      }
+
+      data.files.forEach(function(f) {
+        var tr = document.createElement('tr');
+
+        // File path
+        var tdFile = document.createElement('td');
+        tdFile.style.wordBreak = 'break-all';
+        var path = f.source_path || '';
+        var parts = path.replace(/\\/g, '/').split('/');
+        tdFile.textContent = parts.length > 3 ? '.../' + parts.slice(-3).join('/') : path;
+        tdFile.title = path;
+        tr.appendChild(tdFile);
+
+        // Type
+        var tdType = document.createElement('td');
+        tdType.textContent = f.file_ext || '-';
+        tdType.style.color = 'var(--text-muted)';
+        tr.appendChild(tdType);
+
+        // Size
+        var tdSize = document.createElement('td');
+        tdSize.textContent = formatBytes(f.file_size_bytes);
+        tr.appendChild(tdSize);
+
+        // Job started
+        var tdStarted = document.createElement('td');
+        tdStarted.textContent = f.job_started_at ? formatLocalTime(f.job_started_at) : '-';
+        tdStarted.style.fontSize = '0.78rem';
+        tr.appendChild(tdStarted);
+
+        // Status / Error
+        var tdStatus = document.createElement('td');
+        var statusSpan = document.createElement('span');
+        var fileStatus = f.status || 'pending';
+        if (fileStatus === 'failed' || fileStatus === 'adobe_failed') {
+          statusSpan.style.color = 'var(--error)';
+          statusSpan.textContent = f.error_msg || fileStatus;
+        } else if (fileStatus === 'for_review') {
+          statusSpan.style.color = 'var(--warn)';
+          statusSpan.textContent = 'Needs review';
+        } else {
+          statusSpan.style.color = 'var(--ok)';
+          statusSpan.textContent = fileStatus;
+        }
+        statusSpan.style.fontSize = '0.8rem';
+        tdStatus.appendChild(statusSpan);
+        tr.appendChild(tdStatus);
+
+        tbody.appendChild(tr);
+      });
+
+      // Pagination
+      var pagEl = document.getElementById('pending-pagination');
+      pagEl.textContent = '';
+      if (data.total_pages > 1) {
+        var prevBtn = document.createElement('button');
+        prevBtn.className = 'btn btn-sm';
+        prevBtn.textContent = '\u00ab Prev';
+        prevBtn.disabled = data.page <= 1;
+        prevBtn.addEventListener('click', function() { pendingPage--; loadPending(); });
+        pagEl.appendChild(prevBtn);
+
+        var info = document.createElement('span');
+        info.className = 'text-muted';
+        info.textContent = 'Page ' + data.page + ' of ' + data.total_pages + ' (' + data.total.toLocaleString() + ' files)';
+        pagEl.appendChild(info);
+
+        var nextBtn = document.createElement('button');
+        nextBtn.className = 'btn btn-sm';
+        nextBtn.textContent = 'Next \u00bb';
+        nextBtn.disabled = data.page >= data.total_pages;
+        nextBtn.addEventListener('click', function() { pendingPage++; loadPending(); });
+        pagEl.appendChild(nextBtn);
+      } else {
+        var info = document.createElement('span');
+        info.className = 'text-muted';
+        info.textContent = data.total.toLocaleString() + ' files';
+        pagEl.appendChild(info);
+      }
+    } catch(e) {
+      // Silently fail — pending section is supplementary
+    }
+  }
+
+  document.getElementById('pending-status-filter').addEventListener('change', function() {
+    pendingPage = 1;
+    loadPending();
+  });
+
+  var pendingSearchTimer;
+  document.getElementById('pending-search').addEventListener('input', function() {
+    clearTimeout(pendingSearchTimer);
+    pendingSearchTimer = setTimeout(function() { pendingPage = 1; loadPending(); }, 300);
+  });
+
+  loadPending();
+  // Auto-refresh pending count every 30s
+  setInterval(loadPending, 30000);
   </script>
 </body>
 </html>

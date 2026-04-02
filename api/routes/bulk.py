@@ -395,6 +395,33 @@ async def job_files(
     }
 
 
+# ── GET /api/bulk/pending — Global pending/failed files ──────────────────────
+
+@router.get("/pending")
+async def pending_files(
+    status: str = Query("pending", pattern="^(pending|failed|adobe_failed)$"),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=10, le=200),
+    search: str | None = None,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+):
+    """Paginated list of pending/failed files across all jobs."""
+    from core.db.bulk import get_pending_files_global
+
+    offset = (max(1, page) - 1) * per_page
+    files, total = await get_pending_files_global(
+        status=status, limit=per_page, offset=offset, search=search,
+    )
+    return {
+        "status_filter": status,
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "total_pages": max(1, (total + per_page - 1) // per_page),
+        "files": files,
+    }
+
+
 # ── GET /api/bulk/jobs/{job_id}/errors ───────────────────────────────────────
 
 @router.get("/jobs/{job_id}/errors")
