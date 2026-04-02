@@ -473,6 +473,10 @@ def run_worker(queue_dir: Path, poll_interval: float = 1.0):
     lock_path = queue_dir / "worker.lock"
     lock_path.write_text(str(os.getpid()))
 
+    caps_path = queue_dir / "worker_capabilities.json"
+    _HEARTBEAT_INTERVAL = 120  # seconds
+    _last_heartbeat = time.monotonic()
+
     try:
         while True:
             for job_file in sorted(jobs_dir.glob("*.json")):
@@ -492,6 +496,14 @@ def run_worker(queue_dir: Path, poll_interval: float = 1.0):
                     job_file.unlink(missing_ok=True)
                 except OSError:
                     pass
+
+            # Heartbeat — keep capabilities timestamp fresh so the server can
+            # detect a stale/dead worker even if the lock file is not removed.
+            now = time.monotonic()
+            if now - _last_heartbeat >= _HEARTBEAT_INTERVAL:
+                caps["timestamp"] = datetime.now(timezone.utc).isoformat()
+                caps_path.write_text(json.dumps(caps, indent=2))
+                _last_heartbeat = now
 
             time.sleep(poll_interval)
     except KeyboardInterrupt:
