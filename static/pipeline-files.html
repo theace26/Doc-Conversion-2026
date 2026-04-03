@@ -686,12 +686,12 @@
           statusText = 'Set up a provider';
           statusAction = 'providers.html';
         } else {
-          var active = providers.find(function(p) { return p.is_active; });
+          var active = providers.find(function(p) { return p.is_active == 1 || p.is_active === true; });
           if (!active) {
             message = 'No active AI provider.';
             statusText = 'Activate a provider';
             statusAction = 'providers.html';
-          } else if (!active.is_verified) {
+          } else if (active.is_verified != 1 && active.is_verified !== true) {
             message = 'Active AI provider needs verification.';
             statusText = active.name + ' \u2014 needs verification';
             statusAction = 'providers.html';
@@ -724,7 +724,8 @@
         link.href = '/' + statusAction + '?return=' + encodeURIComponent(returnUrl);
         text.appendChild(link);
       } catch (e) {
-        // non-critical
+        // Fetch failed — hide banner, don't show stale state
+        banner.hidden = true;
       }
     }
 
