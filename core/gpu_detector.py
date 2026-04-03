@@ -57,32 +57,20 @@ _gpu_info: Optional[GPUInfo] = None
 
 def _read_host_worker_report() -> dict | None:
     """
-    Read worker_capabilities.json and return its contents, or None if the
-    worker is not running or its report is stale.
+    Read worker_capabilities.json and return its contents, or None if
+    the file doesn't exist or is unparseable.
 
-    Liveness checks (both must pass):
-      1. worker.lock exists — worker wrote it at startup, removes it on clean exit
-      2. capabilities timestamp is within _WORKER_STALE_SECONDS — catches ungraceful
-         exits (power-off, crash) where the lock file was never cleaned up
+    The capabilities file describes host hardware (written by the reset
+    script at deploy time).  It does NOT require the hashcat worker to be
+    running — the GPU is present whether the worker is active or not.
+
+    Worker *liveness* (is the worker ready to process jobs?) is a separate
+    concern checked by the hashcat queue, not the health display.
     """
-    if not _HOST_WORKER_LOCK.exists():
-        return None
     if not _HOST_WORKER_REPORT.exists():
         return None
     try:
-        report = json.loads(_HOST_WORKER_REPORT.read_text(encoding="utf-8-sig"))
-        ts_raw = report.get("timestamp")
-        if ts_raw:
-            ts = datetime.fromisoformat(ts_raw)
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
-            age = (datetime.now(timezone.utc) - ts).total_seconds()
-            if age > _WORKER_STALE_SECONDS:
-                log.warning("gpu.host_worker_stale",
-                            age_seconds=int(age),
-                            threshold=_WORKER_STALE_SECONDS)
-                return None
-        return report
+        return json.loads(_HOST_WORKER_REPORT.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, OSError, ValueError):
         return None
 

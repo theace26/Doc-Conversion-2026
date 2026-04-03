@@ -247,7 +247,7 @@ async def run_health_check() -> dict:
     try:
         from core.gpu_detector import get_gpu_info_live
         gpu = get_gpu_info_live()
-        gpu_ok = gpu.execution_path in ("container", "host")
+        gpu_ok = gpu.execution_path in ("container", "host") or gpu.host_worker_available
         components["gpu"] = {
             "ok": gpu_ok,
             "version": f"{gpu.effective_gpu_name} ({gpu.effective_backend})" if gpu_ok else gpu.effective_backend or "none",
