@@ -58,6 +58,21 @@
     .search-bar input:focus { outline: none; border-color: var(--accent); }
     .result-count { font-size: 0.82rem; color: var(--text-muted); white-space: nowrap; }
 
+    /* ── LLM provider status banner ──────────────────────────────────────── */
+    .llm-banner {
+      display: flex; align-items: center; gap: 0.75rem;
+      padding: 0.7rem 1rem; border-radius: var(--radius-sm);
+      background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.35);
+      color: #f87171; font-size: 0.85rem; margin-bottom: 0.75rem;
+    }
+    .llm-banner .llm-icon { font-size: 1.1rem; flex-shrink: 0; }
+    .llm-banner .llm-text { flex: 1; }
+    .llm-banner .llm-status-link {
+      color: #fbbf24; text-decoration: underline; cursor: pointer;
+      font-weight: 600;
+    }
+    .llm-banner .llm-status-link:hover { color: #fcd34d; }
+
     /* ── Large-result warning ─────────────────────────────────────────────── */
     .large-warning {
       display: flex; align-items: center; gap: 0.5rem;
@@ -217,6 +232,9 @@
       <input type="search" id="search-input" placeholder="Search file paths..." autocomplete="off">
       <span class="result-count" id="result-count"></span>
     </div>
+
+    <!-- LLM provider status banner -->
+    <div class="llm-banner" id="llm-banner" hidden></div>
 
     <!-- Large result warning -->
     <div class="large-warning" id="large-warning" hidden>
@@ -650,11 +668,72 @@
       loadFiles();
     });
 
+    // ── LLM provider status banner ───────────────────────────────────────
+    async function checkLlmStatus() {
+      var banner = document.getElementById('llm-banner');
+      try {
+        var res = await fetch('/api/llm-providers');
+        if (!res.ok) return;
+        var data = await res.json();
+        var providers = data.providers || [];
+
+        var message = '';
+        var statusText = '';
+        var statusAction = '';
+
+        if (providers.length === 0) {
+          message = 'No AI provider configured.';
+          statusText = 'Set up a provider';
+          statusAction = 'providers.html';
+        } else {
+          var active = providers.find(function(p) { return p.is_active; });
+          if (!active) {
+            message = 'No active AI provider.';
+            statusText = 'Activate a provider';
+            statusAction = 'providers.html';
+          } else if (!active.is_verified) {
+            message = 'Active AI provider needs verification.';
+            statusText = active.name + ' \u2014 needs verification';
+            statusAction = 'providers.html';
+          } else {
+            // Provider is configured and verified — no banner needed
+            banner.hidden = true;
+            return;
+          }
+        }
+
+        // Build banner content
+        banner.hidden = false;
+        banner.textContent = '';
+
+        var icon = document.createElement('span');
+        icon.className = 'llm-icon';
+        icon.textContent = '\u26A0';
+        banner.appendChild(icon);
+
+        var text = document.createElement('span');
+        text.className = 'llm-text';
+        text.textContent = message + ' Image analysis is paused. ';
+        banner.appendChild(text);
+
+        var link = document.createElement('a');
+        link.className = 'llm-status-link';
+        link.textContent = statusText;
+        // Encode the current page URL as return destination
+        var returnUrl = window.location.pathname + window.location.search;
+        link.href = '/' + statusAction + '?return=' + encodeURIComponent(returnUrl);
+        text.appendChild(link);
+      } catch (e) {
+        // non-critical
+      }
+    }
+
     // ── Init ──────────────────────────────────────────────────────────────
     readUrlState();
     syncChips();
     loadStats();
     loadFiles();
+    checkLlmStatus();
 
   })();
   </script>

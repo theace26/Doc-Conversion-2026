@@ -205,12 +205,32 @@ async def verify_provider(
         last_verified=now,
     )
 
+    # On successful verification, re-queue failed analysis items
+    # These likely failed due to the provider being unconfigured/unverified
+    requeued = 0
+    if success:
+        try:
+            from core.database import get_db
+            async with get_db() as conn:
+                cursor = await conn.execute(
+                    "UPDATE analysis_queue SET status = 'pending', retry_count = 0 "
+                    "WHERE status = 'failed'"
+                )
+                requeued = cursor.rowcount
+                await conn.commit()
+            if requeued:
+                log.info("provider_verify.requeued_failed_analysis",
+                         provider_id=provider_id, requeued=requeued)
+        except Exception as exc:
+            log.warning("provider_verify.requeue_failed", error=str(exc))
+
     return {
         "success": success,
         "provider": config["provider"],
         "model": config["model"],
         "message": message,
         "verified_at": now,
+        "requeued_analysis": requeued,
     }
 
 

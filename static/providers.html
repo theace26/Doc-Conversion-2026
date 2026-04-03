@@ -35,6 +35,14 @@
   <div class="container page-content">
     <div id="error-banner" role="alert" hidden></div>
 
+    <!-- Return-to banner (shown when navigated from another page) -->
+    <div id="return-banner" hidden style="display:flex;align-items:center;gap:0.75rem;padding:0.6rem 1rem;border-radius:6px;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);color:#818cf8;font-size:0.85rem;margin-bottom:0.75rem;">
+      <span>&#8592;</span>
+      <a id="return-link" href="#" style="color:#818cf8;text-decoration:underline;font-weight:600;">Return to previous page</a>
+      <span style="flex:1"></span>
+      <span style="color:var(--text-muted);font-size:0.8rem;">Resolve provider issues below, then return to continue your workflow.</span>
+    </div>
+
     <div style="display:flex;justify-content:space-between;align-items:center">
       <h1 data-help="llm-providers">AI Providers</h1>
       <button class="btn btn-primary btn-sm" id="add-btn" onclick="toggleAddForm()">+ Add Provider</button>
@@ -103,6 +111,16 @@
       populateProviderDropdown();
     } catch (e) { console.error('Registry load failed:', e); }
     loadProviders();
+
+    // Show return banner if navigated from another page
+    var returnParam = new URLSearchParams(window.location.search).get('return');
+    if (returnParam) {
+      var returnBanner = document.getElementById('return-banner');
+      var returnLink = document.getElementById('return-link');
+      returnBanner.hidden = false;
+      returnBanner.style.display = 'flex';
+      returnLink.href = returnParam;
+    }
   })();
 
   function populateProviderDropdown() {
