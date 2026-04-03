@@ -181,6 +181,36 @@ class BulkScanner:
         if self._exclusion_paths:
             log.info("scan_exclusions_loaded", count=len(self._exclusion_paths), paths=self._exclusion_paths)
 
+        # ── Incremental scan decision ──────────────────────────────────
+        from core.db.bulk import (
+            load_dir_mtimes, save_dir_mtimes_batch,
+            get_incremental_scan_count, increment_scan_count, reset_scan_count,
+        )
+        from datetime import datetime
+        incremental_enabled = (await get_preference("scan_incremental_enabled") or "true") == "true"
+        full_walk_interval = int(await get_preference("scan_full_walk_interval") or "5")
+
+        scan_count = await get_incremental_scan_count()
+        bh_start = int((await get_preference("scanner_business_hours_start") or "06:00").split(":")[0])
+        bh_end = int((await get_preference("scanner_business_hours_end") or "22:00").split(":")[0])
+        current_hour = datetime.now().hour
+        outside_business_hours = current_hour < bh_start or current_hour >= bh_end
+        force_full_walk = (scan_count >= full_walk_interval) or outside_business_hours
+
+        if incremental_enabled and not force_full_walk:
+            self._dir_mtime_cache = await load_dir_mtimes()
+            self._incremental_mode = True
+            log.info("scan_incremental_mode", job_id=self.job_id,
+                     cached_dirs=len(self._dir_mtime_cache),
+                     scans_since_full=scan_count)
+        else:
+            self._dir_mtime_cache = {}
+            self._incremental_mode = False
+            reason = "outside_business_hours" if outside_business_hours else f"interval_reached ({scan_count}/{full_walk_interval})"
+            log.info("scan_full_walk_mode", job_id=self.job_id, reason=reason)
+
+        self._current_dir_mtimes: dict[str, float] = {}
+
         # ── Storage probe — auto-detect optimal parallelism ──────────────
         max_threads_pref = await get_preference("scan_max_threads") or "auto"
         if max_threads_pref == "auto":
@@ -245,6 +275,17 @@ class BulkScanner:
             file_count = await self._serial_scan(
                 tracker, result, on_progress, progress_interval,
             )
+
+        # ── Persist directory mtimes for next incremental scan ──────────
+        if self._current_dir_mtimes:
+            try:
+                await save_dir_mtimes_batch(self._current_dir_mtimes, self.job_id)
+            except Exception:
+                log.warning("save_dir_mtimes_failed", job_id=self.job_id)
+        if self._incremental_mode:
+            await increment_scan_count()
+        else:
+            await reset_scan_count()
 
         # Cancel fast-walk if still running
         if not fast_walk_task.done():
@@ -350,11 +391,23 @@ class BulkScanner:
                     })
                 break
 
+            # Record current directory mtime for incremental cache
+            try:
+                dir_mtime = os.stat(dirpath).st_mtime
+                self._current_dir_mtimes[dirpath] = dir_mtime
+            except OSError:
+                dir_mtime = None
+
             dirnames[:] = [
                 d for d in dirnames
                 if not d.startswith(".") and d != "_markflow"
                 and not self._is_excluded(str(Path(dirpath) / d))
             ]
+
+            # Incremental skip: if directory mtime unchanged, skip its files
+            if (self._incremental_mode and dir_mtime is not None
+                    and self._dir_mtime_cache.get(dirpath) == dir_mtime):
+                continue
 
             for filename in filenames:
                 file_path = Path(dirpath) / filename
@@ -526,6 +579,15 @@ class BulkScanner:
                         if not d.startswith(".") and d != "_markflow"
                         and not self._is_excluded(str(Path(dirpath) / d))
                     ]
+                    # Record dir mtime and skip if unchanged (incremental)
+                    try:
+                        _dir_mt = os.stat(dirpath).st_mtime
+                        self._current_dir_mtimes[dirpath] = _dir_mt
+                    except OSError:
+                        _dir_mt = None
+                    if (self._incremental_mode and _dir_mt is not None
+                            and self._dir_mtime_cache.get(dirpath) == _dir_mt):
+                        continue
                     for filename in filenames:
                         if _should_bail():
                             return
