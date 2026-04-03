@@ -67,10 +67,34 @@ async def test_write_results_completed(db):
         "extracted_text": "No text",
         "provider_id": "anthropic",
         "model": "claude-3-opus-20240229",
+        "tokens_used": 1500,
     }])
     stats = await get_analysis_stats()
     assert stats["completed"] == 1
     assert stats["pending"] == 0
+
+
+@pytest.mark.asyncio
+async def test_token_summary(db):
+    from core.db.analysis import (
+        enqueue_for_analysis, claim_pending_batch,
+        write_batch_results, get_analysis_token_summary,
+    )
+    for i in range(3):
+        await enqueue_for_analysis(f"/nas/photos/img{i}.jpg", content_hash=f"hash{i}")
+    rows = await claim_pending_batch(10)
+    await write_batch_results([
+        {"id": rows[0]["id"], "description": "A", "extracted_text": "",
+         "provider_id": "anthropic", "model": "claude-sonnet-4-20250514", "tokens_used": 1000},
+        {"id": rows[1]["id"], "description": "B", "extracted_text": "",
+         "provider_id": "anthropic", "model": "claude-sonnet-4-20250514", "tokens_used": 2000},
+        {"id": rows[2]["id"], "description": "C", "extracted_text": "",
+         "provider_id": "openai", "model": "gpt-4o", "tokens_used": 500},
+    ])
+    summary = await get_analysis_token_summary()
+    assert summary["total_analyzed"] == 3
+    assert summary["total_tokens"] == 3500
+    assert len(summary["by_model"]) == 2
 
 
 @pytest.mark.asyncio

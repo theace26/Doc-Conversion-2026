@@ -212,6 +212,12 @@ setups:
 Only the active provider is used. Inactive providers sit idle and incur no
 API costs.
 
+> **Token tracking:** Every LLM vision call records the token count in the
+> `analysis_queue` table. You can query aggregate usage (total tokens, average
+> per file, breakdown by model) via `get_analysis_token_summary()` in
+> `core/db/analysis.py`. This helps monitor costs when processing large image
+> collections.
+
 ---
 
 ## Ollama Setup

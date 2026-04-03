@@ -15,6 +15,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `core/db/conversions.py` | Conversion history, batch state, OCR flags, review queue, scene keyframes |
 | `core/db/catalog.py` | Adobe index, locations, LLM providers, unrecognized files, archive members |
 | `core/db/lifecycle.py` | Lifecycle queries, file versions, path issues, scan runs, maintenance log |
+| `core/db/analysis.py` | Analysis queue: enqueue, dedup, claim batch, write results, token summary |
 | `core/db/auth.py` | API key management (create, lookup, revoke, list, touch) |
 | `core/health.py` | Startup checks for Tesseract, LibreOffice, Poppler, WeasyPrint, disk, DB |
 | `core/logging_config.py` | structlog JSON logging, rotating file handler |

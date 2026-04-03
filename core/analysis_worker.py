@@ -84,6 +84,7 @@ async def run_analysis_drain() -> None:
                     "extracted_text": desc.extracted_text,
                     "provider_id": provider_config.get("provider"),
                     "model": provider_config.get("model"),
+                    "tokens_used": desc.tokens_used,
                 })
             else:
                 results.append({

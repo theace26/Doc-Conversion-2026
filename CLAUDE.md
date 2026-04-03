@@ -26,23 +26,19 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.19.0
+## Current Status — v0.19.2
 
-v0.19.0: Decoupled conversion pipeline + fast NAS parallel scanning.
+v0.19.2: LLM token usage tracking for image analysis queue.
 
-Conversion is no longer gated on scan completion. A backlog poller
-(`_run_deferred_conversions`, 15-min interval) checks for pending files and
-starts a BulkJob independently of the lifecycle scanner. This fixes the
-pipeline stall where 100K+ files on NAS could never complete scanning within
-the scheduler interval, preventing auto-conversion from ever triggering.
+Token counts from every LLM vision call are now persisted to the
+`analysis_queue` table (`tokens_used` column, migration 20). The
+`VisionAdapter.describe_batch()` methods for Anthropic, OpenAI, and Gemini
+extract token usage from API responses (previously discarded) and distribute
+per-image. `write_batch_results()` stores the value; `get_analysis_token_summary()`
+provides aggregate totals and per-model breakdowns for cost auditing.
 
-Storage probe now detects fast NAS (CIFS/NFS over 2.5/10GbE) as `nas_fast`
-instead of misclassifying as `ssd`. Fast NAS gets 4 parallel scan threads
-instead of 1 — the probe checks `/proc/mounts` filesystem type to distinguish
-local SSD from network-mounted fast storage.
-
-Scanner interval bumped from 15 → 45 minutes (default preference + scheduler).
-
+Previous (v0.19.1): fix concurrent bulk job race condition / SQLite deadlock.
+Previous (v0.19.0): decoupled conversion pipeline + fast NAS parallel scanning.
 Previous (v0.18.1): atomic upsert fix for UNIQUE constraint race in bulk_files.
 Previous (v0.18.0): image analysis queue, pipeline stats, bug fixes.
 

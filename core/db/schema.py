@@ -599,6 +599,9 @@ _MIGRATIONS: list[tuple[int, str, list[str]]] = [
         "CREATE INDEX IF NOT EXISTS idx_analysis_queue_status ON analysis_queue(status)",
         "CREATE INDEX IF NOT EXISTS idx_analysis_queue_source_path ON analysis_queue(source_path)",
     ]),
+    (20, "Token usage tracking on analysis_queue", [
+        "ALTER TABLE analysis_queue ADD COLUMN tokens_used INTEGER",
+    ]),
 ]
 
 

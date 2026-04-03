@@ -4,6 +4,29 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.19.2 — LLM Token Usage Tracking (2026-04-03)
+
+**Token cost tracking for the image analysis queue:**
+- New `tokens_used INTEGER` column on `analysis_queue` (migration 20).
+- `VisionAdapter.describe_batch()`: Anthropic, OpenAI, and Gemini batch methods
+  now extract token usage from API responses (previously discarded). Token count
+  is distributed evenly per image in the batch and carried on `BatchImageResult`.
+- `core/db/analysis.py`: `write_batch_results()` persists `tokens_used` per row.
+  New `get_analysis_token_summary()` returns aggregate totals and per-model
+  breakdowns (total files analyzed, total tokens, average tokens/file, grouped
+  by provider + model).
+- `core/analysis_worker.py`: passes `tokens_used` from vision results through to
+  `write_batch_results()`.
+- Tests: `test_token_summary` validates multi-model aggregation; existing test
+  updated with `tokens_used` field.
+
+**Why:** At 100K+ images, duplicate or untracked LLM calls have real monetary
+cost. Token counts were already returned by every provider API but discarded at
+the vision adapter layer. This change closes the loop so usage is auditable
+from the DB without log parsing.
+
+---
+
 ## v0.19.1 — Fix Concurrent Bulk Job Race Condition (2026-04-03)
 
 **Bug fix — duplicate bulk jobs caused SQLite deadlock and permanent stall:**

@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS analysis_queue (
     model          TEXT,
     error          TEXT,
     content_hash   TEXT,
-    retry_count    INTEGER NOT NULL DEFAULT 0
+    retry_count    INTEGER NOT NULL DEFAULT 0,
+    tokens_used    INTEGER              -- v0.19.2: per-file token count from LLM call
 );
 CREATE INDEX IF NOT EXISTS idx_analysis_queue_status      ON analysis_queue(status);
 CREATE INDEX IF NOT EXISTS idx_analysis_queue_source_path ON analysis_queue(source_path);
@@ -89,6 +90,7 @@ class BatchImageResult:
     description: str
     extracted_text: str
     error: str | None = None
+    tokens_used: int | None = None  # v0.19.2: per-image token count
 ```
 
 **Per-provider implementation:**

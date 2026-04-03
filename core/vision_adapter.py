@@ -37,6 +37,7 @@ class BatchImageResult:
     description: str
     extracted_text: str
     error: str | None = None
+    tokens_used: int | None = None
 
 
 class VisionAdapter:
@@ -228,19 +229,24 @@ class VisionAdapter:
                 },
             )
             resp.raise_for_status()
+            data = resp.json()
             text = "".join(
                 block.get("text", "")
-                for block in resp.json().get("content", [])
+                for block in data.get("content", [])
                 if block.get("type") == "text"
             )
+            usage = data.get("usage", {})
+            tokens = (usage.get("input_tokens", 0) or 0) + (usage.get("output_tokens", 0) or 0)
 
         parsed = self._parse_batch_response(text, len(image_paths))
+        per_image = (tokens // len(image_paths)) if tokens and len(image_paths) > 0 else None
         return [
             BatchImageResult(
                 index=i,
                 description=item.get("description", ""),
                 extracted_text=item.get("extracted_text", ""),
                 error=item.get("error"),
+                tokens_used=per_image,
             )
             for i, item in enumerate(parsed)
         ]
@@ -267,15 +273,20 @@ class VisionAdapter:
                 },
             )
             resp.raise_for_status()
-            text = resp.json()["choices"][0]["message"]["content"]
+            data = resp.json()
+            text = data["choices"][0]["message"]["content"]
+            usage = data.get("usage", {})
+            tokens = usage.get("total_tokens") or 0
 
         parsed = self._parse_batch_response(text, len(image_paths))
+        per_image = (tokens // len(image_paths)) if tokens and len(image_paths) > 0 else None
         return [
             BatchImageResult(
                 index=i,
                 description=item.get("description", ""),
                 extracted_text=item.get("extracted_text", ""),
                 error=item.get("error"),
+                tokens_used=per_image,
             )
             for i, item in enumerate(parsed)
         ]
@@ -300,19 +311,24 @@ class VisionAdapter:
                 },
             )
             resp.raise_for_status()
+            data = resp.json()
             text = "".join(
                 part.get("text", "")
-                for candidate in resp.json().get("candidates", [])
+                for candidate in data.get("candidates", [])
                 for part in candidate.get("content", {}).get("parts", [])
             )
+            usage_meta = data.get("usageMetadata", {})
+            tokens = (usage_meta.get("promptTokenCount", 0) or 0) + (usage_meta.get("candidatesTokenCount", 0) or 0)
 
         parsed = self._parse_batch_response(text, len(image_paths))
+        per_image = (tokens // len(image_paths)) if tokens and len(image_paths) > 0 else None
         return [
             BatchImageResult(
                 index=i,
                 description=item.get("description", ""),
                 extracted_text=item.get("extracted_text", ""),
                 error=item.get("error"),
+                tokens_used=per_image,
             )
             for i, item in enumerate(parsed)
         ]

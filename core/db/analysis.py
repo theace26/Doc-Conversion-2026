@@ -147,7 +147,8 @@ async def write_batch_results(results: list[dict[str, Any]]) -> None:
                            description = ?,
                            extracted_text = ?,
                            provider_id = ?,
-                           model = ?
+                           model = ?,
+                           tokens_used = ?
                        WHERE id = ?""",
                     (
                         now,
@@ -155,6 +156,7 @@ async def write_batch_results(results: list[dict[str, Any]]) -> None:
                         r.get("extracted_text", ""),
                         r.get("provider_id"),
                         r.get("model"),
+                        r.get("tokens_used"),
                         r["id"],
                     ),
                 )
@@ -172,6 +174,32 @@ async def get_analysis_stats() -> dict[str, int]:
         if s in stats:
             stats[s] = row["cnt"]
     return stats
+
+
+async def get_analysis_token_summary() -> dict[str, Any]:
+    """Return aggregate token usage across all completed analysis rows."""
+    row = await db_fetch_one(
+        """SELECT
+               COUNT(*) AS total_analyzed,
+               COALESCE(SUM(tokens_used), 0) AS total_tokens,
+               COALESCE(AVG(tokens_used), 0) AS avg_tokens_per_file
+           FROM analysis_queue
+           WHERE status = 'completed' AND tokens_used IS NOT NULL"""
+    )
+    by_model = await db_fetch_all(
+        """SELECT model, provider_id,
+               COUNT(*) AS file_count,
+               COALESCE(SUM(tokens_used), 0) AS total_tokens
+           FROM analysis_queue
+           WHERE status = 'completed' AND tokens_used IS NOT NULL
+           GROUP BY model, provider_id"""
+    )
+    return {
+        "total_analyzed": row["total_analyzed"] if row else 0,
+        "total_tokens": row["total_tokens"] if row else 0,
+        "avg_tokens_per_file": round(row["avg_tokens_per_file"], 1) if row else 0,
+        "by_model": [dict(r) for r in by_model],
+    }
 
 
 async def get_analysis_result(source_path: str) -> dict[str, Any] | None:
