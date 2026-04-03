@@ -319,3 +319,80 @@ template with Windows defaults.
 `docker-compose.yml`, `.env.example`, `CLAUDE.md`, `core/database.py` (default preferences),
 `api/routes/preferences.py` (worker count options),
 `Scripts/work/reset-markflow.ps1`, `Scripts/work/refresh-markflow.ps1`
+
+---
+
+## 2026-03-30 — Startup Crash + Log Explosion (v0.12.9)
+
+### Bug 14: Container restart loop — missing import
+
+**Symptom:** Container crash-looped with exit code 3 on startup.
+
+**Root cause:** `core/database.py:cleanup_orphaned_jobs()` used `structlog.get_logger()`
+but the `import structlog` statement was missing from the file. The function was added
+in v0.12.1 (orphan cleanup) but the import was omitted.
+
+**Fix:** Added `import structlog` to `core/database.py`.
+
+### Bug 15: pdfminer debug log flooding (4GB+)
+
+**Symptom:** `markflow-debug.log` grew to 4+ GB during bulk PDF conversion jobs.
+
+**Root cause:** `pdfminer.*` loggers emit per-token debug output. With thousands of PDFs
+processing, the debug log became unbounded.
+
+**Fix:** Suppressed `pdfminer.*` loggers to WARNING level in `core/logging_config.py`.
+
+### Bug 16: Log rotation missing — unbounded log growth
+
+**Symptom:** After the pdfminer fix, logs still grew without bound using
+`TimedRotatingFileHandler` (daily rotation, but no size cap within a day).
+
+**Fix:** Replaced with `RotatingFileHandler`: operational log 50 MB / 5 backups,
+debug log 100 MB / 3 backups. Added `LOG_MAX_SIZE_MB` and `DEBUG_LOG_MAX_SIZE_MB`
+env vars. Added 413 size guard on log download endpoint for files >500 MB (prevented
+browser download loops on oversized files).
+
+**Files changed:** `core/database.py`, `core/logging_config.py`, `api/routes/logs.py`,
+`docker-compose.yml`
+
+---
+
+## 2026-03-31 — Hashcat GPU Detection Chain (3 bugs)
+
+### Bug 17: hashcat -I fails outside install directory
+
+**Symptom:** Settings GPU panel showed "not detected" even on a machine with a GPU
+and hashcat installed.
+
+**Root cause:** hashcat resolves its `OpenCL/` kernel directory relative to the current
+working directory, not its binary location. Scripts ran `hashcat -I` from the repo
+directory, causing it to fail silently.
+
+**Fix:** Changed PowerShell and bash scripts to `cd` to hashcat's install directory
+before running `hashcat -I`.
+
+### Bug 18: hashcat stderr aborts PowerShell
+
+**Symptom:** Even after the cwd fix, GPU detection still failed on some machines.
+
+**Root cause:** hashcat's `nvmlDeviceGetFanSpeed()` emits a stderr warning that
+PowerShell treats as a `RemoteException`. This triggered the try/catch error handler,
+aborting backend detection before `hashcat_backend` was set.
+
+**Fix:** Wrapped hashcat invocation with `$ErrorActionPreference = 'SilentlyContinue'`
+to let stderr through without triggering the catch block.
+
+### Bug 19: UTF-8 BOM in worker_capabilities.json
+
+**Symptom:** GPU still showed as "not detected" even after fixes 17-18.
+
+**Root cause:** PowerShell's `Set-Content -Encoding UTF8` writes a UTF-8 BOM (byte
+order mark). Python's `json.loads()` throws `Unexpected UTF-8 BOM` on read, which was
+silently caught, leaving `host_worker_available = false`.
+
+**Fix:** PowerShell now writes via `[IO.File]::WriteAllText()` (no BOM). Python reads
+with `utf-8-sig` encoding as defensive fallback.
+
+**Files changed (all 3 bugs):** `Scripts/work/refresh-markflow.ps1`,
+`Scripts/work/reset-markflow.ps1`, `core/gpu_detector.py`
