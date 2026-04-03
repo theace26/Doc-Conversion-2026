@@ -447,8 +447,8 @@ async def get_pipeline_files(
     count_row = await db_fetch_one(count_sql, tuple(sub_params))
     total = count_row["cnt"] if count_row else 0
 
-    # Data
-    data_sql = f"{union_sql} ORDER BY {sort} {sort_dir} LIMIT ? OFFSET ?"
+    # Data — wrap in subquery so ORDER BY isn't ambiguous across UNION
+    data_sql = f"SELECT * FROM ({union_sql}) ORDER BY {sort} {sort_dir} LIMIT ? OFFSET ?"
     data_params = list(sub_params) + [limit, offset]
     rows = await db_fetch_all(data_sql, tuple(data_params))
 
