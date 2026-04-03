@@ -368,6 +368,93 @@ async def get_pending_files_global(
     return rows, total
 
 
+async def get_pipeline_files(
+    statuses: list[str],
+    search: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    sort: str = "source_path",
+    sort_dir: str = "asc",
+) -> tuple[list[dict[str, Any]], int]:
+    """Return files matching one or more pipeline status categories.
+
+    Valid statuses: scanned, pending, failed, unrecognized,
+                    pending_analysis, batched, analysis_failed.
+    ('indexed' is handled separately via Meilisearch in the route.)
+
+    Returns (rows, total_count).
+    """
+    ALLOWED_SORTS = {"source_path", "file_ext", "file_size_bytes", "status"}
+    if sort not in ALLOWED_SORTS:
+        sort = "source_path"
+    if sort_dir not in ("asc", "desc"):
+        sort_dir = "asc"
+
+    sub_queries: list[str] = []
+    sub_params: list[Any] = []
+
+    for s in statuses:
+        if s == "scanned":
+            q = ("SELECT sf.id, sf.source_path, sf.file_ext, sf.file_size_bytes, "
+                 "sf.source_mtime, 'scanned' AS status, NULL AS error_msg, "
+                 "NULL AS skip_reason, NULL AS converted_at, "
+                 "sf.last_seen_job_id AS job_id, sf.content_hash "
+                 "FROM source_files sf WHERE sf.lifecycle_status = 'active'")
+            if search:
+                q += " AND sf.source_path LIKE ?"
+                sub_params.append(f"%{search}%")
+            sub_queries.append(q)
+
+        elif s in ("pending", "failed", "unrecognized"):
+            q = ("SELECT bf.id, bf.source_path, bf.file_ext, bf.file_size_bytes, "
+                 "bf.source_mtime, bf.status, bf.error_msg, bf.skip_reason, "
+                 "bf.converted_at, bf.job_id, sf.content_hash "
+                 "FROM bulk_files bf "
+                 "LEFT JOIN source_files sf ON bf.source_file_id = sf.id "
+                 "WHERE bf.status = ?")
+            sub_params.append(s)
+            if search:
+                q += " AND bf.source_path LIKE ?"
+                sub_params.append(f"%{search}%")
+            sub_queries.append(q)
+
+        elif s in ("pending_analysis", "batched", "analysis_failed"):
+            aq_status = {
+                "pending_analysis": "pending",
+                "batched": "batched",
+                "analysis_failed": "failed",
+            }[s]
+            q = ("SELECT aq.id, aq.source_path, "
+                 "NULL AS file_ext, NULL AS file_size_bytes, "
+                 "NULL AS source_mtime, "
+                 f"'{s}' AS status, aq.error AS error_msg, "
+                 "NULL AS skip_reason, aq.analyzed_at AS converted_at, "
+                 "aq.job_id, aq.content_hash "
+                 "FROM analysis_queue aq WHERE aq.status = ?")
+            sub_params.append(aq_status)
+            if search:
+                q += " AND aq.source_path LIKE ?"
+                sub_params.append(f"%{search}%")
+            sub_queries.append(q)
+
+    if not sub_queries:
+        return [], 0
+
+    union_sql = " UNION ALL ".join(sub_queries)
+
+    # Count
+    count_sql = f"SELECT COUNT(*) AS cnt FROM ({union_sql})"
+    count_row = await db_fetch_one(count_sql, tuple(sub_params))
+    total = count_row["cnt"] if count_row else 0
+
+    # Data
+    data_sql = f"{union_sql} ORDER BY {sort} {sort_dir} LIMIT ? OFFSET ?"
+    data_params = list(sub_params) + [limit, offset]
+    rows = await db_fetch_all(data_sql, tuple(data_params))
+
+    return rows, total
+
+
 async def update_bulk_file(file_id: str, **fields) -> None:
     """Update any combination of bulk_files fields."""
     if not fields:

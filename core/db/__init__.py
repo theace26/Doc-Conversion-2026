@@ -38,6 +38,7 @@ from core.db.bulk import (
     get_bulk_file_count,
     get_bulk_files,
     get_bulk_job,
+    get_pipeline_files,
     get_unprocessed_bulk_files,
     increment_bulk_job_counter,
     list_bulk_jobs,
@@ -160,7 +161,7 @@ __all__ = [
     "update_bulk_job_status", "increment_bulk_job_counter",
     "upsert_source_file", "upsert_bulk_file", "upsert_bulk_files_batch",
     "get_bulk_files", "get_bulk_file_count", "update_bulk_file",
-    "get_unprocessed_bulk_files",
+    "get_unprocessed_bulk_files", "get_pipeline_files",
     # conversions
     "record_conversion", "upsert_batch_state", "get_batch_state",
     "insert_ocr_flag", "get_flags_for_batch", "resolve_flag",
