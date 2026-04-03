@@ -5,13 +5,15 @@ GET  /api/pipeline/status   -- Pipeline status (enabled, paused, last scan, next
 POST /api/pipeline/pause    -- Pause the pipeline (in-memory)
 POST /api/pipeline/resume   -- Resume the pipeline
 POST /api/pipeline/run-now  -- Trigger immediate scan+convert cycle
+GET  /api/pipeline/stats    -- Pipeline funnel statistics
+GET  /api/pipeline/files    -- Paginated file list by pipeline status category
 """
 
 import asyncio
 from datetime import datetime
 
 import structlog
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 
 from core.auth import AuthenticatedUser, UserRole, require_role
 from core.database import (
@@ -256,3 +258,102 @@ async def pipeline_stats(
         "analysis_failed": analysis.get("failed", 0),
         "in_search_index": search_count,
     }
+
+
+@router.get("/files")
+async def pipeline_files(
+    status: str = Query(..., description="Comma-separated: scanned,pending,failed,unrecognized,pending_analysis,batched,analysis_failed,indexed"),
+    search: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=10, le=200),
+    sort: str = Query("source_path"),
+    sort_dir: str = Query("asc", pattern="^(asc|desc)$"),
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+) -> dict:
+    """Paginated file list filtered by one or more pipeline status categories."""
+    from core.db.bulk import get_pipeline_files
+
+    statuses = [s.strip() for s in status.split(",") if s.strip()]
+    valid = {"scanned", "pending", "failed", "unrecognized",
+             "pending_analysis", "batched", "analysis_failed", "indexed"}
+    statuses = [s for s in statuses if s in valid]
+
+    if not statuses:
+        return {"files": [], "total": 0, "page": 1, "per_page": per_page, "pages": 1}
+
+    has_indexed = "indexed" in statuses
+    db_statuses = [s for s in statuses if s != "indexed"]
+
+    offset = (max(1, page) - 1) * per_page
+    files: list[dict] = []
+    total = 0
+
+    if db_statuses:
+        rows, db_total = await get_pipeline_files(
+            statuses=db_statuses, search=search,
+            limit=per_page, offset=offset,
+            sort=sort, sort_dir=sort_dir,
+        )
+        files.extend(rows)
+        total += db_total
+
+    if has_indexed:
+        try:
+            indexed_files, indexed_total = await _browse_search_index(
+                search=search, limit=per_page, offset=offset,
+            )
+            files.extend(indexed_files)
+            total += indexed_total
+        except Exception:
+            pass
+
+    return {
+        "files": files,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "pages": max(1, (total + per_page - 1) // per_page),
+    }
+
+
+async def _browse_search_index(
+    search: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """Browse Meilisearch indexes and return files in pipeline-files format."""
+    client = get_meili_client()
+    if not client:
+        return [], 0
+
+    files = []
+    total = 0
+
+    for index_name in ("documents", "adobe-files", "transcripts"):
+        try:
+            if search:
+                result = await client.search(index_name, search, limit=limit, offset=offset)
+            else:
+                result = await client.get_documents(index_name, limit=limit, offset=offset)
+
+            hits = result.get("hits") or result.get("results") or []
+            total += result.get("estimatedTotalHits") or result.get("total") or len(hits)
+
+            for doc in hits:
+                files.append({
+                    "id": doc.get("id", ""),
+                    "source_path": doc.get("source_path") or doc.get("source_filename", ""),
+                    "file_ext": doc.get("source_format", ""),
+                    "file_size_bytes": doc.get("file_size_bytes"),
+                    "source_mtime": None,
+                    "status": "indexed",
+                    "error_msg": None,
+                    "skip_reason": None,
+                    "converted_at": doc.get("converted_at"),
+                    "job_id": None,
+                    "content_hash": doc.get("content_hash"),
+                })
+        except Exception:
+            continue
+
+    return files, total
