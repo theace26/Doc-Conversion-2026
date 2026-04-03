@@ -96,8 +96,12 @@ def _get_caller(skip_frames: int = 3) -> str:
         for i in range(skip_frames, len(frames)):
             f_info = frames[i]
             filename = f_info.filename
-            # Skip frames inside core/db/ — we want the external caller
+            # Skip frames inside core/db/ and Python internals
             if "/core/db/" in filename or "\\core\\db\\" in filename:
+                continue
+            if "/contextlib" in filename or "\\contextlib" in filename:
+                continue
+            if "/aiosqlite/" in filename or "\\aiosqlite\\" in filename:
                 continue
             module = Path(filename).stem
             return f"{module}.{f_info.function}:{f_info.lineno}"
