@@ -279,6 +279,32 @@ the relevant subsystem. Referenced from CLAUDE.md.
   single column to check for any skip reason. Path safety skips now properly mark status as
   `"skipped"` with counter increments (previously left as `"pending"` forever).
 
+- **`scan_dir_mtimes` is shared between bulk and lifecycle scanners**: Both scanners read from and
+  write to the same `scan_dir_mtimes` table (keyed by `location_id + dir_path`). Whichever scanner
+  ran last provides the cache for the next run — bulk and lifecycle scans complement rather than
+  duplicate each other's mtime data. Do NOT scope the table per-scanner.
+
+- **Incremental scan counter is a preference key, not a table column**: `scan_incremental_count`
+  is stored via `get_preference()`/`set_preference()` in `core/db/preferences.py` (one of the
+  5 new helpers: `get_incremental_scan_count`, `increment_scan_count`, `reset_scan_count`).
+  Resetting the counter to 0 forces the next scan to do a full walk regardless of mtime cache.
+
+- **Full walk forced outside business hours**: The incremental mtime skip is bypassed when the
+  scan start time falls outside `scanner_business_hours_start` / `scanner_business_hours_end`
+  (e.g., nightly/weekend scans). This ensures the mtime cache gets periodically refreshed even
+  if the per-N-scan full-walk interval hasn't been reached yet.
+
+- **`_current_dir_mtimes` dict is safe to write from multiple walker threads**: Each thread in
+  the parallel scan walks a distinct set of directories (round-robin subdirectory assignment),
+  so there is no key collision between threads. No locking is needed. Do NOT share dict keys
+  between threads — if the round-robin assignment changes, add a threading.Lock.
+
+- **Serial scan async overlap: await before creating a new task**: The serial scan path launches
+  DB writes as `asyncio.create_task()` to overlap with the next stat() round. However, each
+  pending write task must be `await`ed before a new `create_task()` is issued — otherwise
+  tasks pile up unboundedly and SQLite write contention spikes. Pattern:
+  `if pending_write: await pending_write; pending_write = asyncio.create_task(flush_batch(...))`.
+
 ## Path Safety & Collisions
 
 - **Path safety pass runs during scan, not conversion**: Worker trusts resolved_paths.

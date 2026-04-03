@@ -22,7 +22,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `core/converter.py` | Pipeline orchestrator; `from_md` path detects sidecar + original → tier 1/2/3 |
 | `core/ocr_models.py` | OCR dataclasses: OCRWord, OCRFlag, OCRPage, OCRConfig, OCRResult, OCRFlagStatus |
 | `core/ocr.py` | OCR engine: `needs_ocr`, `preprocess_image`, `ocr_page`, `flag_low_confidence`, `run_ocr` |
-| `core/bulk_scanner.py` | File discovery: walks source dir, upserts to bulk_files, adaptive parallel scan |
+| `core/bulk_scanner.py` | File discovery: walks source dir, upserts to bulk_files, adaptive parallel scan; serial path uses batched writes + async DB overlap |
 | `core/storage_probe.py` | Storage latency probe: auto-detects SSD/HDD/NAS, recommends scan thread count |
 | `core/scan_coordinator.py` | Scan priority coordinator: Bulk > Run Now > Lifecycle, cancel/pause signals |
 | `core/bulk_worker.py` | Worker pool: BulkJob class, pause/resume/cancel, SSE events, job registry |

@@ -4,6 +4,47 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.19.5 — HDD Scan Optimizations (2026-04-03)
+
+**Three targeted improvements to reduce mechanical HDD scan time:**
+
+### 1. Directory mtime skip (incremental scanning)
+- New `scan_dir_mtimes` table (migration 21): stores `(location_id, dir_path, mtime)`
+  across scan runs for both bulk and lifecycle scanners.
+- `core/db/bulk.py`: 5 new helpers — `load_dir_mtimes()`, `save_dir_mtimes_batch()`,
+  `get_incremental_scan_count()`, `increment_scan_count()`, `reset_scan_count()`.
+- `core/db/preferences.py`: 2 new defaults — `scan_incremental_enabled` (true),
+  `scan_full_walk_interval` (5).
+- On rescan, directories with unchanged mtimes are skipped entirely (no `os.walk`
+  descent). Full walk is forced every Nth scan (preference-configurable) and any time
+  the scan runs outside business hours (using `scanner_business_hours_start/end`).
+- Applies to all 3 scan paths: bulk serial, bulk parallel (`_walker_thread`),
+  and lifecycle (`_walker_thread`).
+
+### 2. Batched serial DB writes
+- The bulk serial (HDD) scan path now accumulates files in a 200-file buffer
+  and flushes via `upsert_bulk_files_batch()` (introduced in v0.19.3) instead
+  of committing per file. Previously the serial path did not use the batch helper.
+
+### 3. Disk/DB overlap in serial scan
+- After flushing a batch, DB writes are launched as `asyncio.create_task()` so the
+  next round of stat() calls starts immediately without waiting for the DB commit.
+  Disk I/O stays strictly serial; only DB writes run concurrently.
+- Each pending write task is awaited before a new one is created to prevent unbounded
+  task accumulation.
+
+**Files changed:**
+- `core/db/schema.py` — migration 21: `scan_dir_mtimes` table
+- `core/db/bulk.py` — `load_dir_mtimes()`, `save_dir_mtimes_batch()`,
+  `get_incremental_scan_count()`, `increment_scan_count()`, `reset_scan_count()`
+- `core/db/preferences.py` — `scan_incremental_enabled`, `scan_full_walk_interval` defaults
+- `core/bulk_scanner.py` — incremental decision in `scan()`, mtime skip in `_serial_scan`
+  and `_walker_thread`, batched writes + async overlap in `_serial_scan`
+- `core/lifecycle_scanner.py` — mtime skip in walker threads, incremental decision
+  + mtime persistence
+
+---
+
 ## v0.19.4 — Pipeline File Explorer (2026-04-03)
 
 **Clickable stat badges and a dedicated file browser page for the pipeline:**

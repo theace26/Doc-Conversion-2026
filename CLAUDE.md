@@ -26,9 +26,20 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.19.4
+## Current Status — v0.19.5
 
-v0.19.4: Pipeline file explorer. Clickable stat badges on the status page
+v0.19.5: HDD scan optimizations. Three improvements to speed up mechanical
+HDD scans: (1) Directory mtime skip — all 3 scan paths (bulk serial, bulk
+parallel, lifecycle) cache directory mtimes in a new `scan_dir_mtimes` table
+(migration 21) and skip directories with unchanged mtimes on rescan. Full
+walk forced every Nth scan (`scan_full_walk_interval` preference, default 5)
+and when running outside business hours. Master toggle: `scan_incremental_enabled`
+(default true). (2) Batched serial DB writes — the bulk serial path accumulates
+files in a 200-file buffer and flushes via `upsert_bulk_files_batch()` instead
+of 2 commits per file. (3) Disk/DB overlap — DB writes run as async tasks
+overlapping with the next round of stat() calls; disk stays strictly serial.
+
+Previous (v0.19.4): Pipeline file explorer. Clickable stat badges on the status page
 now navigate to a new `pipeline-files.html` page where users can browse
 files by category. Eight filter chips (scanned, pending, failed, unrecognized,
 pending analysis, batched, analysis failed, indexed) act as multi-select
