@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pipeline Files — MarkFlow</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+  <style>
+    /* ── Back link ───────────────────────────────────────────────────────── */
+    .back-link {
+      display: inline-flex; align-items: center; gap: 0.3rem;
+      font-size: 0.85rem; color: var(--text-muted); text-decoration: none;
+      margin-bottom: 1rem;
+    }
+    .back-link:hover { color: var(--accent); text-decoration: none; }
+
+    /* ── Page title ──────────────────────────────────────────────────────── */
+    .page-title { font-size: 1.5rem; font-weight: 700; margin: 0 0 1rem; }
+
+    /* ── Chip bar ────────────────────────────────────────────────────────── */
+    .chip-bar {
+      display: flex; flex-wrap: wrap; gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    .filter-chip {
+      display: inline-flex; align-items: center; gap: 0.35rem;
+      padding: 0.3em 0.75em; border-radius: 999px;
+      border: 1.5px solid var(--border); background: none;
+      color: var(--text-muted); font-size: 0.82rem; font-weight: 500;
+      cursor: pointer; transition: all 0.15s; white-space: nowrap;
+      user-select: none;
+    }
+    .filter-chip:hover { border-color: #aaa; color: var(--text); }
+    .filter-chip .chip-count {
+      font-size: 0.72rem; opacity: 0.8;
+    }
+
+    /* Active states per data-status */
+    .filter-chip.active[data-status="scanned"]         { background: rgba(128,128,128,.12); border-color: #aaa; color: var(--text); }
+    .filter-chip.active[data-status="pending"]          { background: rgba(128,128,128,.12); border-color: #aaa; color: var(--text); }
+    .filter-chip.active[data-status="failed"]           { background: rgba(239,68,68,.15);   border-color: #f87171; color: #f87171; }
+    .filter-chip.active[data-status="unrecognized"]     { background: rgba(128,128,128,.12); border-color: #aaa; color: var(--text); }
+    .filter-chip.active[data-status="pending_analysis"] { background: rgba(99,102,241,.15);  border-color: #818cf8; color: #818cf8; }
+    .filter-chip.active[data-status="batched"]          { background: rgba(245,158,11,.15);  border-color: #fbbf24; color: #fbbf24; }
+    .filter-chip.active[data-status="analysis_failed"]  { background: rgba(239,68,68,.15);   border-color: #f87171; color: #f87171; }
+    .filter-chip.active[data-status="indexed"]          { background: rgba(34,197,94,.15);   border-color: #4ade80; color: #4ade80; }
+
+    /* ── Search bar ──────────────────────────────────────────────────────── */
+    .search-bar {
+      display: flex; align-items: center; gap: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    .search-bar input {
+      flex: 1; padding: 0.45rem 0.75rem;
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      background: var(--surface); color: var(--text); font-size: 0.9rem;
+    }
+    .search-bar input:focus { outline: none; border-color: var(--accent); }
+    .result-count { font-size: 0.82rem; color: var(--text-muted); white-space: nowrap; }
+
+    /* ── Large-result warning ─────────────────────────────────────────────── */
+    .large-warning {
+      display: flex; align-items: center; gap: 0.5rem;
+      padding: 0.6rem 1rem; border-radius: var(--radius-sm);
+      background: rgba(245,158,11,.12); border: 1px solid rgba(245,158,11,.3);
+      color: var(--warn); font-size: 0.85rem; margin-bottom: 0.75rem;
+    }
+
+    /* ── File table ──────────────────────────────────────────────────────── */
+    .file-table {
+      width: 100%; border-collapse: collapse; font-size: 0.85rem;
+    }
+    .file-table th {
+      text-align: left; padding: 0.5rem 0.75rem;
+      border-bottom: 2px solid var(--border);
+      color: var(--text-muted); font-weight: 600;
+      font-size: 0.78rem; text-transform: uppercase; white-space: nowrap;
+    }
+    .file-table td {
+      padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .file-table tbody tr.data-row:hover { background: var(--surface-alt); }
+    .file-table tbody tr.data-row { cursor: default; }
+
+    /* expand arrow cell */
+    .expand-cell {
+      width: 28px; text-align: center; cursor: pointer;
+      color: var(--text-muted); font-size: 0.8rem; user-select: none;
+    }
+    .expand-cell:hover { color: var(--text); }
+
+    .path-cell {
+      font-family: var(--font-mono, monospace); font-size: 0.8rem;
+      color: var(--text-muted); word-break: break-all; max-width: 480px;
+    }
+    .ext-cell { font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; }
+    .size-cell { font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; text-align: right; }
+    .actions-cell { white-space: nowrap; }
+
+    /* ── Status badge ────────────────────────────────────────────────────── */
+    .status-badge {
+      display: inline-block; padding: 0.15em 0.5em;
+      border-radius: 3px; font-size: 0.72rem;
+      font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+    }
+    .status-badge.scanned         { background: rgba(128,128,128,.12); color: var(--text-muted); }
+    .status-badge.pending         { background: rgba(107,112,132,.08); color: var(--text-muted); }
+    .status-badge.failed          { background: rgba(220,38,38,.12); color: var(--error); }
+    .status-badge.unrecognized    { background: rgba(128,128,128,.12); color: var(--text-muted); }
+    .status-badge.pending_analysis { background: rgba(99,102,241,.15); color: #818cf8; }
+    .status-badge.batched         { background: rgba(245,158,11,.15); color: #fbbf24; }
+    .status-badge.analysis_failed { background: rgba(220,38,38,.12); color: var(--error); }
+    .status-badge.indexed         { background: rgba(34,197,94,.15); color: #4ade80; }
+    .status-badge.converted       { background: rgba(22,163,74,.12); color: var(--ok); }
+
+    /* ── Action buttons ──────────────────────────────────────────────────── */
+    .action-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; border: none; background: none;
+      border-radius: var(--radius-sm); color: var(--text-muted);
+      cursor: pointer; font-size: 1rem; transition: color 0.15s, background 0.15s;
+    }
+    .action-btn:hover { color: var(--accent); background: rgba(79,91,213,.08); }
+
+    /* ── Detail row ──────────────────────────────────────────────────────── */
+    .detail-row td {
+      padding: 0; border-bottom: 1px solid var(--border);
+    }
+    .detail-inner {
+      padding: 0.75rem 1rem 0.75rem 2.5rem;
+      background: var(--surface-alt);
+    }
+    .detail-grid {
+      display: grid; grid-template-columns: auto 1fr;
+      gap: 0.25rem 1.25rem; font-size: 0.82rem;
+    }
+    .detail-grid dt {
+      color: var(--text-muted); white-space: nowrap; font-weight: 500;
+    }
+    .detail-grid dd {
+      margin: 0; word-break: break-all;
+      font-family: var(--font-mono, monospace);
+    }
+    .detail-grid dd.err { color: var(--error); }
+    .detail-grid dd.warn { color: var(--warn); }
+
+    /* ── Pagination ──────────────────────────────────────────────────────── */
+    .pagination {
+      display: flex; align-items: center; justify-content: center;
+      gap: 0.4rem; margin: 1rem 0; font-size: 0.85rem; flex-wrap: wrap;
+    }
+    .pagination button {
+      padding: 0.3em 0.7em;
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      background: none; color: var(--text); cursor: pointer; font-size: 0.85rem;
+    }
+    .pagination button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    .pagination button:disabled { opacity: 0.4; cursor: default; }
+    .pagination .page-info { color: var(--text-muted); padding: 0 0.25rem; }
+    .pagination select {
+      padding: 0.25em 0.4em; border: 1px solid var(--border);
+      border-radius: var(--radius-sm); background: var(--surface);
+      color: var(--text); font-size: 0.82rem; cursor: pointer;
+    }
+    .per-page-label { color: var(--text-muted); font-size: 0.82rem; }
+
+    /* ── Empty state ─────────────────────────────────────────────────────── */
+    .empty-state {
+      text-align: center; padding: 3rem 1rem;
+      color: var(--text-muted); font-size: 0.9rem;
+    }
+    .empty-state .empty-icon { font-size: 2rem; margin-bottom: 0.5rem; }
+  </style>
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="/" class="nav-logo">MarkFlow</a>
+    <div id="main-nav" class="nav-links"></div>
+  </nav>
+
+  <main class="container">
+    <a href="/status.html" class="back-link">\u2190 Back to Status</a>
+
+    <h1 class="page-title">Pipeline Files</h1>
+
+    <!-- Filter chip bar -->
+    <div class="chip-bar" id="chip-bar">
+      <button class="filter-chip" data-status="scanned">
+        scanned <span class="chip-count" id="cnt-scanned">...</span>
+      </button>
+      <button class="filter-chip" data-status="pending">
+        pending <span class="chip-count" id="cnt-pending">...</span>
+      </button>
+      <button class="filter-chip" data-status="failed">
+        failed <span class="chip-count" id="cnt-failed">...</span>
+      </button>
+      <button class="filter-chip" data-status="unrecognized">
+        unrecognized <span class="chip-count" id="cnt-unrecognized">...</span>
+      </button>
+      <button class="filter-chip" data-status="pending_analysis">
+        pending analysis <span class="chip-count" id="cnt-pending_analysis">...</span>
+      </button>
+      <button class="filter-chip" data-status="batched">
+        batched <span class="chip-count" id="cnt-batched">...</span>
+      </button>
+      <button class="filter-chip" data-status="analysis_failed">
+        analysis failed <span class="chip-count" id="cnt-analysis_failed">...</span>
+      </button>
+      <button class="filter-chip" data-status="indexed">
+        indexed <span class="chip-count" id="cnt-indexed">...</span>
+      </button>
+    </div>
+
+    <!-- Search bar -->
+    <div class="search-bar">
+      <input type="search" id="search-input" placeholder="Search file paths..." autocomplete="off">
+      <span class="result-count" id="result-count"></span>
+    </div>
+
+    <!-- Large result warning -->
+    <div class="large-warning" id="large-warning" hidden>
+      \u26A0 Over 5,000 files match. Showing first page \u2014 use search or select fewer categories to narrow results.
+    </div>
+
+    <!-- Table container -->
+    <div id="table-container">
+      <div class="empty-state">
+        <div class="empty-icon">\u{1F4C2}</div>
+        Select one or more categories above to browse files.
+      </div>
+    </div>
+
+    <!-- Pagination -->
+    <div class="pagination" id="pagination" hidden>
+      <button id="btn-prev">\u2039 Prev</button>
+      <span class="page-info" id="page-info"></span>
+      <button id="btn-next">Next \u203A</button>
+      <span class="per-page-label">Per page:</span>
+      <select id="per-page-select">
+        <option value="10">10</option>
+        <option value="30">30</option>
+        <option value="50" selected>50</option>
+        <option value="100">100</option>
+      </select>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+  (function () {
+    'use strict';
+
+    // ── State ─────────────────────────────────────────────────────────────
+    var activeStatuses = new Set();
+    var currentPage    = 1;
+    var perPage        = 50;
+    var searchQuery    = '';
+    var totalFiles     = 0;
+    var debounceTimer  = null;
+    var expandedRows   = new Set();   // track which row keys are expanded
+
+    // ── Helpers ───────────────────────────────────────────────────────────
+    function shortPath(p) {
+      if (!p) return '';
+      var s = String(p).replace(/^\/mnt\/source\//, '');
+      if (s.length > 80) s = '\u2026' + s.slice(s.length - 79);
+      return s;
+    }
+
+    function formatSize(bytes) {
+      if (bytes == null) return '';
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+      return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+    }
+
+    function formatLocalTime(iso) {
+      if (!iso) return '';
+      try { return new Date(iso).toLocaleString(); } catch (e) { return iso; }
+    }
+
+    function driveLink(sourcePath) {
+      if (!sourcePath) return null;
+      // Map /mnt/source -> /host/c drive browser path
+      var mapped = String(sourcePath).replace(/^\/mnt\/source/, '/host/c');
+      return '/static/preview.html?path=' + encodeURIComponent(mapped);
+    }
+
+    // ── URL state ─────────────────────────────────────────────────────────
+    function readUrlState() {
+      var params = new URLSearchParams(window.location.search);
+      var raw = params.get('status') || '';
+      raw.split(',').forEach(function (s) {
+        s = s.trim();
+        if (s) activeStatuses.add(s);
+      });
+    }
+
+    function pushUrlState() {
+      var params = new URLSearchParams();
+      if (activeStatuses.size) {
+        params.set('status', Array.from(activeStatuses).join(','));
+      }
+      var newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+      history.replaceState(null, '', newUrl);
+    }
+
+    // ── Load pipeline stats (chip counts) ────────────────────────────────
+    async function loadStats() {
+      try {
+        var res = await fetch('/api/pipeline/stats');
+        if (!res.ok) return;
+        var d = await res.json();
+
+        function setCount(id, val) {
+          var el = document.getElementById(id);
+          if (el) el.textContent = val == null ? '?' : Number(val).toLocaleString();
+        }
+
+        setCount('cnt-scanned', d.scanned);
+        setCount('cnt-pending', d.pending_conversion);
+        setCount('cnt-failed', d.failed);
+        setCount('cnt-unrecognized', d.unrecognized);
+        setCount('cnt-pending_analysis', d.pending_analysis);
+        setCount('cnt-batched', d.batched_for_analysis);
+        setCount('cnt-analysis_failed', d.analysis_failed);
+        setCount('cnt-indexed', d.in_search_index);
+      } catch (e) { /* non-critical */ }
+    }
+
+    // ── Load file table ───────────────────────────────────────────────────
+    async function loadFiles() {
+      if (!activeStatuses.size) {
+        renderEmpty('Select one or more categories above to browse files.');
+        document.getElementById('result-count').textContent = '';
+        document.getElementById('pagination').hidden = true;
+        document.getElementById('large-warning').hidden = true;
+        return;
+      }
+
+      var statusParam = Array.from(activeStatuses).join(',');
+      var url = '/api/pipeline/files?status=' + encodeURIComponent(statusParam)
+              + '&page=' + currentPage
+              + '&per_page=' + perPage;
+      if (searchQuery) url += '&search=' + encodeURIComponent(searchQuery);
+
+      try {
+        var res = await fetch(url);
+        if (!res.ok) {
+          renderEmpty('Failed to load files (HTTP ' + res.status + ').');
+          return;
+        }
+        var data = await res.json();
+        totalFiles = data.total || 0;
+
+        // Result count
+        var rc = document.getElementById('result-count');
+        rc.textContent = totalFiles.toLocaleString() + ' file' + (totalFiles !== 1 ? 's' : '');
+
+        // Large warning
+        document.getElementById('large-warning').hidden = (totalFiles <= 5000);
+
+        // Table
+        if (!data.files || !data.files.length) {
+          renderEmpty('No files match the selected filters.');
+          document.getElementById('pagination').hidden = true;
+          return;
+        }
+
+        renderTable(data.files);
+        renderPagination(data.page, data.pages);
+      } catch (e) {
+        renderEmpty('Error loading files: ' + e.message);
+      }
+    }
+
+    // ── Render empty state ────────────────────────────────────────────────
+    function renderEmpty(msg) {
+      var tc = document.getElementById('table-container');
+      tc.textContent = '';
+      var div = document.createElement('div');
+      div.className = 'empty-state';
+      var icon = document.createElement('div');
+      icon.className = 'empty-icon';
+      icon.textContent = '\u{1F4C2}';
+      div.appendChild(icon);
+      var text = document.createElement('p');
+      text.textContent = msg;
+      div.appendChild(text);
+      tc.appendChild(div);
+    }
+
+    // ── Render table ──────────────────────────────────────────────────────
+    function renderTable(files) {
+      var tc = document.getElementById('table-container');
+      tc.textContent = '';
+
+      var table = document.createElement('table');
+      table.className = 'file-table';
+
+      // Head
+      var thead = document.createElement('thead');
+      var htr = document.createElement('tr');
+      ['', 'File Path', 'Ext', 'Size', 'Status', 'Actions'].forEach(function (col) {
+        var th = document.createElement('th');
+        th.textContent = col;
+        htr.appendChild(th);
+      });
+      thead.appendChild(htr);
+      table.appendChild(thead);
+
+      // Body
+      var tbody = document.createElement('tbody');
+      files.forEach(function (file, idx) {
+        var rowKey = String(file.id || '') + '|' + String(file.source_path || '') + '|' + idx;
+
+        // Data row
+        var tr = document.createElement('tr');
+        tr.className = 'data-row';
+        tr.dataset.rowKey = rowKey;
+
+        // Expand cell
+        var tdExp = document.createElement('td');
+        tdExp.className = 'expand-cell';
+        var arrow = document.createElement('span');
+        arrow.textContent = expandedRows.has(rowKey) ? '\u25BC' : '\u25B6';
+        arrow.title = 'Toggle details';
+        tdExp.appendChild(arrow);
+        tr.appendChild(tdExp);
+
+        // Path cell
+        var tdPath = document.createElement('td');
+        tdPath.className = 'path-cell';
+        tdPath.title = file.source_path || '';
+        tdPath.textContent = shortPath(file.source_path);
+        tr.appendChild(tdPath);
+
+        // Ext
+        var tdExt = document.createElement('td');
+        tdExt.className = 'ext-cell';
+        tdExt.textContent = file.file_ext || '';
+        tr.appendChild(tdExt);
+
+        // Size
+        var tdSize = document.createElement('td');
+        tdSize.className = 'size-cell';
+        tdSize.textContent = formatSize(file.file_size_bytes);
+        tr.appendChild(tdSize);
+
+        // Status badge
+        var tdStatus = document.createElement('td');
+        var badge = document.createElement('span');
+        var st = file.status || '';
+        badge.className = 'status-badge ' + st;
+        badge.textContent = st.replace(/_/g, ' ');
+        tdStatus.appendChild(badge);
+        tr.appendChild(tdStatus);
+
+        // Actions
+        var tdAct = document.createElement('td');
+        tdAct.className = 'actions-cell';
+
+        // View button (eye)
+        if (file.source_path) {
+          var btnView = document.createElement('button');
+          btnView.className = 'action-btn';
+          btnView.title = 'Open in viewer';
+          btnView.textContent = '\u{1F441}\uFE0F';
+          btnView.addEventListener('click', function () {
+            var p = file.source_path || '';
+            window.open('/static/viewer.html?path=' + encodeURIComponent(p), '_blank');
+          });
+          tdAct.appendChild(btnView);
+
+          // Browse button (folder)
+          var btnBrowse = document.createElement('button');
+          btnBrowse.className = 'action-btn';
+          btnBrowse.title = 'Browse in drive browser';
+          btnBrowse.textContent = '\u{1F4C2}';
+          btnBrowse.addEventListener('click', function () {
+            var link = driveLink(file.source_path);
+            if (link) window.open(link, '_blank');
+          });
+          tdAct.appendChild(btnBrowse);
+        }
+
+        tr.appendChild(tdAct);
+        tbody.appendChild(tr);
+
+        // Detail row (initially hidden or shown)
+        var trDetail = document.createElement('tr');
+        trDetail.className = 'detail-row';
+        trDetail.dataset.detailFor = rowKey;
+        if (!expandedRows.has(rowKey)) trDetail.hidden = true;
+
+        var tdDetail = document.createElement('td');
+        tdDetail.colSpan = 6;
+        var inner = buildDetailInner(file);
+        tdDetail.appendChild(inner);
+        trDetail.appendChild(tdDetail);
+        tbody.appendChild(trDetail);
+
+        // Toggle expand on arrow click
+        tdExp.addEventListener('click', function (e) {
+          e.stopPropagation();
+          var isExpanded = expandedRows.has(rowKey);
+          if (isExpanded) {
+            expandedRows.delete(rowKey);
+            trDetail.hidden = true;
+            arrow.textContent = '\u25B6';
+          } else {
+            expandedRows.add(rowKey);
+            trDetail.hidden = false;
+            arrow.textContent = '\u25BC';
+          }
+        });
+      });
+
+      table.appendChild(tbody);
+      tc.appendChild(table);
+    }
+
+    // ── Build detail panel ────────────────────────────────────────────────
+    function buildDetailInner(file) {
+      var inner = document.createElement('div');
+      inner.className = 'detail-inner';
+
+      var dl = document.createElement('dl');
+      dl.className = 'detail-grid';
+
+      function addRow(label, value, cls) {
+        if (value == null || value === '') return;
+        var dt = document.createElement('dt');
+        dt.textContent = label;
+        dl.appendChild(dt);
+        var dd = document.createElement('dd');
+        if (cls) dd.className = cls;
+        dd.textContent = String(value);
+        dl.appendChild(dd);
+      }
+
+      function addLinkRow(label, text, href) {
+        if (!text) return;
+        var dt = document.createElement('dt');
+        dt.textContent = label;
+        dl.appendChild(dt);
+        var dd = document.createElement('dd');
+        var a = document.createElement('a');
+        a.textContent = text;
+        a.href = href;
+        a.target = '_blank';
+        dd.appendChild(a);
+        dl.appendChild(dd);
+      }
+
+      addRow('Full Path', file.source_path || '');
+      addRow('Error', file.error_msg, 'err');
+      addRow('Skip Reason', file.skip_reason, 'warn');
+      addRow('Converted At', formatLocalTime(file.converted_at));
+      addRow('Source Modified', formatLocalTime(file.source_mtime));
+      addRow('Size (bytes)', file.file_size_bytes != null ? Number(file.file_size_bytes).toLocaleString() : null);
+      addRow('Content Hash', file.content_hash);
+
+      if (file.job_id) {
+        addLinkRow(
+          'Job ID',
+          file.job_id,
+          '/static/job-detail.html?job_id=' + encodeURIComponent(file.job_id)
+        );
+      }
+
+      inner.appendChild(dl);
+      return inner;
+    }
+
+    // ── Render pagination ─────────────────────────────────────────────────
+    function renderPagination(page, pages) {
+      var pg = document.getElementById('pagination');
+      pg.hidden = false;
+
+      document.getElementById('btn-prev').disabled = (page <= 1);
+      document.getElementById('btn-next').disabled = (page >= pages);
+
+      var info = document.getElementById('page-info');
+      info.textContent = 'Page ' + page + ' of ' + pages;
+    }
+
+    // ── Chip toggling ─────────────────────────────────────────────────────
+    function syncChips() {
+      document.querySelectorAll('.filter-chip').forEach(function (chip) {
+        var st = chip.dataset.status;
+        if (activeStatuses.has(st)) {
+          chip.classList.add('active');
+        } else {
+          chip.classList.remove('active');
+        }
+      });
+    }
+
+    document.getElementById('chip-bar').addEventListener('click', function (e) {
+      var chip = e.target.closest('.filter-chip');
+      if (!chip) return;
+      var st = chip.dataset.status;
+      if (!st) return;
+      if (activeStatuses.has(st)) {
+        activeStatuses.delete(st);
+      } else {
+        activeStatuses.add(st);
+      }
+      currentPage = 1;
+      expandedRows.clear();
+      syncChips();
+      pushUrlState();
+      loadFiles();
+    });
+
+    // ── Search with debounce ──────────────────────────────────────────────
+    document.getElementById('search-input').addEventListener('input', function () {
+      clearTimeout(debounceTimer);
+      var val = this.value.trim();
+      debounceTimer = setTimeout(function () {
+        searchQuery = val;
+        currentPage = 1;
+        expandedRows.clear();
+        loadFiles();
+      }, 300);
+    });
+
+    // ── Pagination controls ───────────────────────────────────────────────
+    document.getElementById('btn-prev').addEventListener('click', function () {
+      if (currentPage > 1) {
+        currentPage--;
+        expandedRows.clear();
+        loadFiles();
+      }
+    });
+
+    document.getElementById('btn-next').addEventListener('click', function () {
+      currentPage++;
+      expandedRows.clear();
+      loadFiles();
+    });
+
+    document.getElementById('per-page-select').addEventListener('change', function () {
+      perPage = parseInt(this.value, 10) || 50;
+      currentPage = 1;
+      expandedRows.clear();
+      loadFiles();
+    });
+
+    // ── Init ──────────────────────────────────────────────────────────────
+    readUrlState();
+    syncChips();
+    loadStats();
+    loadFiles();
+
+  })();
+  </script>
+</body>
+</html>
