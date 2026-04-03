@@ -26,9 +26,13 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.19.6.3
+## Current Status — v0.19.6.4
 
-v0.19.6.3: Pipeline files chip colors UI revision. Filter chips on pipeline-files.html now 
+v0.19.6.4: Fix scan crash — wrong table name in incremental scan counter. Three raw SQL
+queries in `core/db/bulk.py` referenced `preferences` instead of `user_preferences`,
+causing `no such table: preferences` error on any scan trigger (run-now, lifecycle).
+
+Previous (v0.19.6.3): Pipeline files chip colors UI revision. Filter chips on pipeline-files.html now 
 always show their category colors (matching status page pipeline pills) — pending analysis = 
 purple, batched = yellow, failed/analysis failed = red, indexed = green. Active state adds 
 border highlight and bold weight.

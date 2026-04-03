@@ -1,0 +1,122 @@
+<h2>Pipeline File Explorer — Page Layout</h2>
+<p class="subtitle">How should the page be structured? Click to select.</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Filter Bar + Table</h3>
+      <p>Category toggle buttons across the top (like chips), search box, then a full-width table below. Clicking a row expands an inline detail panel. Action icons on each row for Viewer and Browse.</p>
+      <div class="mockup">
+        <div class="mockup-header">pipeline-files.html?status=failed</div>
+        <div class="mockup-body" style="font-family:monospace;font-size:0.7rem;line-height:1.6;padding:1rem;background:#12121f;">
+          <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.75rem;">
+            <span style="padding:0.2rem 0.6rem;border-radius:999px;background:#252540;color:#aaa;font-size:0.7rem;">34,914 scanned</span>
+            <span style="padding:0.2rem 0.6rem;border-radius:999px;background:rgba(239,68,68,.3);color:#f87171;font-size:0.7rem;border:1px solid #f87171;">42 failed ✓</span>
+            <span style="padding:0.2rem 0.6rem;border-radius:999px;background:#252540;color:#aaa;font-size:0.7rem;">79,800 pending</span>
+            <span style="padding:0.2rem 0.6rem;border-radius:999px;background:#252540;color:#aaa;font-size:0.7rem;">312 unrecognized</span>
+            <span style="padding:0.2rem 0.6rem;border-radius:999px;background:#252540;color:#818cf8;font-size:0.7rem;">5 pending analysis</span>
+            <span style="padding:0.2rem 0.6rem;border-radius:999px;background:#252540;color:#fbbf24;font-size:0.7rem;">12 batched</span>
+            <span style="padding:0.2rem 0.6rem;border-radius:999px;background:#252540;color:#f87171;font-size:0.7rem;">1 analysis failed</span>
+            <span style="padding:0.2rem 0.6rem;border-radius:999px;background:#252540;color:#4ade80;font-size:0.7rem;">4,617 indexed</span>
+          </div>
+          <div style="display:flex;gap:0.5rem;margin-bottom:0.75rem;align-items:center;">
+            <input style="flex:1;padding:0.3rem 0.5rem;background:#1a1a2e;border:1px solid #333;color:#ccc;border-radius:4px;font-size:0.7rem;" placeholder="Search files..." value="">
+            <span style="color:#888;font-size:0.65rem;">Showing 42 files</span>
+          </div>
+          <table style="width:100%;border-collapse:collapse;font-size:0.65rem;">
+            <tr style="border-bottom:1px solid #333;color:#888;">
+              <td style="padding:0.3rem;">File Path</td>
+              <td style="padding:0.3rem;">Ext</td>
+              <td style="padding:0.3rem;">Size</td>
+              <td style="padding:0.3rem;">Status</td>
+              <td style="padding:0.3rem;">Actions</td>
+            </tr>
+            <tr style="border-bottom:1px solid #222;color:#ccc;background:#1a1a2e;">
+              <td style="padding:0.3rem;cursor:pointer;">▶ /mnt/source/CONTRACTS/2024/bid-spec.xlsx</td>
+              <td style="padding:0.3rem;">.xlsx</td>
+              <td style="padding:0.3rem;">2.4 MB</td>
+              <td style="padding:0.3rem;"><span style="color:#f87171;">failed</span></td>
+              <td style="padding:0.3rem;">👁 📂</td>
+            </tr>
+            <tr style="border-bottom:1px solid #333;color:#999;background:#16162a;padding:0.5rem;font-size:0.6rem;" >
+              <td colspan="5" style="padding:0.5rem 0.3rem 0.5rem 1.5rem;">
+                <div><strong style="color:#f87171;">Error:</strong> <span style="color:#ccc;">openpyxl: Unsupported encryption method</span></div>
+                <div style="margin-top:0.2rem;"><strong style="color:#888;">Last attempt:</strong> Apr 3, 2026 2:14 PM &nbsp;|&nbsp; <strong style="color:#888;">Job:</strong> 0414f17...</div>
+              </td>
+            </tr>
+            <tr style="border-bottom:1px solid #222;color:#ccc;">
+              <td style="padding:0.3rem;">▶ /mnt/source/CORRESPONDENCE/memo.doc</td>
+              <td style="padding:0.3rem;">.doc</td>
+              <td style="padding:0.3rem;">156 KB</td>
+              <td style="padding:0.3rem;"><span style="color:#f87171;">failed</span></td>
+              <td style="padding:0.3rem;">👁 📂</td>
+            </tr>
+            <tr style="border-bottom:1px solid #222;color:#ccc;">
+              <td style="padding:0.3rem;">▶ /mnt/source/ARCHIVE/old-budget.pdf</td>
+              <td style="padding:0.3rem;">.pdf</td>
+              <td style="padding:0.3rem;">8.1 MB</td>
+              <td style="padding:0.3rem;"><span style="color:#f87171;">failed</span></td>
+              <td style="padding:0.3rem;">👁 📂</td>
+            </tr>
+          </table>
+          <div style="display:flex;justify-content:space-between;margin-top:0.5rem;color:#888;font-size:0.6rem;">
+            <span>Page 1 of 1</span>
+            <span>10 | 30 | 50 | 100 per page</span>
+          </div>
+        </div>
+      </div>
+      <p style="margin-top:0.5rem;color:#888;font-size:0.8rem;"><strong>Key features:</strong> Toggle chips act like filters (multi-select). ▶ on a row expands inline detail. 👁 opens viewer, 📂 opens drive browser to that path.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Sidebar Categories + Table</h3>
+      <p>Left sidebar with category list (counts as badges). Clicking a category filters the main table. Detail panel slides in from the right when a row is clicked.</p>
+      <div class="mockup">
+        <div class="mockup-header">pipeline-files.html?status=failed</div>
+        <div class="mockup-body" style="font-family:monospace;font-size:0.7rem;line-height:1.6;padding:0;background:#12121f;display:flex;">
+          <div style="width:180px;background:#0f0f1e;padding:0.75rem;border-right:1px solid #333;flex-shrink:0;">
+            <div style="color:#888;font-size:0.6rem;text-transform:uppercase;margin-bottom:0.5rem;">Categories</div>
+            <div style="padding:0.25rem 0.4rem;color:#aaa;font-size:0.65rem;border-radius:4px;margin-bottom:0.2rem;">Scanned <span style="float:right;">34,914</span></div>
+            <div style="padding:0.25rem 0.4rem;color:#aaa;font-size:0.65rem;border-radius:4px;margin-bottom:0.2rem;">Pending <span style="float:right;">79,800</span></div>
+            <div style="padding:0.25rem 0.4rem;color:#f87171;font-size:0.65rem;border-radius:4px;margin-bottom:0.2rem;background:rgba(239,68,68,.15);border-left:2px solid #f87171;">Failed <span style="float:right;">42</span></div>
+            <div style="padding:0.25rem 0.4rem;color:#aaa;font-size:0.65rem;border-radius:4px;margin-bottom:0.2rem;">Unrecognized <span style="float:right;">312</span></div>
+            <div style="padding:0.25rem 0.4rem;color:#818cf8;font-size:0.65rem;border-radius:4px;margin-bottom:0.2rem;">Pending Analysis <span style="float:right;">5</span></div>
+            <div style="padding:0.25rem 0.4rem;color:#fbbf24;font-size:0.65rem;border-radius:4px;margin-bottom:0.2rem;">Batched <span style="float:right;">12</span></div>
+            <div style="padding:0.25rem 0.4rem;color:#f87171;font-size:0.65rem;border-radius:4px;margin-bottom:0.2rem;">Analysis Failed <span style="float:right;">1</span></div>
+            <div style="padding:0.25rem 0.4rem;color:#4ade80;font-size:0.65rem;border-radius:4px;margin-bottom:0.2rem;">Indexed <span style="float:right;">4,617</span></div>
+          </div>
+          <div style="flex:1;padding:0.75rem;">
+            <div style="display:flex;gap:0.5rem;margin-bottom:0.5rem;align-items:center;">
+              <input style="flex:1;padding:0.3rem 0.5rem;background:#1a1a2e;border:1px solid #333;color:#ccc;border-radius:4px;font-size:0.7rem;" placeholder="Search failed files...">
+            </div>
+            <table style="width:100%;border-collapse:collapse;font-size:0.65rem;">
+              <tr style="border-bottom:1px solid #333;color:#888;">
+                <td style="padding:0.3rem;">File Path</td>
+                <td style="padding:0.3rem;">Size</td>
+                <td style="padding:0.3rem;">Error</td>
+                <td style="padding:0.3rem;"></td>
+              </tr>
+              <tr style="border-bottom:1px solid #222;color:#ccc;">
+                <td style="padding:0.3rem;">/mnt/source/CONTRACTS/2024/bid-spec.xlsx</td>
+                <td style="padding:0.3rem;">2.4 MB</td>
+                <td style="padding:0.3rem;color:#f87171;font-size:0.6rem;">Unsupported encryption</td>
+                <td style="padding:0.3rem;">👁 📂</td>
+              </tr>
+              <tr style="border-bottom:1px solid #222;color:#ccc;">
+                <td style="padding:0.3rem;">/mnt/source/CORRESPONDENCE/memo.doc</td>
+                <td style="padding:0.3rem;">156 KB</td>
+                <td style="padding:0.3rem;color:#f87171;font-size:0.6rem;">LibreOffice timeout</td>
+                <td style="padding:0.3rem;">👁 📂</td>
+              </tr>
+            </table>
+          </div>
+        </div>
+      </div>
+      <p style="margin-top:0.5rem;color:#888;font-size:0.8rem;"><strong>Key features:</strong> Sidebar gives permanent category navigation. Single-select category. Detail slide-out from right on row click.</p>
+    </div>
+  </div>
+</div>

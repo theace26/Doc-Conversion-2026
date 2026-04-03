@@ -51,6 +51,11 @@ the relevant subsystem. Referenced from CLAUDE.md.
   type to distinguish local SSD from fast network mounts. Without this, fast NAS
   (2.5/10GbE) gets 1 thread instead of 4 because latency looks like local SSD.
 
+- **Preferences table name is `user_preferences` (v0.19.6.4)**: Raw SQL must reference
+  `user_preferences`, not `preferences`. The v0.19.5 incremental scan counter functions
+  used the wrong name, crashing all scans. Always use the DB helper layer in
+  `core/db/preferences.py` when possible; if writing raw SQL, double-check the table name.
+
 - **Batch upsert fallback (v0.19.3)**: `upsert_bulk_files_batch()` in `core/db/bulk.py`
   wraps each batch of 200 files in a single transaction. If the batch write fails
   (e.g., lock contention, unexpected schema error), it catches the exception, logs

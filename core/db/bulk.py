@@ -483,7 +483,7 @@ async def save_dir_mtimes_batch(
 async def get_incremental_scan_count() -> int:
     """Return the number of incremental scans since the last full walk."""
     row = await db_fetch_one(
-        "SELECT value FROM preferences WHERE key = 'scan_incremental_count'"
+        "SELECT value FROM user_preferences WHERE key = 'scan_incremental_count'"
     )
     if row:
         try:
@@ -499,7 +499,7 @@ async def increment_scan_count() -> int:
     new_count = current + 1
     async with get_db() as conn:
         await conn.execute(
-            "INSERT INTO preferences (key, value) VALUES (?, ?) "
+            "INSERT INTO user_preferences (key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value = ?",
             ("scan_incremental_count", str(new_count), str(new_count)),
         )
@@ -511,7 +511,7 @@ async def reset_scan_count() -> None:
     """Reset the incremental scan counter to 0 (after a full walk)."""
     async with get_db() as conn:
         await conn.execute(
-            "INSERT INTO preferences (key, value) VALUES (?, ?) "
+            "INSERT INTO user_preferences (key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value = ?",
             ("scan_incremental_count", "0", "0"),
         )

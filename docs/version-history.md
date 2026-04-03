@@ -4,6 +4,23 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.19.6.4 — Fix Scan Crash: Wrong Table Name in Incremental Counter (2026-04-03)
+
+**Bug fix — scans crashed immediately with `no such table: preferences`:**
+
+- Three raw SQL queries in `core/db/bulk.py` (`get_incremental_scan_count()`,
+  `increment_scan_count()`, `reset_scan_count()`) referenced `preferences` instead of
+  the correct `user_preferences` table.
+- Any scan trigger (run-now, lifecycle) hit `OperationalError: no such table: preferences`
+  and failed before scanning a single file.
+- Root cause: the incremental scan counter functions added in v0.19.5 used hardcoded
+  table names instead of the DB helper layer.
+
+**Files changed:**
+- `core/db/bulk.py` — `preferences` → `user_preferences` in 3 queries
+
+---
+
 ## v0.19.6.3 — Pipeline Files Chip Colors UI Revision (2026-04-03)
 
 **Minor UI revision for the pipeline files page filter chips:**

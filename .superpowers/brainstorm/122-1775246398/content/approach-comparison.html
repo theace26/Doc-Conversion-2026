@@ -1,0 +1,40 @@
+<h2>Pipeline File Explorer — Approach</h2>
+<p class="subtitle">How should clicking a pipeline stat badge show you the files?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Inline Expandable Panel</h3>
+      <p>Click a badge &rarr; file list slides open below the stats bar, right on the status page. Toggle buttons to combine categories. Never leaves the page.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>No page navigation — fast, contextual</li><li>Can glance at files without losing your place</li><li>Toggle multiple categories in-place</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Status page gets taller/busier</li><li>Limited space for complex filtering or large file lists</li><li>Pagination in an inline panel can feel cramped</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Dedicated File Explorer Page</h3>
+      <p>Click a badge &rarr; navigates to <code>pipeline-files.html?status=failed</code>. Full page with table, search, pagination, and toggle buttons for all categories.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Full screen real estate for file browsing</li><li>Room for search, sort, pagination, bulk actions</li><li>Clean separation — status page stays simple</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Extra page navigation (back button to return)</li><li>One more HTML page to maintain</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Hybrid — Link to Existing Pages</h3>
+      <p>Each badge links to the page that already shows those files: job-detail for pending/failed, unrecognized.html for unrecognized, etc. Filters pre-applied via URL params.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>No new pages — reuses what's already built</li><li>Least effort to implement</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Fragmented — different pages for different categories</li><li>No unified view to toggle between categories</li><li>Some categories (analysis, indexed) have no existing page</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>
