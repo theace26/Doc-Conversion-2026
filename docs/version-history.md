@@ -4,6 +4,21 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.19.6.3 — Pipeline Files Chip Colors UI Revision (2026-04-03)
+
+**Minor UI revision for the pipeline files page filter chips:**
+
+- Filter chips on `pipeline-files.html` now always display their category colors (matching the 
+  status page pipeline pills), not just when the filter is active.
+- Color scheme: purple for pending analysis, yellow for batched, red for failed/analysis failed, 
+  green for indexed.
+- Active state adds a border highlight and bold text weight for visual emphasis.
+
+**Files changed:**
+- `static/pipeline-files.html` — chip color styling and active state CSS
+
+---
+
 ## v0.19.6.2 — LLM Banner CSS Fix (2026-04-03)
 
 **Patch fix for the LLM provider status banner CSS on `pipeline-files.html`:**

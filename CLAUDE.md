@@ -26,12 +26,15 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.19.6.2
+## Current Status — v0.19.6.3
 
-v0.19.6.2: LLM banner CSS fix (patch). The `.llm-banner` class had `display: flex` which
-overrode the HTML `hidden` attribute, causing an empty red banner to appear even when the
-provider was verified. Fixed by using `display: none` as default with a `.visible` class
-toggled via `classList.add/remove('visible')` in JS.
+v0.19.6.3: Pipeline files chip colors UI revision. Filter chips on pipeline-files.html now 
+always show their category colors (matching status page pipeline pills) — pending analysis = 
+purple, batched = yellow, failed/analysis failed = red, indexed = green. Active state adds 
+border highlight and bold weight.
+
+Previous (v0.19.6.2): LLM banner CSS fix (patch). Fixed `.llm-banner` display issue via 
+`display: none` default + `.visible` class toggle in JS.
 
 Previous (v0.19.6.1): LLM banner empty display fix — explicit `== 1` checks for SQLite
 integer booleans; banner hides on fetch error.
