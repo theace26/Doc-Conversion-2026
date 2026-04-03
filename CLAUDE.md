@@ -26,23 +26,21 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.18.0
+## Current Status — v0.18.1
 
-v0.18.0: Image analysis queue + pipeline stats. Standalone image files (JPG, PNG,
-TIFF, BMP, GIF, EPS) are now enqueued for LLM vision analysis by the bulk worker
-and lifecycle scanner. A new APScheduler job (`core/analysis_worker.py`, 5-min
-interval) drains the queue in batches via `VisionAdapter.describe_batch()` — a
-single multi-image API call per batch. Results (description + extracted text) stored
-in `analysis_queue` (migration 19) and included in Meilisearch. Pipeline stage
-counts exposed via `GET /api/pipeline/stats` and shown on Status and Admin pages.
+v0.18.1: Bug fix — `upsert_bulk_file()` UNIQUE constraint race condition.
+Replaced SELECT-then-INSERT pattern with atomic `INSERT ... ON CONFLICT DO UPDATE`
+in `core/db/bulk.py`. The old pattern hit `UNIQUE constraint failed: bulk_files.job_id,
+bulk_files.source_path` on every rescan of previously-seen files (286+ errors per
+scan cycle). This prevented lifecycle scans from completing within the 15-minute
+scheduler interval, which meant `on_scan_complete()` was never reached and
+auto-conversion was never triggered — leaving 89K+ files stuck at `pending_conversion`
+with 0 files indexed.
 
-Bug fixed: `lifecycle_scanner.py:924` called `BulkJob(source_path=...)` but
-`BulkJob.__init__` expects `source_paths=` (plural). Auto-conversion via lifecycle
-scanner was silently broken since v0.17.x. Fixed.
-
-GPU staleness fix: `gpu_detector.py` now validates `worker.lock` presence and
-timestamp freshness before trusting `worker_capabilities.json`. Hashcat worker
-writes a 2-minute heartbeat. Stale workstation GPU no longer shown as active.
+Previous (v0.18.0): Image analysis queue + pipeline stats. Standalone image files
+enqueued for LLM vision analysis. APScheduler job (`core/analysis_worker.py`, 5-min
+interval) drains queue in batches. Pipeline funnel stats via `GET /api/pipeline/stats`.
+Bug fixes: lifecycle scanner auto-conversion kwarg, stale GPU display.
 
 Previous (v0.17.7): Scan priority coordinator. New `core/scan_coordinator.py` enforces
 a strict priority hierarchy: Bulk Job > Run Now > Lifecycle Scan. Bulk jobs

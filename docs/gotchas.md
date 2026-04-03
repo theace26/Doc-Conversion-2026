@@ -36,6 +36,12 @@ the relevant subsystem. Referenced from CLAUDE.md.
   cross-job aggregation or total row count overcounts. Needs a dedup strategy or a
   separate global file registry.
 
+- **bulk_files upsert must be atomic (v0.18.1)**: `upsert_bulk_file()` now uses
+  `INSERT ... ON CONFLICT DO UPDATE` instead of SELECT-then-INSERT. The old pattern
+  caused `UNIQUE constraint failed` errors on rescans (race between check and insert).
+  This blocked lifecycle scans from completing and prevented auto-conversion from
+  ever triggering. Do NOT revert to the SELECT-then-INSERT pattern.
+
 ## Logging
 
 - **structlog + stdlib**: Call `configure_logging()` once at module level in `main.py` before

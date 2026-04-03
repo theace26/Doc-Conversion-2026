@@ -1,5 +1,67 @@
 # MarkFlow Bug Log
 
+## 2026-04-03 — Bulk Upsert UNIQUE Constraint Race (v0.18.1)
+
+### Bug: `upsert_bulk_file()` SELECT-then-INSERT race condition
+
+**Symptom:** Lifecycle scanner logs flooded with `UNIQUE constraint failed:
+bulk_files.job_id, bulk_files.source_path` errors — 286+ per scan cycle. Pipeline
+stats showed 89,527 files scanned, 89,526 pending conversion, 0 in search index.
+No files were being converted or indexed despite the scanner running continuously.
+
+**Root cause:** `core/db/bulk.py:upsert_bulk_file()` used a non-atomic SELECT-then-INSERT
+pattern. On rescans, the SELECT checked `bulk_files` for an existing `(job_id, source_path)`
+pair, found nothing (likely due to connection/transaction timing), then attempted INSERT
+which hit the UNIQUE constraint because the row already existed. Each error was caught
+per-file so the scan continued, but the cumulative overhead of processing 89K+ files on
+a NAS mount with per-file exception handling prevented the scan from completing within
+the 15-minute scheduler interval. Since `on_scan_complete()` was never reached,
+auto-conversion was never triggered.
+
+**Fix:** Replaced SELECT-then-INSERT with atomic `INSERT ... ON CONFLICT(job_id, source_path)
+DO UPDATE SET ...`. The skip/pending logic is preserved via SQL CASE expressions comparing
+`bulk_files.stored_mtime` against `excluded.source_mtime`.
+
+**Files changed:** `core/db/bulk.py` (upsert_bulk_file function)
+
+**Impact:** CRITICAL — entire conversion+indexing pipeline was blocked. No files could
+reach the search index.
+
+---
+
+## 2026-04-02 — Auto-Conversion Kwarg + GPU Staleness (v0.18.0)
+
+### Bug 1: Lifecycle scanner auto-conversion silently broken
+
+**Symptom:** Lifecycle scans completed, detected new files, decided to auto-convert, but
+no conversion ever ran. No visible error in normal logs.
+
+**Root cause:** `core/lifecycle_scanner.py:924` called `BulkJob(source_path=...)` but
+`BulkJob.__init__` expects `source_paths=` (plural). Every auto-conversion triggered by
+the lifecycle scanner failed with `BulkJob.__init__() got an unexpected keyword argument
+'source_path'`, caught by the generic exception handler at line 398.
+
+**Fix:** Changed `source_path=` to `source_paths=` in the `BulkJob()` constructor call.
+
+**Impact:** HIGH — auto-conversion via lifecycle scanner was silently broken since v0.17.x.
+
+### Bug 2: Stale GPU displayed from disconnected workstation
+
+**Symptom:** Health check showed "NVIDIA GeForce GTX 1660 Ti" as the active GPU even
+when the workstation was disconnected. The GPU had been detected by the hashcat worker
+on a different machine and cached in `worker_capabilities.json`.
+
+**Root cause:** `core/gpu_detector.py:_read_host_worker_report()` trusted the cached
+`worker_capabilities.json` without checking if the worker was still alive.
+
+**Fix:** Added `worker.lock` presence and timestamp freshness checks. Hashcat worker now
+writes a 2-minute heartbeat to `worker.lock`. Stale capabilities (no lock file or lock
+older than 5 minutes) are ignored.
+
+**Files changed:** `core/gpu_detector.py`, `tools/markflow-hashcat-worker.py`
+
+---
+
 ## 2026-03-25 — MCP Crash + Lifecycle FK Constraint
 
 ### Bug 1: MCP Server Crash-Looping

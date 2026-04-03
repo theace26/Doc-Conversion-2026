@@ -4,6 +4,25 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.18.1 — Bulk Upsert Race Condition Fix (2026-04-03)
+
+**Bug fix — UNIQUE constraint race in `upsert_bulk_file()`:**
+- `core/db/bulk.py`: Replaced SELECT-then-INSERT pattern with atomic
+  `INSERT ... ON CONFLICT(job_id, source_path) DO UPDATE SET ...`.
+- The old pattern checked for an existing row with SELECT, then INSERTed if not
+  found. On rescans, previously-registered files caused `UNIQUE constraint failed:
+  bulk_files.job_id, bulk_files.source_path` errors (286+ per scan cycle).
+- The errors were caught per-file (scan continued), but the cumulative overhead of
+  89K+ files on a NAS mount with per-file error handling prevented the scan from
+  completing within the 15-minute scheduler interval.
+- Since `on_scan_complete()` was never reached, auto-conversion was never triggered,
+  leaving all files stuck at `pending_conversion` with 0 files converted or indexed.
+- The atomic upsert preserves the same skip/pending logic via SQL CASE expressions:
+  if `stored_mtime` matches the incoming `source_mtime`, status is set to `skipped`;
+  otherwise status is reset to `pending` for re-conversion.
+
+---
+
 ## v0.18.0 — Image Analysis Queue + Pipeline Stats (2026-04-02)
 
 **Decoupled LLM vision analysis for standalone image files:**

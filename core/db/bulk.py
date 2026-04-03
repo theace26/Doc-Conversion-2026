@@ -156,39 +156,44 @@ async def upsert_bulk_file(
         job_id=job_id,
     )
 
+    file_id = uuid.uuid4().hex
+
     async with get_db() as conn:
+        # Atomic upsert: INSERT or update on conflict to avoid race conditions
+        # between SELECT and INSERT that caused UNIQUE constraint errors.
+        await conn.execute(
+            """INSERT INTO bulk_files
+               (id, job_id, source_path, file_ext, file_size_bytes,
+                source_mtime, status, source_file_id)
+               VALUES (?,?,?,?,?,?,?,?)
+               ON CONFLICT(job_id, source_path) DO UPDATE SET
+                file_ext = excluded.file_ext,
+                file_size_bytes = excluded.file_size_bytes,
+                source_file_id = excluded.source_file_id,
+                status = CASE
+                    WHEN bulk_files.stored_mtime IS NOT NULL
+                         AND bulk_files.stored_mtime = excluded.source_mtime
+                    THEN 'skipped'
+                    ELSE 'pending'
+                END,
+                skip_reason = CASE
+                    WHEN bulk_files.stored_mtime IS NOT NULL
+                         AND bulk_files.stored_mtime = excluded.source_mtime
+                    THEN 'Unchanged since last scan'
+                    ELSE NULL
+                END,
+                source_mtime = excluded.source_mtime""",
+            (file_id, job_id, source_path, file_ext, file_size_bytes,
+             source_mtime, "pending", source_file_id),
+        )
+
+        # Retrieve actual id (generated for inserts, existing for conflicts)
         async with conn.execute(
-            "SELECT id, stored_mtime FROM bulk_files WHERE job_id=? AND source_path=?",
+            "SELECT id FROM bulk_files WHERE job_id=? AND source_path=?",
             (job_id, source_path),
         ) as cur:
             row = await cur.fetchone()
-
-        if row is not None:
             file_id = row["id"]
-            stored_mtime = row["stored_mtime"]
-            if stored_mtime is not None and stored_mtime == source_mtime:
-                await conn.execute(
-                    """UPDATE bulk_files SET status='skipped', source_mtime=?,
-                       file_size_bytes=?, source_file_id=?,
-                       skip_reason='Unchanged since last scan' WHERE id=?""",
-                    (source_mtime, file_size_bytes, source_file_id, file_id),
-                )
-            else:
-                await conn.execute(
-                    """UPDATE bulk_files SET status='pending', source_mtime=?,
-                       file_size_bytes=?, source_file_id=? WHERE id=?""",
-                    (source_mtime, file_size_bytes, source_file_id, file_id),
-                )
-        else:
-            file_id = uuid.uuid4().hex
-            await conn.execute(
-                """INSERT INTO bulk_files
-                   (id, job_id, source_path, file_ext, file_size_bytes,
-                    source_mtime, status, source_file_id)
-                   VALUES (?,?,?,?,?,?,?,?)""",
-                (file_id, job_id, source_path, file_ext, file_size_bytes,
-                 source_mtime, "pending", source_file_id),
-            )
 
         await conn.commit()
     return file_id
