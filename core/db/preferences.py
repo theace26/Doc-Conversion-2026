@@ -68,6 +68,9 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     "pipeline_max_files_per_run": "0",
     "pipeline_startup_delay_minutes": "5",
     "pipeline_auto_reset_days": "3",
+    # Incremental scanning (v0.19.5)
+    "scan_incremental_enabled": "true",
+    "scan_full_walk_interval": "5",
     # Image analysis queue (v0.18.0)
     "analysis_enabled": "true",
     "analysis_batch_size": "10",

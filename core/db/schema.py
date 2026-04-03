@@ -602,6 +602,15 @@ _MIGRATIONS: list[tuple[int, str, list[str]]] = [
     (20, "Token usage tracking on analysis_queue", [
         "ALTER TABLE analysis_queue ADD COLUMN tokens_used INTEGER",
     ]),
+    (21, "Directory mtime cache for incremental scanning", [
+        """CREATE TABLE IF NOT EXISTS scan_dir_mtimes (
+            dir_path    TEXT PRIMARY KEY,
+            dir_mtime   REAL NOT NULL,
+            scan_run_id TEXT NOT NULL,
+            updated_at  TEXT NOT NULL
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_scan_dir_mtimes_run ON scan_dir_mtimes(scan_run_id)",
+    ]),
 ]
 
 

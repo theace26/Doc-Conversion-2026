@@ -455,6 +455,69 @@ async def get_pipeline_files(
     return rows, total
 
 
+async def load_dir_mtimes() -> dict[str, float]:
+    """Load all cached directory mtimes into a dict for fast lookup."""
+    rows = await db_fetch_all("SELECT dir_path, dir_mtime FROM scan_dir_mtimes")
+    return {row["dir_path"]: row["dir_mtime"] for row in rows}
+
+
+async def save_dir_mtimes_batch(
+    dir_mtimes: dict[str, float],
+    scan_run_id: str,
+) -> None:
+    """Persist directory mtimes in a single transaction."""
+    if not dir_mtimes:
+        return
+    ts = now_iso()
+    async with get_db() as conn:
+        await conn.execute("DELETE FROM scan_dir_mtimes")
+        for dir_path, mtime in dir_mtimes.items():
+            await conn.execute(
+                "INSERT INTO scan_dir_mtimes (dir_path, dir_mtime, scan_run_id, updated_at) "
+                "VALUES (?, ?, ?, ?)",
+                (dir_path, mtime, scan_run_id, ts),
+            )
+        await conn.commit()
+
+
+async def get_incremental_scan_count() -> int:
+    """Return the number of incremental scans since the last full walk."""
+    row = await db_fetch_one(
+        "SELECT value FROM preferences WHERE key = 'scan_incremental_count'"
+    )
+    if row:
+        try:
+            return int(row["value"])
+        except (ValueError, TypeError):
+            pass
+    return 0
+
+
+async def increment_scan_count() -> int:
+    """Increment and return the incremental scan counter."""
+    current = await get_incremental_scan_count()
+    new_count = current + 1
+    async with get_db() as conn:
+        await conn.execute(
+            "INSERT INTO preferences (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = ?",
+            ("scan_incremental_count", str(new_count), str(new_count)),
+        )
+        await conn.commit()
+    return new_count
+
+
+async def reset_scan_count() -> None:
+    """Reset the incremental scan counter to 0 (after a full walk)."""
+    async with get_db() as conn:
+        await conn.execute(
+            "INSERT INTO preferences (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = ?",
+            ("scan_incremental_count", "0", "0"),
+        )
+        await conn.commit()
+
+
 async def update_bulk_file(file_id: str, **fields) -> None:
     """Update any combination of bulk_files fields."""
     if not fields:
