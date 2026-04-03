@@ -35,7 +35,7 @@ DEFAULT_PREFERENCES: dict[str, str] = {
         "factual. Do not describe what you cannot see clearly."
     ),
     "scanner_enabled": "true",
-    "scanner_interval_minutes": "15",
+    "scanner_interval_minutes": "45",
     "scanner_business_hours_start": "06:00",
     "scanner_business_hours_end": "22:00",
     "lifecycle_grace_period_hours": "36",

@@ -13,6 +13,7 @@ Usage:
 
 import os
 import statistics
+import subprocess
 import threading
 import time
 from collections import deque
@@ -35,9 +36,10 @@ SSD_LATENCY_CEILING_MS = 0.1
 
 # Thread count lookup based on detected storage type and latency
 _THREAD_TABLE = {
-    "ssd":       1,   # Already fast — parallelism adds overhead, not speed
+    "ssd":       1,   # Local SSD — parallelism adds overhead, not speed
     "hdd":       1,   # Seek thrashing makes parallel worse
     "hdd_busy":  1,   # Busy HDD — definitely stay serial
+    "nas_fast":  4,   # Fast NAS (2.5/10GbE) — parallel fills the pipe
     "nas":       6,   # Typical NAS over gigabit — good parallelism target
     "nas_slow":  10,  # Slow NAS (WiFi, VPN, WAN) — aggressive overlap
 }
@@ -359,9 +361,33 @@ def _time_stat_calls(files: list[Path]) -> list[float]:
     return latencies
 
 
+def _is_network_mount(path: Path) -> bool:
+    """Check if path resides on a network filesystem (CIFS, NFS, etc.)."""
+    try:
+        result = subprocess.run(
+            ["stat", "-f", "-c", "%T", str(path)],
+            capture_output=True, text=True, timeout=5,
+        )
+        fs_type = result.stdout.strip().lower()
+        return fs_type in ("cifs", "smb2", "nfs", "nfs4", "fuse.sshfs", "9p")
+    except Exception:
+        # Fallback: check /proc/mounts
+        try:
+            with open("/proc/mounts") as f:
+                path_str = str(path)
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 3 and path_str.startswith(parts[1]):
+                        return parts[2].lower() in ("cifs", "smb2", "nfs", "nfs4", "fuse.sshfs", "9p")
+        except Exception:
+            pass
+    return False
+
+
 def _classify(
     seq_latencies: list[float],
     rand_latencies: list[float],
+    source_path: Path | None = None,
 ) -> StorageProfile:
     """Classify storage type from sequential and random stat latency measurements."""
 
@@ -383,8 +409,11 @@ def _classify(
 
     # Classification logic
     if seq_median < SSD_LATENCY_CEILING_MS and ratio < 2.0:
-        # Very fast + no seek penalty = SSD
-        hint = "ssd"
+        # Very fast + no seek penalty — but is it local SSD or fast NAS?
+        if source_path and _is_network_mount(source_path):
+            hint = "nas_fast"
+        else:
+            hint = "ssd"
     elif ratio >= HDD_RATIO_THRESHOLD:
         # Large seek penalty = spinning disk
         if seq_median > 1.0:
@@ -445,7 +474,7 @@ def _probe_sync(source_path: Path) -> StorageProfile:
     seq_latencies = _time_stat_calls(sequential)
     rand_latencies = _time_stat_calls(random_files)
 
-    profile = _classify(seq_latencies, rand_latencies)
+    profile = _classify(seq_latencies, rand_latencies, source_path=source_path)
     profile.probe_duration_ms = round((time.perf_counter() - t_start) * 1000, 1)
 
     return profile

@@ -26,21 +26,25 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.18.1
+## Current Status — v0.19.0
 
-v0.18.1: Bug fix — `upsert_bulk_file()` UNIQUE constraint race condition.
-Replaced SELECT-then-INSERT pattern with atomic `INSERT ... ON CONFLICT DO UPDATE`
-in `core/db/bulk.py`. The old pattern hit `UNIQUE constraint failed: bulk_files.job_id,
-bulk_files.source_path` on every rescan of previously-seen files (286+ errors per
-scan cycle). This prevented lifecycle scans from completing within the 15-minute
-scheduler interval, which meant `on_scan_complete()` was never reached and
-auto-conversion was never triggered — leaving 89K+ files stuck at `pending_conversion`
-with 0 files indexed.
+v0.19.0: Decoupled conversion pipeline + fast NAS parallel scanning.
 
-Previous (v0.18.0): Image analysis queue + pipeline stats. Standalone image files
-enqueued for LLM vision analysis. APScheduler job (`core/analysis_worker.py`, 5-min
-interval) drains queue in batches. Pipeline funnel stats via `GET /api/pipeline/stats`.
-Bug fixes: lifecycle scanner auto-conversion kwarg, stale GPU display.
+Conversion is no longer gated on scan completion. A backlog poller
+(`_run_deferred_conversions`, 15-min interval) checks for pending files and
+starts a BulkJob independently of the lifecycle scanner. This fixes the
+pipeline stall where 100K+ files on NAS could never complete scanning within
+the scheduler interval, preventing auto-conversion from ever triggering.
+
+Storage probe now detects fast NAS (CIFS/NFS over 2.5/10GbE) as `nas_fast`
+instead of misclassifying as `ssd`. Fast NAS gets 4 parallel scan threads
+instead of 1 — the probe checks `/proc/mounts` filesystem type to distinguish
+local SSD from network-mounted fast storage.
+
+Scanner interval bumped from 15 → 45 minutes (default preference + scheduler).
+
+Previous (v0.18.1): atomic upsert fix for UNIQUE constraint race in bulk_files.
+Previous (v0.18.0): image analysis queue, pipeline stats, bug fixes.
 
 Previous (v0.17.7): Scan priority coordinator. New `core/scan_coordinator.py` enforces
 a strict priority hierarchy: Bulk Job > Run Now > Lifecycle Scan. Bulk jobs

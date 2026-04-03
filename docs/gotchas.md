@@ -42,6 +42,15 @@ the relevant subsystem. Referenced from CLAUDE.md.
   This blocked lifecycle scans from completing and prevented auto-conversion from
   ever triggering. Do NOT revert to the SELECT-then-INSERT pattern.
 
+- **Conversion is decoupled from scan completion (v0.19.0)**: The backlog poller
+  in `_run_deferred_conversions` starts conversion batches independently of the
+  lifecycle scanner. Do NOT re-introduce a dependency where conversion requires
+  `on_scan_complete()` — on large NAS mounts, scans may never finish in one interval.
+
+- **Fast NAS misclassified as SSD (v0.19.0)**: `storage_probe.py` checks filesystem
+  type to distinguish local SSD from fast network mounts. Without this, fast NAS
+  (2.5/10GbE) gets 1 thread instead of 4 because latency looks like local SSD.
+
 ## Logging
 
 - **structlog + stdlib**: Call `configure_logging()` once at module level in `main.py` before

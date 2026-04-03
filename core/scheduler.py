@@ -315,13 +315,68 @@ async def _pipeline_watchdog() -> None:
 
 
 async def _run_deferred_conversions() -> None:
-    """Check for deferred auto-conversion jobs and start them if in-window.
+    """Backlog poller: start conversion batches for pending files.
 
-    Only relevant in 'scheduled' mode. Checks if we're now inside a
-    conversion window and picks up any pending deferred runs.
+    In 'immediate' or 'queued' mode, checks for pending files and starts
+    a conversion batch if no bulk job is currently active — decoupled from
+    scan completion so conversion doesn't wait for the scanner to finish.
+
+    In 'scheduled' mode, also picks up deferred runs when in-window.
     """
     try:
         mode = await get_preference("auto_convert_mode") or "off"
+        if mode == "off":
+            return
+
+        pipeline_enabled = (await get_preference("pipeline_enabled") or "true") == "true"
+        if not pipeline_enabled:
+            return
+
+        # ── Backlog poller (immediate / queued / scheduled) ─────────
+        from core.bulk_worker import get_all_active_jobs
+        from core.database import db_fetch_one
+
+        active = await get_all_active_jobs()
+        if not active:
+            row = await db_fetch_one(
+                "SELECT COUNT(*) as cnt FROM bulk_files WHERE status = 'pending'"
+            )
+            pending = row["cnt"] if row else 0
+
+            if pending > 0:
+                log.info(
+                    "backlog_conversion_triggered",
+                    pending_files=pending,
+                    mode=mode,
+                )
+                # Reuse the auto-conversion execution path
+                import asyncio
+                import os
+                from pathlib import Path
+                from core.auto_converter import AutoConvertDecision
+                from core.lifecycle_scanner import _execute_auto_conversion
+
+                workers = int(await get_preference("auto_convert_workers") or "8")
+                batch_raw = await get_preference("auto_convert_batch_size") or "auto"
+                batch_size = 0 if batch_raw == "auto" else int(batch_raw)
+                source_root = Path(os.getenv("SOURCE_DIR", "/mnt/source"))
+
+                decision = AutoConvertDecision(
+                    should_convert=True,
+                    mode=mode if mode != "scheduled" else "queued",
+                    workers=workers,
+                    batch_size=batch_size,
+                    reason=f"Backlog poller: {pending} pending files",
+                )
+                await _execute_auto_conversion(
+                    decision,
+                    scan_run_id="backlog-poller",
+                    source_root=source_root,
+                    job_id="backlog",
+                )
+                return  # Don't also process deferred runs this tick
+
+        # ── Deferred run handler (scheduled mode only) ─────────────
         if mode != "scheduled":
             return
 
@@ -419,10 +474,10 @@ def start_scheduler() -> None:
         max_instances=1,
     )
 
-    # Lifecycle scan — every 15 minutes (Mon-Fri within configured scan hours)
+    # Lifecycle scan — 45 min default (matches scanner_interval_minutes preference)
     scheduler.add_job(
         run_lifecycle_scan,
-        trigger=IntervalTrigger(minutes=15),
+        trigger=IntervalTrigger(minutes=45),
         id="lifecycle_scan",
         replace_existing=True,
         max_instances=1,

@@ -4,6 +4,31 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.19.0 — Decoupled Conversion Pipeline + Fast NAS Scanning (2026-04-03)
+
+**Decoupled conversion from scan completion (producer-consumer pattern):**
+- `core/scheduler.py`: `_run_deferred_conversions` now works in all modes
+  (`immediate`, `queued`, `scheduled`), not just `scheduled`.
+- Every 15 minutes, checks `bulk_files WHERE status='pending'`. If pending > 0
+  and no active bulk job, creates a BulkJob and starts conversion immediately.
+- Conversion no longer requires `on_scan_complete()` — scanner and converter
+  run independently. Scanner produces work items, poller drains them.
+- Fixes pipeline stall where 100K+ NAS files couldn't finish scanning within
+  the 15-min interval, permanently blocking auto-conversion.
+
+**Fast NAS detection in storage probe:**
+- `core/storage_probe.py`: New `nas_fast` classification for network mounts
+  with SSD-like latency (< 0.1ms, ratio < 2.0).
+- Checks filesystem type via `stat -f -c %T` with `/proc/mounts` fallback
+  to distinguish local SSD from CIFS/NFS/sshfs mounts.
+- `nas_fast` gets 4 parallel scan threads (was 1 when misclassified as `ssd`).
+
+**Scanner interval increased:**
+- Default `scanner_interval_minutes` preference: 15 → 45 minutes.
+- Scheduler hardcoded interval: 15 → 45 minutes.
+
+---
+
 ## v0.18.1 — Bulk Upsert Race Condition Fix (2026-04-03)
 
 **Bug fix — UNIQUE constraint race in `upsert_bulk_file()`:**
