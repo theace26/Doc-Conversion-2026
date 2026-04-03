@@ -26,9 +26,15 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.19.6.5
+## Current Status — v0.19.6.6
 
-v0.19.6.5: DB contention logging for diagnosing "database is locked" errors. Three
+v0.19.6.6: Fix OCR confidence threshold slider display bug. The `populateForm()` function
+in `settings.html` had a generic `type=range` handler that wrote all range slider values
+to the same `range-output` element. When the conservatism factor slider was populated, it
+overwrote the OCR confidence display, showing incorrect values (e.g. 400%). Now each range
+slider updates its own output element.
+
+Previous (v0.19.6.5): DB contention logging for diagnosing "database is locked" errors. Three
 dedicated log files in `logs/`: `db-contention.log` (write acquire/release with caller
 and hold duration), `db-queries.log` (full SQL with params, timing, caller),
 `db-active.log` (active-connection snapshots dumped on lock error). All capped at 1 GB

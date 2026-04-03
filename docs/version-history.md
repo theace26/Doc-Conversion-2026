@@ -4,6 +4,20 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.19.6.6 — Fix OCR Confidence Threshold Slider Display (2026-04-03)
+
+**Bug fix — OCR confidence threshold showed incorrect percentage (e.g. 400%):**
+
+- `populateForm()` in `settings.html` had a generic `el.type === 'range'` branch that
+  wrote every range slider's value to the shared `range-output` element. The conservatism
+  factor slider (0.3–1.0) overwrote the OCR confidence display on page load.
+- Fixed by routing each range slider to its own output element based on the preference key.
+
+**Files changed:**
+- `static/settings.html` — key-specific output updates in `populateForm()`
+
+---
+
 ## v0.19.6.5 — DB Contention Logging for Lock Diagnosis (2026-04-03)
 
 **TEMPORARY instrumentation to diagnose recurring "database is locked" errors:**

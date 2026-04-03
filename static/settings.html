@@ -1142,7 +1142,12 @@
         updateToggleLabel(el);
       } else if (el.type === 'range') {
         el.value = value;
-        document.getElementById('range-output').textContent = value + '%';
+        // Each range slider updates its own output element
+        if (key === 'ocr_confidence_threshold') {
+          document.getElementById('range-output').textContent = value + '%';
+        } else if (key === 'auto_convert_conservative_factor') {
+          document.getElementById('conservative-output').textContent = value;
+        }
       } else {
         el.value = value;
       }
