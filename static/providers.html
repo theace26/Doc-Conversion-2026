@@ -357,7 +357,7 @@
       : 'Delete this provider?';
     if (!confirm(msg)) return;
     try {
-      await API.delete(`/api/llm-providers/${id}?force=true`);
+      await API.del(`/api/llm-providers/${id}?force=true`);
       showToast('Provider deleted.', 'success');
       loadProviders();
     } catch (e) { showToast(e.message, 'error'); }
