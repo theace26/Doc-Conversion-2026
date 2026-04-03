@@ -4,6 +4,22 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.19.6.1 — LLM Banner Empty Display Fix (2026-04-03)
+
+**Patch fix for the LLM provider status banner on `pipeline-files.html`:**
+
+- Banner was rendering as an empty red box even when the active provider was verified and
+  active. Root cause: SQLite returns `is_active` / `is_verified` as integers (`0`/`1`), not
+  Python booleans. Truthy checks passed for both truthy (`1`) and falsy (`0`) values in some
+  code paths. Fixed with explicit `== 1` equality checks.
+- Banner now hides (sets `display: none`) on fetch error instead of remaining visible in its
+  default state, preventing a spurious red box when the provider API is unreachable.
+
+**Files changed:**
+- `static/pipeline-files.html` — integer equality checks for `is_active`/`is_verified`; hide banner on fetch error
+
+---
+
 ## v0.19.6 — Pipeline Files Fixes + Provider UX (2026-04-03)
 
 **Multiple fixes and features for the pipeline files page and LLM provider workflow:**

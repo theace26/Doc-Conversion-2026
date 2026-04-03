@@ -26,9 +26,15 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.19.6
+## Current Status — v0.19.6.1
 
-v0.19.6: Pipeline files display fixes, LLM provider status banner, return-to
+v0.19.6.1: LLM banner empty display fix (patch). The LLM provider status banner on
+`pipeline-files.html` showed as an empty red box even when the provider was verified and
+active. Fixed: (1) explicit equality checks for `is_active` and `is_verified` since SQLite
+returns integers not booleans; (2) banner now hides on fetch error instead of remaining in
+default (visible) state.
+
+Previous (v0.19.6): Pipeline files display fixes, LLM provider status banner, return-to
 workflow, auto-requeue on provider verify, GPU health display fix, and providers
 page delete fix. (1) Fixed HTTP 500 on pipeline-files pending filter — ambiguous
 column name in UNION query resolved by wrapping in a subquery. (2) Fixed Unicode
