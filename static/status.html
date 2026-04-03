@@ -31,14 +31,14 @@
     <!-- Pipeline stat strip -->
     <div id="pipeline-stats-strip" style="display:flex;flex-wrap:wrap;gap:0.5rem;margin:0.75rem 0 1rem 0;padding:0.75rem 1rem;background:var(--bg-secondary,#1a1a2e);border-radius:8px;">
       <span style="color:var(--text-muted,#888);align-self:center;margin-right:0.25rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;font-size:0.75rem;">Pipeline</span>
-      <span class="stat-pill" id="ps-scanned">— scanned</span>
-      <span class="stat-pill" id="ps-pending">— pending</span>
-      <span class="stat-pill" id="ps-failed">— failed</span>
-      <span class="stat-pill" id="ps-unrecognized">— unrecognized</span>
-      <span class="stat-pill stat-pill--analysis" id="ps-panalysis">— pending analysis</span>
-      <span class="stat-pill stat-pill--batched"   id="ps-batched">— batched</span>
-      <span class="stat-pill stat-pill--afailed"   id="ps-afailed">— analysis failed</span>
-      <span class="stat-pill stat-pill--indexed"   id="ps-indexed">— indexed</span>
+      <a class="stat-pill stat-pill--link" href="/pipeline-files.html?status=scanned" id="ps-scanned">— scanned</a>
+      <a class="stat-pill stat-pill--link" href="/pipeline-files.html?status=pending" id="ps-pending">— pending</a>
+      <a class="stat-pill stat-pill--link" href="/pipeline-files.html?status=failed" id="ps-failed">— failed</a>
+      <a class="stat-pill stat-pill--link" href="/pipeline-files.html?status=unrecognized" id="ps-unrecognized">— unrecognized</a>
+      <a class="stat-pill stat-pill--link stat-pill--analysis" href="/pipeline-files.html?status=pending_analysis" id="ps-panalysis">— pending analysis</a>
+      <a class="stat-pill stat-pill--link stat-pill--batched" href="/pipeline-files.html?status=batched" id="ps-batched">— batched</a>
+      <a class="stat-pill stat-pill--link stat-pill--afailed" href="/pipeline-files.html?status=analysis_failed" id="ps-afailed">— analysis failed</a>
+      <a class="stat-pill stat-pill--link stat-pill--indexed" href="/pipeline-files.html?status=indexed" id="ps-indexed">— indexed</a>
     </div>
 
     <!-- Job cards container -->

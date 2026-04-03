@@ -149,6 +149,7 @@ async function populateLocationSelect(selectEl, type, selectedId = null) {
 const NAV_ITEMS = [
     { href: "/search.html",     label: "Search",    minRole: "search_user" },
     { href: "/status.html",     label: "Status",    minRole: "search_user", badge: true },
+    { href: "/pipeline-files.html", label: "Files", minRole: "operator"    },
     { href: "/index.html",      label: "Convert",   minRole: "operator"    },
     { href: "/history.html",    label: "History",   minRole: "operator"    },
     { href: "/bulk.html",       label: "Bulk Jobs", minRole: "manager"     },
