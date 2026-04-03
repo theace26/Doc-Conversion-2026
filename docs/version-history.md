@@ -4,6 +4,33 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.19.1 — Fix Concurrent Bulk Job Race Condition (2026-04-03)
+
+**Bug fix — duplicate bulk jobs caused SQLite deadlock and permanent stall:**
+- Two independent code paths could create bulk jobs simultaneously:
+  (1) the backlog poller in `_run_deferred_conversions` and (2) the
+  auto-conversion trigger in `_execute_auto_conversion` after lifecycle scan
+  completion. Neither path checked whether the other had already started a job.
+- Concurrent jobs scanning the same source path into `bulk_files` caused SQLite
+  write contention. Both jobs stalled at ~85-90% of their scan phase and never
+  transitioned from "scanning" to "running" — zero files were ever converted.
+- The in-memory `get_all_active_jobs()` misreported scanning jobs as `"done"`
+  because `_total_pending == 0` during the scan phase, allowing the guard in the
+  backlog poller to pass when it should have blocked.
+
+**Fixes applied:**
+- `core/bulk_worker.py`: Added `_scanning` flag to `BulkJob.__init__()`, set to
+  `True` during scan phase, cleared before transitioning to "running". Updated
+  `get_all_active_jobs()` status derivation to return `"scanning"` when flag is set.
+- `core/lifecycle_scanner.py`: Added concurrency guard to `_execute_auto_conversion()` —
+  checks `get_all_active_jobs()` and refuses to create a new job if any existing
+  job has status `scanning`, `running`, or `paused`.
+- `core/scheduler.py`: Hardened the backlog poller guard with an explicit status
+  filter on the in-memory check AND a DB-level fallback query against `bulk_jobs`
+  to catch jobs that exist in the DB but not yet in memory.
+
+---
+
 ## v0.19.0 — Decoupled Conversion Pipeline + Fast NAS Scanning (2026-04-03)
 
 **Decoupled conversion from scan completion (producer-consumer pattern):**

@@ -240,6 +240,7 @@ class BulkJob:
         self._failed = 0
         self._adobe_indexed = 0
         self._total_pending = 0
+        self._scanning = True  # True until scan phase completes
         self._skip_batch_count = 0
         self._review_queue_count = 0
         self._files_completed = 0  # Track total completed for max_files
@@ -338,6 +339,7 @@ class BulkJob:
                 })
 
             # Update job totals
+            self._scanning = False
             self._skipped = scan_result.skipped_count
             await update_bulk_job_status(
                 self.job_id, "running",
@@ -1135,6 +1137,8 @@ async def get_all_active_jobs() -> list[dict]:
             status = "cancelled"
         elif not job._pause_event.is_set():
             status = "paused"
+        elif job._scanning:
+            status = "scanning"
         elif job._total_pending > 0 and job._converted + job._failed + job._skipped < job._total_pending:
             status = "running"
         else:

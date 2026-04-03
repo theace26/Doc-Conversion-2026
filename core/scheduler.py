@@ -337,6 +337,16 @@ async def _run_deferred_conversions() -> None:
         from core.database import db_fetch_one
 
         active = await get_all_active_jobs()
+        if any(j["status"] in ("scanning", "running", "paused") for j in active):
+            log.debug("backlog_poller.skipped_active_job")
+            return
+        # Double-check DB — in-memory state can miss jobs from other code paths
+        db_active = await db_fetch_one(
+            "SELECT COUNT(*) as cnt FROM bulk_jobs WHERE status IN ('scanning', 'running', 'pending')"
+        )
+        if db_active and db_active["cnt"] > 0:
+            log.debug("backlog_poller.skipped_db_active_job", db_active_count=db_active["cnt"])
+            return
         if not active:
             row = await db_fetch_one(
                 "SELECT COUNT(*) as cnt FROM bulk_files WHERE status = 'pending'"

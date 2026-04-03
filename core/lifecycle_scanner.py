@@ -885,10 +885,18 @@ async def _execute_auto_conversion(
     Uses the existing BulkJob infrastructure — auto-conversion is just
     a programmatically-created bulk job with specific worker/batch settings.
     """
-    from core.bulk_worker import BulkJob
+    from core.bulk_worker import BulkJob, get_all_active_jobs
     from core.database import create_bulk_job, get_db_path, get_preference
 
     try:
+        # Guard: refuse to start if another bulk job is already active
+        active = await get_all_active_jobs()
+        if any(j["status"] in ("scanning", "running", "paused") for j in active):
+            log.info("auto_convert_skipped_job_active",
+                     active_count=len(active),
+                     active_ids=[j["job_id"] for j in active if j["status"] in ("scanning", "running", "paused")])
+            return
+
         output_path = os.getenv("BULK_OUTPUT_PATH", "/mnt/output-repo")
 
         # Apply pipeline_max_files_per_run cap if set

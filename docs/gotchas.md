@@ -51,6 +51,14 @@ the relevant subsystem. Referenced from CLAUDE.md.
   type to distinguish local SSD from fast network mounts. Without this, fast NAS
   (2.5/10GbE) gets 1 thread instead of 4 because latency looks like local SSD.
 
+- **Concurrent bulk jobs deadlock SQLite (v0.19.1)**: Two code paths can create
+  bulk jobs: the backlog poller (`scheduler.py:_run_deferred_conversions`) and
+  the lifecycle scan auto-trigger (`lifecycle_scanner.py:_execute_auto_conversion`).
+  Both must check for active jobs before creating new ones. The in-memory
+  `get_all_active_jobs()` must correctly report `"scanning"` status (not `"done"`)
+  during the scan phase — use the `_scanning` flag on `BulkJob`. The backlog poller
+  also double-checks the DB as a fallback since in-memory state can be stale.
+
 ## Logging
 
 - **structlog + stdlib**: Call `configure_logging()` once at module level in `main.py` before

@@ -1,5 +1,52 @@
 # MarkFlow Bug Log
 
+## 2026-04-03 — Concurrent Bulk Jobs Race Condition (v0.19.1)
+
+### Bug 20: Two bulk jobs run simultaneously, deadlocking SQLite
+
+**Symptom:** After container restart, auto-conversion pipeline stalled permanently.
+Database showed two bulk jobs stuck in `status='scanning'` with `total_files=NULL`
+and `converted=0`. 398K+ files pending, zero converted in 7+ hours. APScheduler
+logged "maximum number of running instances reached" every cycle for both
+`run_lifecycle_scan` and `_run_deferred_conversions`.
+
+**Root cause — two independent bugs:**
+
+1. **`_execute_auto_conversion()` had no concurrency guard.** When the lifecycle
+   scan completed at 10:05 and found 20K new files, it called
+   `_execute_auto_conversion()` which created a new bulk job without checking if
+   the backlog poller had already started one at 08:04. Result: two bulk jobs
+   scanning the same `/mnt/source` into the same `bulk_files` table.
+
+2. **`get_all_active_jobs()` misreported scanning jobs as `"done"`.** During the
+   scan phase, `_total_pending == 0` (not yet set) and `_converted == 0`, so the
+   status derivation fell through to `"done"`. The backlog poller's guard
+   (`if not active`) passed because it saw no "active" jobs, even though a job
+   was mid-scan. This is what allowed the backlog poller to create job `d1712de9`
+   while the lifecycle scanner later created `ce8de7ca`.
+
+Both jobs had 4 scanner threads each, all upserting into `bulk_files` with the
+same `source_path` values. SQLite WAL mode can handle concurrent reads but
+serializes writes — 8 threads contending on INSERT/UPDATE caused escalating lock
+wait times. Both jobs stalled at 85-90% completion and never transitioned to the
+conversion phase.
+
+**Fix:**
+- `core/bulk_worker.py`: Added `_scanning` flag, set `True` at init, cleared
+  before transition to "running". `get_all_active_jobs()` now returns
+  `"scanning"` when the flag is set, preventing the false `"done"` report.
+- `core/lifecycle_scanner.py`: `_execute_auto_conversion()` now checks
+  `get_all_active_jobs()` and refuses to create a job if any existing job
+  has status `scanning`, `running`, or `paused`.
+- `core/scheduler.py`: Backlog poller now explicitly checks for active statuses
+  (not just `if not active`) AND double-checks the DB as a fallback in case
+  in-memory state is stale.
+
+**Files changed:** `core/bulk_worker.py`, `core/lifecycle_scanner.py`,
+`core/scheduler.py`, `core/version.py`
+
+---
+
 ## 2026-04-03 — Bulk Upsert UNIQUE Constraint Race (v0.18.1)
 
 ### Bug: `upsert_bulk_file()` SELECT-then-INSERT race condition
