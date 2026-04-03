@@ -84,6 +84,13 @@ async def lifespan(app: FastAPI):
     if effective_level in ("elevated", "developer"):
         update_log_level(effective_level)
 
+    # Apply DB contention logging preference (v0.19.6.5 — temporary)
+    from core.db.contention_logger import set_enabled as set_contention_logging
+    contention_pref = await get_preference("db_contention_logging")
+    if contention_pref == "false":
+        set_contention_logging(False)
+        log.info("db_contention_logging_disabled")
+
     # Verify system dependencies
     checker = HealthChecker()
     health = await checker.check_all()

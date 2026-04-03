@@ -97,6 +97,8 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     "transcription_cloud_fallback": "true",
     "caption_file_extensions": ".srt,.vtt,.sbv",
     "transcription_timeout_seconds": "3600",
+    # DB contention logging (v0.19.6.5) — TEMPORARY, remove when lock issue resolved
+    "db_contention_logging": "true",
 }
 
 

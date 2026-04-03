@@ -4,6 +4,29 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.19.6.5 — DB Contention Logging for Lock Diagnosis (2026-04-03)
+
+**TEMPORARY instrumentation to diagnose recurring "database is locked" errors:**
+
+- New `core/db/contention_logger.py` module with three dedicated log files:
+  - `db-contention.log` — every write acquire/release with caller identity, hold duration,
+    and active connection count
+  - `db-queries.log` — full SQL query log (statement, params, duration, caller, row count)
+  - `db-active.log` — active-connection snapshots dumped whenever "database is locked" fires,
+    showing exactly who is holding the lock
+- All three logs capped at 1 GB with 3 sequential backup files
+- `ActiveConnectionTracker` maintains a thread-safe registry of open DB connections;
+  on lock error, dumps every active holder with caller, intent, thread, and hold time
+- Instrumented `get_db()`, `db_fetch_one()`, `db_fetch_all()`, `db_execute()`, and
+  `db_write_with_retry()` in `core/db/connection.py`
+- **Deactivate once lock contention is resolved** — flagged in CLAUDE.md and gotchas.md
+
+**Files changed:**
+- `core/db/contention_logger.py` — new module (loggers, tracker, helpers)
+- `core/db/connection.py` — instrumented all DB access paths
+
+---
+
 ## v0.19.6.4 — Fix Scan Crash: Wrong Table Name in Incremental Counter (2026-04-03)
 
 **Bug fix — scans crashed immediately with `no such table: preferences`:**

@@ -502,4 +502,8 @@ async def update_preference(
     if key == "log_level":
         update_log_level(body.value)
 
+    if key == "db_contention_logging":
+        from core.db.contention_logger import set_enabled
+        set_enabled(body.value == "true")
+
     return {"key": key, "value": body.value}

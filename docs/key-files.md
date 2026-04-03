@@ -17,6 +17,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `core/db/lifecycle.py` | Lifecycle queries, file versions, path issues, scan runs, maintenance log |
 | `core/db/analysis.py` | Analysis queue: enqueue, dedup, claim batch, write results, token summary |
 | `core/db/auth.py` | API key management (create, lookup, revoke, list, touch) |
+| `core/db/contention_logger.py` | **TEMPORARY** DB contention/query logging for lock diagnosis (v0.19.6.5) |
 | `core/health.py` | Startup checks for Tesseract, LibreOffice, Poppler, WeasyPrint, disk, DB |
 | `core/logging_config.py` | structlog JSON logging, rotating file handler |
 | `core/converter.py` | Pipeline orchestrator; `from_md` path detects sidecar + original → tier 1/2/3 |

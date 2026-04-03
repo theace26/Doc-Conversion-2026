@@ -26,9 +26,16 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.19.6.4
+## Current Status — v0.19.6.5
 
-v0.19.6.4: Fix scan crash — wrong table name in incremental scan counter. Three raw SQL
+v0.19.6.5: DB contention logging for diagnosing "database is locked" errors. Three
+dedicated log files in `logs/`: `db-contention.log` (write acquire/release with caller
+and hold duration), `db-queries.log` (full SQL with params, timing, caller),
+`db-active.log` (active-connection snapshots dumped on lock error). All capped at 1 GB
+with 3 sequential backups. Active-connection tracker shows who is holding the lock when
+contention occurs. **TEMPORARY** — deactivate once lock contention is resolved.
+
+Previous (v0.19.6.4): Fix scan crash — wrong table name in incremental scan counter. Three raw SQL
 queries in `core/db/bulk.py` referenced `preferences` instead of `user_preferences`,
 causing `no such table: preferences` error on any scan trigger (run-now, lifecycle).
 
@@ -290,6 +297,12 @@ errors from concurrent DB access.
 
 **Known issues:**
 - None currently blocking.
+
+**Temporary instrumentation (deactivate when resolved):**
+- **DB contention logging (v0.19.6.5)**: Three extra log files (`db-contention.log`,
+  `db-queries.log`, `db-active.log`) in `core/db/contention_logger.py`. Remove the
+  module and undo the instrumentation in `core/db/connection.py` once "database is locked"
+  errors are diagnosed and fixed. The logs are high-volume during scans.
 
 Previous (v0.13.6): ErrorRateMonitor integrated across all I/O subsystems. Meilisearch
 index rebuild aborts early if search service is unreachable. Cloud transcriber

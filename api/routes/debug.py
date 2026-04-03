@@ -235,3 +235,77 @@ async def debug_ocr_distribution(
         "mean_confidence": mean_conf,
         "total_pages": total_pages,
     }
+
+
+# ── GET /debug/api/contention-logs — tail contention log files ──────────────
+
+_CONTENTION_LOG_DIR = Path(os.getenv("LOGS_DIR", "logs"))
+_CONTENTION_LOG_FILES = {
+    "contention": "db-contention.log",
+    "queries": "db-queries.log",
+    "active": "db-active.log",
+}
+
+
+@router.get("/debug/api/contention-logs")
+async def contention_logs(
+    file: str = Query(default="contention", description="Log file: contention, queries, or active"),
+    lines: int = Query(default=200, ge=1, le=2000),
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
+    """Return last N lines from a DB contention log file.
+
+    TEMPORARY endpoint (v0.19.6.5) — remove when lock contention is resolved.
+    """
+    if file not in _CONTENTION_LOG_FILES:
+        return {"error": f"Invalid file. Choose: {list(_CONTENTION_LOG_FILES.keys())}"}
+
+    log_path = _CONTENTION_LOG_DIR / _CONTENTION_LOG_FILES[file]
+
+    if not log_path.exists():
+        return {"events": [], "lines": 0, "log_file": str(log_path), "message": "Log file not yet created"}
+
+    try:
+        raw = log_path.read_text(encoding="utf-8").strip().split("\n")
+    except Exception:
+        return {"events": [], "lines": 0, "log_file": str(log_path)}
+
+    tail = raw[-lines:] if len(raw) > lines else raw
+
+    events = []
+    for line in tail:
+        line = line.strip()
+        if not line:
+            continue
+        # Parse the pipe-delimited format: "timestamp | level | message"
+        parts = line.split(" | ", 1)
+        timestamp = parts[0] if parts else ""
+        message = parts[1] if len(parts) > 1 else line
+
+        # Detect level from the message content
+        level = "info"
+        if "LOCKED" in message or "LOCK_ERROR" in message:
+            level = "error"
+        elif "RELEASE" in message and "held_ms=" in message:
+            # Flag slow holds (>5000ms) as warnings
+            try:
+                held = float(message.split("held_ms=")[1].split("|")[0].strip())
+                if held > 5000:
+                    level = "warning"
+            except (ValueError, IndexError):
+                pass
+        elif "HOLDING" in message or "ACTIVE" in message:
+            level = "warning"
+
+        events.append({
+            "timestamp": timestamp,
+            "level": level,
+            "message": message,
+            "raw": line,
+        })
+
+    return {
+        "events": events,
+        "lines": len(events),
+        "log_file": _CONTENTION_LOG_FILES[file],
+    }
