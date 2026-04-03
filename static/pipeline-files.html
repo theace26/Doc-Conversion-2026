@@ -60,11 +60,12 @@
 
     /* ── LLM provider status banner ──────────────────────────────────────── */
     .llm-banner {
-      display: flex; align-items: center; gap: 0.75rem;
+      display: none; align-items: center; gap: 0.75rem;
       padding: 0.7rem 1rem; border-radius: var(--radius-sm);
       background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.35);
       color: #f87171; font-size: 0.85rem; margin-bottom: 0.75rem;
     }
+    .llm-banner.visible { display: flex; }
     .llm-banner .llm-icon { font-size: 1.1rem; flex-shrink: 0; }
     .llm-banner .llm-text { flex: 1; }
     .llm-banner .llm-status-link {
@@ -697,13 +698,13 @@
             statusAction = 'providers.html';
           } else {
             // Provider is configured and verified — no banner needed
-            banner.hidden = true;
+            banner.classList.remove('visible');
             return;
           }
         }
 
         // Build banner content
-        banner.hidden = false;
+        banner.classList.add('visible');
         banner.textContent = '';
 
         var icon = document.createElement('span');
@@ -725,7 +726,7 @@
         text.appendChild(link);
       } catch (e) {
         // Fetch failed — hide banner, don't show stale state
-        banner.hidden = true;
+        banner.classList.remove('visible');
       }
     }
 
