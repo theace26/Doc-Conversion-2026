@@ -144,7 +144,10 @@
 
         <!-- Pipeline Funnel (v0.18.0) -->
         <div class="stats-card">
-          <h3 class="stats-card-title">Pipeline Funnel</h3>
+          <h3 class="stats-card-title" style="display:flex;align-items:center;justify-content:space-between;">
+            Pipeline Funnel
+            <button id="process-pending-btn" class="btn btn-sm btn-ghost">&#9654; Process Pending</button>
+          </h3>
           <div id="pipeline-funnel-body"><span class="spinner"></span> Loading...</div>
         </div>
 
@@ -554,6 +557,24 @@
         container.textContent = 'Failed to load pipeline stats';
       }
     }
+
+    document.getElementById('process-pending-btn').addEventListener('click', async function() {
+      this.disabled = true;
+      this.textContent = 'Starting...';
+      try {
+        var r = await API.post('/api/pipeline/process-pending');
+        if (r.count === 0) {
+          showToast('No pending files to process.');
+        } else {
+          showToast('Processing ' + r.count.toLocaleString() + ' pending files.');
+        }
+      } catch(e) {
+        showToast('Failed to start process-pending', 'error');
+      } finally {
+        this.disabled = false;
+        this.textContent = '\u25B6 Process Pending';
+      }
+    });
 
     async function loadStats() {
       const btn = document.getElementById('stats-refresh-btn');

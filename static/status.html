@@ -25,7 +25,10 @@
         <h1 data-help="status-page">Active Jobs</h1>
         <p class="status-subtitle" id="status-subtitle">Loading...</p>
       </div>
-      <button class="btn btn-danger" id="stop-all-btn">Stop All Jobs</button>
+      <div style="display:flex;gap:0.5rem;">
+        <button class="btn btn-ghost" id="process-pending-btn">&#9654; Process Pending</button>
+        <button class="btn btn-danger" id="stop-all-btn">Stop All Jobs</button>
+      </div>
     </div>
 
     <!-- Pipeline stat strip -->
@@ -361,6 +364,27 @@
         });
       });
     }
+
+    // ── PROCESS PENDING ───────────────────────────────────────────────────
+    document.getElementById('process-pending-btn').addEventListener('click', async function() {
+      var btn = this;
+      btn.disabled = true;
+      btn.textContent = 'Starting...';
+      try {
+        var r = await API.post('/api/pipeline/process-pending');
+        if (r.count === 0) {
+          showToast('No pending files to process.');
+        } else {
+          showToast('Processing ' + r.count.toLocaleString() + ' pending files.');
+          poll();
+        }
+      } catch(e) {
+        showToast('Failed to start process-pending', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '\u25B6 Process Pending';
+      }
+    });
 
     // ── STOP ALL ──────────────────────────────────────────────────────────
     document.getElementById('stop-all-btn').addEventListener('click', async function () {

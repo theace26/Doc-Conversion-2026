@@ -599,6 +599,95 @@ _MIGRATIONS: list[tuple[int, str, list[str]]] = [
         "CREATE INDEX IF NOT EXISTS idx_analysis_queue_status ON analysis_queue(status)",
         "CREATE INDEX IF NOT EXISTS idx_analysis_queue_source_path ON analysis_queue(source_path)",
     ]),
+    # Migration 20: normalize bulk_files to one row per physical file.
+    # Deduplicates existing rows (keep best status), then recreates the table
+    # with UNIQUE(source_path) instead of UNIQUE(job_id, source_path).
+    # ignore_errors=False: every step must succeed or the migration aborts.
+    (20, "Normalize bulk_files to UNIQUE(source_path)", [
+        # Part 1: keep the single best row per source_path
+        """DELETE FROM bulk_files
+           WHERE id NOT IN (
+               SELECT id FROM bulk_files bf1
+               WHERE id = (
+                   SELECT id FROM bulk_files bf2
+                   WHERE bf2.source_path = bf1.source_path
+                   ORDER BY
+                       CASE status
+                           WHEN 'converted'    THEN 1
+                           WHEN 'skipped'      THEN 2
+                           WHEN 'failed'       THEN 3
+                           WHEN 'unrecognized' THEN 4
+                           ELSE 5
+                       END,
+                       COALESCE(converted_at, indexed_at, '') DESC
+                   LIMIT 1
+               )
+           )""",
+        # Part 2a: rename old table
+        "ALTER TABLE bulk_files RENAME TO bulk_files_old",
+        # Part 2b: create new table with UNIQUE(source_path)
+        """CREATE TABLE bulk_files (
+            id                          TEXT PRIMARY KEY,
+            job_id                      TEXT NOT NULL REFERENCES bulk_jobs(id),
+            source_path                 TEXT NOT NULL,
+            output_path                 TEXT,
+            file_ext                    TEXT NOT NULL,
+            file_size_bytes             INTEGER,
+            source_mtime                REAL,
+            stored_mtime                REAL,
+            content_hash                TEXT,
+            status                      TEXT NOT NULL DEFAULT 'pending',
+            error_msg                   TEXT,
+            converted_at                TEXT,
+            indexed_at                  TEXT,
+            ocr_confidence_mean         REAL,
+            ocr_skipped_reason          TEXT,
+            mime_type                   TEXT,
+            file_category               TEXT DEFAULT 'unknown',
+            lifecycle_status            TEXT NOT NULL DEFAULT 'active',
+            marked_for_deletion_at      DATETIME,
+            moved_to_trash_at           DATETIME,
+            purged_at                   DATETIME,
+            previous_path               TEXT,
+            protection_type             TEXT DEFAULT 'none',
+            password_method             TEXT,
+            password_attempts           INTEGER DEFAULT 0,
+            is_archive                  INTEGER NOT NULL DEFAULT 0,
+            archive_member_count        INTEGER,
+            archive_total_uncompressed  INTEGER,
+            is_media                    INTEGER NOT NULL DEFAULT 0,
+            media_engine                TEXT,
+            source_file_id              TEXT REFERENCES source_files(id),
+            skip_reason                 TEXT,
+            UNIQUE(source_path)
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_bulk_files_job_status  ON bulk_files(job_id, status)",
+        "CREATE INDEX IF NOT EXISTS idx_bulk_files_source_path ON bulk_files(source_path)",
+        "CREATE INDEX IF NOT EXISTS idx_bulk_files_status      ON bulk_files(status)",
+        # Part 2c: copy surviving rows using explicit column names (order-independent)
+        """INSERT INTO bulk_files (
+               id, job_id, source_path, output_path, file_ext, file_size_bytes,
+               source_mtime, stored_mtime, content_hash, status, error_msg,
+               converted_at, indexed_at, ocr_confidence_mean, ocr_skipped_reason,
+               mime_type, file_category, lifecycle_status, marked_for_deletion_at,
+               moved_to_trash_at, purged_at, previous_path, protection_type,
+               password_method, password_attempts, is_archive, archive_member_count,
+               archive_total_uncompressed, is_media, media_engine, source_file_id,
+               skip_reason
+           )
+           SELECT
+               id, job_id, source_path, output_path, file_ext, file_size_bytes,
+               source_mtime, stored_mtime, content_hash, status, error_msg,
+               converted_at, indexed_at, ocr_confidence_mean, ocr_skipped_reason,
+               mime_type, file_category, lifecycle_status, marked_for_deletion_at,
+               moved_to_trash_at, purged_at, previous_path, protection_type,
+               password_method, password_attempts, is_archive, archive_member_count,
+               archive_total_uncompressed, is_media, media_engine, source_file_id,
+               skip_reason
+           FROM bulk_files_old""",
+        # Part 2d: drop old table
+        "DROP TABLE bulk_files_old",
+    ], False),  # ignore_errors=False — every step must succeed
 ]
 
 
@@ -620,14 +709,18 @@ async def _run_migrations(conn: aiosqlite.Connection) -> int:
         applied = {row[0] for row in await cur.fetchall()}
 
     newly_applied = 0
-    for version, description, statements in _MIGRATIONS:
+    for entry in _MIGRATIONS:
+        version, description, statements = entry[0], entry[1], entry[2]
+        ignore_errors = entry[3] if len(entry) > 3 else True
         if version in applied:
             continue
         for sql in statements:
             try:
                 await conn.execute(sql)
             except Exception:
-                pass  # Column already exists — safe to ignore
+                if not ignore_errors:
+                    raise
+                # Column already exists — safe to ignore for ALTER TABLE migrations
         await conn.execute(
             "INSERT INTO schema_migrations (version, description) VALUES (?, ?)",
             (version, description),

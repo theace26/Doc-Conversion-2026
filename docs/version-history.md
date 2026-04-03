@@ -4,6 +4,55 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.19.0 — Bulk Files Schema Normalization + Process Pending (2026-04-03)
+
+**Root cause fixed: inflated `pending_conversion` counts and orphaned rows**
+
+- **Schema change — Migration 20:** `bulk_files` now has `UNIQUE(source_path)` instead
+  of `UNIQUE(job_id, source_path)`. One row per physical file. `job_id` now means
+  "currently checked out by" (the checked-out job), not "created by". The migration
+  runs in a single transaction: deduplicates existing rows (keeps best-status row per
+  `source_path` using priority `converted > skipped > failed > pending`), renames the
+  old table, recreates with the new constraint, copies data with explicit column names,
+  drops the old table. Migration framework extended to support `ignore_errors=False`
+  for multi-step rebuilds that must not silently swallow errors.
+
+- **`upsert_bulk_file` rewritten** (`core/db/bulk.py`): lookups now use `source_path`
+  only (not `job_id + source_path`). Status-aware decision table:
+  - No row → INSERT pending
+  - `pending` → adopt (update `job_id`, refresh metadata)
+  - `converted`/`skipped`, mtime unchanged → leave alone
+  - `converted`/`skipped`, mtime changed → re-queue as pending
+  - `failed` → always retry (re-queue, clear `error_msg`)
+  - `unrecognized` → leave alone
+  - `permanently_skipped` (`ocr_skipped_reason`) → leave alone even on mtime change
+  Orphan adoption: when the scanner restarts after interruption, pending rows from
+  dead jobs are automatically claimed by the new job without creating duplicates.
+
+- **New endpoint `POST /api/pipeline/process-pending`** (`api/routes/pipeline.py`):
+  Requires `MANAGER` role. Counts pending files; if any exist, creates a new
+  `bulk_jobs` row, bulk-adopts all pending rows in one `UPDATE`, and starts a
+  `BulkJob` as a background task. Returns `{count, message}`.
+
+- **`trigger_process_pending()` helper** (`core/scheduler.py`): Shared function used
+  by both the endpoint and run-now. Resolves source/output paths from env vars or DB
+  locations (same strategy as lifecycle scanner).
+
+- **run-now updated** (`api/routes/pipeline.py`): `_run()` now calls
+  `trigger_process_pending()` before `run_lifecycle_scan(force=True)`. Pending files
+  get workers immediately; the scan then runs in parallel to find new/changed files.
+
+- **UI: "Process Pending" button** added to:
+  - Admin page Pipeline Funnel card (header button)
+  - Status page header (alongside "Stop All Jobs")
+  Both buttons call the new endpoint and show a toast with the file count.
+
+- **Stats accuracy:** `pending_conversion` in `/api/pipeline/status` and
+  `/api/pipeline/stats` now equals the number of distinct physical files waiting —
+  impossible inflation from multi-job duplicates is eliminated by the schema change.
+
+---
+
 ## v0.18.0 — Image Analysis Queue + Pipeline Stats (2026-04-02)
 
 **Decoupled LLM vision analysis for standalone image files:**

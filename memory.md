@@ -10,19 +10,21 @@ A Python/FastAPI web application that converts documents bidirectionally between
 
 ---
 
-## Current State — v0.7.4b
+## Current State — v0.19.0
+
+> **Always check CLAUDE.md in the repo for the real-time source of truth.** This memory.md lags significantly behind the codebase.
 
 | Item | Status |
 |------|--------|
 | Phases 0–7 | ✅ Complete |
-| Test suite | ✅ 543 tests passing |
-| LLM providers | ✅ core/crypto.py, core/llm_providers.py, core/llm_client.py, api/routes/llm_providers.py, static/providers.html |
+| Auth (Phase 9 analogue) | ✅ JWT auth, OPERATOR/MANAGER/ADMIN roles |
+| Test suite | ✅ (runs inside Docker) |
+| LLM providers | ✅ core/crypto.py, core/llm_providers.py, core/llm_client.py |
 | SECRET_KEY (Fernet) | ✅ env var — NOT MARKFLOW_SECRET_KEY |
-| MCP server | ✅ Port 8001, 7 tools |
-| Path safety | ✅ core/path_utils.py (v0.7.4b) |
-| Phase 8 docs | ✅ markflow-phase8-master-spec-revised.md (supersedes all prior Phase 8 planning) |
-
-> **Always check CLAUDE.md in the repo for the real-time source of truth.** The table above reflects Claude.ai memory and may lag behind the actual codebase.
+| MCP server | ✅ Port 8001 |
+| Image analysis queue | ✅ migration 19, core/analysis_worker.py |
+| Schema normalization | ✅ migration 20 — bulk_files UNIQUE(source_path), one row per file |
+| Process Pending | ✅ POST /api/pipeline/process-pending, UI button on Status + Admin pages |
 
 ---
 
@@ -369,9 +371,10 @@ The infrastructure MarkFlow runs on. Synology NAS is the target storage for the 
 | v0.7.1–v0.7.3 | Phase 7 — Bulk, Adobe, Meilisearch, Cowork |
 | v0.7.4 | LLM providers + MCP server (7 tools) |
 | v0.7.4b | Path safety (core/path_utils.py) |
-| v0.8.0 | Phase 8a — Media transcription *(in progress)* |
-| v0.8.1 | Phase 8b — Visual enrichment *(in progress)* |
-| v0.9.0 | Phase 9 — Auth/multi-user *(planned)* |
+| v0.8.0–v0.16.x | Media transcription, visual enrichment, auth, lifecycle management, multi-source |
+| v0.17.x | Scan coordinator, scheduler yield guards, skip reason tracking, job detail |
+| v0.18.0 | Image analysis queue (migration 19) + pipeline stats |
+| v0.19.0 | bulk_files schema normalization (migration 20) + process-pending |
 | v1.0.0 | Stable production release *(target)* |
 
 ---

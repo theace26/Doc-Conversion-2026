@@ -26,23 +26,28 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.18.0
+## Current Status — v0.19.0
 
-v0.18.0: Image analysis queue + pipeline stats. Standalone image files (JPG, PNG,
+v0.19.0: Bulk files schema normalization + process-pending button. `bulk_files` now
+has `UNIQUE(source_path)` — one row per physical file. `job_id` means "currently
+checked out by" not "created by". Migration 20 deduplicates existing rows (keeps
+best-status row per path), rebuilds the table with the new constraint. `upsert_bulk_file`
+rewritten with a status-aware decision table: pending rows are adopted (orphan recovery),
+converted/skipped unchanged rows are left alone, failed rows always retry, mtime-changed
+files re-queue. New `POST /api/pipeline/process-pending` endpoint + "Process Pending"
+button on Admin and Status pages. run-now now kicks off pending files immediately before
+scanning. Fixes: inflated `pending_conversion` counts (was 153,185 for 153,486 files
+because hundreds of jobs each had a row for the same file).
+
+Previous (v0.18.0): Image analysis queue + pipeline stats. Standalone image files (JPG, PNG,
 TIFF, BMP, GIF, EPS) are now enqueued for LLM vision analysis by the bulk worker
 and lifecycle scanner. A new APScheduler job (`core/analysis_worker.py`, 5-min
 interval) drains the queue in batches via `VisionAdapter.describe_batch()` — a
 single multi-image API call per batch. Results (description + extracted text) stored
 in `analysis_queue` (migration 19) and included in Meilisearch. Pipeline stage
 counts exposed via `GET /api/pipeline/stats` and shown on Status and Admin pages.
-
-Bug fixed: `lifecycle_scanner.py:924` called `BulkJob(source_path=...)` but
-`BulkJob.__init__` expects `source_paths=` (plural). Auto-conversion via lifecycle
-scanner was silently broken since v0.17.x. Fixed.
-
-GPU staleness fix: `gpu_detector.py` now validates `worker.lock` presence and
-timestamp freshness before trusting `worker_capabilities.json`. Hashcat worker
-writes a 2-minute heartbeat. Stale workstation GPU no longer shown as active.
+Also fixed `lifecycle_scanner.py:924` source_path→source_paths kwarg bug; GPU
+staleness detection via `worker.lock` timestamp.
 
 Previous (v0.17.7): Scan priority coordinator. New `core/scan_coordinator.py` enforces
 a strict priority hierarchy: Bulk Job > Run Now > Lifecycle Scan. Bulk jobs

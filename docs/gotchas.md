@@ -30,11 +30,13 @@ the relevant subsystem. Referenced from CLAUDE.md.
   dump-and-restore repair. The repair endpoint checks `stop_controller.registered_tasks`
   and refuses to run if any tasks are active.
 
-- **bulk_files table duplicates across jobs**: `upsert_bulk_file()` is keyed by
-  `(job_id, source_path)`, so each new scan job inserts its own copy of every file.
-  12,847 distinct files → 34K+ rows after 5 jobs. Per-job counts are accurate, but
-  cross-job aggregation or total row count overcounts. Needs a dedup strategy or a
-  separate global file registry.
+- **bulk_files is now UNIQUE(source_path) — one row per physical file** (v0.19.0):
+  `upsert_bulk_file()` looks up by `source_path` only. `job_id` means "currently
+  checked out by" not "created by". A status-aware decision table handles each case:
+  pending rows are adopted (orphan recovery), converted/skipped unchanged rows are left
+  alone, failed rows always retry. Migration 20 deduplicates existing rows on upgrade.
+  Do NOT revert to `UNIQUE(job_id, source_path)` — that was the root cause of
+  `pending_conversion` counts exceeding actual file counts (hundreds of jobs × same file).
 
 ## Logging
 

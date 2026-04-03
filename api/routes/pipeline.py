@@ -36,6 +36,7 @@ from core.scheduler import (
     is_pipeline_paused,
     run_lifecycle_scan,
     set_pipeline_paused,
+    trigger_process_pending,
 )
 
 log = structlog.get_logger(__name__)
@@ -186,6 +187,12 @@ async def run_pipeline_now(
                     log.info("pipeline.run_now_cancelled_while_waiting")
                     return
 
+            # Kick off any already-pending files immediately, before the scan
+            pending_count = await trigger_process_pending()
+            if pending_count > 0:
+                log.info("pipeline.run_now_process_pending", files_queued=pending_count)
+
+            # Then scan as normal (finds new/changed files, adds more to queue)
             await run_lifecycle_scan(force=True)
         finally:
             unregister_run_now_scan()
@@ -199,6 +206,22 @@ async def run_pipeline_now(
             "paused_for_bulk": True,
         }
     return {"message": "Pipeline cycle triggered. Scan will start shortly."}
+
+
+@router.post("/process-pending")
+async def process_pending(
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+) -> dict:
+    """Start workers for already-queued pending files without triggering a re-scan.
+
+    All bulk_files rows with status='pending' are adopted by a new job and
+    immediately handed to workers. Returns immediately if no pending files exist.
+    """
+    files_queued = await trigger_process_pending()
+    if files_queued == 0:
+        return {"message": "No pending files.", "count": 0, "job_id": None}
+    log.info("pipeline.process_pending_endpoint_called", files_queued=files_queued)
+    return {"message": f"Processing {files_queued} pending files.", "count": files_queued}
 
 
 @router.get("/coordinator")

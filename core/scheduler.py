@@ -106,6 +106,64 @@ async def run_lifecycle_scan(force: bool = False) -> None:
         log.error("scheduler.scan_failed", error=str(exc))
 
 
+async def trigger_process_pending() -> int:
+    """Adopt all pending bulk_files under a new job and start workers.
+
+    Returns the number of files queued, or 0 if none were pending.
+    Used by POST /api/pipeline/process-pending and the run-now pre-scan step.
+    """
+    import asyncio
+    import os
+
+    from core.db.bulk import create_bulk_job
+    from core.db.connection import get_db
+
+    async with get_db() as conn:
+        async with conn.execute(
+            "SELECT COUNT(*) AS cnt FROM bulk_files WHERE status='pending'"
+        ) as cur:
+            row = await cur.fetchone()
+    count = row["cnt"] if row else 0
+    if count == 0:
+        return 0
+
+    # Resolve source/output paths (same strategy as lifecycle scanner)
+    source_path = os.getenv("BULK_SOURCE_PATH", "")
+    if not source_path:
+        try:
+            from core.database import list_locations
+            locs = await list_locations(type_filter="source")
+            source_path = locs[0]["path"] if locs else ""
+        except Exception:
+            source_path = ""
+    output_path = os.getenv("BULK_OUTPUT_PATH", "/mnt/output-repo")
+
+    job_id = await create_bulk_job(
+        source_path=source_path or "/mnt/source-share",
+        output_path=output_path,
+        worker_count=4,
+    )
+
+    # Bulk-adopt all pending files under the new job in one statement
+    async with get_db() as conn:
+        await conn.execute(
+            "UPDATE bulk_files SET job_id=? WHERE status='pending'", (job_id,)
+        )
+        await conn.commit()
+
+    # Start BulkJob as a background task (scan phase confirms + workers convert)
+    from core.bulk_worker import BulkJob
+    job = BulkJob(
+        job_id=job_id,
+        source_paths=source_path or "/mnt/source-share",
+        output_path=output_path,
+    )
+    asyncio.create_task(job.run())
+
+    log.info("pipeline.process_pending_triggered", job_id=job_id, files_queued=count)
+    return count
+
+
 async def run_trash_expiry() -> None:
     """Move expired marked_for_deletion to trash, purge expired trash."""
     try:

@@ -146,7 +146,17 @@ async def upsert_bulk_file(
 ) -> str:
     """Insert or update a bulk_files record. Returns file_id.
 
-    Also upserts the corresponding source_files row and links via source_file_id.
+    One row per physical file (UNIQUE on source_path). job_id means
+    "currently checked out by" — not "created by".
+
+    Decision table (keyed on existing row's status):
+    - No row           → INSERT pending for current job
+    - pending          → adopt: update job_id + refresh metadata
+    - converted/skipped, mtime unchanged → leave alone (already done)
+    - converted/skipped, mtime changed  → re-queue as pending
+    - failed           → always retry: re-queue as pending, clear error
+    - unrecognized     → leave alone (couldn't convert before)
+    - permanently_skipped (ocr_skipped_reason) → leave alone even on mtime change
     """
     source_file_id = await upsert_source_file(
         source_path=source_path,
@@ -158,28 +168,12 @@ async def upsert_bulk_file(
 
     async with get_db() as conn:
         async with conn.execute(
-            "SELECT id, stored_mtime FROM bulk_files WHERE job_id=? AND source_path=?",
-            (job_id, source_path),
+            "SELECT id, status, stored_mtime, ocr_skipped_reason FROM bulk_files WHERE source_path=?",
+            (source_path,),
         ) as cur:
             row = await cur.fetchone()
 
-        if row is not None:
-            file_id = row["id"]
-            stored_mtime = row["stored_mtime"]
-            if stored_mtime is not None and stored_mtime == source_mtime:
-                await conn.execute(
-                    """UPDATE bulk_files SET status='skipped', source_mtime=?,
-                       file_size_bytes=?, source_file_id=?,
-                       skip_reason='Unchanged since last scan' WHERE id=?""",
-                    (source_mtime, file_size_bytes, source_file_id, file_id),
-                )
-            else:
-                await conn.execute(
-                    """UPDATE bulk_files SET status='pending', source_mtime=?,
-                       file_size_bytes=?, source_file_id=? WHERE id=?""",
-                    (source_mtime, file_size_bytes, source_file_id, file_id),
-                )
-        else:
+        if row is None:
             file_id = uuid.uuid4().hex
             await conn.execute(
                 """INSERT INTO bulk_files
@@ -189,6 +183,40 @@ async def upsert_bulk_file(
                 (file_id, job_id, source_path, file_ext, file_size_bytes,
                  source_mtime, "pending", source_file_id),
             )
+        else:
+            file_id = row["id"]
+            status = row["status"]
+            stored_mtime = row["stored_mtime"]
+            ocr_skipped_reason = row["ocr_skipped_reason"]
+            mtime_changed = stored_mtime is None or stored_mtime != source_mtime
+
+            if ocr_skipped_reason == "permanently_skipped":
+                pass  # Human-marked — never re-queue, even on mtime change
+            elif status == "pending":
+                # Orphan adoption: reassign to current job, refresh metadata
+                await conn.execute(
+                    """UPDATE bulk_files SET job_id=?, source_mtime=?,
+                       file_size_bytes=?, source_file_id=? WHERE id=?""",
+                    (job_id, source_mtime, file_size_bytes, source_file_id, file_id),
+                )
+            elif status in ("converted", "skipped"):
+                if mtime_changed:
+                    await conn.execute(
+                        """UPDATE bulk_files SET job_id=?, status='pending',
+                           source_mtime=?, file_size_bytes=?, source_file_id=?,
+                           error_msg=NULL, skip_reason=NULL WHERE id=?""",
+                        (job_id, source_mtime, file_size_bytes, source_file_id, file_id),
+                    )
+                # else: mtime unchanged — leave completely alone
+            elif status == "failed":
+                # Always retry failed files
+                await conn.execute(
+                    """UPDATE bulk_files SET job_id=?, status='pending',
+                       source_mtime=?, file_size_bytes=?, source_file_id=?,
+                       error_msg=NULL WHERE id=?""",
+                    (job_id, source_mtime, file_size_bytes, source_file_id, file_id),
+                )
+            # else: unrecognized — leave alone
 
         await conn.commit()
     return file_id
