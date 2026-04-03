@@ -360,10 +360,24 @@ class BulkScanner:
         on_progress: Callable[[dict], Awaitable[None]] | None,
         progress_interval: int,
     ) -> int:
-        """Single-threaded scan — optimal for local SSD/HDD."""
+        """Single-threaded scan with batched DB writes and disk/DB overlap."""
         file_count = 0
         last_eta_write = time.monotonic()
         error_monitor = ErrorRateMonitor()
+
+        # Batch buffer for convertible files
+        BATCH_SIZE = 200
+        convertible_batch: list[tuple[str, str, int, float]] = []
+        pending_write: asyncio.Task | None = None
+
+        async def _flush_batch() -> None:
+            """Write accumulated convertible files to DB."""
+            nonlocal convertible_batch
+            if not convertible_batch:
+                return
+            batch = convertible_batch
+            convertible_batch = []
+            await upsert_bulk_files_batch(self.job_id, batch)
 
         def _serial_walk_error(err: OSError) -> None:
             if isinstance(err, PermissionError):
@@ -413,18 +427,53 @@ class BulkScanner:
                 file_path = Path(dirpath) / filename
                 if self._is_excluded(str(file_path)):
                     continue
-                old_count = file_count
-                file_count = await self._process_discovered_file(
-                    file_path, result, tracker, file_count,
-                )
-                # Track success/error (if count didn't change, stat failed)
-                if file_count > old_count:
-                    error_monitor.record_success()
-                else:
-                    error_monitor.record_error(f"stat failed: {file_path}")
+                # Skip NTFS Alternate Data Streams
+                if ":" in file_path.name:
+                    continue
 
-                if error_monitor.should_abort():
-                    break
+                # Check blocklist
+                from core.flag_manager import is_blocklisted
+                if await is_blocklisted(str(file_path)):
+                    continue
+
+                ext = _get_effective_extension(file_path)
+
+                try:
+                    stat = file_path.stat()
+                    file_size = stat.st_size
+                    mtime = stat.st_mtime
+                except FileNotFoundError:
+                    log.debug("scan_file_vanished", path=str(file_path))
+                    continue
+                except PermissionError:
+                    log.debug("scan_file_permission_denied", path=str(file_path))
+                    continue
+                except OSError as exc:
+                    log.warning("bulk_scan_stat_error", path=str(file_path), error=str(exc))
+                    error_monitor.record_error(f"stat failed: {file_path}")
+                    if error_monitor.should_abort():
+                        break
+                    continue
+
+                error_monitor.record_success()
+                result.total_discovered += 1
+
+                if ext in SUPPORTED_EXTENSIONS:
+                    result.convertible_count += 1
+                    self._convertible_paths.append(file_path)
+                    convertible_batch.append((str(file_path), ext, file_size, mtime))
+
+                    # Flush batch when full — overlap with next stat() calls
+                    if len(convertible_batch) >= BATCH_SIZE:
+                        if pending_write is not None:
+                            await pending_write
+                        pending_write = asyncio.create_task(_flush_batch())
+                else:
+                    result.unrecognized_count += 1
+                    await self._record_unrecognized(file_path, ext, file_size, mtime)
+
+                file_count += 1
+                await tracker.record_completion()
 
                 if on_progress and (file_count % progress_interval == 0):
                     await self._emit_progress(
@@ -438,6 +487,11 @@ class BulkScanner:
 
                 if file_count % self._yield_interval == 0:
                     await asyncio.sleep(0)
+
+        # Flush remaining batch
+        if pending_write is not None:
+            await pending_write
+        await _flush_batch()
 
         return file_count
 
