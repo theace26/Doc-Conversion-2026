@@ -114,7 +114,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `api/routes/cowork.py` | AI assistant search: full .md content inline, token-budget-aware |
 | `api/routes/locations.py` | Locations CRUD API + exclusions CRUD + path validation endpoint |
 | `api/routes/browse.py` | Directory browser API with path traversal protection |
-| `api/routes/llm_providers.py` | LLM provider CRUD, verify, activate, Ollama model fetch |
+| `api/routes/llm_providers.py` | LLM provider CRUD, verify (auto-requeues failed analysis items), activate, Ollama model fetch |
 | `api/routes/unrecognized.py` | Unrecognized files: list, stats, CSV export |
 | `api/routes/lifecycle.py` | Version history and diff API endpoints |
 | `api/routes/trash.py` | Trash management API: list, restore, purge, empty |

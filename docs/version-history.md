@@ -4,6 +4,58 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.19.6 — Pipeline Files Fixes + Provider UX (2026-04-03)
+
+**Multiple fixes and features for the pipeline files page and LLM provider workflow:**
+
+### 1. Pipeline files display fixes
+- HTTP 500 on the `pending` filter resolved: the UNION query in `GET /api/pipeline/files`
+  had ambiguous column names across joined tables. Fixed by wrapping the UNION in a
+  subquery so ORDER BY / column references are unambiguous.
+- Unicode escape sequences (e.g., `\u2190`, `\u2014`) were rendering as literal text
+  in the HTML page. Replaced all JS `\u` escapes in HTML files with proper HTML entities
+  (`&larr;`, `&mdash;`, etc.). JS escapes are only valid inside `<script>` blocks, not
+  in HTML attribute values or `innerHTML`.
+
+### 2. LLM provider status banner on pipeline files page
+- Red eye-catching banner appears when the active AI provider is missing, inactive, or
+  unverified.
+- Shows a contextual message: "No AI provider configured", "No active AI provider", or
+  "Active AI provider needs verification".
+- Clickable link to the providers page. The link appends `?return=pipeline-files.html`
+  so the user can navigate back with context after fixing the provider.
+
+### 3. Return-to workflow on providers page
+- When `static/providers.html` is loaded with a `?return=` query parameter, a blue
+  banner appears at the top with a "Return to previous page" link.
+- Minimizes workflow interruption when navigating from another page to fix a provider.
+
+### 4. Auto-requeue failed analysis on provider verify
+- `POST /api/llm-providers/{id}/verify` now resets all `analysis_queue` rows with
+  `status='failed'` to `status='pending'` with `retry_count=0` on successful verification.
+- Handles the common case where images failed analysis because the provider wasn't
+  configured or verified — they automatically re-enter the processing queue.
+- API response now includes a `requeued_analysis` field with the count of reset rows.
+
+### 5. GPU health display fix
+- `_read_host_worker_report()` in `core/gpu_detector.py` no longer requires `worker.lock`
+  or a fresh timestamp check. Reads hardware capabilities directly from the reset script's
+  `worker_capabilities.json`. Health check now correctly considers `host_worker_available`
+  when determining OK status.
+
+### 6. Providers page delete button fix
+- `API.delete` → `API.del` in `static/providers.html`. `delete` is a JavaScript reserved
+  word and cannot be used as a method name via dot notation.
+
+**Files changed:**
+- `api/routes/pipeline.py` — subquery fix for UNION ambiguous column names
+- `api/routes/llm_providers.py` — auto-requeue failed analysis on verify; `requeued_analysis` in response
+- `core/gpu_detector.py` — read capabilities from `worker_capabilities.json` directly
+- `static/pipeline-files.html` — HTML entity fix for unicode escapes; LLM provider status banner
+- `static/providers.html` — return-to banner; `API.delete` → `API.del`
+
+---
+
 ## v0.19.5 — HDD Scan Optimizations (2026-04-03)
 
 **Three targeted improvements to reduce mechanical HDD scan time:**

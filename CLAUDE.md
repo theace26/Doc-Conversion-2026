@@ -26,9 +26,25 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.19.5
+## Current Status — v0.19.6
 
-v0.19.5: HDD scan optimizations. Three improvements to speed up mechanical
+v0.19.6: Pipeline files display fixes, LLM provider status banner, return-to
+workflow, auto-requeue on provider verify, GPU health display fix, and providers
+page delete fix. (1) Fixed HTTP 500 on pipeline-files pending filter — ambiguous
+column name in UNION query resolved by wrapping in a subquery. (2) Fixed Unicode
+escape sequences rendering as literal text in HTML — replaced JS `\u` escapes
+with HTML entities throughout. (3) Red banner on pipeline-files page when AI
+provider is missing, inactive, or unverified — shows contextual message with
+link to providers page, preserving return URL. (4) Blue return-to banner on
+providers page when navigated via `?return=` param. (5) Successful provider
+verify now resets all `analysis_queue` items with `status='failed'` back to
+`pending` with `retry_count=0` — response includes `requeued_analysis` count.
+(6) `_read_host_worker_report()` reads hardware capabilities from
+`worker_capabilities.json` directly, no longer requires `worker.lock` or fresh
+timestamp. (7) `API.delete` → `API.del` fix on providers page (delete is a JS
+reserved word).
+
+Previous (v0.19.5): HDD scan optimizations. Three improvements to speed up mechanical
 HDD scans: (1) Directory mtime skip — all 3 scan paths (bulk serial, bulk
 parallel, lifecycle) cache directory mtimes in a new `scan_dir_mtimes` table
 (migration 21) and skip directories with unchanged mtimes on rescan. Full

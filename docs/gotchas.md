@@ -203,6 +203,30 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 ## API & Routes
 
+- **Pipeline files UNION query must wrap in subquery (v0.19.6)**: `GET /api/pipeline/files`
+  uses multi-table UNION queries across `source_files`, `bulk_files`, and `analysis_queue`.
+  Column names (e.g., `status`, `source_path`) are ambiguous when referenced in ORDER BY
+  or outer WHERE clauses after a UNION. Fix: wrap the entire UNION in a subquery
+  (`SELECT * FROM (... UNION ...) AS sub ORDER BY ...`). Without this, SQLite raises
+  "ambiguous column name" errors → HTTP 500.
+
+- **HTML files must use HTML entities, not JS unicode escapes (v0.19.6)**: JavaScript
+  `\u2190` (←), `\u2014` (—) etc. are only valid inside `<script>` blocks. In HTML
+  attribute values, `href`, `title`, or anywhere outside a script tag, they render as
+  literal backslash-u sequences. Use HTML entities instead: `&larr;`, `&mdash;`,
+  `&rarr;`, `&times;`, etc.
+
+- **Provider verify auto-requeues failed analysis items (v0.19.6)**: After a successful
+  `POST /api/llm-providers/{id}/verify`, all `analysis_queue` rows with `status='failed'`
+  are reset to `status='pending'` with `retry_count=0`. The API response includes a
+  `requeued_analysis` count. This handles providers that were misconfigured when images
+  were first processed — they re-enter the queue automatically without manual intervention.
+
+- **`API.delete` is invalid JS — use `API.del` (v0.19.6)**: `delete` is a JavaScript
+  reserved word. It cannot be used as a method name in dot-notation calls like
+  `API.delete(url)`. The shared `app.js` API helper exposes the method as `API.del`.
+  Using `API.delete` silently fails (no call is made, no error thrown in some browsers).
+
 - **Pipeline files "indexed" status uses Meilisearch, not SQLite (v0.19.4)**:
   `GET /api/pipeline/files` handles all statuses via UNION queries on `source_files`
   and `bulk_files` — except `indexed`, which is resolved by browsing the Meilisearch
