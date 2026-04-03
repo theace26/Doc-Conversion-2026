@@ -26,17 +26,25 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.19.2
+## Current Status — v0.19.4
 
-v0.19.2: LLM token usage tracking for image analysis queue.
+v0.19.4: Pipeline file explorer. Clickable stat badges on the status page
+now navigate to a new `pipeline-files.html` page where users can browse
+files by category. Eight filter chips (scanned, pending, failed, unrecognized,
+pending analysis, batched, analysis failed, indexed) act as multi-select
+toggles. Full-width table with inline detail expansion (error messages, skip
+reasons, timestamps, job links), search with debounce, pagination. Row
+actions: open in viewer, browse source location. New `GET /api/pipeline/files`
+endpoint supports multi-status UNION queries across `source_files`,
+`bulk_files`, and `analysis_queue`, plus Meilisearch browse for indexed files.
+Files nav item added to nav bar.
 
-Token counts from every LLM vision call are now persisted to the
-`analysis_queue` table (`tokens_used` column, migration 20). The
-`VisionAdapter.describe_batch()` methods for Anthropic, OpenAI, and Gemini
-extract token usage from API responses (previously discarded) and distribute
-per-image. `write_batch_results()` stores the value; `get_analysis_token_summary()`
-provides aggregate totals and per-model breakdowns for cost auditing.
+Previous (v0.19.3): Batched bulk scanner DB upserts — 100x faster scan phase.
+`upsert_bulk_files_batch()` writes batches of 200 files in a single SQLite
+transaction (was 2 commits per file). Scan phase dropped from ~5 hours to
+~3-5 minutes for 36k files on NAS.
 
+Previous (v0.19.2): LLM token usage tracking for image analysis queue.
 Previous (v0.19.1): fix concurrent bulk job race condition / SQLite deadlock.
 Previous (v0.19.0): decoupled conversion pipeline + fast NAS parallel scanning.
 Previous (v0.18.1): atomic upsert fix for UNIQUE constraint race in bulk_files.
@@ -355,7 +363,8 @@ Critical files to know:
 | `core/transcript_formatter.py` | Output formatter: .md + .srt + .vtt generation |
 | `core/media_orchestrator.py` | Top-level media conversion coordinator |
 | `api/routes/media.py` | Media transcript API: get transcript, segments, download |
-| `api/routes/pipeline.py` | Pipeline control: status, pause, resume, run-now |
+| `api/routes/pipeline.py` | Pipeline control: status, pause, resume, run-now, file browser |
+| `static/pipeline-files.html` | Pipeline file explorer: multi-category filter chips, search, inline detail, viewer/browse actions |
 | `api/routes/search.py` | Search API: unified search, autocomplete, source file serving, batch download |
 | `core/flag_manager.py` | Flag business logic, blocklist checks, Meilisearch is_flagged sync, webhooks |
 | `api/routes/flags.py` | Flag API: user flagging + admin triage (dismiss/extend/remove/blocklist) |
