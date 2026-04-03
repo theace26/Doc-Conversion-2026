@@ -44,6 +44,7 @@ from core.db.bulk import (
     update_bulk_file,
     update_bulk_job_status,
     upsert_bulk_file,
+    upsert_bulk_files_batch,
     upsert_source_file,
 )
 
@@ -157,7 +158,7 @@ __all__ = [
     # bulk
     "create_bulk_job", "get_bulk_job", "list_bulk_jobs",
     "update_bulk_job_status", "increment_bulk_job_counter",
-    "upsert_source_file", "upsert_bulk_file",
+    "upsert_source_file", "upsert_bulk_file", "upsert_bulk_files_batch",
     "get_bulk_files", "get_bulk_file_count", "update_bulk_file",
     "get_unprocessed_bulk_files",
     # conversions

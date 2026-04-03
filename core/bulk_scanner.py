@@ -24,7 +24,7 @@ import structlog
 from core.progress_tracker import RollingWindowETA, ETA_UPDATE_INTERVAL, format_eta
 from core.stop_controller import should_stop
 from core.storage_probe import ErrorRateMonitor, ScanThrottler, StorageProfile, probe_storage_latency
-from core.database import db_fetch_one, get_preference, record_path_issue, update_bulk_file, update_bulk_job_status, update_source_file, upsert_bulk_file
+from core.database import db_fetch_one, get_preference, record_path_issue, update_bulk_file, update_bulk_job_status, update_source_file, upsert_bulk_file, upsert_bulk_files_batch
 from core.metrics_collector import record_activity_event
 from core.path_utils import PathSafetyResult, run_path_safety_pass
 
@@ -568,7 +568,7 @@ class BulkScanner:
 
             batch: list[tuple[Path, str, int, float]] = []
             try:
-                while len(batch) < 100:
+                while len(batch) < 200:
                     item = file_queue.get_nowait()
                     batch.append(item)
             except queue.Empty:
@@ -579,26 +579,32 @@ class BulkScanner:
                     await asyncio.sleep(0.01)
                 continue
 
+            # Separate convertible vs unrecognized for batched DB writes
+            convertible_batch: list[tuple[str, str, int, float]] = []
+            unrecognized_items: list[tuple[Path, str, int, float]] = []
+
             for file_path, ext, file_size, mtime in batch:
                 result.total_discovered += 1
-
                 if ext in SUPPORTED_EXTENSIONS:
                     result.convertible_count += 1
                     self._convertible_paths.append(file_path)
-                    await upsert_bulk_file(
-                        job_id=self.job_id,
-                        source_path=str(file_path),
-                        file_ext=ext,
-                        file_size_bytes=file_size,
-                        source_mtime=mtime,
-                    )
+                    convertible_batch.append((str(file_path), ext, file_size, mtime))
                 else:
                     result.unrecognized_count += 1
-                    await self._record_unrecognized(file_path, ext, file_size, mtime)
+                    unrecognized_items.append((file_path, ext, file_size, mtime))
 
-                file_count += 1
+            # Batch-write convertible files (single transaction)
+            if convertible_batch:
+                await upsert_bulk_files_batch(self.job_id, convertible_batch)
+
+            # Unrecognized files need MIME classification, so per-file
+            for file_path, ext, file_size, mtime in unrecognized_items:
+                await self._record_unrecognized(file_path, ext, file_size, mtime)
+
+            file_count += len(batch)
+            for _ in batch:
                 await tracker.record_completion()
-                last_progress_file = file_path
+            last_progress_file = batch[-1][0]
 
             # Periodically ask throttler to re-evaluate
             if file_count - last_throttle_check >= 500:

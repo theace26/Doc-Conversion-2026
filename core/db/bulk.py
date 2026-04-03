@@ -199,6 +199,113 @@ async def upsert_bulk_file(
     return file_id
 
 
+async def upsert_bulk_files_batch(
+    job_id: str,
+    files: list[tuple[str, str, int, float]],
+) -> int:
+    """Batch-upsert source_files + bulk_files in a single transaction.
+
+    Each tuple in *files* is (source_path, file_ext, file_size_bytes, source_mtime).
+    Returns the number of files written.  On error, falls back to per-file
+    upserts so a single bad row doesn't lose the whole batch.
+    """
+    if not files:
+        return 0
+
+    ts = now_iso()
+
+    try:
+        async with get_db() as conn:
+            for source_path, file_ext, file_size_bytes, source_mtime in files:
+                sf_id = uuid.uuid4().hex
+
+                # -- source_files upsert --
+                insert_cols = {
+                    "id": sf_id,
+                    "source_path": source_path,
+                    "file_ext": file_ext,
+                    "file_size_bytes": file_size_bytes,
+                    "source_mtime": source_mtime,
+                    "first_seen_job_id": job_id,
+                    "last_seen_job_id": job_id,
+                }
+                col_names = ", ".join(insert_cols.keys())
+                placeholders = ", ".join(["?"] * len(insert_cols))
+                update_parts = {
+                    "updated_at": ts,
+                    "file_size_bytes": file_size_bytes,
+                    "source_mtime": source_mtime,
+                    "last_seen_job_id": job_id,
+                }
+                update_sets = ", ".join(f"{k}=?" for k in update_parts)
+                values = list(insert_cols.values()) + list(update_parts.values())
+
+                await conn.execute(
+                    f"INSERT INTO source_files ({col_names}) VALUES ({placeholders}) "
+                    f"ON CONFLICT(source_path) DO UPDATE SET {update_sets}",
+                    values,
+                )
+
+                # Retrieve actual source_file id
+                async with conn.execute(
+                    "SELECT id FROM source_files WHERE source_path=?",
+                    (source_path,),
+                ) as cur:
+                    row = await cur.fetchone()
+                    source_file_id = row["id"]
+
+                # -- bulk_files upsert --
+                bf_id = uuid.uuid4().hex
+                await conn.execute(
+                    """INSERT INTO bulk_files
+                       (id, job_id, source_path, file_ext, file_size_bytes,
+                        source_mtime, status, source_file_id)
+                       VALUES (?,?,?,?,?,?,?,?)
+                       ON CONFLICT(job_id, source_path) DO UPDATE SET
+                        file_ext = excluded.file_ext,
+                        file_size_bytes = excluded.file_size_bytes,
+                        source_file_id = excluded.source_file_id,
+                        status = CASE
+                            WHEN bulk_files.stored_mtime IS NOT NULL
+                                 AND bulk_files.stored_mtime = excluded.source_mtime
+                            THEN 'skipped'
+                            ELSE 'pending'
+                        END,
+                        skip_reason = CASE
+                            WHEN bulk_files.stored_mtime IS NOT NULL
+                                 AND bulk_files.stored_mtime = excluded.source_mtime
+                            THEN 'Unchanged since last scan'
+                            ELSE NULL
+                        END,
+                        source_mtime = excluded.source_mtime""",
+                    (bf_id, job_id, source_path, file_ext, file_size_bytes,
+                     source_mtime, "pending", source_file_id),
+                )
+
+            await conn.commit()
+        return len(files)
+
+    except Exception:
+        # Fallback: per-file upserts so one bad row doesn't lose the batch
+        import structlog
+        log = structlog.get_logger(__name__)
+        log.warning("batch_upsert_fallback", job_id=job_id, batch_size=len(files))
+        count = 0
+        for source_path, file_ext, file_size_bytes, source_mtime in files:
+            try:
+                await upsert_bulk_file(
+                    job_id=job_id,
+                    source_path=source_path,
+                    file_ext=file_ext,
+                    file_size_bytes=file_size_bytes,
+                    source_mtime=source_mtime,
+                )
+                count += 1
+            except Exception:
+                log.warning("batch_upsert_file_error", source_path=source_path)
+        return count
+
+
 async def get_bulk_files(
     job_id: str,
     status: str | None = None,
