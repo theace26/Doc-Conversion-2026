@@ -4,6 +4,43 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.19.4 — Pipeline File Explorer (2026-04-03)
+
+**Clickable stat badges and a dedicated file browser page for the pipeline:**
+- `static/status.html`: Status page stat pills converted from `<span>` to `<a>` tags
+  linking to `pipeline-files.html?status={category}`.
+- New `static/pipeline-files.html`: Full-featured file browser page.
+  - 8 filter chips (scanned, pending, failed, unrecognized, pending_analysis, batched,
+    analysis_failed, indexed) as multi-select toggles.
+  - Search with 300ms debounce.
+  - Full-width paginated table with inline detail expansion (error msg, skip reason,
+    timestamps, job links).
+  - Row actions: open in viewer, browse to source location.
+- New `GET /api/pipeline/files` endpoint in `api/routes/pipeline.py` — multi-status
+  UNION queries across `source_files`, `bulk_files`, `analysis_queue`, and Meilisearch
+  browse for indexed files.
+- New `get_pipeline_files()` DB helper in `core/db/bulk.py`.
+- New `_browse_search_index()` helper in `api/routes/pipeline.py`.
+- "Files" nav item added to `static/app.js` NAV_ITEMS array.
+- Hover styles added to `static/markflow.css` (`.stat-pill--link`).
+
+---
+
+## v0.19.3 — Batched Bulk Scanner DB Upserts (2026-04-03)
+
+**100x faster scan phase for large file sets:**
+- `core/db/bulk.py`: New `upsert_bulk_files_batch()` writes batches of up to 200
+  files in a single SQLite transaction (one `BEGIN`/`COMMIT` per batch). Previously,
+  each file triggered 2 commits (~72,600 commits for 36K files ≈ 5 hours at ~2 files/sec).
+  Now ~220 files/sec on NAS (~3–5 min for 36K files).
+  Falls back to per-file upserts on error (logged as `batch_upsert_fallback`).
+- Re-exported through `core/db/__init__.py`.
+- `core/bulk_scanner.py`: Consumer loop updated — batch size increased from 100 to 200,
+  separates convertible vs. unrecognized files, calls `upsert_bulk_files_batch()` for
+  convertible files.
+
+---
+
 ## v0.19.2 — LLM Token Usage Tracking (2026-04-03)
 
 **Token cost tracking for the image analysis queue:**

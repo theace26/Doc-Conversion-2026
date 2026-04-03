@@ -51,6 +51,14 @@ the relevant subsystem. Referenced from CLAUDE.md.
   type to distinguish local SSD from fast network mounts. Without this, fast NAS
   (2.5/10GbE) gets 1 thread instead of 4 because latency looks like local SSD.
 
+- **Batch upsert fallback (v0.19.3)**: `upsert_bulk_files_batch()` in `core/db/bulk.py`
+  wraps each batch of 200 files in a single transaction. If the batch write fails
+  (e.g., lock contention, unexpected schema error), it catches the exception, logs
+  `batch_upsert_fallback`, and retries every file in the batch individually via the
+  original `upsert_bulk_file()`. This ensures correctness at the cost of speed
+  — do NOT silently swallow the fallback log event, it indicates a transaction problem
+  worth investigating.
+
 - **Concurrent bulk jobs deadlock SQLite (v0.19.1)**: Two code paths can create
   bulk jobs: the backlog poller (`scheduler.py:_run_deferred_conversions`) and
   the lifecycle scan auto-trigger (`lifecycle_scanner.py:_execute_auto_conversion`).
@@ -194,6 +202,14 @@ the relevant subsystem. Referenced from CLAUDE.md.
 - **Auto-OCR gap-fill candidates**: PDF with `ocr_page_count IS NULL` and `status='success'`.
 
 ## API & Routes
+
+- **Pipeline files "indexed" status uses Meilisearch, not SQLite (v0.19.4)**:
+  `GET /api/pipeline/files` handles all statuses via UNION queries on `source_files`
+  and `bulk_files` — except `indexed`, which is resolved by browsing the Meilisearch
+  `documents` index via `_browse_search_index()`. This means `indexed` results will
+  be missing if Meilisearch is unreachable; the endpoint returns an empty list for
+  that status (not an error). Do NOT attempt to back-fill `indexed` from SQLite —
+  there is no `status='indexed'` in `bulk_files`; indexed state lives only in Meilisearch.
 
 - **review router route ordering**: `accept-all` POST must be registered before `{flag_id}` POST.
 

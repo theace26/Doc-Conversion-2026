@@ -130,7 +130,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `api/routes/mcp_info.py` | GET /api/mcp/connection-info — MCP server status for settings UI |
 | `api/routes/media.py` | Media transcript API: get transcript, segments, download |
 | `api/routes/flags.py` | Flag API: user flagging + admin triage (dismiss/extend/remove/blocklist) |
-| `api/routes/pipeline.py` | Pipeline control: status, pause, resume, run-now |
+| `api/routes/pipeline.py` | Pipeline control: status, pause, resume, run-now, file browser (`/api/pipeline/files`) |
 
 ## Frontend
 
@@ -159,6 +159,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `static/progress.html` | Live SSE batch progress |
 | `static/debug.html` | Developer debug dashboard |
 | `static/flagged.html` | Admin flagged files page with filters, sort, pagination |
+| `static/pipeline-files.html` | Pipeline file browser: multi-status filter chips, search, paginated table with inline detail expansion |
 | `static/js/global-status-bar.js` | Badge-only polling: updates nav badge with active-job count |
 | `static/js/help-link.js` | Contextual "?" icon component |
 | `static/js/folder-picker.js` | FolderPicker widget: modal directory browser |
