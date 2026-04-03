@@ -452,6 +452,13 @@ the relevant subsystem. Referenced from CLAUDE.md.
 - **Stop banner CSS**: `.stop-banner[hidden] { display: none !important; }` in markflow.css.
   JS uses `style.display` not `.hidden` attribute because CSS `display:flex` overrides `hidden`.
 
+- **`display: flex/grid` overrides HTML `hidden` attribute**: The browser's `hidden` attribute
+  sets `display: none`, but any CSS rule that explicitly sets `display: flex` or `display: grid`
+  wins the cascade and overrides it. Result: the element renders visibly even though `hidden` is
+  present. Fix: default the element to `display: none` in CSS, remove the `hidden` attribute from
+  HTML, and use a `.visible` class that sets `display: flex/grid`. Toggle with
+  `el.classList.add/remove('visible')` instead of toggling the `hidden` attribute.
+
 ## Scanner & Mount Readiness
 
 - **Source mount verification**: Both `BulkScanner.scan()` and `run_lifecycle_scan()` verify

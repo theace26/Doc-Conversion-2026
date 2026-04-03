@@ -4,6 +4,20 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.19.6.2 — LLM Banner CSS Fix (2026-04-03)
+
+**Patch fix for the LLM provider status banner CSS on `pipeline-files.html`:**
+
+- `.llm-banner` had `display: flex` which overrode the HTML `hidden` attribute, causing an
+  empty red banner to render even when the provider was verified and active.
+- Fixed by removing `hidden` from the HTML and defaulting `.llm-banner` to `display: none`.
+  A new `.visible` class sets `display: flex`, toggled via `classList.add/remove('visible')` in JS.
+
+**Files changed:**
+- `static/pipeline-files.html` — CSS default `display: none` + `.visible` class toggle
+
+---
+
 ## v0.19.6.1 — LLM Banner Empty Display Fix (2026-04-03)
 
 **Patch fix for the LLM provider status banner on `pipeline-files.html`:**

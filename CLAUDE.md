@@ -26,13 +26,15 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.19.6.1
+## Current Status — v0.19.6.2
 
-v0.19.6.1: LLM banner empty display fix (patch). The LLM provider status banner on
-`pipeline-files.html` showed as an empty red box even when the provider was verified and
-active. Fixed: (1) explicit equality checks for `is_active` and `is_verified` since SQLite
-returns integers not booleans; (2) banner now hides on fetch error instead of remaining in
-default (visible) state.
+v0.19.6.2: LLM banner CSS fix (patch). The `.llm-banner` class had `display: flex` which
+overrode the HTML `hidden` attribute, causing an empty red banner to appear even when the
+provider was verified. Fixed by using `display: none` as default with a `.visible` class
+toggled via `classList.add/remove('visible')` in JS.
+
+Previous (v0.19.6.1): LLM banner empty display fix — explicit `== 1` checks for SQLite
+integer booleans; banner hides on fetch error.
 
 Previous (v0.19.6): Pipeline files display fixes, LLM provider status banner, return-to
 workflow, auto-requeue on provider verify, GPU health display fix, and providers
