@@ -185,10 +185,37 @@ async def run_lifecycle_scan(
     _started_at_dt = datetime.now(timezone.utc)
 
     # ── Load exclusion paths (prefix-match) ────────────────────────────
-    from core.database import get_exclusion_paths
+    from core.database import get_exclusion_paths, get_preference as _get_pref
     exclusion_paths = await get_exclusion_paths()
     if exclusion_paths:
         log.info("lifecycle_scan.exclusions_loaded", count=len(exclusion_paths), paths=exclusion_paths)
+
+    # ── Incremental scan decision ──────────────────────────────────
+    from core.db.bulk import (
+        load_dir_mtimes, save_dir_mtimes_batch,
+        get_incremental_scan_count, increment_scan_count, reset_scan_count,
+    )
+    incremental_enabled = (await _get_pref("scan_incremental_enabled") or "true") == "true"
+    full_walk_interval = int(await _get_pref("scan_full_walk_interval") or "5")
+    scan_count = await get_incremental_scan_count()
+    bh_start = int((await _get_pref("scanner_business_hours_start") or "06:00").split(":")[0])
+    bh_end = int((await _get_pref("scanner_business_hours_end") or "22:00").split(":")[0])
+    current_hour = datetime.now().hour
+    outside_business_hours = current_hour < bh_start or current_hour >= bh_end
+    force_full = (scan_count >= full_walk_interval) or outside_business_hours
+
+    if incremental_enabled and not force_full:
+        dir_mtime_cache = await load_dir_mtimes()
+        incremental_mode = True
+        log.info("lifecycle_scan.incremental_mode",
+                 cached_dirs=len(dir_mtime_cache), scans_since_full=scan_count)
+    else:
+        dir_mtime_cache = {}
+        incremental_mode = False
+        reason = "outside_business_hours" if outside_business_hours else f"interval_reached ({scan_count}/{full_walk_interval})"
+        log.info("lifecycle_scan.full_walk_mode", reason=reason)
+
+    current_dir_mtimes: dict[str, float] = {}
 
     # Record activity event for scan start
     try:
@@ -211,7 +238,6 @@ async def run_lifecycle_scan(
             log.info("lifecycle_scan.created_synthetic_job", job_id=job_id)
 
     # ── Walk each source root sequentially ─────────────────────────────
-    from core.database import get_preference as _get_pref
     max_threads_pref = await _get_pref("scan_max_threads") or "auto"
     if max_threads_pref == "auto":
         _max_override = None
@@ -253,12 +279,18 @@ async def run_lifecycle_scan(
                     error_entries, job_id, scan_run_id, _started_at_dt,
                     baseline_ms=storage_profile.sequential_median_ms,
                     exclusion_paths=exclusion_paths,
+                    dir_mtime_cache=dir_mtime_cache,
+                    current_dir_mtimes=current_dir_mtimes,
+                    incremental_mode=incremental_mode,
                 )
             else:
                 await _serial_lifecycle_walk(
                     source_root, seen_paths, counters,
                     error_entries, job_id, scan_run_id, _started_at_dt,
                     exclusion_paths=exclusion_paths,
+                    dir_mtime_cache=dir_mtime_cache,
+                    current_dir_mtimes=current_dir_mtimes,
+                    incremental_mode=incremental_mode,
                 )
         except Exception as exc:
             # Log error for this root but continue to next root
@@ -319,6 +351,17 @@ async def run_lifecycle_scan(
             counters["errors"] += 1
             error_entries.append({"path": "deletion_detection", "error": str(exc)})
             log.error("lifecycle_scan.deletion_detection_error", error=str(exc))
+
+    # ── Persist directory mtimes for next incremental scan ──────────
+    if current_dir_mtimes:
+        try:
+            await save_dir_mtimes_batch(current_dir_mtimes, scan_run_id)
+        except Exception:
+            log.warning("lifecycle_scan.save_dir_mtimes_failed")
+    if incremental_mode:
+        await increment_scan_count()
+    else:
+        await reset_scan_count()
 
     # ── Finalize scan run ────────────────────────────────────────────────────
     final_status = "cancelled" if cancelled else "complete"
@@ -527,10 +570,15 @@ async def _serial_lifecycle_walk(
     scan_run_id: str,
     started_at_dt: datetime,
     exclusion_paths: list[str] | None = None,
+    dir_mtime_cache: dict[str, float] | None = None,
+    current_dir_mtimes: dict[str, float] | None = None,
+    incremental_mode: bool = False,
 ) -> None:
     """Serial walk for local SSD/HDD sources with error-rate abort."""
     error_monitor = ErrorRateMonitor()
     _excl = exclusion_paths or []
+    _dir_mtime_cache = dir_mtime_cache or {}
+    _current_dir_mtimes = current_dir_mtimes if current_dir_mtimes is not None else {}
 
     def _is_excluded(p: str) -> bool:
         return any(p.startswith(ep) for ep in _excl)
@@ -557,6 +605,16 @@ async def _serial_lifecycle_walk(
             if not d.startswith(".") and d != "_markflow"
             and not _is_excluded(str(Path(dirpath) / d))
         ]
+
+        # Record dir mtime and skip if unchanged (incremental)
+        try:
+            _dir_mt = os.stat(dirpath).st_mtime
+            _current_dir_mtimes[dirpath] = _dir_mt
+        except OSError:
+            _dir_mt = None
+        if (incremental_mode and _dir_mt is not None
+                and _dir_mtime_cache.get(dirpath) == _dir_mt):
+            continue
 
         for filename in filenames:
             file_path = Path(dirpath) / filename
@@ -587,11 +645,16 @@ async def _parallel_lifecycle_walk(
     started_at_dt: datetime,
     baseline_ms: float = 1.0,
     exclusion_paths: list[str] | None = None,
+    dir_mtime_cache: dict[str, float] | None = None,
+    current_dir_mtimes: dict[str, float] | None = None,
+    incremental_mode: bool = False,
 ) -> None:
     """Parallel walk with feedback-loop throttling for NAS/SMB sources."""
     import time as _time
 
     _excl = exclusion_paths or []
+    _dir_mtime_cache = dir_mtime_cache or {}
+    _current_dir_mtimes = current_dir_mtimes if current_dir_mtimes is not None else {}
 
     def _is_excluded(p: str) -> bool:
         return any(p.startswith(ep) for ep in _excl)
@@ -673,6 +736,15 @@ async def _parallel_lifecycle_walk(
                     if not d.startswith(".") and d != "_markflow"
                     and not _is_excluded(str(Path(dirpath) / d))
                 ]
+                # Record dir mtime and skip if unchanged (incremental)
+                try:
+                    _dir_mt = os.stat(dirpath).st_mtime
+                    _current_dir_mtimes[dirpath] = _dir_mt
+                except OSError:
+                    _dir_mt = None
+                if (incremental_mode and _dir_mt is not None
+                        and _dir_mtime_cache.get(dirpath) == _dir_mt):
+                    continue
                 for filename in filenames:
                     if _should_bail():
                         return
