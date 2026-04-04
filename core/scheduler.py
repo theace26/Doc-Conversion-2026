@@ -465,6 +465,18 @@ def start_scheduler() -> None:
         misfire_grace_time=60,
     )
 
+    # Stale scan watchdog — every 5 minutes
+    from core.scan_coordinator import check_stale_scans
+    scheduler.add_job(
+        check_stale_scans,
+        trigger=IntervalTrigger(minutes=5),
+        id="check_stale_scans",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=120,
+    )
+
     # Disk metrics — every 6 hours
     scheduler.add_job(
         collect_disk_snapshot,

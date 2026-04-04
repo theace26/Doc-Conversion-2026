@@ -590,6 +590,8 @@ async def _serial_lifecycle_walk(
         else:
             log.warning("lifecycle_walk_error", path=str(err.filename or ""), error=str(err))
 
+    last_flush_count = 0
+
     for dirpath, dirnames, filenames in os.walk(source_root, onerror=_lifecycle_walk_error):
         if _should_cancel() or error_monitor.should_abort():
             log.warning("lifecycle_scan_stopped", scan_run_id=scan_run_id,
@@ -629,6 +631,11 @@ async def _serial_lifecycle_walk(
                 error_monitor.record_error(f"lifecycle entry: {file_path}")
             else:
                 error_monitor.record_success()
+
+            # Periodically flush counters to DB (crash resilience)
+            if counters["files_scanned"] - last_flush_count >= 500:
+                last_flush_count = counters["files_scanned"]
+                await _flush_counters_to_db(scan_run_id, counters)
 
             if error_monitor.should_abort():
                 break
@@ -819,10 +826,11 @@ async def _parallel_lifecycle_walk(
                     counters, file_path, source_root, started_at_dt,
                 )
 
-        # Periodically ask throttler to re-evaluate
+        # Periodically ask throttler to re-evaluate and flush counters to DB
         if counters["files_scanned"] - last_throttle_check >= 500:
             throttler.check_and_adjust()
             last_throttle_check = counters["files_scanned"]
+            await _flush_counters_to_db(scan_run_id, counters)
 
     # Check for walker exceptions
     for i, fut in enumerate(futures):
@@ -930,6 +938,27 @@ def _update_scan_progress(
         _scan_state["eta_seconds"] = int(remaining / rate) if rate > 0 and remaining > 0 else None
     else:
         _scan_state["eta_seconds"] = None
+
+
+async def _flush_counters_to_db(scan_run_id: str, counters: dict) -> None:
+    """Persist current scan counters to DB for crash resilience.
+
+    Called every ~500 files so that if the container dies mid-scan,
+    cleanup_orphaned_jobs() leaves a row with meaningful counter data
+    instead of all-zeros.
+    """
+    try:
+        await update_scan_run(scan_run_id, {
+            "files_scanned": counters["files_scanned"],
+            "files_new": counters["files_new"],
+            "files_modified": counters["files_modified"],
+            "files_moved": counters["files_moved"],
+            "files_deleted": counters["files_deleted"],
+            "files_restored": counters["files_restored"],
+            "errors": counters["errors"],
+        })
+    except Exception:
+        log.debug("lifecycle_scan.counter_flush_failed", scan_run_id=scan_run_id)
 
 
 def _count_files_sync(source_root: Path) -> int:

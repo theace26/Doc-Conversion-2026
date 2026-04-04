@@ -4,6 +4,34 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.19.6.7 — Scan Coordinator Crash Resilience (2026-04-04)
+
+**Three fixes for scanner runs getting stuck after container restarts:**
+
+1. **Coordinator state reset on startup** — Added `reset_coordinator()` called during
+   app lifespan after `cleanup_orphaned_jobs()`. Previously, in-memory coordinator flags
+   (`run_now_running`, `lifecycle_running`) persisted as ghost state if the container
+   restarted mid-scan, blocking future scans indefinitely.
+
+2. **Periodic counter flush during scan** — Scan run counters (`files_scanned`, `files_new`,
+   etc.) are now flushed to the DB every 500 files during both serial and parallel walks.
+   Previously, counters were only written at scan completion, so crash recovery left all
+   counters at zero.
+
+3. **Stale scan watchdog** — New `check_stale_scans()` runs every 5 minutes via the
+   scheduler. If a run-now or lifecycle scan has been "running" for longer than 4 hours
+   without completing (e.g. async task died silently), the watchdog resets the coordinator
+   flag. The coordinator status API now includes elapsed time and timeout info.
+
+**Files changed:**
+- `core/scan_coordinator.py` — `reset_coordinator()`, `check_stale_scans()`, timestamp tracking, enriched status
+- `core/lifecycle_scanner.py` — `_flush_counters_to_db()`, flush calls in serial and parallel walkers
+- `core/scheduler.py` — `check_stale_scans` job (5-minute interval)
+- `main.py` — call `reset_coordinator()` on startup
+- `core/version.py` — bump to 0.19.6.7
+
+---
+
 ## v0.19.6.6 — Fix OCR Confidence Threshold Slider Display (2026-04-03)
 
 **Bug fix — OCR confidence threshold showed incorrect percentage (e.g. 400%):**

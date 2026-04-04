@@ -1,11 +1,11 @@
 {
-    "timestamp":  "2026-03-31T09:36:57.9991643-07:00",
-    "gpu_vendor":  "nvidia",
-    "host_os":  "Windows",
-    "host_machine":  "AMD64",
-    "gpu_name":  "NVIDIA GeForce GTX 1660 Ti",
-    "hashcat_backend":  "CUDA",
-    "hashcat_version":  "v7.1.2",
-    "gpu_vram_mb":  6144,
-    "available":  true
+  "available": false,
+  "gpu_vendor": "none",
+  "gpu_name": "",
+  "gpu_vram_mb": 0,
+  "hashcat_backend": "OpenCL-CPU",
+  "hashcat_version": "v6.2.6",
+  "host_os": "Linux",
+  "host_machine": "x86_64",
+  "timestamp": "2026-04-04T04:55:00Z"
 }

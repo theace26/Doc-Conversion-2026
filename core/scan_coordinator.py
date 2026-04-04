@@ -12,6 +12,8 @@ pause when a bulk job starts and resume automatically when it finishes.
 """
 
 import asyncio
+import time
+
 import structlog
 
 log = structlog.get_logger(__name__)
@@ -27,22 +29,53 @@ _lifecycle_running = False
 _run_now_running = False
 _run_now_paused = False
 _active_bulk_count = 0                   # supports concurrent bulk jobs
+_run_now_started_at: float | None = None # monotonic timestamp for watchdog
+_lifecycle_started_at: float | None = None
+
+# Stale scan timeout — if a scan has been "running" for longer than this
+# without completing, the watchdog considers it dead. Default: 4 hours.
+STALE_SCAN_TIMEOUT_S = 4 * 60 * 60
+
+
+# ── Startup reset ──────────────────────────────────────────────────────────
+
+def reset_coordinator() -> None:
+    """Reset all in-memory coordinator state on container startup.
+
+    Called after cleanup_orphaned_jobs() marks DB rows as interrupted.
+    Without this, flags from a previous container lifecycle persist as
+    ghost state (e.g. run_now_running=True with no actual async task).
+    """
+    global _lifecycle_running, _run_now_running, _run_now_paused, _active_bulk_count
+    global _run_now_started_at, _lifecycle_started_at
+    _lifecycle_cancel.clear()
+    _run_now_cancel.clear()
+    _run_now_pause.set()  # not paused
+    _lifecycle_running = False
+    _run_now_running = False
+    _run_now_paused = False
+    _active_bulk_count = 0
+    _run_now_started_at = None
+    _lifecycle_started_at = None
+    log.info("scan_coordinator.reset", msg="All coordinator state cleared on startup")
 
 
 # ── Lifecycle scan helpers ──────────────────────────────────────────────────
 
 def register_lifecycle_scan() -> None:
     """Called when a lifecycle scan begins. Clears any stale cancel signal."""
-    global _lifecycle_running
+    global _lifecycle_running, _lifecycle_started_at
     _lifecycle_cancel.clear()
     _lifecycle_running = True
+    _lifecycle_started_at = time.monotonic()
     log.debug("scan_coordinator.lifecycle_registered")
 
 
 def unregister_lifecycle_scan() -> None:
     """Called when a lifecycle scan finishes (complete or cancelled)."""
-    global _lifecycle_running
+    global _lifecycle_running, _lifecycle_started_at
     _lifecycle_running = False
+    _lifecycle_started_at = None
     _lifecycle_cancel.clear()
     log.debug("scan_coordinator.lifecycle_unregistered")
 
@@ -63,18 +96,20 @@ def is_lifecycle_cancelled() -> bool:
 
 def register_run_now_scan() -> None:
     """Called when a run-now scan begins."""
-    global _run_now_running
+    global _run_now_running, _run_now_started_at
     _run_now_cancel.clear()
     _run_now_pause.set()  # ensure not paused at start
     _run_now_running = True
+    _run_now_started_at = time.monotonic()
     log.debug("scan_coordinator.run_now_registered")
 
 
 def unregister_run_now_scan() -> None:
     """Called when a run-now scan finishes."""
-    global _run_now_running, _run_now_paused
+    global _run_now_running, _run_now_paused, _run_now_started_at
     _run_now_running = False
     _run_now_paused = False
+    _run_now_started_at = None
     _run_now_cancel.clear()
     _run_now_pause.set()
     log.debug("scan_coordinator.run_now_unregistered")
@@ -155,14 +190,47 @@ def is_any_bulk_active() -> bool:
     return _active_bulk_count > 0
 
 
+# ── Stale scan watchdog ────────────────────────────────────────────────────
+
+def check_stale_scans() -> None:
+    """Detect and reset scans that have been 'running' longer than the timeout.
+
+    Called periodically by the scheduler (e.g. every 2 minutes via
+    collect_metrics). If a scan's async task died without calling
+    unregister, this resets the ghost flag so the coordinator doesn't
+    block future scans indefinitely.
+    """
+    now = time.monotonic()
+
+    if _run_now_running and _run_now_started_at is not None:
+        elapsed = now - _run_now_started_at
+        if elapsed > STALE_SCAN_TIMEOUT_S:
+            log.warning("scan_coordinator.stale_run_now_detected",
+                        elapsed_hours=round(elapsed / 3600, 1))
+            unregister_run_now_scan()
+
+    if _lifecycle_running and _lifecycle_started_at is not None:
+        elapsed = now - _lifecycle_started_at
+        if elapsed > STALE_SCAN_TIMEOUT_S:
+            log.warning("scan_coordinator.stale_lifecycle_detected",
+                        elapsed_hours=round(elapsed / 3600, 1))
+            unregister_lifecycle_scan()
+
+
 # ── Status for API / debugging ──────────────────────────────────────────────
 
 def get_coordinator_status() -> dict:
+    now = time.monotonic()
+    run_now_elapsed = round(now - _run_now_started_at, 1) if _run_now_started_at else None
+    lifecycle_elapsed = round(now - _lifecycle_started_at, 1) if _lifecycle_started_at else None
     return {
         "lifecycle_running": _lifecycle_running,
         "lifecycle_cancelled": _lifecycle_cancel.is_set(),
+        "lifecycle_elapsed_s": lifecycle_elapsed,
         "run_now_running": _run_now_running,
         "run_now_cancelled": _run_now_cancel.is_set(),
         "run_now_paused": _run_now_paused,
+        "run_now_elapsed_s": run_now_elapsed,
         "active_bulk_count": _active_bulk_count,
+        "stale_timeout_s": STALE_SCAN_TIMEOUT_S,
     }

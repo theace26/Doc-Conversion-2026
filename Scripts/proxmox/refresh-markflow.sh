@@ -18,7 +18,7 @@
 set -euo pipefail
 
 # ── Defaults ────────────────────────────────────────────────────
-REPO_DIR="/opt/markflow"
+REPO_DIR="/opt/doc-conversion-2026"
 NO_BUILD=false
 
 # ── Parse args ──────────────────────────────────────────────────
@@ -131,24 +131,8 @@ else
     echo "  [--] hashcat unavailable (GPU cracking disabled)"
 fi
 
-# -- Write worker_capabilities.json --
-QUEUE_DIR="$REPO_DIR/hashcat-queue"
-mkdir -p "$QUEUE_DIR"
-
-cat > "$QUEUE_DIR/worker_capabilities.json" <<CAPS
-{
-  "available": $([ "$GPU_VENDOR" != "none" ] && echo "true" || echo "false"),
-  "gpu_vendor": "$GPU_VENDOR",
-  "gpu_name": "$GPU_NAME",
-  "gpu_vram_mb": $GPU_VRAM_MB,
-  "hashcat_backend": $([ -n "$HASHCAT_BACKEND" ] && echo "\"$HASHCAT_BACKEND\"" || echo "null"),
-  "hashcat_version": $([ -n "$HASHCAT_VERSION" ] && echo "\"$HASHCAT_VERSION\"" || echo "null"),
-  "host_os": "$OS_NAME",
-  "host_machine": "$MACHINE",
-  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-}
-CAPS
-echo "  [OK] worker_capabilities.json written"
+# -- worker_capabilities.json is written after git pull (step 1) --
+# so that git reset --hard doesn't overwrite it with stale data
 
 # -- Summary --
 if $USE_NVIDIA_OVERLAY; then
@@ -176,6 +160,25 @@ git -C "$REPO_DIR" reset --hard origin/main
 COMMIT=$(git -C "$REPO_DIR" log -1 --format="%h %s")
 echo "  [OK] Now at: $COMMIT"
 
+# -- Write worker_capabilities.json (after git pull so reset --hard doesn't overwrite) --
+QUEUE_DIR="$REPO_DIR/hashcat-queue"
+mkdir -p "$QUEUE_DIR"
+
+cat > "$QUEUE_DIR/worker_capabilities.json" <<CAPS
+{
+  "available": $([ "$GPU_VENDOR" != "none" ] && echo "true" || echo "false"),
+  "gpu_vendor": "$GPU_VENDOR",
+  "gpu_name": "$GPU_NAME",
+  "gpu_vram_mb": $GPU_VRAM_MB,
+  "hashcat_backend": $([ -n "$HASHCAT_BACKEND" ] && echo "\"$HASHCAT_BACKEND\"" || echo "null"),
+  "hashcat_version": $([ -n "$HASHCAT_VERSION" ] && echo "\"$HASHCAT_VERSION\"" || echo "null"),
+  "host_os": "$OS_NAME",
+  "host_machine": "$MACHINE",
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+CAPS
+echo "  [OK] worker_capabilities.json written"
+
 # ── 2. Rebuild (or skip) ───────────────────────────────────────
 echo ""
 
@@ -191,18 +194,51 @@ fi
 echo ""
 echo "[3/3] Restarting containers..."
 
+# Stop any stale containers from a previous compose project that may be
+# holding ports (e.g. project name 'markflow' left over from an earlier run)
+for STALE_PROJECT in markflow; do
+    if docker compose -p "$STALE_PROJECT" ps -q 2>/dev/null | grep -q .; then
+        echo "  [--] Stopping stale project '$STALE_PROJECT'..."
+        docker compose -p "$STALE_PROJECT" down
+    fi
+done
+
 docker compose "${COMPOSE_ARGS[@]}" up -d
 
 # ── Auto-start hashcat host worker ─────────────────────────────
 if [[ -n "$HASHCAT_PATH" && "$GPU_VENDOR" != "none" && "$USE_NVIDIA_OVERLAY" == "false" ]]; then
     WORKER_SCRIPT="$REPO_DIR/tools/markflow-hashcat-worker.py"
+    WORKER_PID_FILE="$QUEUE_DIR/worker.pid"
     if [[ -f "$WORKER_SCRIPT" ]]; then
         echo ""
         echo "[GPU] Starting hashcat host worker in background..."
+        # Kill any stale worker before starting a new one
+        if [[ -f "$WORKER_PID_FILE" ]] && kill -0 "$(cat "$WORKER_PID_FILE")" 2>/dev/null; then
+            echo "  [--] Stopping existing worker (PID: $(cat "$WORKER_PID_FILE"))..."
+            kill "$(cat "$WORKER_PID_FILE")" 2>/dev/null || true
+            sleep 1
+        fi
         nohup python3 "$WORKER_SCRIPT" --queue-dir "$QUEUE_DIR" > "$QUEUE_DIR/worker.log" 2>&1 &
+        echo $! > "$WORKER_PID_FILE"
         echo "  [OK] Host worker started (PID: $!, log: $QUEUE_DIR/worker.log)"
     fi
 fi
+
+# ── Health Check ────────────────────────────────────────────────
+echo ""
+echo "Waiting for MarkFlow to be ready..."
+for i in $(seq 1 30); do
+    if curl -sf http://localhost:8000/api/health >/dev/null 2>&1; then
+        echo "  [OK] MarkFlow is up and healthy"
+        break
+    fi
+    if [[ $i -eq 30 ]]; then
+        echo "  ⚠️  Health check timed out after 60s"
+        echo "     Check logs: docker compose logs markflow"
+    else
+        sleep 2
+    fi
+done
 
 # ── Done ────────────────────────────────────────────────────────
 echo ""
@@ -213,7 +249,7 @@ echo ""
 
 docker compose "${COMPOSE_ARGS[@]}" ps
 
-VM_IP=$(hostname -I | awk '{print $1}')
+VM_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '/src/{print $7; exit}')
 echo ""
 echo "  MarkFlow UI:  http://$VM_IP:8000"
 echo "  Meilisearch:  http://$VM_IP:7700"

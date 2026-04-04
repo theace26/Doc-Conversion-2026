@@ -459,7 +459,9 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 - **Orphan cleanup runs at startup**: `cleanup_orphaned_jobs()` in `core/database.py` cancels
   any bulk_jobs in scanning/running/pending and interrupts any scan_runs still in running state.
-  Runs before the scheduler starts. This is why the stop banner doesn't stick after restarts.
+  Runs before the scheduler starts. Immediately followed by `reset_coordinator()` which clears
+  in-memory coordinator flags (run_now_running, lifecycle_running, etc.) to prevent ghost state.
+  A stale scan watchdog (`check_stale_scans()`, every 5 min) also resets scans stuck beyond 4 hours.
 
 - **Stop banner CSS**: `.stop-banner[hidden] { display: none !important; }` in markflow.css.
   JS uses `style.display` not `.hidden` attribute because CSS `display:flex` overrides `hidden`.
@@ -776,7 +778,7 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 - **Deferred conversion runner re-triggers lifecycle scan**: Re-evaluates decision with fresh data.
 
-- **Scan priority coordinator**: `core/scan_coordinator.py` manages priority: Bulk > Run Now > Lifecycle. Bulk starting cancels lifecycle and pauses run-now. Run-now starting cancels lifecycle. Lifecycle never pauses — only cancels and waits for next scheduled run. All signals use asyncio Events (cheap bool reads in walker loops).
+- **Scan priority coordinator**: `core/scan_coordinator.py` manages priority: Bulk > Run Now > Lifecycle. Bulk starting cancels lifecycle and pauses run-now. Run-now starting cancels lifecycle. Lifecycle never pauses — only cancels and waits for next scheduled run. All signals use asyncio Events (cheap bool reads in walker loops). `reset_coordinator()` on startup clears all flags. `check_stale_scans()` watchdog (every 5 min) auto-resets scans stuck beyond 4 hours (configurable via `STALE_SCAN_TIMEOUT_S`).
 
 - **Lifecycle cancel skips deletion detection**: When a lifecycle scan is cancelled mid-walk, it must NOT run deletion detection. The `seen_paths` set is incomplete, so any file not yet walked would be incorrectly marked as deleted. The cancelled scan sets `status='cancelled'` and returns.
 

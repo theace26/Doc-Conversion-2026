@@ -71,6 +71,10 @@ async def lifespan(app: FastAPI):
     from core.database import cleanup_orphaned_jobs
     await cleanup_orphaned_jobs()
 
+    # Reset in-memory coordinator flags so ghost scan state doesn't persist
+    from core.scan_coordinator import reset_coordinator
+    reset_coordinator()
+
     # Clear in-memory stop flag so the banner doesn't stick after restart
     from core.stop_controller import reset_stop
     reset_stop()
