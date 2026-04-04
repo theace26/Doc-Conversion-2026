@@ -21,6 +21,7 @@ pandas
 
 # Image processing
 Pillow
+pillow-heif
 
 # PDF export
 weasyprint

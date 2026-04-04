@@ -20,6 +20,12 @@ from typing import Any
 import structlog
 from PIL import Image
 
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except ImportError:
+    pass
+
 from core.document_model import (
     DocumentModel,
     DocumentMetadata,
@@ -27,6 +33,7 @@ from core.document_model import (
     ElementType,
     ImageData,
 )
+from core.image_handler import extract_image
 from formats.base import FormatHandler, register_handler
 
 log = structlog.get_logger(__name__)
@@ -34,9 +41,9 @@ log = structlog.get_logger(__name__)
 
 @register_handler
 class ImageHandler(FormatHandler):
-    """Handler for raster/vector image files: JPG, PNG, TIFF, BMP, GIF, EPS."""
+    """Handler for raster/vector image files: JPG, PNG, TIFF, BMP, GIF, EPS, HEIC/HEIF."""
 
-    EXTENSIONS = ["jpg", "jpeg", "png", "tif", "tiff", "bmp", "gif", "eps"]
+    EXTENSIONS = ["jpg", "jpeg", "png", "tif", "tiff", "bmp", "gif", "eps", "heic", "heif"]
 
     # ── Ingest ────────────────────────────────────────────────────────────────
 
@@ -132,17 +139,22 @@ class ImageHandler(FormatHandler):
         # ── Embed the image as an IMAGE element ──────────────────────────────
         try:
             image_bytes = file_path.read_bytes()
-            img_data = ImageData(
-                data=image_bytes,
-                original_format=ext if ext != "jpg" else "jpeg",
-                width=width,
-                height=height,
+            fmt = ext if ext != "jpg" else "jpeg"
+            hash_name, png_data, meta = extract_image(image_bytes, fmt)
+            model.images[hash_name] = ImageData(
+                data=png_data,
+                original_format=fmt,
+                width=meta.get("width") or width,
+                height=meta.get("height") or height,
                 alt_text=file_path.stem,
             )
             model.add_element(Element(
                 type=ElementType.IMAGE,
-                content=file_path.stem,
-                image=img_data,
+                content="",
+                attributes={
+                    "src": f"assets/{hash_name}",
+                    "alt": file_path.stem,
+                },
             ))
         except Exception as exc:
             log.warning("image_embed_failed", file=file_path.name, error=str(exc))

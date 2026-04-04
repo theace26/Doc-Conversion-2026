@@ -892,8 +892,15 @@
     doSearch();
   });
 
-  // Auto-search if query in URL
-  if (document.getElementById('search-input').value.trim().length >= 2) doSearch();
+  // Auto-search if query in URL, otherwise browse all on load
+  var initQuery = document.getElementById('search-input').value.trim();
+  if (initQuery.length >= 2) {
+    doSearch();
+  } else {
+    currentSort = 'date';
+    document.getElementById('sort-select').value = 'date';
+    doSearch();
+  }
 
   // ── Flag Modal ────────────────────────────────────────────────────────────
   var flagModalState = {};

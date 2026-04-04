@@ -26,35 +26,28 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.19.6.6
+## Current Status — v0.19.6.8
 
-v0.19.6.6: Fix OCR confidence threshold slider display bug. The `populateForm()` function
+v0.19.6.8: HEIC/HEIF image support and search page UX improvement. (1) Added `pillow-heif`
+dependency and registered HEIF opener in `formats/image_handler.py` — HEIC/HEIF files are
+now converted like any other image format, routed through `core.image_handler.extract_image`
+for consistent PNG normalization into the asset pipeline. (2) Search page (`static/search.html`)
+now auto-browses all documents sorted by date on initial load when no query is present,
+instead of showing an empty page.
+
+Previous (v0.19.6.7): Scan coordinator crash resilience — startup reset, counter flush, stale
+watchdog. Three fixes for scanner runs getting stuck after container restarts.
+
+Previous (v0.19.6.6): Fix OCR confidence threshold slider display bug. The `populateForm()` function
 in `settings.html` had a generic `type=range` handler that wrote all range slider values
-to the same `range-output` element. When the conservatism factor slider was populated, it
-overwrote the OCR confidence display, showing incorrect values (e.g. 400%). Now each range
-slider updates its own output element.
+to the same `range-output` element. Now each range slider updates its own output element.
 
 Previous (v0.19.6.5): DB contention logging for diagnosing "database is locked" errors. Three
-dedicated log files in `logs/`: `db-contention.log` (write acquire/release with caller
-and hold duration), `db-queries.log` (full SQL with params, timing, caller),
-`db-active.log` (active-connection snapshots dumped on lock error). All capped at 1 GB
-with 3 sequential backups. Active-connection tracker shows who is holding the lock when
-contention occurs. **TEMPORARY** — deactivate once lock contention is resolved.
+dedicated log files in `logs/`. **TEMPORARY** — deactivate once lock contention is resolved.
 
-Previous (v0.19.6.4): Fix scan crash — wrong table name in incremental scan counter. Three raw SQL
-queries in `core/db/bulk.py` referenced `preferences` instead of `user_preferences`,
-causing `no such table: preferences` error on any scan trigger (run-now, lifecycle).
+Previous (v0.19.6.4): Fix scan crash — wrong table name in incremental scan counter.
 
-Previous (v0.19.6.3): Pipeline files chip colors UI revision. Filter chips on pipeline-files.html now 
-always show their category colors (matching status page pipeline pills) — pending analysis = 
-purple, batched = yellow, failed/analysis failed = red, indexed = green. Active state adds 
-border highlight and bold weight.
-
-Previous (v0.19.6.2): LLM banner CSS fix (patch). Fixed `.llm-banner` display issue via 
-`display: none` default + `.visible` class toggle in JS.
-
-Previous (v0.19.6.1): LLM banner empty display fix — explicit `== 1` checks for SQLite
-integer booleans; banner hides on fetch error.
+Previous (v0.19.6.3): Pipeline files chip colors UI revision.
 
 Previous (v0.19.6): Pipeline files display fixes, LLM provider status banner, return-to
 workflow, auto-requeue on provider verify, GPU health display fix, and providers

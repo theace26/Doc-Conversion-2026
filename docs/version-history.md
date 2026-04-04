@@ -4,6 +4,30 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.19.6.8 — HEIC/HEIF Support & Search Auto-Browse (2026-04-04)
+
+**Two improvements: new image format support and search page UX.**
+
+1. **HEIC/HEIF image conversion** — Added `pillow-heif` dependency and registered the HEIF
+   opener in `formats/image_handler.py`. HEIC/HEIF files (common iPhone photo format) are
+   now handled like any other image, routed through `core.image_handler.extract_image` for
+   consistent PNG normalization into the document model's asset pipeline. Extension list
+   updated in handler and README.
+
+2. **Search page auto-browse on load** — `static/search.html` now automatically loads all
+   documents sorted by date when the page opens with no query, instead of showing a blank
+   page. Users see their most recent documents immediately.
+
+**Files changed:**
+- `formats/image_handler.py` — HEIC/HEIF extensions, pillow-heif import, extract_image routing
+- `requirements.txt` — added `pillow-heif`
+- `static/search.html` — auto-browse on empty query
+- `core/version.py` — bump to 0.19.6.8
+- `README.md` — version bump, HEIC/HEIF in supported formats table
+- `CLAUDE.md` — current status updated
+
+---
+
 ## v0.19.6.7 — Scan Coordinator Crash Resilience (2026-04-04)
 
 **Three fixes for scanner runs getting stuck after container restarts:**

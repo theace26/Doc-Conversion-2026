@@ -5,7 +5,7 @@ Drop in files — or point it at an entire repository — and MarkFlow handles t
 format detection, OCR, password recovery, media transcription, full-text search,
 and version tracking. Everything runs inside Docker with a browser-based UI.
 
-**Current version:** v0.19.6.6
+**Current version:** v0.19.6.8
 
 ---
 
@@ -36,7 +36,7 @@ and version tracking. Everything runs inside Docker with a browser-based UI.
 | Email | .eml, .msg (with recursive attachment conversion) |
 | Archives | .zip, .tar, .tar.gz, .7z, .rar, .cab, .iso |
 | Adobe Creative | .psd, .ai, .indd, .aep, .prproj, .xd, .ait, .indt |
-| Images | .jpg, .jpeg, .png, .tif, .tiff, .bmp, .gif, .eps |
+| Images | .jpg, .jpeg, .png, .tif, .tiff, .bmp, .gif, .eps, .heic, .heif |
 | Audio | .mp3, .wav, .m4a, .flac, .ogg, .aac, .wma |
 | Video | .mp4, .mov, .avi, .mkv, .webm, .m4v, .wmv |
 | Captions | .srt, .vtt, .sbv |
