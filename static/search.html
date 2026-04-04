@@ -182,6 +182,42 @@
     </div>
   </div>
 
+<!-- Preview Popup -->
+<div id="preview-popup" class="preview-popup size-medium">
+  <div class="preview-header">
+    <span class="preview-title" id="preview-title"></span>
+    <span class="preview-badge" id="preview-badge"></span>
+    <a id="preview-open-viewer" href="#" target="_blank" style="font-size:0.7rem;color:var(--accent);text-decoration:none;margin-left:auto;pointer-events:auto">Open</a>
+  </div>
+  <div class="preview-body" id="preview-body"></div>
+</div>
+
+<!-- Flag File Modal -->
+<div id="flag-modal-backdrop" class="dialog-backdrop">
+  <div class="dialog" style="max-width:420px;">
+    <h3 style="margin-top:0;">Flag File for Review</h3>
+    <p id="flag-modal-filename" style="color:var(--text-muted);word-break:break-all;"></p>
+    <div class="form-group">
+      <label for="flag-reason">Reason</label>
+      <select id="flag-reason">
+        <option value="">Select a reason...</option>
+        <option value="pii">Contains PII</option>
+        <option value="confidential">Confidential / Privileged</option>
+        <option value="unauthorized">Not Authorized to Share</option>
+        <option value="other">Other</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label for="flag-note">Note (optional)</label>
+      <input type="text" id="flag-note" placeholder="Additional context...">
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-ghost" onclick="closeFlagModal()">Cancel</button>
+      <button class="btn btn-danger" id="flag-submit-btn" onclick="submitFlag()">Flag File</button>
+    </div>
+  </div>
+</div>
+
   <script src="/static/app.js"></script>
   <script src="/static/js/lifecycle-badge.js"></script>
   <script>
@@ -949,41 +985,5 @@
       });
   }
   </script>
-
-<!-- Preview Popup -->
-<div id="preview-popup" class="preview-popup size-medium">
-  <div class="preview-header">
-    <span class="preview-title" id="preview-title"></span>
-    <span class="preview-badge" id="preview-badge"></span>
-    <a id="preview-open-viewer" href="#" target="_blank" style="font-size:0.7rem;color:var(--accent);text-decoration:none;margin-left:auto;pointer-events:auto">Open</a>
-  </div>
-  <div class="preview-body" id="preview-body"></div>
-</div>
-
-<!-- Flag File Modal -->
-<div id="flag-modal-backdrop" class="dialog-backdrop">
-  <div class="dialog" style="max-width:420px;">
-    <h3 style="margin-top:0;">Flag File for Review</h3>
-    <p id="flag-modal-filename" style="color:var(--text-muted);word-break:break-all;"></p>
-    <div class="form-group">
-      <label for="flag-reason">Reason</label>
-      <select id="flag-reason">
-        <option value="">Select a reason...</option>
-        <option value="pii">Contains PII</option>
-        <option value="confidential">Confidential / Privileged</option>
-        <option value="unauthorized">Not Authorized to Share</option>
-        <option value="other">Other</option>
-      </select>
-    </div>
-    <div class="form-group">
-      <label for="flag-note">Note (optional)</label>
-      <input type="text" id="flag-note" placeholder="Additional context...">
-    </div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
-      <button class="btn btn-ghost" onclick="closeFlagModal()">Cancel</button>
-      <button class="btn btn-danger" id="flag-submit-btn" onclick="submitFlag()">Flag File</button>
-    </div>
-  </div>
-</div>
 </body>
 </html>

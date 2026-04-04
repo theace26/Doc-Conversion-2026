@@ -4,6 +4,30 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.19.6.9 — Fix Search Page Crash & Optimize Search API (2026-04-04)
+
+**Two fixes that made the search page non-functional:**
+
+1. **Search page JS crash (DOM ordering)** — The `preview-popup` and `flag-modal-backdrop`
+   divs were placed after the `</script>` tag in `search.html`. An IIFE that wired up
+   preview mouse events ran during parse and called `getElementById('preview-popup')`, which
+   returned `null` because the element hadn't been parsed yet. The resulting `TypeError`
+   killed the entire script block — `doSearch()`, event listeners, and all search
+   functionality never initialized. Fix: moved both div blocks before the script tag.
+
+2. **Search API response bloat (2.7 MB → 13 KB)** — `_map_hit()` in `api/routes/search.py`
+   copied every field from Meilisearch results including `content` (full document text) and
+   `headings` (1.38 MB for a single archive file). Added `attributesToRetrieve` whitelist
+   to the Meilisearch query and rewrote `_map_hit()` to only include fields the frontend
+   actually renders. Response size dropped from 2.7 MB to 13 KB for 10 results (205× reduction).
+
+**Files changed:**
+- `static/search.html` — moved preview-popup and flag-modal before script block
+- `api/routes/search.py` — `attributesToRetrieve` whitelist, `_map_hit()` field whitelist
+- `core/version.py` — bump to 0.19.6.9
+
+---
+
 ## v0.19.6.8 — HEIC/HEIF Support & Search Auto-Browse (2026-04-04)
 
 **Two improvements: new image format support and search page UX.**

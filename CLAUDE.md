@@ -26,14 +26,18 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.19.6.8
+## Current Status — v0.19.6.9
 
-v0.19.6.8: HEIC/HEIF image support and search page UX improvement. (1) Added `pillow-heif`
-dependency and registered HEIF opener in `formats/image_handler.py` — HEIC/HEIF files are
-now converted like any other image format, routed through `core.image_handler.extract_image`
-for consistent PNG normalization into the asset pipeline. (2) Search page (`static/search.html`)
-now auto-browses all documents sorted by date on initial load when no query is present,
-instead of showing an empty page.
+v0.19.6.9: Fix search page crash and optimize search API response size. (1) Fixed
+`TypeError: Cannot read properties of null` on search.html — the `preview-popup` and
+`flag-modal` DOM elements were placed after the `</script>` tag, so the IIFE that wired
+up preview mouse events crashed on null, killing the entire script block including
+`doSearch()`. Moved both elements before the script. (2) Search API `/api/search/all`
+now whitelists returned fields via `attributesToRetrieve` and `_map_hit` — previously
+copied every Meilisearch field including full `content` and `headings` (1.38 MB for a
+single archive file), causing 2.7 MB responses for 10 results. Now returns ~13 KB.
+
+Previous (v0.19.6.8): HEIC/HEIF image support and search page auto-browse on load.
 
 Previous (v0.19.6.7): Scan coordinator crash resilience — startup reset, counter flush, stale
 watchdog. Three fixes for scanner runs getting stuck after container restarts.

@@ -175,11 +175,20 @@ async def search_all(
             detail={"error": "search_unavailable", "message": "Search index is not available."},
         )
 
-    # Build base options
+    # Build base options — only retrieve fields the frontend needs
+    _RETRIEVE_FIELDS = [
+        "id", "title", "source_filename", "source_format", "source_path",
+        "output_path", "relative_path", "content_preview", "fidelity_tier",
+        "has_ocr", "converted_at", "file_size_bytes", "job_id", "scene_count",
+        "enrichment_level", "vision_provider", "is_flagged",
+        # adobe/transcript extras
+        "file_ext", "indexed_at", "created_at", "text_preview",
+    ]
     options: dict = {
         "limit": per_page,
         "offset": (page - 1) * per_page,
         "facets": ["source_format"],
+        "attributesToRetrieve": _RETRIEVE_FIELDS,
     }
 
     # Only highlight when there's an actual query
@@ -277,8 +286,24 @@ async def search_all(
 def _map_hit(hit: dict, source_index: str) -> dict:
     """Normalize a hit from any index into a unified result format."""
     formatted = hit.get("_formatted", {})
-    entry = {k: v for k, v in hit.items() if not k.startswith("_")}
-    entry["source_index"] = source_index
+
+    entry: dict = {
+        "id": hit.get("id", ""),
+        "source_index": source_index,
+        "source_filename": hit.get("source_filename", ""),
+        "source_path": hit.get("source_path", ""),
+        "output_path": hit.get("output_path", ""),
+        "relative_path": hit.get("relative_path", ""),
+        "content_preview": (hit.get("content_preview") or "")[:500],
+        "fidelity_tier": hit.get("fidelity_tier"),
+        "has_ocr": hit.get("has_ocr", False),
+        "file_size_bytes": hit.get("file_size_bytes"),
+        "job_id": hit.get("job_id", ""),
+        "scene_count": hit.get("scene_count", 0),
+        "enrichment_level": hit.get("enrichment_level"),
+        "vision_provider": hit.get("vision_provider"),
+        "is_flagged": hit.get("is_flagged", False),
+    }
 
     entry["title"] = hit.get("title") or hit.get("source_filename") or ""
 
