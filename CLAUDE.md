@@ -26,13 +26,14 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.20.0
+## Current Status — v0.20.1
 
-v0.20.0: NFS mount support. Network mount protocol is now configurable — supports
-SMB/CIFS, NFSv3, and NFSv4 (with optional Kerberos). Configurable in both the setup
-script (initial provisioning) and the Settings UI (live remounting). New mount manager
-abstraction in `core/mount_manager.py`, REST API at `/api/settings/mounts`, and
-"Storage Connections" settings section.
+v0.20.1: Add 20 new file format handlers. Extended existing handlers: lst, cc, css
+(text), tab (CSV), pptm (PowerPoint), wbk/pub/p65 (Word/LibreOffice), psb (Adobe),
+cr2 (image). New handlers: font (otf/ttf), shortcut (lnk/url), VCF contacts, SVG
+vector, sniff-based (.tmp MIME detection), binary metadata (bin/cl4).
+
+Previous (v0.20.0): NFS mount support with Settings UI.
 
 Previous (v0.19.6.11): Fix three scan failures — read-only FS, INI parser crash, MD encoding.
 

@@ -4,6 +4,35 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.20.1 — 20 New File Format Handlers (2026-04-05)
+
+**Feature:** Added support for 20 new file extensions across 6 new handlers and
+6 extended existing handlers. Total supported formats: ~80 extensions.
+
+**Extended existing handlers:**
+- `txt_handler.py` — added `.lst` (list files), `.cc` (C++ source), `.css` (stylesheets)
+- `csv_handler.py` — added `.tab` (tab-delimited data, same treatment as .tsv)
+- `pptx_handler.py` — added `.pptm` (PowerPoint macro-enabled)
+- `docx_handler.py` — added `.wbk` (Word backup), `.pub` (Publisher), `.p65` (PageMaker) via LibreOffice
+- `adobe_handler.py` — added `.psb` (Photoshop Big, same as PSD)
+- `image_handler.py` — added `.cr2` (Canon RAW)
+
+**New handlers:**
+- `font_handler.py` — `.otf`, `.ttf` — extracts font metadata via fonttools
+- `shortcut_handler.py` — `.lnk` (Windows shortcut), `.url` (URL shortcut)
+- `vcf_handler.py` — `.vcf` — parses vCard contacts
+- `svg_handler.py` — `.svg` — parses SVG XML, extracts dimensions/elements/text
+- `sniff_handler.py` — `.tmp` — MIME-detects content, delegates to matching handler
+- `binary_handler.py` — `.bin`, `.cl4` — metadata-only (size, MIME, magic bytes)
+
+**Files changed:**
+- 6 modified handlers, 6 new handler files
+- `formats/__init__.py` — register new handlers
+- `core/bulk_scanner.py` — add all 20 extensions to SUPPORTED_EXTENSIONS
+- `core/version.py` — bump to 0.20.1
+
+---
+
 ## v0.20.0 — NFS Mount Support + Mount Settings UI (2026-04-05)
 
 **Feature:** Network mount configuration is no longer hardcoded to SMB/CIFS. MarkFlow
