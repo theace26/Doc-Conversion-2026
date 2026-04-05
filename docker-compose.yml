@@ -118,7 +118,7 @@ services:
         limits:
           memory: ${QDRANT_MEMORY_LIMIT:-512m}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333'"]
       interval: 10s
       timeout: 5s
       retries: 5

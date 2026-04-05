@@ -294,13 +294,14 @@ class VectorIndexManager:
 
         search_filter = Filter(must=must_conditions)
 
-        hits = await self._client.search(
+        hits_response = await self._client.query_points(
             collection_name=self._collection_name,
-            query_vector=query_vector,
+            query=query_vector,
             query_filter=search_filter,
             limit=limit,
             with_payload=True,
         )
+        hits = hits_response.points
 
         results = []
         for hit in hits:
@@ -338,7 +339,7 @@ class VectorIndexManager:
 
         try:
             info = await self._client.get_collection(self._collection_name)
-            vector_count = info.vectors_count or 0
+            vector_count = info.points_count or 0
             exists = True
         except (UnexpectedResponse, Exception) as exc:
             # Collection does not exist or Qdrant unavailable

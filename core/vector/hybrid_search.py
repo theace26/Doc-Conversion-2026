@@ -220,9 +220,13 @@ async def hybrid_search(
         return keyword_results
 
     try:
-        vector_hits: list[dict] = await vector_manager.search(
-            query, filters=filters, limit=limit
-        )
+        search_kwargs: dict = {"query": query, "limit": limit}
+        if filters:
+            if "source_format" in filters:
+                search_kwargs["source_format"] = filters["source_format"]
+            if "source_index" in filters:
+                search_kwargs["source_index"] = filters["source_index"]
+        vector_hits: list[dict] = await vector_manager.search(**search_kwargs)
     except Exception as exc:  # noqa: BLE001
         log.warning(
             "hybrid_search_vector_failed",
