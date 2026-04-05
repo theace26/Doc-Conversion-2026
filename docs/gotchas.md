@@ -382,6 +382,28 @@ the relevant subsystem. Referenced from CLAUDE.md.
   by iterating `rsplit(".", 1)` from the right, stopping when the trailing segment is >5 chars
   or contains a space (not a real extension). This handles compound extensions like `.tar.gz`.
 
+## Vector Search & Qdrant (v0.22.0)
+
+- **Vector search is best-effort**: `get_vector_indexer()` returns `None` when Qdrant is unreachable or `QDRANT_HOST` is empty. All call sites must handle `None`. Never make vector search a hard dependency — keyword search must always work independently.
+
+- **Embedding model loaded lazily**: First embedding call loads ~80MB `all-MiniLM-L6-v2` model into RAM. Lazy import `sentence_transformers` inside `_load_model()` to avoid slow lifespan. Same pattern as Whisper model. Cached as module-level singleton.
+
+- **Chunk IDs are deterministic**: SHA256 of `doc_id:chunk_index`. Re-indexing the same document produces the same chunk IDs — idempotent upserts in Qdrant. No stale chunks accumulate.
+
+- **Qdrant container has no curl**: Health check uses `bash -c 'echo > /dev/tcp/localhost/6333'` instead of `curl`. The Qdrant Docker image is minimal and doesn't include curl or wget.
+
+- **qdrant-client 1.17+ API change**: `.search()` is removed. Use `.query_points()` which returns a response object — access `.points` for the scored results list. This bit us during the initial integration.
+
+- **Single Qdrant collection**: All document types (documents, adobe-files, transcripts) go into one collection `markflow_chunks` with a `source_index` payload field for filtering. Not three separate collections.
+
+- **Embedding model version tracking**: The model name is known to the index manager. When swapping models (e.g., `all-MiniLM-L6-v2` → `nomic-embed-text`), all vectors must be re-generated. The pluggable provider interface supports this — just change `EMBEDDING_MODEL` env var and trigger a rebuild.
+
+- **Rebuild path indexes to both Meilisearch and Qdrant**: `search_indexer.rebuild_index()` loops over all converted files. Each file is indexed to Meilisearch first, then vector-indexed to Qdrant (best-effort). Vector failures don't interrupt the rebuild.
+
+- **RRF constant k=60**: Reciprocal Rank Fusion uses k=60 (standard from Cormack et al.). Changing this affects how keyword vs. vector rankings blend. Lower k = more weight to top-ranked results. Don't tune without the evaluation framework.
+
+- **Query preprocessor temporal detection**: Queries containing "current", "latest", "recent", etc. trigger a sort bias toward `converted_at:desc` in keyword results. This is lightweight and runs on every query — no LLM call involved.
+
 ## Locations & Browse
 
 - **Locations validate endpoint timeout**: `file_count_estimate` capped at 10s. Null is not an error.

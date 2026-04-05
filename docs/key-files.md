@@ -68,6 +68,13 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `core/caption_ingestor.py` | SRT/VTT/SBV caption file parser |
 | `core/transcript_formatter.py` | Output formatter: .md + .srt + .vtt generation |
 | `core/media_orchestrator.py` | Top-level media conversion coordinator |
+| `core/ai_assist.py` | Claude API streaming for AI-assisted search synthesis (v0.21.0) |
+| `core/vector/chunker.py` | Markdown → contextual chunks for embedding (heading-based + fixed-size fallback) |
+| `core/vector/embedder.py` | Pluggable embedding provider (local sentence-transformers, lazy model load) |
+| `core/vector/index_manager.py` | Qdrant collection lifecycle, document indexing, semantic search, deletion |
+| `core/vector/hybrid_search.py` | RRF merge of Meilisearch keyword + Qdrant vector results |
+| `core/vector/query_preprocessor.py` | Temporal intent detection, question prefix stripping, query normalization |
+| `core/db/ai_usage.py` | AI Assist org toggle + per-user usage logging (v0.21.0) |
 
 ## Format Handlers
 
@@ -138,6 +145,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `api/routes/media.py` | Media transcript API: get transcript, segments, download |
 | `api/routes/flags.py` | Flag API: user flagging + admin triage (dismiss/extend/remove/blocklist) |
 | `api/routes/pipeline.py` | Pipeline control: status, pause, resume, run-now, file browser (`/api/pipeline/files`) |
+| `api/routes/ai_assist.py` | AI Assist: SSE search synthesis, doc expand, status, admin toggle + usage (v0.21.0) |
 
 ## Frontend
 
