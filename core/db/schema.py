@@ -626,6 +626,9 @@ _MIGRATIONS: list[tuple[int, str, list[str]]] = [
                  '.heic', '.heif'
              )""",
     ]),
+    (23, "Handwriting detection flag on ocr_flags", [
+        "ALTER TABLE ocr_flags ADD COLUMN handwriting_detected INTEGER NOT NULL DEFAULT 0",
+    ]),
 ]
 
 

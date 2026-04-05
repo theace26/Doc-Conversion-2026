@@ -4,6 +4,40 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.20.3 — Handwriting Recognition via LLM Vision Fallback (2026-04-05)
+
+**Feature:** Automatic handwriting detection and LLM-powered transcription. When
+Tesseract OCR produces results that match handwriting patterns (very low confidence,
+high flagged word ratio, unrecognisable words), the page image is sent to the active
+LLM vision provider for transcription.
+
+**How it works:**
+1. Tesseract runs as normal on every scanned page
+2. `detect_handwriting()` analyses the OCR output for three signals:
+   - Average confidence below threshold (default 40%)
+   - More than 60% of words below the confidence threshold
+   - Low dictionary hit rate (most "words" aren't recognisable English)
+3. If all three signals fire, the page image is sent to the LLM vision adapter
+4. In unattended mode: LLM text automatically replaces Tesseract output
+5. In review mode: both outputs shown, user picks or edits
+
+**Configuration:**
+- `handwriting_confidence_threshold` preference (default: 40)
+- Requires an active LLM vision provider (Claude, GPT-4V, Gemini, or Ollama)
+- Falls back gracefully to manual review if no provider is configured
+
+**Files changed:**
+- `core/ocr.py` — added `detect_handwriting()` and `_llm_handwriting_fallback()`
+- `core/ocr_models.py` — added `handwriting_detected` field to `OCRFlag`
+- `core/db/schema.py` — migration 23 (handwriting_detected column on ocr_flags)
+- `core/db/conversions.py` — persist handwriting_detected in insert_ocr_flag
+- `core/version.py` — bump to 0.20.3
+- `docs/help/ocr-pipeline.md` — updated handwriting FAQ
+- `README.md` — updated OCR description, version
+- `CLAUDE.md` — updated current status
+
+---
+
 ## v0.20.2 — Binary File Handler Expansion (2026-04-05)
 
 **Feature:** Expanded the binary metadata handler to cover 30+ common binary file

@@ -201,7 +201,11 @@ The quality of OCR depends heavily on the quality of the original scan. Here are
 Yes. OCR adds processing time — typically a few seconds per page. A 100-page scanned PDF may take a few minutes. Text-based PDFs that skip OCR convert much faster.
 
 **Can MarkFlow handle handwriting?**
-Poorly. OCR engines are optimized for printed text. Handwritten notes will produce very low confidence scores and many errors. Consider transcribing handwritten content manually.
+Yes. As of v0.20.3, MarkFlow automatically detects handwritten pages during OCR. When Tesseract produces very low confidence results that match handwriting patterns (low confidence + high flagged word ratio + unrecognisable words), MarkFlow sends the page image to an LLM vision provider (Claude, GPT-4V, Gemini, or Ollama) for transcription.
+
+In **unattended mode**, the LLM transcription automatically replaces Tesseract's garbled output. In **review mode**, both Tesseract's attempt and the LLM's transcription are shown — you can accept either one or edit further.
+
+The handwriting detection threshold is configurable via the `handwriting_confidence_threshold` preference (default: 40%). An active LLM vision provider must be configured for the fallback to work. If no provider is available, handwritten pages are flagged for manual review as before.
 
 **What languages does OCR support?**
 MarkFlow uses Tesseract, which supports many languages. The default configuration is English. Ask your administrator if you need other languages enabled.

@@ -428,6 +428,126 @@ def _make_flag(
     )
 
 
+# ── Handwriting Detection ──────────────────────────────────────��─────────────
+
+def detect_handwriting(
+    page: "OCRPage",
+    config: "OCRConfig",
+    handwriting_threshold: float = 40.0,
+) -> bool:
+    """
+    Heuristic: classify a page as likely handwritten based on Tesseract output.
+
+    Signals (all must be true):
+    1. Average confidence below handwriting_threshold (default 40%)
+    2. >60% of words are below the normal confidence threshold
+    3. Low dictionary hit rate — most "words" aren't recognisable English
+
+    Returns True if the page is likely handwritten.
+    """
+    if not page.words:
+        return False
+
+    # Signal 1: very low average confidence
+    if page.average_confidence >= handwriting_threshold:
+        return False
+
+    # Signal 2: majority of words flagged
+    low_conf_count = sum(
+        1 for w in page.words if w.confidence < config.confidence_threshold
+    )
+    flagged_ratio = low_conf_count / len(page.words)
+    if flagged_ratio < 0.6:
+        return False
+
+    # Signal 3: low dictionary hit rate (most "words" are garbage)
+    _COMMON_WORDS = {
+        "the", "be", "to", "of", "and", "a", "in", "that", "have", "i",
+        "it", "for", "not", "on", "with", "he", "as", "you", "do", "at",
+        "this", "but", "his", "by", "from", "they", "we", "say", "her",
+        "she", "or", "an", "will", "my", "one", "all", "would", "there",
+        "their", "what", "so", "up", "out", "if", "about", "who", "get",
+        "which", "go", "me", "when", "make", "can", "like", "time", "no",
+        "just", "him", "know", "take", "people", "into", "year", "your",
+        "good", "some", "could", "them", "see", "other", "than", "then",
+        "now", "look", "only", "come", "its", "over", "think", "also",
+    }
+    alpha_words = [w for w in page.words if w.text.isalpha()]
+    if alpha_words:
+        dict_hits = sum(1 for w in alpha_words if w.text.lower() in _COMMON_WORDS)
+        dict_ratio = dict_hits / len(alpha_words)
+        if dict_ratio > 0.3:
+            # Tesseract is recognising real words — probably printed, just blurry
+            return False
+
+    log.info(
+        "handwriting_detected",
+        page_num=page.page_num,
+        avg_confidence=round(page.average_confidence, 1),
+        flagged_ratio=round(flagged_ratio, 2),
+    )
+    return True
+
+
+async def _llm_handwriting_fallback(
+    page_image: "PILImage",
+    page: "OCRPage",
+    batch_id: str,
+    file_name: str,
+) -> str | None:
+    """
+    Send a page image to the active LLM vision provider for handwriting transcription.
+
+    Returns the transcribed text, or None if vision is unavailable or fails.
+    """
+    from core.db.catalog import get_active_provider
+
+    provider_config = await get_active_provider()
+    if not provider_config:
+        log.debug("handwriting_fallback.no_provider")
+        return None
+
+    from core.vision_adapter import VisionAdapter
+
+    adapter = VisionAdapter(provider_config)
+    if not adapter.supports_vision():
+        log.debug("handwriting_fallback.no_vision", provider=provider_config.get("provider"))
+        return None
+
+    # Save page image to a temp file for the vision adapter
+    debug_dir = Path("output") / batch_id / "_ocr_debug"
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    stem = Path(file_name).stem
+    img_path = debug_dir / f"{stem}_page{page.page_num}_handwriting.png"
+    page_image.save(img_path)
+
+    prompt = (
+        "This is a scanned document page containing handwriting. "
+        "Transcribe all handwritten text exactly as written, preserving "
+        "line breaks and paragraph structure. If any words are illegible, "
+        "indicate with [illegible]. Return only the transcribed text."
+    )
+
+    result = await adapter.describe_frame(img_path, prompt, scene_index=page.page_num)
+
+    if result.error:
+        log.warning(
+            "handwriting_fallback.failed",
+            page_num=page.page_num,
+            error=result.error,
+        )
+        return None
+
+    log.info(
+        "handwriting_fallback.success",
+        page_num=page.page_num,
+        provider=result.provider_id,
+        model=result.model,
+        text_length=len(result.description),
+    )
+    return result.description
+
+
 # ── Top-Level Async Entry Point ───────────────────────────────────────────────
 
 async def run_ocr(
@@ -447,7 +567,12 @@ async def run_ocr(
     import asyncio
 
     from core.database import insert_ocr_flag
+    from core.db.catalog import get_preference
     from core.ocr_models import OCRFlagStatus, OCRResult
+
+    # Load handwriting threshold from preferences (default 40%)
+    hw_thresh_str = await get_preference("handwriting_confidence_threshold") or "40"
+    hw_threshold = float(hw_thresh_str)
 
     all_pages = []
     all_flags = []
@@ -460,7 +585,29 @@ async def run_ocr(
             flag_low_confidence, page, config, batch_id, file_name, image
         )
 
-        if config.unattended:
+        # ── Handwriting detection + LLM fallback ─────────────────────────
+        is_handwritten = detect_handwriting(page, config, hw_threshold)
+        if is_handwritten:
+            for flag in page_flags:
+                flag.handwriting_detected = True
+
+            llm_text = await _llm_handwriting_fallback(
+                image, page, batch_id, file_name
+            )
+
+            if llm_text:
+                if config.unattended:
+                    # Auto-replace Tesseract output with LLM transcription
+                    page.full_text = llm_text
+                    for flag in page_flags:
+                        flag.corrected_text = llm_text
+                        flag.status = OCRFlagStatus.ACCEPTED
+                else:
+                    # Store LLM transcription as a suggestion for review
+                    for flag in page_flags:
+                        flag.corrected_text = llm_text
+
+        elif config.unattended:
             for flag in page_flags:
                 flag.status = OCRFlagStatus.ACCEPTED
 

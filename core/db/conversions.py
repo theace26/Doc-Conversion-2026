@@ -172,8 +172,9 @@ async def insert_ocr_flag(flag: Any) -> None:
         await conn.execute(
             """INSERT OR IGNORE INTO ocr_flags
                (flag_id, batch_id, file_name, page_num, region_bbox,
-                ocr_text, confidence, corrected_text, status, image_path)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                ocr_text, confidence, corrected_text, status, image_path,
+                handwriting_detected)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 flag.flag_id,
                 flag.batch_id,
@@ -185,6 +186,7 @@ async def insert_ocr_flag(flag: Any) -> None:
                 flag.corrected_text,
                 flag.status.value if hasattr(flag.status, "value") else flag.status,
                 flag.image_path,
+                1 if getattr(flag, "handwriting_detected", False) else 0,
             ),
         )
         await conn.commit()

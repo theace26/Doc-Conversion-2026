@@ -26,13 +26,15 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.20.2
+## Current Status — v0.20.3
 
-v0.20.2: Expand binary handler to cover 30+ common binary file types (executables,
-DLLs, shared libraries, disk images, databases, bytecode, object files). These
-files are now cataloged with metadata instead of showing as "unrecognized".
-Also fixes missing .heic/.heif in SUPPORTED_EXTENSIONS. DB migration 22
-re-queues formerly unrecognized files of these types.
+v0.20.3: Handwriting recognition via LLM vision fallback. When Tesseract OCR
+detects likely handwritten content (low confidence + garbage words), the page
+is automatically sent to the active LLM vision provider for transcription.
+Configurable via handwriting_confidence_threshold preference (default 40%).
+Unattended mode auto-accepts LLM text; review mode shows both options.
+
+Previous (v0.20.2): Binary handler expansion (30+ file types), HEIC/HEIF fix.
 
 Previous (v0.20.1): Add 20 new file format handlers.
 

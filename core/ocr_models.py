@@ -41,6 +41,7 @@ class OCRFlag:
     corrected_text: str | None = None
     status: OCRFlagStatus = OCRFlagStatus.PENDING
     image_path: str | None = None           # path to cropped region PNG
+    handwriting_detected: bool = False       # True if page classified as handwritten
 
 
 @dataclass

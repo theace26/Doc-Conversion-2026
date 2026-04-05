@@ -5,7 +5,7 @@ Drop in files — or point it at an entire repository — and MarkFlow handles t
 format detection, OCR, password recovery, media transcription, full-text search,
 and version tracking. Everything runs inside Docker with a browser-based UI.
 
-**Current version:** v0.20.2
+**Current version:** v0.20.3
 
 ---
 
@@ -13,7 +13,7 @@ and version tracking. Everything runs inside Docker with a browser-based UI.
 
 - **130+ file types in, Markdown out** — Office, PDF, email, archives, Adobe creative files, images, audio, video, config files, binaries, and more. Round-trip back to the original format when needed.
 - **Bulk conversion at scale** — Point MarkFlow at a network share with tens of thousands of files. It scans, classifies, and converts in parallel with adaptive throttling that adjusts to your storage (SSD, HDD, or NAS).
-- **OCR built in** — Scanned PDFs are automatically detected and OCR'd with per-page confidence scoring. Low-confidence pages get flagged for human review — or run fully unattended.
+- **OCR built in** — Scanned PDFs are automatically detected and OCR'd with per-page confidence scoring. Low-confidence pages get flagged for human review — or run fully unattended. Handwritten pages are automatically detected and sent to an LLM vision provider for transcription.
 - **Password-protected files handled automatically** — PDF encryption, Office passwords, and archive passwords are cracked via a cascade: known passwords, dictionary, brute-force, and GPU-accelerated hashcat (NVIDIA, AMD, Intel, Apple Silicon).
 - **Media transcription** — Audio and video files become timestamped Markdown transcripts. Local Whisper (GPU-accelerated) with cloud fallback (OpenAI, Gemini). Existing caption files (SRT/VTT/SBV) are detected and used automatically.
 - **Full-text search** — Meilisearch indexes every converted document and transcript. Search from the UI, the API, or via MCP tools in Claude.ai.
