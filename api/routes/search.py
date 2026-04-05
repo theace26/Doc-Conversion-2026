@@ -260,6 +260,28 @@ async def search_all(
     for hit in transcript_result.get("hits", []):
         all_hits.append(_map_hit(hit, "transcripts"))
 
+    # ── Hybrid search: blend with vector results if available ───────────
+    try:
+        from core.vector.index_manager import get_vector_indexer
+        from core.vector.hybrid_search import hybrid_search as _hybrid_search
+        from core.vector.query_preprocessor import preprocess_query
+
+        vec_indexer = await get_vector_indexer()
+        if vec_indexer and q:
+            intent = preprocess_query(q)
+            all_hits = await _hybrid_search(
+                query=intent.normalized_query,
+                keyword_results=all_hits,
+                vector_manager=vec_indexer,
+                filters={"source_format": format} if format else None,
+                limit=per_page,
+            )
+            # If temporal intent detected, prefer date sort
+            if intent.has_temporal_intent and sort == "relevance":
+                sort = "date"
+    except Exception as exc:
+        log.warning("hybrid_search.skip", error=str(exc))
+
     facets = docs_result.get("facetDistribution", {}).get("source_format", {})
 
     total = (
