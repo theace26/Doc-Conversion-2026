@@ -5,13 +5,13 @@ Drop in files — or point it at an entire repository — and MarkFlow handles t
 format detection, OCR, password recovery, media transcription, full-text search,
 and version tracking. Everything runs inside Docker with a browser-based UI.
 
-**Current version:** v0.19.6.9
+**Current version:** v0.20.2
 
 ---
 
 ## What It Does
 
-- **60+ file types in, Markdown out** — Office, PDF, email, archives, Adobe creative files, images, audio, video, config files, and more. Round-trip back to the original format when needed.
+- **130+ file types in, Markdown out** — Office, PDF, email, archives, Adobe creative files, images, audio, video, config files, binaries, and more. Round-trip back to the original format when needed.
 - **Bulk conversion at scale** — Point MarkFlow at a network share with tens of thousands of files. It scans, classifies, and converts in parallel with adaptive throttling that adjusts to your storage (SSD, HDD, or NAS).
 - **OCR built in** — Scanned PDFs are automatically detected and OCR'd with per-page confidence scoring. Low-confidence pages get flagged for human review — or run fully unattended.
 - **Password-protected files handled automatically** — PDF encryption, Office passwords, and archive passwords are cracked via a cascade: known passwords, dictionary, brute-force, and GPU-accelerated hashcat (NVIDIA, AMD, Intel, Apple Silicon).
@@ -27,22 +27,28 @@ and version tracking. Everything runs inside Docker with a browser-based UI.
 
 | Category | Formats |
 |----------|---------|
-| Office | .docx, .doc, .docm, .pdf, .pptx, .ppt, .xlsx, .xls, .csv, .tsv, .wpd |
+| Office | .docx, .doc, .docm, .wpd, .wbk, .pub, .p65, .pdf, .pptx, .ppt, .pptm, .xlsx, .xls, .csv, .tsv, .tab |
 | Rich Text | .rtf |
 | OpenDocument | .odt, .ods, .odp |
-| Markdown & Text | .md, .txt, .log |
+| Markdown & Text | .md, .txt, .log, .text, .lst |
+| Code | .cc, .css |
 | Web | .html, .htm, .xml, .epub |
 | Data & Config | .json, .yaml, .yml, .ini, .cfg, .conf, .properties |
-| Email | .eml, .msg (with recursive attachment conversion) |
-| Archives | .zip, .tar, .tar.gz, .7z, .rar, .cab, .iso |
-| Adobe Creative | .psd, .ai, .indd, .aep, .prproj, .xd, .ait, .indt |
-| Images | .jpg, .jpeg, .png, .tif, .tiff, .bmp, .gif, .eps, .heic, .heif |
+| Email & Contacts | .eml, .msg (with recursive attachment conversion), .vcf |
+| Archives | .zip, .tar, .tar.gz, .tgz, .tar.bz2, .tbz2, .tar.xz, .txz, .7z, .rar, .cab, .iso |
+| Adobe Creative | .psd, .psb, .ai, .indd, .aep, .prproj, .xd, .ait, .indt |
+| Images | .jpg, .jpeg, .png, .tif, .tiff, .bmp, .gif, .eps, .cr2, .heic, .heif |
+| Vector | .svg |
+| Fonts | .otf, .ttf |
 | Audio | .mp3, .wav, .m4a, .flac, .ogg, .aac, .wma |
 | Video | .mp4, .mov, .avi, .mkv, .webm, .m4v, .wmv |
 | Captions | .srt, .vtt, .sbv |
+| Shortcuts | .lnk, .url |
+| Temporary | .tmp (MIME-detected and routed to correct handler) |
+| Binary (metadata) | .bin, .cl4, .exe, .dll, .so, .msi, .sys, .drv, .ocx, .cpl, .scr, .com, .dylib, .app, .dmg, .img, .vhd, .vhdx, .vmdk, .vdi, .qcow2, .sqlite, .db, .mdb, .accdb, .rom, .fw, .efi, .class, .pyc, .pyo, .o, .obj, .lib, .a, .dat, .dmp |
 
 All document formats support bidirectional conversion (original → Markdown → original).
-Media files produce timestamped transcripts. Archives are recursively extracted and each inner file is converted.
+Media files produce timestamped transcripts. Archives are recursively extracted and each inner file is converted. Binary files are cataloged with metadata (size, MIME type, magic bytes) for searchability.
 
 ---
 

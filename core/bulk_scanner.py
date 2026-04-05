@@ -61,6 +61,7 @@ SUPPORTED_EXTENSIONS = {
     ".webm", ".m4a", ".m4v", ".wmv", ".aac", ".wma",
     # Images
     ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".gif", ".eps", ".cr2",
+    ".heic", ".heif",
     # Fonts
     ".otf", ".ttf",
     # Shortcuts
@@ -69,6 +70,22 @@ SUPPORTED_EXTENSIONS = {
     ".tmp",
     # Binary metadata-only
     ".bin", ".cl4",
+    # Executables & libraries
+    ".exe", ".dll", ".so", ".msi", ".sys", ".drv", ".ocx", ".cpl", ".scr", ".com",
+    # macOS binaries
+    ".dylib", ".app", ".dmg",
+    # Disk images & virtual disks
+    ".img", ".vhd", ".vhdx", ".vmdk", ".vdi", ".qcow2",
+    # Databases
+    ".sqlite", ".db", ".mdb", ".accdb",
+    # Firmware & ROM
+    ".rom", ".fw", ".efi",
+    # Java / .NET bytecode
+    ".class", ".pyc", ".pyo",
+    # Object files
+    ".o", ".obj", ".lib", ".a",
+    # Misc binary
+    ".dat", ".dmp",
 }
 
 # Backwards-compat aliases (referenced by bulk_worker and other modules)

@@ -26,12 +26,15 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.20.1
+## Current Status — v0.20.2
 
-v0.20.1: Add 20 new file format handlers. Extended existing handlers: lst, cc, css
-(text), tab (CSV), pptm (PowerPoint), wbk/pub/p65 (Word/LibreOffice), psb (Adobe),
-cr2 (image). New handlers: font (otf/ttf), shortcut (lnk/url), VCF contacts, SVG
-vector, sniff-based (.tmp MIME detection), binary metadata (bin/cl4).
+v0.20.2: Expand binary handler to cover 30+ common binary file types (executables,
+DLLs, shared libraries, disk images, databases, bytecode, object files). These
+files are now cataloged with metadata instead of showing as "unrecognized".
+Also fixes missing .heic/.heif in SUPPORTED_EXTENSIONS. DB migration 22
+re-queues formerly unrecognized files of these types.
+
+Previous (v0.20.1): Add 20 new file format handlers.
 
 Previous (v0.20.0): NFS mount support with Settings UI.
 

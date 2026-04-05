@@ -13,18 +13,19 @@ presented.
 ## What Makes a File "Unrecognized"?
 
 A file is marked unrecognized when the bulk scanner finds it and no format
-handler is registered for its extension. MarkFlow supports 96 extensions
+handler is registered for its extension. MarkFlow supports 130+ extensions
 across documents, images, media, archives, code, fonts, shortcuts, contacts,
-and more. Everything else is unrecognized.
+binaries, and more. Everything else is unrecognized.
+
+As of v0.20.2, common binary files (executables, DLLs, databases, disk images,
+compiled bytecode, object files) are handled by the binary metadata handler and
+will no longer appear as unrecognized.
 
 Common examples of files that remain unrecognized:
 
-- Executables (EXE, MSI, DLL, SYS)
-- Database files (SQLite, MDB)
 - Game ROMs (NES, GBA)
-- Disk images (VMDK, VHD, QCOW2)
-- Compiled/bytecode (PYC, CLASS, OBJ)
 - Proprietary formats without public specs
+- Uncommon or vendor-specific file types
 
 > **Tip:** Unrecognized does not mean "broken." These files are perfectly
 > valid -- MarkFlow simply does not have a conversion handler for them yet.
@@ -76,8 +77,8 @@ detected MIME type or extension:
 | `video` | .mp4, .mkv, .mov, .avi, .wmv, .webm | Video files |
 | `audio` | .mp3, .wav, .flac, .aac, .ogg, .wma | Audio files |
 | `archive` | .zip, .tar, .gz, .7z, .rar, .cab | Compressed archive files |
-| `executable` | .exe, .msi, .dll, .so | Binary executables and libraries |
-| `database` | .sqlite, .db, .mdb, .accdb | Database files |
+| `executable` | .exe, .msi, .dll, .so | Binary executables and libraries (now handled by binary handler as of v0.20.2) |
+| `database` | .sqlite, .db, .mdb, .accdb | Database files (now handled by binary handler as of v0.20.2) |
 | `font` | .ttf, .otf, .woff, .woff2 | Font files |
 | `code` | .py, .js, .ts, .cpp, .java, .html, .css, .json, .xml, .sql | Source code and configuration files |
 | `unknown` | Anything unmatched | Files that could not be classified |

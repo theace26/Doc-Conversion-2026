@@ -23,7 +23,7 @@ MarkFlow supports these file types in both directions — original to Markdown, 
 | OpenDocument | `.odt`, `.ods`, `.odp` | LibreOffice native formats | Via odfpy |
 | Email | `.eml`, `.msg` | Email messages | Recursive attachment conversion |
 | EPUB | `.epub` | Electronic publications | Chapter extraction |
-| Images | `.jpg`, `.jpeg`, `.png`, `.tif`, `.tiff`, `.bmp`, `.gif`, `.eps`, `.cr2` | Raster images and RAW photos | EXIF metadata extraction |
+| Images | `.jpg`, `.jpeg`, `.png`, `.tif`, `.tiff`, `.bmp`, `.gif`, `.eps`, `.cr2`, `.heic`, `.heif` | Raster images and RAW photos | EXIF metadata extraction |
 | Vector | `.svg` | Scalable Vector Graphics | XML parsing, text extraction |
 | Fonts | `.otf`, `.ttf` | OpenType and TrueType fonts | Metadata: family, style, glyph count |
 | Adobe | `.psd`, `.psb`, `.ai`, `.indd`, `.aep`, `.prproj`, `.xd` | Creative suite files | Text layer extraction, metadata |
@@ -33,7 +33,7 @@ MarkFlow supports these file types in both directions — original to Markdown, 
 | Contacts | `.vcf` | vCard contact files | Multi-contact parsing |
 | Shortcuts | `.lnk`, `.url` | Windows shortcuts and URL files | Target path/URL extraction |
 | Temporary | `.tmp` | Temporary files | MIME-detected and routed to correct handler |
-| Binary | `.bin`, `.cl4` | Binary data files | Metadata only (size, MIME, magic bytes) |
+| Binary | `.bin`, `.cl4`, `.exe`, `.dll`, `.so`, `.msi`, `.sys`, `.drv`, `.ocx`, `.cpl`, `.scr`, `.com`, `.dylib`, `.app`, `.dmg`, `.img`, `.vhd`, `.vhdx`, `.vmdk`, `.vdi`, `.qcow2`, `.sqlite`, `.db`, `.mdb`, `.accdb`, `.rom`, `.fw`, `.efi`, `.class`, `.pyc`, `.pyo`, `.o`, `.obj`, `.lib`, `.a`, `.dat`, `.dmp` | Binary and executable files | Metadata only (size, MIME, magic bytes) |
 
 > **Tip:** If you are not sure whether your file type is supported, just try uploading it. MarkFlow will tell you immediately if it cannot handle the format.
 

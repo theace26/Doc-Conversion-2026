@@ -31,7 +31,26 @@ log = structlog.get_logger(__name__)
 class BinaryHandler(FormatHandler):
     """Metadata-only handler for opaque binary files."""
 
-    EXTENSIONS = ["bin", "cl4"]
+    EXTENSIONS = [
+        # Generic binary
+        "bin", "cl4",
+        # Executables & libraries
+        "exe", "dll", "so", "msi", "sys", "drv", "ocx", "cpl", "scr", "com",
+        # macOS binaries
+        "dylib", "app", "dmg",
+        # Disk images & virtual disks
+        "img", "vhd", "vhdx", "vmdk", "vdi", "qcow2",
+        # Databases
+        "sqlite", "db", "mdb", "accdb",
+        # Firmware & ROM
+        "rom", "fw", "efi",
+        # Java / .NET bytecode
+        "class", "pyc", "pyo",
+        # Object files
+        "o", "obj", "lib", "a",
+        # Misc binary
+        "dat", "dmp",
+    ]
 
     def ingest(self, file_path: Path) -> DocumentModel:
         t_start = time.perf_counter()
@@ -67,6 +86,41 @@ class BinaryHandler(FormatHandler):
         type_desc = {
             "bin": "Binary data file",
             "cl4": "Easy CD Creator 4 project file",
+            "exe": "Windows executable",
+            "dll": "Windows dynamic-link library",
+            "so": "Linux shared object",
+            "msi": "Windows installer package",
+            "sys": "Windows system driver",
+            "drv": "Device driver",
+            "ocx": "ActiveX control",
+            "cpl": "Windows control panel applet",
+            "scr": "Windows screen saver",
+            "com": "DOS executable",
+            "dylib": "macOS dynamic library",
+            "app": "macOS application bundle",
+            "dmg": "macOS disk image",
+            "img": "Disk image",
+            "vhd": "Virtual hard disk (Hyper-V)",
+            "vhdx": "Virtual hard disk v2 (Hyper-V)",
+            "vmdk": "Virtual disk (VMware)",
+            "vdi": "Virtual disk (VirtualBox)",
+            "qcow2": "Virtual disk (QEMU)",
+            "sqlite": "SQLite database",
+            "db": "Database file",
+            "mdb": "Microsoft Access database",
+            "accdb": "Microsoft Access database (2007+)",
+            "rom": "ROM image",
+            "fw": "Firmware binary",
+            "efi": "EFI boot binary",
+            "class": "Java class file",
+            "pyc": "Python compiled bytecode",
+            "pyo": "Python optimized bytecode",
+            "o": "Object file",
+            "obj": "Object file",
+            "lib": "Static library",
+            "a": "Archive/static library",
+            "dat": "Data file",
+            "dmp": "Memory dump file",
         }.get(ext, "Binary file")
 
         model.add_element(Element(type=ElementType.HEADING, content=file_path.name, level=1))

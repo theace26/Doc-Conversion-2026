@@ -4,6 +4,43 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.20.2 — Binary File Handler Expansion (2026-04-05)
+
+**Feature:** Expanded the binary metadata handler to cover 30+ common binary file
+types. Executables, DLLs, shared libraries, disk images, virtual disks, databases,
+firmware, bytecode, and object files are now recognized and cataloged with metadata
+(size, MIME type, magic bytes) instead of appearing as "unrecognized."
+
+Also fixes `.heic` and `.heif` missing from `SUPPORTED_EXTENSIONS` (they were
+handled by `image_handler.py` since v0.19.6.8 but never added to the scanner set,
+so bulk scans marked them as unrecognized).
+
+**New extensions in binary handler:**
+- Executables & libraries: `.exe`, `.dll`, `.so`, `.msi`, `.sys`, `.drv`, `.ocx`, `.cpl`, `.scr`, `.com`
+- macOS binaries: `.dylib`, `.app`, `.dmg`
+- Disk images: `.img`, `.vhd`, `.vhdx`, `.vmdk`, `.vdi`, `.qcow2`
+- Databases: `.sqlite`, `.db`, `.mdb`, `.accdb`
+- Firmware & ROM: `.rom`, `.fw`, `.efi`
+- Bytecode: `.class`, `.pyc`, `.pyo`
+- Object files: `.o`, `.obj`, `.lib`, `.a`
+- Misc: `.dat`, `.dmp`
+
+**DB migration 22:** Re-queues all formerly unrecognized files of the above types
+(and `.heic`/`.heif`) by setting their status from `unrecognized` to `pending`.
+They will be processed by the binary handler (or image handler) on the next bulk run.
+
+**Files changed:**
+- `formats/binary_handler.py` — added 30 extensions + type descriptions
+- `core/bulk_scanner.py` — added 32 extensions to SUPPORTED_EXTENSIONS (30 binary + .heic/.heif)
+- `core/db/schema.py` — migration 22
+- `core/version.py` — bump to 0.20.2
+- `README.md` — updated format table, version, file count
+- `docs/help/unrecognized-files.md` — updated extension count, notes on binary handler
+- `docs/help/document-conversion.md` — expanded binary row, added .heic/.heif to images
+- `CLAUDE.md` — updated current status
+
+---
+
 ## v0.20.1 — 20 New File Format Handlers (2026-04-05)
 
 **Feature:** Added support for 20 new file extensions across 6 new handlers and

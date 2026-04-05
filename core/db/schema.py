@@ -611,6 +611,21 @@ _MIGRATIONS: list[tuple[int, str, list[str]]] = [
         )""",
         "CREATE INDEX IF NOT EXISTS idx_scan_dir_mtimes_run ON scan_dir_mtimes(scan_run_id)",
     ]),
+    (22, "Re-queue formerly unrecognized binary files now handled by BinaryHandler", [
+        """UPDATE bulk_files SET status = 'pending'
+           WHERE status = 'unrecognized'
+             AND file_ext IN (
+                 '.exe', '.dll', '.so', '.msi', '.sys', '.drv', '.ocx',
+                 '.cpl', '.scr', '.com', '.dylib', '.app', '.dmg',
+                 '.img', '.vhd', '.vhdx', '.vmdk', '.vdi', '.qcow2',
+                 '.sqlite', '.db', '.mdb', '.accdb',
+                 '.rom', '.fw', '.efi',
+                 '.class', '.pyc', '.pyo',
+                 '.o', '.obj', '.lib', '.a',
+                 '.dat', '.dmp',
+                 '.heic', '.heif'
+             )""",
+    ]),
 ]
 
 
