@@ -35,6 +35,7 @@ from api.routes import convert, batch, history, preferences, review, debug as de
 from api.routes import bulk, search as search_routes, cowork, locations, browse
 from api.routes import llm_providers as llm_providers_routes
 from api.routes import mcp_info as mcp_info_routes
+from api.routes import mounts as mounts_routes
 from api.routes import auth as auth_routes
 from api.routes import admin as admin_routes
 from api.middleware import add_middleware
@@ -297,6 +298,9 @@ app.include_router(media_routes.router)
 # v0.16.0 — File flagging & content moderation
 from api.routes import flags as flags_routes
 app.include_router(flags_routes.router)
+
+# NFS/SMB mount configuration
+app.include_router(mounts_routes.router)
 
 log.info("markflow.all_routes_registered")
 
