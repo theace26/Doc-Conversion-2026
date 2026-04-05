@@ -302,6 +302,10 @@ app.include_router(flags_routes.router)
 # NFS/SMB mount configuration
 app.include_router(mounts_routes.router)
 
+# v0.21.0 — AI-Assisted Search
+from api.routes import ai_assist as ai_assist_routes
+app.include_router(ai_assist_routes.router)
+
 log.info("markflow.all_routes_registered")
 
 # ── Static files ──────────────────────────────────────────────────────────────

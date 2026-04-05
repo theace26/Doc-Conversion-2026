@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MarkFlow — Search</title>
   <link rel="stylesheet" href="/static/markflow.css">
+  <link rel="stylesheet" href="/static/css/ai-assist.css">
+  <script src="/static/js/ai-assist.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
   <style>
@@ -136,6 +138,12 @@
       </div>
       <button class="btn btn-primary" id="search-btn">Search</button>
       <button class="btn" id="browse-btn" title="Browse all indexed documents">Browse All</button>
+      <button id="ai-assist-toggle" class="ai-assist-toggle" type="button"
+        aria-pressed="false" title="Toggle AI-assisted synthesis of search results">
+        <span class="toggle-icon">&#10022;</span>
+        <span class="toggle-dot"></span>
+        AI Assist
+      </button>
     </div>
 
     <div id="results-toolbar" class="results-toolbar" hidden>
@@ -500,6 +508,10 @@
       lastFacets = data.facets || {};
       renderFacets(lastFacets);
       renderResults(data);
+      // Trigger AI Assist if enabled
+      if (typeof AIAssist !== 'undefined') {
+        AIAssist.onResults(q, data.hits || []);
+      }
     } catch(e) {
       if (e.status === 503) {
         showError('Search index is offline.');
@@ -938,7 +950,12 @@
     doSearch();
   }
 
-  // ── Flag Modal ────────────────────────────────────────────────────────────
+  // ── AI Assist init ─────────────────────────────────────────────────────────
+  if (typeof AIAssist !== 'undefined') {
+    AIAssist.init();
+  }
+
+  // ── Flag Modal ──���──────────────────────────────────────────��──────────────
   var flagModalState = {};
 
   function openFlagModal(sourcePath, docId, sourceIndex) {
@@ -985,5 +1002,22 @@
       });
   }
   </script>
+
+<!-- AI Assist Drawer -->
+<aside id="ai-assist-drawer" class="ai-assist-drawer" aria-hidden="true"
+  aria-label="AI-assisted search synthesis">
+  <div class="ai-drawer-header">
+    <div class="ai-drawer-header-left">
+      <span class="ai-drawer-sparkle">&#10022;</span>
+      <span class="ai-drawer-title">AI Assist</span>
+      <span id="ai-drawer-query-badge" class="ai-drawer-query-badge"></span>
+    </div>
+    <button id="ai-drawer-close" class="ai-drawer-close" aria-label="Close AI Assist panel">
+      &times;
+    </button>
+  </div>
+  <div id="ai-drawer-body" class="ai-drawer-body"></div>
+</aside>
+
 </body>
 </html>

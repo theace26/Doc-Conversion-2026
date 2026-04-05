@@ -629,6 +629,21 @@ _MIGRATIONS: list[tuple[int, str, list[str]]] = [
     (23, "Handwriting detection flag on ocr_flags", [
         "ALTER TABLE ocr_flags ADD COLUMN handwriting_detected INTEGER NOT NULL DEFAULT 0",
     ]),
+    (24, "AI Assist usage log", [
+        """CREATE TABLE IF NOT EXISTS ai_assist_usage (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id            TEXT    NOT NULL,
+            username           TEXT,
+            query              TEXT    NOT NULL,
+            mode               TEXT    NOT NULL CHECK (mode IN ('search', 'expand')),
+            result_count       INTEGER NOT NULL DEFAULT 0,
+            input_tokens_est   INTEGER NOT NULL DEFAULT 0,
+            output_tokens_est  INTEGER NOT NULL DEFAULT 0,
+            created_at         TEXT    NOT NULL DEFAULT (datetime('now'))
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_ai_usage_user_id ON ai_assist_usage (user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_ai_usage_created_at ON ai_assist_usage (created_at)",
+    ]),
 ]
 
 

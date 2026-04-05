@@ -4,6 +4,43 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.21.0 — AI-Assisted Search (2026-04-05)
+
+**Feature:** Opt-in AI synthesis layer on top of existing Meilisearch results. A
+persistent toggle in the search bar activates a right-side drawer that streams a
+Claude-synthesized answer grounded in the top matching documents. A "Read full doc"
+button per cited source triggers a deeper single-document analysis.
+
+**New files:**
+- `core/ai_assist.py` — Claude API streaming (search synthesis + document expand)
+- `api/routes/ai_assist.py` — FastAPI endpoints (`/api/ai-assist/search`, `/expand`, `/status`)
+- `static/js/ai-assist.js` — Toggle, drawer, SSE streaming, source expansion
+- `static/css/ai-assist.css` — Drawer styles, loading/streaming/error states
+
+**Modified files:**
+- `main.py` — Register ai_assist router
+- `.env.example` — Add `ANTHROPIC_API_KEY`, `AI_ASSIST_MODEL`, `AI_ASSIST_MAX_TOKENS`, `AI_ASSIST_EXPAND_MAX_TOKENS`
+- `static/search.html` — Add toggle button, drawer scaffold, CSS/JS links, init + onResults calls
+- `docker-compose.yml` — Pass AI env vars to markflow service
+
+**Behaviour:**
+- Feature is completely opt-in — hidden when `ANTHROPIC_API_KEY` is not set
+- Toggle state persists across page reloads via localStorage
+- Streams SSE events: `chunk` (text delta), `sources` (citation metadata), `done`, `error`
+- Expand endpoint reads converted markdown from `source_files.output_path`
+- Uses `httpx` for streaming (already in requirements.txt)
+
+**Amendment 1 — Org toggle + usage tracking:**
+- Org-wide on/off toggle in Settings (admin only), stored in `user_preferences` table
+- `ai_assist_usage` table (migration 24) logs user, query, mode, estimated tokens per call
+- Admin endpoints: `PUT /api/ai-assist/admin/toggle`, `GET /api/ai-assist/admin/usage`
+- Settings page shows per-user totals and recent calls with estimated token spend
+- `/api/ai-assist/status` now returns `{key_configured, org_enabled, enabled}`
+- Search/expand endpoints return 503 when org toggle is off
+- New module: `core/db/ai_usage.py`
+
+---
+
 ## v0.20.3 — Handwriting Recognition via LLM Vision Fallback (2026-04-05)
 
 **Feature:** Automatic handwriting detection and LLM-powered transcription. When

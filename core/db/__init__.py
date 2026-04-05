@@ -143,6 +143,15 @@ from core.db.lifecycle import (
     update_source_file,
 )
 
+# AI Assist usage & toggle
+from core.db.ai_usage import (
+    get_ai_assist_enabled,
+    set_ai_assist_enabled,
+    log_ai_usage,
+    get_usage_summary,
+    get_usage_by_user,
+)
+
 # API keys
 from core.db.auth import (
     create_api_key,
@@ -211,4 +220,7 @@ __all__ = [
     # auth
     "create_api_key", "get_api_key_by_hash", "revoke_api_key",
     "list_api_keys", "touch_api_key",
+    # ai usage
+    "get_ai_assist_enabled", "set_ai_assist_enabled",
+    "log_ai_usage", "get_usage_summary", "get_usage_by_user",
 ]

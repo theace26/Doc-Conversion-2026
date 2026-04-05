@@ -34,6 +34,11 @@ services:
       - API_KEY_SALT=${API_KEY_SALT:-}
       - UNIONCORE_JWT_SECRET=${UNIONCORE_JWT_SECRET:-}
       - UNIONCORE_ORIGIN=${UNIONCORE_ORIGIN:-}
+      # AI-Assisted Search (v0.21.0)
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - AI_ASSIST_MODEL=${AI_ASSIST_MODEL:-claude-sonnet-4-20250514}
+      - AI_ASSIST_MAX_TOKENS=${AI_ASSIST_MAX_TOKENS:-700}
+      - AI_ASSIST_EXPAND_MAX_TOKENS=${AI_ASSIST_EXPAND_MAX_TOKENS:-900}
       # Log rotation (size-based) — uncomment to override defaults
       # - LOG_MAX_SIZE_MB=50           # Operational log max size (default: 50 MB)
       # - DEBUG_LOG_MAX_SIZE_MB=100    # Debug log max size (default: 100 MB)

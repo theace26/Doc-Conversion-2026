@@ -26,13 +26,21 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.20.3
+## Current Status — v0.21.0
 
-v0.20.3: Handwriting recognition via LLM vision fallback. When Tesseract OCR
-detects likely handwritten content (low confidence + garbage words), the page
-is automatically sent to the active LLM vision provider for transcription.
-Configurable via handwriting_confidence_threshold preference (default 40%).
-Unattended mode auto-accepts LLM text; review mode shows both options.
+v0.21.0: AI-Assisted Search — opt-in toggle + right-side streaming drawer.
+Synthesis grounded in top Meilisearch snippets via Claude API (SSE).
+"Read full doc" expands to single-document deep analysis.
+Requires ANTHROPIC_API_KEY; gracefully disabled when absent.
+New: core/ai_assist.py, api/routes/ai_assist.py, static/js/ai-assist.js,
+     static/css/ai-assist.css
+
+v0.21.0-amendment-1: Org toggle (admin Settings) + per-user usage tracking.
+New table: ai_assist_usage (migration 24). New module: core/db/ai_usage.py.
+Admin endpoints: PUT /api/ai-assist/admin/toggle, GET /api/ai-assist/admin/usage.
+Token counts are estimates (chars / 4) — link users to Anthropic dashboard for billing.
+
+Previous (v0.20.3): Handwriting recognition via LLM vision fallback.
 
 Previous (v0.20.2): Binary handler expansion (30+ file types), HEIC/HEIF fix.
 
@@ -485,6 +493,7 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **GPU health component needs ok/version**: The convert page renders health components generically using `s.ok` and `s.version`. The GPU component in `health.py` must include both fields or it renders as FAIL with blank detail.
 - **Whisper model lazy-load**: Model is loaded on first transcription call, NOT at startup. Lazy import `import whisper` inside `_load_model()` to avoid slow lifespan. Model cached as class-level state.
 - **Whisper torch CPU index**: `Dockerfile.base` installs torch from `--index-url https://download.pytorch.org/whl/cpu` to avoid pulling CUDA packages (~2GB savings). GPU containers should override this.
+- **AI Assist uses `httpx` for streaming**: `core/ai_assist.py` uses `httpx.AsyncClient.stream()` for SSE from the Anthropic API — not `aiohttp`. Keep `httpx` in `requirements.txt`. `ANTHROPIC_API_KEY` env var enables the feature; when absent, the toggle is hidden and endpoints return clear errors.
 - **Transcription fallback chain**: caption file → local Whisper → cloud providers (in priority order). Caption files checked alongside media files using `caption_file_extensions` preference.
 - **MediaHandler sync/async bridge**: `FormatHandler.ingest()` is synchronous but MediaOrchestrator is async. Handlers use `asyncio.run()` in a ThreadPoolExecutor when called from a running event loop.
 - **Adaptive scan parallelism**: `storage_probe.py` probes sequential-vs-random stat() latency before each scan. Ratio > 3x = HDD (stay serial), ratio < 2x + high latency = NAS (go parallel). Never parallelize HDD — causes seek thrashing. Default preference `scan_max_threads` = `"auto"`.
