@@ -270,16 +270,19 @@ class MountManager:
 
         config.validate()
 
-        # Step 1: Check server reachability
+        # Step 1: Check server reachability via TCP socket probe.
+        # We try the protocol-appropriate port instead of ping because
+        # the container image doesn't ship the ping binary.
+        import socket
+
+        port = {"smb": 445, "nfsv3": 2049, "nfsv4": 2049}.get(config.protocol, 2049)
         t0 = time.monotonic()
         try:
-            result = subprocess.run(
-                ["ping", "-c", "1", "-W", "3", config.server],
-                capture_output=True, text=True, timeout=5,
-            )
+            sock = socket.create_connection((config.server, port), timeout=3)
+            sock.close()
             latency_ms = (time.monotonic() - t0) * 1000
-            reachable = result.returncode == 0
-        except Exception:
+            reachable = True
+        except (OSError, socket.timeout):
             latency_ms = (time.monotonic() - t0) * 1000
             reachable = False
 
