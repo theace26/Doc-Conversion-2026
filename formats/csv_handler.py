@@ -35,7 +35,7 @@ _ENCODINGS = ["utf-8-sig", "utf-8", "latin-1", "cp1252"]
 
 @register_handler
 class CsvHandler(FormatHandler):
-    EXTENSIONS = ["csv", "tsv"]
+    EXTENSIONS = ["csv", "tsv", "tab"]
 
     # ── Ingest ────────────────────────────────────────────────────────────────
 
@@ -50,7 +50,7 @@ class CsvHandler(FormatHandler):
             source_format=ext.lstrip("."),
         )
 
-        delimiter = "\t" if ext == ".tsv" else ","
+        delimiter = "\t" if ext in (".tsv", ".tab") else ","
         encoding = self._detect_encoding(file_path)
 
         rows = self._read_with_pandas(file_path, delimiter, encoding)
@@ -145,7 +145,7 @@ class CsvHandler(FormatHandler):
         log.info("handler_export_start", filename=output_path.name, target_format=ext.lstrip("."), tier=1)
 
         # Determine delimiter and encoding from sidecar or output extension
-        delimiter = "\t" if ext == ".tsv" else ","
+        delimiter = "\t" if ext in (".tsv", ".tab") else ","
         encoding = "utf-8"
 
         if sidecar:
@@ -196,7 +196,7 @@ class CsvHandler(FormatHandler):
     def extract_styles(self, file_path: Path) -> dict[str, Any]:
         """CSV has minimal styles — capture delimiter, encoding, dtypes."""
         ext = file_path.suffix.lower()
-        delimiter = "\t" if ext == ".tsv" else ","
+        delimiter = "\t" if ext in (".tsv", ".tab") else ","
         encoding = self._detect_encoding(file_path)
 
         styles: dict[str, Any] = {

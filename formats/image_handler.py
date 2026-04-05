@@ -43,7 +43,7 @@ log = structlog.get_logger(__name__)
 class ImageHandler(FormatHandler):
     """Handler for raster/vector image files: JPG, PNG, TIFF, BMP, GIF, EPS, HEIC/HEIF."""
 
-    EXTENSIONS = ["jpg", "jpeg", "png", "tif", "tiff", "bmp", "gif", "eps", "heic", "heif"]
+    EXTENSIONS = ["jpg", "jpeg", "png", "tif", "tiff", "bmp", "gif", "eps", "heic", "heif", "cr2"]
 
     # ── Ingest ────────────────────────────────────────────────────────────────
 

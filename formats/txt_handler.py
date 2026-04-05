@@ -39,7 +39,7 @@ _UNDERLINE_H2 = re.compile(r"^(.+)\n-{3,}\s*$", re.MULTILINE)
 class TxtHandler(FormatHandler):
     """Plain text handler for .txt, .log, .text files."""
 
-    EXTENSIONS = ["txt", "log", "text"]
+    EXTENSIONS = ["txt", "log", "text", "lst", "cc", "css"]
 
     # ── Ingest ────────────────────────────────────────────────────────────────
 

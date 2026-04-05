@@ -33,7 +33,7 @@ log = structlog.get_logger(__name__)
 
 @register_handler
 class PptxHandler(FormatHandler):
-    EXTENSIONS = ["pptx", "ppt"]
+    EXTENSIONS = ["pptx", "ppt", "pptm"]
 
     # ── Ingest ────────────────────────────────────────────────────────────────
 

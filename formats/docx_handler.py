@@ -280,7 +280,7 @@ def _extract_footnotes(doc) -> list[tuple[str, str]]:
 class DocxHandler(FormatHandler):
     """DOCX/DOC format handler using python-docx."""
 
-    EXTENSIONS = ["docx", "doc", "docm", "wpd"]
+    EXTENSIONS = ["docx", "doc", "docm", "wpd", "wbk", "pub", "p65"]
 
     # ── Ingest ────────────────────────────────────────────────────────────────
 
@@ -293,8 +293,8 @@ class DocxHandler(FormatHandler):
         log.info("handler_ingest_start", filename=file_path.name, format="docx")
         _tmp_docx: Path | None = None
 
-        if file_path.suffix.lower() in (".doc", ".docm", ".wpd"):
-            # Convert .doc/.docm/.wpd → .docx first via LibreOffice
+        if file_path.suffix.lower() in (".doc", ".docm", ".wpd", ".wbk", ".pub", ".p65"):
+            # Convert .doc/.docm/.wpd/.wbk/.pub/.p65 → .docx first via LibreOffice
             file_path = _doc_to_docx(file_path)
             _tmp_docx = file_path
 
@@ -467,7 +467,7 @@ class DocxHandler(FormatHandler):
         file_path = Path(file_path)
         _tmp_docx: Path | None = None
 
-        if file_path.suffix.lower() in (".doc", ".docm", ".wpd"):
+        if file_path.suffix.lower() in (".doc", ".docm", ".wpd", ".wbk", ".pub", ".p65"):
             file_path = _doc_to_docx(file_path)
             _tmp_docx = file_path
 

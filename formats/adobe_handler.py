@@ -32,7 +32,7 @@ log = structlog.get_logger(__name__)
 class AdobeHandler(FormatHandler):
     """Handler for Adobe creative suite files: PSD, AI, INDD, AEP, PRPROJ, XD."""
 
-    EXTENSIONS = ["psd", "ai", "indd", "aep", "prproj", "xd", "ait", "indt"]
+    EXTENSIONS = ["psd", "ai", "indd", "aep", "prproj", "xd", "ait", "indt", "psb"]
 
     # ── Ingest ────────────────────────────────────────────────────────────────
 
@@ -79,7 +79,7 @@ class AdobeHandler(FormatHandler):
                 ))
 
         # Extract text content based on format
-        if ext == "psd":
+        if ext in ("psd", "psb"):
             text_layers = self._extract_psd_text(file_path)
             if text_layers:
                 model.add_element(Element(
