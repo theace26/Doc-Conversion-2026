@@ -13,22 +13,18 @@ presented.
 ## What Makes a File "Unrecognized"?
 
 A file is marked unrecognized when the bulk scanner finds it and no format
-handler is registered for its extension. MarkFlow can convert documents
-(DOCX, PDF, PPTX, XLSX, CSV, Markdown) and index Adobe creative files
-(AI, PSD, InDesign, After Effects, Premiere, XD). Everything else is
-unrecognized.
+handler is registered for its extension. MarkFlow supports 96 extensions
+across documents, images, media, archives, code, fonts, shortcuts, contacts,
+and more. Everything else is unrecognized.
 
-Common examples:
+Common examples of files that remain unrecognized:
 
-- Video files (MP4, MOV, MKV)
-- Audio files (MP3, WAV, FLAC)
-- Disk images (ISO, VMDK, VHD)
-- Compressed archives (ZIP, 7Z, RAR)
-- Executables (EXE, MSI, DLL)
+- Executables (EXE, MSI, DLL, SYS)
 - Database files (SQLite, MDB)
-- Fonts (TTF, OTF, WOFF)
-- Source code files (PY, JS, CPP)
-- Raster images (JPG, PNG, TIFF, BMP)
+- Game ROMs (NES, GBA)
+- Disk images (VMDK, VHD, QCOW2)
+- Compiled/bytecode (PYC, CLASS, OBJ)
+- Proprietary formats without public specs
 
 > **Tip:** Unrecognized does not mean "broken." These files are perfectly
 > valid -- MarkFlow simply does not have a conversion handler for them yet.

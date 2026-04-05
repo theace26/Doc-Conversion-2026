@@ -7,29 +7,57 @@ MarkFlow converts documents between their original format and Markdown. This art
 
 MarkFlow supports these file types in both directions — original to Markdown, and Markdown back to original:
 
-| Format | Extensions        | What it is                              | Notes                                      |
-|--------|-------------------|-----------------------------------------|--------------------------------------------|
-| Word   | `.docx`           | Microsoft Word documents                | Full support including images and tables    |
-| PDF    | `.pdf`            | Portable Document Format                | Text-based and scanned (via OCR)           |
-| PowerPoint | `.pptx`       | Microsoft PowerPoint presentations      | Each slide becomes a section in Markdown   |
-| Excel  | `.xlsx`           | Microsoft Excel spreadsheets            | Each sheet becomes a table in Markdown     |
-| CSV    | `.csv`, `.tsv`    | Comma or tab-separated data files       | Preserves delimiters and encoding          |
+| Category | Extensions | What it is | Notes |
+|----------|-----------|------------|-------|
+| Word | `.docx`, `.doc`, `.docm`, `.wpd`, `.wbk` | Microsoft Word and compatible | `.doc`/`.wbk`/`.wpd` converted via LibreOffice |
+| PDF | `.pdf` | Portable Document Format | Text-based and scanned (via OCR) |
+| PowerPoint | `.pptx`, `.ppt`, `.pptm` | Microsoft PowerPoint | `.ppt` converted via LibreOffice; `.pptm` macros stripped |
+| Excel | `.xlsx`, `.xls` | Microsoft Excel spreadsheets | `.xls` converted via LibreOffice |
+| CSV/Data | `.csv`, `.tsv`, `.tab` | Delimited data files | Auto-detects delimiter and encoding |
+| Publisher | `.pub`, `.p65` | Microsoft Publisher / PageMaker | Converted via LibreOffice |
+| Text | `.txt`, `.log`, `.text`, `.lst` | Plain text files | Heading detection, encoding fallback |
+| Code | `.cc`, `.css` | Source code files | Treated as plain text with syntax hints |
+| Config | `.ini`, `.cfg`, `.conf`, `.properties` | Configuration files | Section-aware parsing |
+| Markup | `.md`, `.html`, `.htm`, `.xml`, `.json`, `.yaml`, `.yml` | Structured text formats | Full round-trip support |
+| RTF | `.rtf` | Rich Text Format | Control-word parser |
+| OpenDocument | `.odt`, `.ods`, `.odp` | LibreOffice native formats | Via odfpy |
+| Email | `.eml`, `.msg` | Email messages | Recursive attachment conversion |
+| EPUB | `.epub` | Electronic publications | Chapter extraction |
+| Images | `.jpg`, `.jpeg`, `.png`, `.tif`, `.tiff`, `.bmp`, `.gif`, `.eps`, `.cr2` | Raster images and RAW photos | EXIF metadata extraction |
+| Vector | `.svg` | Scalable Vector Graphics | XML parsing, text extraction |
+| Fonts | `.otf`, `.ttf` | OpenType and TrueType fonts | Metadata: family, style, glyph count |
+| Adobe | `.psd`, `.psb`, `.ai`, `.indd`, `.aep`, `.prproj`, `.xd` | Creative suite files | Text layer extraction, metadata |
+| Audio | `.mp3`, `.wav`, `.flac`, `.ogg`, `.m4a`, `.wma`, `.aac` | Audio files | Whisper transcription |
+| Video | `.mp4`, `.mov`, `.avi`, `.mkv`, `.wmv`, `.m4v`, `.webm` | Video files | Transcription + scene detection |
+| Archives | `.zip`, `.tar`, `.tar.gz`, `.7z`, `.rar`, `.cab`, `.iso` | Compressed archives | Recursive extraction + conversion |
+| Contacts | `.vcf` | vCard contact files | Multi-contact parsing |
+| Shortcuts | `.lnk`, `.url` | Windows shortcuts and URL files | Target path/URL extraction |
+| Temporary | `.tmp` | Temporary files | MIME-detected and routed to correct handler |
+| Binary | `.bin`, `.cl4` | Binary data files | Metadata only (size, MIME, magic bytes) |
 
 > **Tip:** If you are not sure whether your file type is supported, just try uploading it. MarkFlow will tell you immediately if it cannot handle the format.
 
 ### Format Details
 
-**Word (.docx)** is the best-supported format. Headings, paragraphs, bold, italic, code, tables, images, footnotes, and nested tables all come through cleanly.
+**Word (.docx)** is the best-supported format. Headings, paragraphs, bold, italic, code, tables, images, footnotes, and nested tables all come through cleanly. Legacy formats (`.doc`, `.wbk`, `.wpd`) and Publisher files (`.pub`, `.p65`) are first converted to `.docx` via LibreOffice headless.
 
 **PDF (.pdf)** works well for text-based PDFs. If your PDF is a scanned image (no selectable text), MarkFlow uses OCR to read the text. See [OCR Pipeline](/help#ocr-pipeline) for details on how that works.
 
-**PowerPoint (.pptx)** treats each slide as a separate section. Slide titles become headings, and bullet points become lists. Speaker notes are included. Images on slides are extracted.
+**PowerPoint (.pptx, .pptm)** treats each slide as a separate section. Slide titles become headings, and bullet points become lists. Speaker notes are included. Images on slides are extracted. Macro-enabled `.pptm` files are processed identically (macros are not executed).
 
 **Excel (.xlsx)** converts each worksheet into a Markdown table with the sheet name as a heading. Formulas, merged cells, and cell formatting are preserved in the style sidecar for round-trip fidelity.
 
-**CSV/TSV (.csv, .tsv)** files are read as data tables. MarkFlow detects the delimiter (comma, tab, semicolon) and character encoding automatically.
+**CSV/TSV/TAB (.csv, .tsv, .tab)** files are read as data tables. MarkFlow detects the delimiter (comma, tab, semicolon) and character encoding automatically.
 
-> **Warning:** Older file formats like `.doc`, `.xls`, and `.ppt` (without the "x") are not supported. Save them in the newer format first using Microsoft Office or LibreOffice.
+**Images (.jpg, .png, .tif, .bmp, .gif, .eps, .cr2)** are catalogued with EXIF metadata extraction. Canon RAW (`.cr2`) files are processed via Pillow with graceful fallback.
+
+**Fonts (.otf, .ttf)** have metadata extracted via fonttools: family name, style, glyph count, supported Unicode ranges, and a sample of characters.
+
+**Shortcuts (.lnk, .url)** have their target path or URL extracted. `.url` files are parsed as INI format; `.lnk` binary shortcuts are scanned for readable path strings.
+
+**Temporary files (.tmp)** are MIME-detected and routed to the correct handler. If the content type cannot be determined, they are catalogued with basic metadata.
+
+> **Note:** Legacy formats like `.doc`, `.xls`, `.ppt`, `.pub`, and `.p65` are converted via LibreOffice headless before processing. This requires LibreOffice to be installed in the container (included in the base image).
 
 
 ## The Upload Interface

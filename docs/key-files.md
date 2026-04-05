@@ -74,12 +74,12 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | File | Purpose |
 |------|---------|
 | `core/libreoffice_helper.py` | Shared LibreOffice headless conversion (.doc→.docx, .xls→.xlsx, .ppt→.pptx) |
-| `formats/docx_handler.py` | DOCX/DOC ingest + export; .doc preprocessed via LibreOffice |
+| `formats/docx_handler.py` | DOCX/DOC/WBK/PUB/P65 ingest + export; legacy formats via LibreOffice |
 | `formats/markdown_handler.py` | MD ingest + export; `_extract_formatted_text` for inline bold/italic/code |
 | `formats/pdf_handler.py` | PDF ingest (pdfplumber + OCR) + export (WeasyPrint); font-size heading detection |
-| `formats/pptx_handler.py` | PPTX/PPT ingest (slides→H2 sections) + export; .ppt preprocessed via LibreOffice |
+| `formats/pptx_handler.py` | PPTX/PPT/PPTM ingest (slides→H2 sections) + export; .ppt via LibreOffice |
 | `formats/xlsx_handler.py` | XLSX/XLS ingest (sheets→H2+TABLE) + export; .xls preprocessed via LibreOffice |
-| `formats/csv_handler.py` | CSV/TSV ingest (pandas + stdlib fallback) + export; delimiter/encoding preserved |
+| `formats/csv_handler.py` | CSV/TSV/TAB ingest (pandas + stdlib fallback) + export; delimiter/encoding preserved |
 | `formats/json_handler.py` | JSON ingest/export with summary + structure outline + secret redaction |
 | `formats/yaml_handler.py` | YAML/YML with multi-document support, comments preservation |
 | `formats/ini_handler.py` | INI/CFG/CONF/properties with section-aware parsing, .conf plain-text fallback |
@@ -91,13 +91,19 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `formats/odp_handler.py` | OpenDocument Presentation via odfpy |
 | `formats/xml_handler.py` | XML ingest/export with structure-aware parsing |
 | `formats/epub_handler.py` | EPUB ingest/export |
-| `formats/txt_handler.py` | Plain text / log file ingest/export |
+| `formats/txt_handler.py` | Plain text / log / list / C++ / CSS ingest/export |
 | `formats/eml_handler.py` | EML/MSG email with recursive attachment conversion |
-| `formats/adobe_handler.py` | PSD/AI/INDD/AEP/PRPROJ/XD — unified Adobe handler |
+| `formats/adobe_handler.py` | PSD/PSB/AI/INDD/AEP/PRPROJ/XD — unified Adobe handler |
 | `formats/archive_handler.py` | ZIP/TAR/7z/RAR/CAB/ISO — recursive extraction + conversion |
-| `formats/image_handler.py` | Image file handler (.jpg, .png, .tif, .bmp, .gif, .eps) |
+| `formats/image_handler.py` | Image file handler (.jpg, .png, .tif, .bmp, .gif, .eps, .cr2) |
 | `formats/audio_handler.py` | Audio file handler (.mp3, .wav, .flac, .ogg, .m4a, .wma, .aac) |
 | `formats/media_handler.py` | Video file handler (.mp4, .mov, .avi, .mkv, .webm, .m4v, .wmv) |
+| `formats/font_handler.py` | Font metadata handler (.otf, .ttf) via fonttools |
+| `formats/shortcut_handler.py` | Windows shortcut (.lnk binary) and URL shortcut (.url INI) handler |
+| `formats/vcf_handler.py` | vCard contact file handler (.vcf) |
+| `formats/svg_handler.py` | SVG vector graphics handler — XML parsing, text/element extraction |
+| `formats/sniff_handler.py` | Sniff-based handler (.tmp) — MIME-detects then delegates |
+| `formats/binary_handler.py` | Binary metadata-only handler (.bin, .cl4) |
 
 ## API Routes
 
