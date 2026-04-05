@@ -4,6 +4,36 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.22.0 — Hybrid Vector Search (2026-04-05)
+
+**Feature:** Semantic vector search augmenting existing Meilisearch keyword search.
+Documents are chunked with contextual headers, embedded locally via sentence-transformers,
+and stored in Qdrant. At query time, both systems run in parallel and results merge
+via Reciprocal Rank Fusion (RRF). Graceful fallback to keyword-only when Qdrant is
+unavailable. Query preprocessor detects temporal intent and biases toward recent docs.
+
+**New files:**
+- `core/vector/chunker.py` — Markdown to contextual chunks (heading-based + fixed-size fallback)
+- `core/vector/embedder.py` — Pluggable embedding (local sentence-transformers default)
+- `core/vector/index_manager.py` — Qdrant collection lifecycle, document indexing, search
+- `core/vector/hybrid_search.py` — RRF merge of keyword + vector results
+- `core/vector/query_preprocessor.py` — Temporal intent detection, query normalization
+
+**Modified files:**
+- `docker-compose.yml` — Qdrant container + volume
+- `requirements.txt` — sentence-transformers, qdrant-client
+- `core/bulk_worker.py` — Vector indexing parallel to Meilisearch (fire-and-forget)
+- `api/routes/search.py` — Hybrid search in `/api/search/all`
+- `main.py` — Vector search startup health check
+
+**Infrastructure:**
+- Qdrant container (internal port 6333, not exposed to host)
+- Single collection `markflow_chunks` with payload filtering
+- `all-MiniLM-L6-v2` embedding model (384 dimensions, ~80MB, CPU inference)
+- Embedding model version tracked in collection metadata for future upgrade path
+
+---
+
 ## v0.21.0 — AI-Assisted Search (2026-04-05)
 
 **Feature:** Opt-in AI synthesis layer on top of existing Meilisearch results. A

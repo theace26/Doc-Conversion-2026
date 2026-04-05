@@ -26,19 +26,17 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.21.0
+## Current Status — v0.22.0
 
-v0.21.0: AI-Assisted Search — opt-in toggle + right-side streaming drawer.
-Synthesis grounded in top Meilisearch snippets via Claude API (SSE).
-"Read full doc" expands to single-document deep analysis.
-Requires ANTHROPIC_API_KEY; gracefully disabled when absent.
-New: core/ai_assist.py, api/routes/ai_assist.py, static/js/ai-assist.js,
-     static/css/ai-assist.css
+v0.22.0: Hybrid Vector Search — Qdrant vector DB augments Meilisearch keyword
+search via Reciprocal Rank Fusion. Documents chunked with contextual headers,
+embedded locally via sentence-transformers (all-MiniLM-L6-v2, 384d). Query
+preprocessor detects temporal intent. Graceful fallback to keyword-only when
+Qdrant is unavailable.
+New: core/vector/ package (chunker, embedder, index_manager, hybrid_search,
+     query_preprocessor). Qdrant container in docker-compose.yml.
 
-v0.21.0-amendment-1: Org toggle (admin Settings) + per-user usage tracking.
-New table: ai_assist_usage (migration 24). New module: core/db/ai_usage.py.
-Admin endpoints: PUT /api/ai-assist/admin/toggle, GET /api/ai-assist/admin/usage.
-Token counts are estimates (chars / 4) — link users to Anthropic dashboard for billing.
+Previous (v0.21.0): AI-Assisted Search with org toggle + usage tracking.
 
 Previous (v0.20.3): Handwriting recognition via LLM vision fallback.
 
@@ -492,6 +490,10 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **PowerShell stderr from native commands**: Native command stderr (e.g., hashcat's `nvmlDeviceGetFanSpeed(): Not Supported`) becomes a `RemoteException` via `2>&1`, caught by `try/catch` and silently aborting. Set `$ErrorActionPreference = 'SilentlyContinue'` around the call.
 - **GPU health component needs ok/version**: The convert page renders health components generically using `s.ok` and `s.version`. The GPU component in `health.py` must include both fields or it renders as FAIL with blank detail.
 - **Whisper model lazy-load**: Model is loaded on first transcription call, NOT at startup. Lazy import `import whisper` inside `_load_model()` to avoid slow lifespan. Model cached as class-level state.
+- **Vector search is best-effort**: `get_vector_indexer()` returns `None` when Qdrant is unreachable. All call sites must handle `None`. Never make vector search a hard dependency.
+- **Embedding model loaded lazily**: First embedding call loads ~80MB model into RAM. Lazy import `sentence_transformers` inside `_load_model()` to avoid slow lifespan. Same pattern as Whisper.
+- **Chunk IDs are deterministic**: SHA256 of `doc_id:chunk_index`. Re-indexing the same document produces the same chunk IDs — idempotent upserts in Qdrant.
+- **Embedding model version tracking**: Collection metadata in Qdrant tracks which model generated vectors. Model swap requires re-embedding — pluggable provider interface designed to support this future path.
 - **Whisper torch CPU index**: `Dockerfile.base` installs torch from `--index-url https://download.pytorch.org/whl/cpu` to avoid pulling CUDA packages (~2GB savings). GPU containers should override this.
 - **AI Assist uses `httpx` for streaming**: `core/ai_assist.py` uses `httpx.AsyncClient.stream()` for SSE from the Anthropic API — not `aiohttp`. Keep `httpx` in `requirements.txt`. `ANTHROPIC_API_KEY` env var enables the feature; when absent, the toggle is hidden and endpoints return clear errors.
 - **Transcription fallback chain**: caption file → local Whisper → cloud providers (in priority order). Caption files checked alongside media files using `caption_file_extensions` preference.
