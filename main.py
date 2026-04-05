@@ -128,6 +128,18 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         log.warning("markflow.meilisearch_init_skip", error=str(exc))
 
+    # Initialize vector search (best-effort — app starts without it)
+    try:
+        from core.vector.index_manager import get_vector_indexer
+        vec_indexer = await get_vector_indexer()
+        if vec_indexer:
+            status = await vec_indexer.get_status()
+            log.info("markflow.vector_search_ready", **status)
+        else:
+            log.info("markflow.vector_search_disabled", reason="Qdrant not configured or unreachable")
+    except Exception as exc:
+        log.warning("markflow.vector_search_init_skip", error=str(exc))
+
     # Prime psutil CPU cache (first call with interval=0.1, then interval=None is instant)
     import psutil
     psutil.cpu_percent(interval=0.1, percpu=True)
