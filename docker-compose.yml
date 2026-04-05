@@ -39,6 +39,11 @@ services:
       - AI_ASSIST_MODEL=${AI_ASSIST_MODEL:-claude-sonnet-4-20250514}
       - AI_ASSIST_MAX_TOKENS=${AI_ASSIST_MAX_TOKENS:-700}
       - AI_ASSIST_EXPAND_MAX_TOKENS=${AI_ASSIST_EXPAND_MAX_TOKENS:-900}
+      # Vector search (v0.22.0)
+      - QDRANT_HOST=${QDRANT_HOST:-http://qdrant:6333}
+      - QDRANT_COLLECTION=${QDRANT_COLLECTION:-markflow_chunks}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+      - EMBEDDING_BATCH_SIZE=${EMBEDDING_BATCH_SIZE:-64}
       # Log rotation (size-based) — uncomment to override defaults
       # - LOG_MAX_SIZE_MB=50           # Operational log max size (default: 50 MB)
       # - DEBUG_LOG_MAX_SIZE_MB=100    # Debug log max size (default: 100 MB)
@@ -53,6 +58,8 @@ services:
       # - ARCHIVE_PASSWORD_FILE=config/archive_passwords.txt
     depends_on:
       meilisearch:
+        condition: service_healthy
+      qdrant:
         condition: service_healthy
     restart: unless-stopped
 
@@ -101,7 +108,24 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # ── Qdrant vector search (v0.22.0) ────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:latest
+    volumes:
+      - qdrant-data:/qdrant/storage
+    deploy:
+      resources:
+        limits:
+          memory: ${QDRANT_MEMORY_LIMIT:-512m}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
 volumes:
   markflow-db:        # SQLite database — survives container restarts
   meilisearch-data:   # Meilisearch index — survives container restarts
+  qdrant-data:        # Qdrant vector index — survives container restarts
   whisper-cache:      # Whisper model files — survives container restarts
