@@ -72,27 +72,118 @@ sudo mkdir -p /opt/markflow-output
 echo "  ✅ Directories created"
 
 # ----------------------------------------------------------
-#  4. Set up SMB/CIFS mounts for NAS
+#  4. Set up NAS mounts (SMB or NFS)
 # ----------------------------------------------------------
 echo ""
 echo "[4/6] Configuring NAS mounts..."
 
-# Create credentials file
-CREDS_FILE="/etc/markflow-smb-credentials"
-if [ ! -f "$CREDS_FILE" ]; then
-    sudo tee "$CREDS_FILE" > /dev/null << 'CREDS'
-username=markflow
-password=computer
-CREDS
-    sudo chmod 600 "$CREDS_FILE"
-    echo "  ✅ Credentials file created at $CREDS_FILE"
-else
-    echo "  Credentials file already exists — skipping"
+# --- Protocol selection helper ---
+generate_fstab_entry() {
+    local proto_choice="$1" server="$2" share="$3" mount_point="$4" rw_flag="$5" krb="$6"
+    local systemd_opts="_netdev,x-systemd.automount,x-systemd.mount-timeout=30"
+
+    case "$proto_choice" in
+        2) echo "${server}:${share}  ${mount_point}  nfs  ${rw_flag},hard,intr,${systemd_opts}  0  0" ;;
+        3)
+            local opts="${rw_flag},hard,intr,${systemd_opts}"
+            [ "$krb" = "true" ] && opts="${opts},sec=krb5"
+            echo "${server}:${share}  ${mount_point}  nfs4  ${opts}  0  0"
+            ;;
+        *) echo "//${server}/${share}  ${mount_point}  cifs  credentials=${CREDS_FILE},${rw_flag},iocharset=utf8,uid=1000,gid=1000,noperm,${systemd_opts}  0  0" ;;
+    esac
+}
+
+echo ""
+echo "Select mount protocol for SOURCE share:"
+echo "  1) SMB/CIFS (Windows/Samba shares)"
+echo "  2) NFSv3 (Linux NFS exports)"
+echo "  3) NFSv4 (Linux NFS v4 exports)"
+read -p "Choice [1]: " SRC_PROTO_CHOICE
+SRC_PROTO_CHOICE="${SRC_PROTO_CHOICE:-1}"
+
+echo ""
+echo "Select mount protocol for OUTPUT share:"
+echo "  1) SMB/CIFS (Windows/Samba shares)"
+echo "  2) NFSv3 (Linux NFS exports)"
+echo "  3) NFSv4 (Linux NFS v4 exports)"
+read -p "Choice [1]: " OUT_PROTO_CHOICE
+OUT_PROTO_CHOICE="${OUT_PROTO_CHOICE:-1}"
+
+# Install NFS packages if needed
+if [ "$SRC_PROTO_CHOICE" != "1" ] || [ "$OUT_PROTO_CHOICE" != "1" ]; then
+    echo "  Installing NFS client packages..."
+    sudo apt-get install -y nfs-common
 fi
 
-# Add fstab entries for NAS shares
-FSTAB_SOURCE="//192.168.1.17/storage_folder  /mnt/source-share    cifs  credentials=$CREDS_FILE,ro,iocharset=utf8,uid=1000,gid=1000,noperm  0  0"
-FSTAB_OUTPUT="//192.168.1.17/markflow         /mnt/markflow-output cifs  credentials=$CREDS_FILE,rw,iocharset=utf8,uid=1000,gid=1000,noperm  0  0"
+# --- Source share ---
+echo ""
+echo "--- Source share (read-only) ---"
+read -p "Server IP/hostname [192.168.1.17]: " SRC_SERVER
+SRC_SERVER="${SRC_SERVER:-192.168.1.17}"
+
+if [ "$SRC_PROTO_CHOICE" = "1" ]; then
+    read -p "SMB share name [storage_folder]: " SRC_SHARE
+    SRC_SHARE="${SRC_SHARE:-storage_folder}"
+else
+    read -p "NFS export path [/volume1/storage]: " SRC_SHARE
+    SRC_SHARE="${SRC_SHARE:-/volume1/storage}"
+fi
+
+SRC_KRB="false"
+if [ "$SRC_PROTO_CHOICE" = "3" ]; then
+    read -p "Enable Kerberos for source? [y/N]: " KRB_ENABLE
+    if [ "$KRB_ENABLE" = "y" ] || [ "$KRB_ENABLE" = "Y" ]; then
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y krb5-user
+        SRC_KRB="true"
+    fi
+fi
+
+# --- Output share ---
+echo ""
+echo "--- Output share (read-write) ---"
+read -p "Server IP/hostname [${SRC_SERVER}]: " OUT_SERVER
+OUT_SERVER="${OUT_SERVER:-$SRC_SERVER}"
+
+if [ "$OUT_PROTO_CHOICE" = "1" ]; then
+    read -p "SMB share name [markflow]: " OUT_SHARE
+    OUT_SHARE="${OUT_SHARE:-markflow}"
+else
+    read -p "NFS export path [/volume1/markflow]: " OUT_SHARE
+    OUT_SHARE="${OUT_SHARE:-/volume1/markflow}"
+fi
+
+OUT_KRB="false"
+if [ "$OUT_PROTO_CHOICE" = "3" ]; then
+    read -p "Enable Kerberos for output? [y/N]: " KRB_ENABLE
+    if [ "$KRB_ENABLE" = "y" ] || [ "$KRB_ENABLE" = "Y" ]; then
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y krb5-user
+        OUT_KRB="true"
+    fi
+fi
+
+# SMB credentials file (only needed if either share uses SMB)
+CREDS_FILE="/etc/markflow-smb-credentials"
+if [ "$SRC_PROTO_CHOICE" = "1" ] || [ "$OUT_PROTO_CHOICE" = "1" ]; then
+    if [ ! -f "$CREDS_FILE" ]; then
+        read -p "SMB username [markflow]: " SMB_USER
+        SMB_USER="${SMB_USER:-markflow}"
+        read -sp "SMB password: " SMB_PASS
+        echo ""
+        SMB_PASS="${SMB_PASS:-computer}"
+        sudo tee "$CREDS_FILE" > /dev/null << CREDS
+username=${SMB_USER}
+password=${SMB_PASS}
+CREDS
+        sudo chmod 600 "$CREDS_FILE"
+        echo "  ✅ Credentials file created at $CREDS_FILE"
+    else
+        echo "  Credentials file already exists — skipping"
+    fi
+fi
+
+# Generate and write fstab entries
+FSTAB_SOURCE=$(generate_fstab_entry "$SRC_PROTO_CHOICE" "$SRC_SERVER" "$SRC_SHARE" "/mnt/source-share" "ro" "$SRC_KRB")
+FSTAB_OUTPUT=$(generate_fstab_entry "$OUT_PROTO_CHOICE" "$OUT_SERVER" "$OUT_SHARE" "/mnt/markflow-output" "rw" "$OUT_KRB")
 
 if ! grep -q "source-share" /etc/fstab; then
     echo "$FSTAB_SOURCE" | sudo tee -a /etc/fstab > /dev/null
@@ -102,8 +193,33 @@ else
     echo "  fstab entries already exist — skipping"
 fi
 
+# Save mount config JSON for the Settings UI
+PROTO_NAMES=("" "smb" "nfsv3" "nfsv4")
+sudo mkdir -p /etc/markflow
+sudo tee /etc/markflow/mounts.json > /dev/null << MOUNTJSON
+{
+  "source": {
+    "protocol": "${PROTO_NAMES[$SRC_PROTO_CHOICE]}",
+    "server": "${SRC_SERVER}",
+    "share_path": "${SRC_SHARE}",
+    "mount_point": "/mnt/source-share",
+    "read_only": true,
+    "nfs_kerberos": ${SRC_KRB}
+  },
+  "output": {
+    "protocol": "${PROTO_NAMES[$OUT_PROTO_CHOICE]}",
+    "server": "${OUT_SERVER}",
+    "share_path": "${OUT_SHARE}",
+    "mount_point": "/mnt/markflow-output",
+    "read_only": false,
+    "nfs_kerberos": ${OUT_KRB}
+  }
+}
+MOUNTJSON
+echo "  ✅ Mount config saved to /etc/markflow/mounts.json"
+
 # Try mounting
-sudo mount -a && echo "  ✅ Mounts successful" || echo "  ⚠️  mount -a failed — check credentials and NAS availability"
+sudo mount -a && echo "  ✅ Mounts successful" || echo "  ⚠️  mount -a failed — check credentials/exports and NAS availability"
 
 # ----------------------------------------------------------
 #  5. Clone the MarkFlow repository

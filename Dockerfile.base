@@ -47,6 +47,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cabextract \
     unrar-free \
     p7zip-full \
+    # NFS client tools (for NFS mount support)
+    nfs-common \
     # curl for healthchecks
     curl \
     # Misc build tools

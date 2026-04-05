@@ -26,13 +26,15 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.19.6.11
+## Current Status — v0.20.0
 
-v0.19.6.11: Fix three scan failures (12 files total). (1) Media/audio handlers wrote
-`_markflow/` sidecar to source mount (read-only) — now use tempdir. (2) INI parser
-crashed on XGI driver configs — `configparser` raises `AttributeError` not caught by
-handler; added to exception list so fallback parser runs. (3) Markdown handler crashed
-on Latin-1 encoded `.md` files — added encoding fallback.
+v0.20.0: NFS mount support. Network mount protocol is now configurable — supports
+SMB/CIFS, NFSv3, and NFSv4 (with optional Kerberos). Configurable in both the setup
+script (initial provisioning) and the Settings UI (live remounting). New mount manager
+abstraction in `core/mount_manager.py`, REST API at `/api/settings/mounts`, and
+"Storage Connections" settings section.
+
+Previous (v0.19.6.11): Fix three scan failures — read-only FS, INI parser crash, MD encoding.
 
 Previous (v0.19.6.10): Reduce PDF image extraction log noise.
 

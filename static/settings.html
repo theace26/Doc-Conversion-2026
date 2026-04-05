@@ -992,6 +992,146 @@
 
       </details>
 
+      <!-- Storage Connections section -->
+      <details class="settings-section" id="storage-connections-section">
+      <summary>Storage Connections</summary>
+      <div class="card">
+        <p class="text-sm text-muted" style="margin:0 0 1rem">
+          Configure network shares for source files and conversion output.
+          Changes take effect immediately when you click Apply.
+        </p>
+
+        <!-- Source mount -->
+        <fieldset style="border:1px solid var(--border);border-radius:6px;padding:1rem;margin-bottom:1.5rem">
+          <legend style="font-weight:600;font-size:0.9rem;padding:0 0.5rem">
+            Source Mount
+            <span id="mount-status-source" class="text-sm" style="margin-left:0.5rem"></span>
+          </legend>
+
+          <div class="form-group">
+            <label>Protocol</label>
+            <div style="display:flex;gap:1.5rem;margin:0.25rem 0">
+              <label><input type="radio" name="mount-source-proto" value="smb" checked onchange="toggleMountFields('source')"> SMB/CIFS</label>
+              <label><input type="radio" name="mount-source-proto" value="nfsv3" onchange="toggleMountFields('source')"> NFSv3</label>
+              <label><input type="radio" name="mount-source-proto" value="nfsv4" onchange="toggleMountFields('source')"> NFSv4</label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="mount-source-server">Server (IP or hostname)</label>
+            <input type="text" id="mount-source-server" placeholder="192.168.1.17">
+          </div>
+
+          <div class="form-group">
+            <label for="mount-source-share">Share / Export Path</label>
+            <input type="text" id="mount-source-share" placeholder="storage_folder or /volume1/data">
+          </div>
+
+          <div id="mount-source-smb-fields">
+            <div class="form-group">
+              <label for="mount-source-smb-user">Username</label>
+              <input type="text" id="mount-source-smb-user" placeholder="markflow">
+            </div>
+            <div class="form-group">
+              <label for="mount-source-smb-pass">Password</label>
+              <input type="password" id="mount-source-smb-pass" placeholder="********">
+            </div>
+          </div>
+
+          <div id="mount-source-krb-fields" hidden>
+            <div class="form-group">
+              <label class="toggle" style="gap:0.5rem">
+                <input type="checkbox" id="mount-source-krb-enable" onchange="toggleKerberosFields('source')">
+                <span class="toggle-track"></span>
+                <span>Enable Kerberos authentication</span>
+              </label>
+            </div>
+            <div id="mount-source-krb-details" hidden>
+              <div class="form-group">
+                <label for="mount-source-krb-realm">Realm</label>
+                <input type="text" id="mount-source-krb-realm" placeholder="EXAMPLE.COM">
+              </div>
+              <div class="form-group">
+                <label for="mount-source-krb-keytab">Keytab Path</label>
+                <input type="text" id="mount-source-krb-keytab" value="/etc/krb5.keytab">
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:0.5rem;align-items:center;margin-top:0.75rem">
+            <button type="button" class="btn btn-ghost btn-sm" onclick="testMount('source')">Test Connection</button>
+            <button type="button" class="btn btn-primary btn-sm" onclick="applyMount('source')">Apply &amp; Remount</button>
+            <span id="mount-source-result" class="text-sm" style="margin-left:0.5rem"></span>
+          </div>
+        </fieldset>
+
+        <!-- Output mount -->
+        <fieldset style="border:1px solid var(--border);border-radius:6px;padding:1rem">
+          <legend style="font-weight:600;font-size:0.9rem;padding:0 0.5rem">
+            Output Mount
+            <span id="mount-status-output" class="text-sm" style="margin-left:0.5rem"></span>
+          </legend>
+
+          <div class="form-group">
+            <label>Protocol</label>
+            <div style="display:flex;gap:1.5rem;margin:0.25rem 0">
+              <label><input type="radio" name="mount-output-proto" value="smb" checked onchange="toggleMountFields('output')"> SMB/CIFS</label>
+              <label><input type="radio" name="mount-output-proto" value="nfsv3" onchange="toggleMountFields('output')"> NFSv3</label>
+              <label><input type="radio" name="mount-output-proto" value="nfsv4" onchange="toggleMountFields('output')"> NFSv4</label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="mount-output-server">Server (IP or hostname)</label>
+            <input type="text" id="mount-output-server" placeholder="192.168.1.17">
+          </div>
+
+          <div class="form-group">
+            <label for="mount-output-share">Share / Export Path</label>
+            <input type="text" id="mount-output-share" placeholder="markflow or /volume1/markflow">
+          </div>
+
+          <div id="mount-output-smb-fields">
+            <div class="form-group">
+              <label for="mount-output-smb-user">Username</label>
+              <input type="text" id="mount-output-smb-user" placeholder="markflow">
+            </div>
+            <div class="form-group">
+              <label for="mount-output-smb-pass">Password</label>
+              <input type="password" id="mount-output-smb-pass" placeholder="********">
+            </div>
+          </div>
+
+          <div id="mount-output-krb-fields" hidden>
+            <div class="form-group">
+              <label class="toggle" style="gap:0.5rem">
+                <input type="checkbox" id="mount-output-krb-enable" onchange="toggleKerberosFields('output')">
+                <span class="toggle-track"></span>
+                <span>Enable Kerberos authentication</span>
+              </label>
+            </div>
+            <div id="mount-output-krb-details" hidden>
+              <div class="form-group">
+                <label for="mount-output-krb-realm">Realm</label>
+                <input type="text" id="mount-output-krb-realm" placeholder="EXAMPLE.COM">
+              </div>
+              <div class="form-group">
+                <label for="mount-output-krb-keytab">Keytab Path</label>
+                <input type="text" id="mount-output-krb-keytab" value="/etc/krb5.keytab">
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:0.5rem;align-items:center;margin-top:0.75rem">
+            <button type="button" class="btn btn-ghost btn-sm" onclick="testMount('output')">Test Connection</button>
+            <button type="button" class="btn btn-primary btn-sm" onclick="applyMount('output')">Apply &amp; Remount</button>
+            <span id="mount-output-result" class="text-sm" style="margin-left:0.5rem"></span>
+          </div>
+        </fieldset>
+      </div>
+
+      </details>
+
       <!-- Actions -->
       <div class="btn-group mt-2">
         <button type="submit" class="btn btn-primary" id="btn-save">Save Changes</button>
@@ -1726,6 +1866,140 @@
 
     return { toggle, refresh, setFilter };
   })();
+  </script>
+
+  <script>
+    // -- Storage Connections --
+
+    function toggleMountFields(role) {
+      var proto = document.querySelector('input[name="mount-' + role + '-proto"]:checked').value;
+      document.getElementById('mount-' + role + '-smb-fields').hidden = proto !== 'smb';
+      document.getElementById('mount-' + role + '-krb-fields').hidden = proto !== 'nfsv4';
+      if (proto !== 'nfsv4') {
+        document.getElementById('mount-' + role + '-krb-enable').checked = false;
+        toggleKerberosFields(role);
+      }
+    }
+
+    function toggleKerberosFields(role) {
+      var enabled = document.getElementById('mount-' + role + '-krb-enable').checked;
+      document.getElementById('mount-' + role + '-krb-details').hidden = !enabled;
+    }
+
+    function getMountConfig(role) {
+      var proto = document.querySelector('input[name="mount-' + role + '-proto"]:checked').value;
+      var config = {
+        protocol: proto,
+        server: document.getElementById('mount-' + role + '-server').value.trim(),
+        share_path: document.getElementById('mount-' + role + '-share').value.trim(),
+        mount_point: role === 'source' ? '/mnt/source-share' : '/mnt/markflow-output',
+        read_only: role === 'source',
+      };
+      if (proto === 'smb') {
+        config.smb_username = document.getElementById('mount-' + role + '-smb-user').value.trim();
+        config.smb_password = document.getElementById('mount-' + role + '-smb-pass').value;
+      }
+      if (proto === 'nfsv4') {
+        config.nfs_kerberos = document.getElementById('mount-' + role + '-krb-enable').checked;
+        if (config.nfs_kerberos) {
+          config.kerberos_realm = document.getElementById('mount-' + role + '-krb-realm').value.trim();
+          config.kerberos_keytab = document.getElementById('mount-' + role + '-krb-keytab').value.trim();
+        }
+      }
+      return config;
+    }
+
+    function showMountResult(role, msg, ok) {
+      var el = document.getElementById('mount-' + role + '-result');
+      el.textContent = msg;
+      el.style.color = ok ? 'var(--ok)' : 'var(--error)';
+      setTimeout(function() { el.textContent = ''; }, 8000);
+    }
+
+    async function testMount(role) {
+      var config = getMountConfig(role);
+      showMountResult(role, 'Testing...', true);
+      try {
+        var res = await fetch('/api/settings/mounts/test', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(config),
+        });
+        var data = await res.json();
+        if (res.ok) {
+          var icon = data.readable ? '\u2705' : data.mountable ? '\u26a0\ufe0f' : '\u274c';
+          showMountResult(role, icon + ' ' + data.message + ' (' + data.latency_ms + 'ms)', data.readable);
+        } else {
+          showMountResult(role, data.detail || 'Test failed', false);
+        }
+      } catch (err) {
+        showMountResult(role, 'Error: ' + err.message, false);
+      }
+    }
+
+    async function applyMount(role) {
+      var config = getMountConfig(role);
+      if (!config.server || !config.share_path) {
+        showMountResult(role, 'Server and share path are required', false);
+        return;
+      }
+      showMountResult(role, 'Applying...', true);
+      try {
+        var res = await fetch('/api/settings/mounts/apply', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: role, config: config }),
+        });
+        var data = await res.json();
+        if (res.ok && data.success) {
+          showMountResult(role, '\u2705 Mounted and saved', true);
+          loadMountStatus();
+        } else {
+          showMountResult(role, data.message || data.detail || 'Apply failed', false);
+        }
+      } catch (err) {
+        showMountResult(role, 'Error: ' + err.message, false);
+      }
+    }
+
+    async function loadMountStatus() {
+      try {
+        var res = await fetch('/api/settings/mounts');
+        if (!res.ok) return;
+        var data = await res.json();
+        var roles = ['source', 'output'];
+        for (var i = 0; i < roles.length; i++) {
+          var role = roles[i];
+          var info = data[role];
+          var statusEl = document.getElementById('mount-status-' + role);
+          if (!info) {
+            statusEl.textContent = '\u25cb not configured';
+            statusEl.style.color = 'var(--text-muted)';
+            continue;
+          }
+          if (info.mounted) {
+            statusEl.textContent = '\u25cf mounted (' + info.fs_type + ')';
+            statusEl.style.color = 'var(--ok)';
+          } else {
+            statusEl.textContent = '\u25cf not mounted';
+            statusEl.style.color = 'var(--error)';
+          }
+          var protoRadio = document.querySelector('input[name="mount-' + role + '-proto"][value="' + info.protocol + '"]');
+          if (protoRadio) { protoRadio.checked = true; toggleMountFields(role); }
+          document.getElementById('mount-' + role + '-server').value = info.server || '';
+          document.getElementById('mount-' + role + '-share').value = info.share_path || '';
+          if (info.protocol === 'smb' && info.smb_username) {
+            document.getElementById('mount-' + role + '-smb-user').value = info.smb_username;
+          }
+          if (info.protocol === 'nfsv4' && info.nfs_kerberos) {
+            document.getElementById('mount-' + role + '-krb-enable').checked = true;
+            toggleKerberosFields(role);
+            if (info.kerberos_realm) document.getElementById('mount-' + role + '-krb-realm').value = info.kerberos_realm;
+            if (info.kerberos_keytab) document.getElementById('mount-' + role + '-krb-keytab').value = info.kerberos_keytab;
+          }
+        }
+      } catch (err) { console.warn('Failed to load mount status:', err); }
+    }
+
+    loadMountStatus();
   </script>
 </body>
 </html>

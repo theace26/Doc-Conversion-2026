@@ -4,6 +4,32 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.20.0 — NFS Mount Support + Mount Settings UI (2026-04-05)
+
+**Feature:** Network mount configuration is no longer hardcoded to SMB/CIFS. MarkFlow
+now supports SMB/CIFS, NFSv3, and NFSv4 (with optional Kerberos) as mount protocols.
+
+**New components:**
+- `core/mount_manager.py` — Protocol-agnostic mount abstraction. Generates mount commands
+  and fstab entries, handles live mount/unmount, tests connections, persists config to
+  `/etc/markflow/mounts.json`. Supports `dry_run=True` for config-generation mode.
+- `api/routes/mounts.py` — REST endpoints: GET status, POST test, POST apply.
+- Settings UI "Storage Connections" section — radio buttons for protocol, conditional
+  SMB credentials / NFSv4 Kerberos fields, test and apply buttons with live status.
+- Setup script protocol selection — choose SMB/NFSv3/NFSv4 during initial VM provisioning.
+
+**Files changed:**
+- `core/mount_manager.py` — NEW
+- `api/routes/mounts.py` — NEW
+- `tests/test_mount_manager.py` — NEW
+- `static/settings.html` — Storage Connections section
+- `Scripts/proxmox/setup-markflow.sh` — protocol selection menu
+- `Dockerfile.base` — added `nfs-common` package
+- `main.py` — register mounts router
+- `core/version.py` — bump to 0.20.0
+
+---
+
 ## v0.19.6.11 — Fix Three Scan Failures (2026-04-05)
 
 **Problem:** Bulk scan reported 12 failed files across three distinct root causes.
