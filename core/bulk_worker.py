@@ -793,6 +793,24 @@ class BulkJob:
                         await db_write_with_retry(
                             lambda: increment_bulk_job_counter(self.job_id, "transcribed")
                         )
+
+                    # Vector index (best-effort, parallel to Meilisearch)
+                    try:
+                        from core.vector.index_manager import get_vector_indexer
+                        vec_indexer = await get_vector_indexer()
+                        if vec_indexer:
+                            import hashlib
+                            vec_doc_id = hashlib.sha256(str(actual_output).encode()).hexdigest()[:16]
+                            await vec_indexer.index_document(
+                                md_path=actual_output,
+                                doc_id=vec_doc_id,
+                                title=source_path.stem,
+                                source_path=str(source_path),
+                                source_format=source_path.suffix.lstrip("."),
+                                source_index="documents",
+                            )
+                    except Exception as vec_exc:
+                        log.warning("bulk_vector_index_fail", file_id=file_id, error=str(vec_exc))
             except Exception as exc:
                 log.warning("bulk_meili_index_fail", file_id=file_id, error=str(exc))
 
