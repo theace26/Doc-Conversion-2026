@@ -430,6 +430,24 @@ class SearchIndexer:
                 if ok:
                     status.documents_indexed += 1
                     error_monitor.record_success()
+                    # Vector index (best-effort)
+                    try:
+                        from core.vector.index_manager import get_vector_indexer
+                        vec = await get_vector_indexer()
+                        if vec:
+                            import hashlib
+                            doc_id = hashlib.sha256(str(md_path).encode()).hexdigest()[:16]
+                            source_path = f.get("source_path", "")
+                            await vec.index_document(
+                                md_path=md_path,
+                                doc_id=doc_id,
+                                title=md_path.stem,
+                                source_path=source_path,
+                                source_format=Path(source_path).suffix.lstrip(".") if source_path else "",
+                                source_index="documents",
+                            )
+                    except Exception as vec_exc:
+                        log.debug("rebuild_vector_skip", error=str(vec_exc))
                 else:
                     status.errors += 1
                     error_monitor.record_error("index_document failed")
