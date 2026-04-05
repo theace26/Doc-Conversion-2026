@@ -30,3 +30,9 @@ from formats.archive_handler import ArchiveHandler  # noqa: F401
 from formats.audio_handler import AudioHandler  # noqa: F401
 from formats.media_handler import MediaHandler  # noqa: F401
 from formats.image_handler import ImageHandler  # noqa: F401
+from formats.font_handler import FontHandler  # noqa: F401
+from formats.shortcut_handler import ShortcutHandler  # noqa: F401
+from formats.vcf_handler import VcfHandler  # noqa: F401
+from formats.svg_handler import SvgHandler  # noqa: F401
+from formats.sniff_handler import SniffHandler  # noqa: F401
+from formats.binary_handler import BinaryHandler  # noqa: F401

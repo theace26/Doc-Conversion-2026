@@ -33,37 +33,47 @@ log = structlog.get_logger(__name__)
 # All supported extensions — unified scanning (no separate Adobe/convertible split)
 SUPPORTED_EXTENSIONS = {
     # Office documents
-    ".docx", ".doc", ".docm", ".wpd",
+    ".docx", ".doc", ".docm", ".wpd", ".wbk", ".pub", ".p65",
     ".pdf",
-    ".pptx", ".ppt",
+    ".pptx", ".ppt", ".pptm",
     ".xlsx", ".xls",
-    ".csv", ".tsv",
+    ".csv", ".tsv", ".tab",
     ".rtf",
     # OpenDocument
     ".odt", ".ods", ".odp",
     # Markdown & text
-    ".md", ".txt", ".log", ".text",
+    ".md", ".txt", ".log", ".text", ".lst",
+    # Code / stylesheets
+    ".cc", ".css",
     # Web & data
-    ".html", ".htm", ".xml", ".epub",
+    ".html", ".htm", ".xml", ".epub", ".svg",
     # Data & config
     ".json", ".yaml", ".yml", ".ini", ".cfg", ".conf", ".properties",
-    # Email
-    ".eml", ".msg",
+    # Email & contacts
+    ".eml", ".msg", ".vcf",
     # Archives
     ".zip", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2",
     ".tar.xz", ".txz", ".7z", ".rar", ".cab", ".iso",
     # Adobe creative suite
-    ".psd", ".ai", ".indd", ".aep", ".prproj", ".xd", ".ait", ".indt",
+    ".psd", ".psb", ".ai", ".indd", ".aep", ".prproj", ".xd", ".ait", ".indt",
     # Media (audio/video — indexed for metadata/scene detection)
     ".mp3", ".mp4", ".mov", ".avi", ".mkv", ".wav", ".flac", ".ogg",
     ".webm", ".m4a", ".m4v", ".wmv", ".aac", ".wma",
     # Images
-    ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".gif", ".eps",
+    ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".gif", ".eps", ".cr2",
+    # Fonts
+    ".otf", ".ttf",
+    # Shortcuts
+    ".lnk", ".url",
+    # Sniff-based (MIME detection routes to correct handler)
+    ".tmp",
+    # Binary metadata-only
+    ".bin", ".cl4",
 }
 
 # Backwards-compat aliases (referenced by bulk_worker and other modules)
 CONVERTIBLE_EXTENSIONS = SUPPORTED_EXTENSIONS
-ADOBE_EXTENSIONS = {".ai", ".psd", ".indd", ".aep", ".prproj", ".xd", ".ait", ".indt"}
+ADOBE_EXTENSIONS = {".ai", ".psd", ".psb", ".indd", ".aep", ".prproj", ".xd", ".ait", ".indt"}
 ALL_SUPPORTED = SUPPORTED_EXTENSIONS
 
 
