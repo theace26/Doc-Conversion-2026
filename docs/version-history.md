@@ -4,6 +4,44 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.19.6.11 — Fix Three Scan Failures (2026-04-05)
+
+**Problem:** Bulk scan reported 12 failed files across three distinct root causes.
+
+**Bug 1 — Read-only FS crash on media files (2 files):**
+`audio_handler.py` and `media_handler.py` computed the MediaOrchestrator output dir
+as `file_path.parent / "_markflow"`, which writes into the source mount. Since
+`/mnt/source` is mounted read-only, this raised `[Errno 30] Read-only file system`.
+
+**Fix:** Both handlers now use `tempfile.mkdtemp()` for the orchestrator's scratch
+output. The bulk worker already places the final `.md` and sidecar into the correct
+output tree independently.
+
+**Bug 2 — INI parser crash on XGI driver config files (8 files):**
+Python's `configparser` with `allow_no_value=True` raises `AttributeError`
+(`'NoneType' object has no attribute 'append'`) on INI files with continuation
+lines after a no-value key. The exception handler only caught `configparser.Error`
+and `KeyError`, not `AttributeError`, so the fallback line parser never ran.
+
+**Fix:** Added `AttributeError` to the `_try_configparser` exception handler so
+these files fall through to the line-by-line parser.
+
+**Bug 3 — Markdown handler UTF-8 decode error (1 file):**
+`markdown_handler.py` called `read_text(encoding="utf-8")` with no fallback.
+A LICENSE-MIT.md file encoded in Latin-1 (byte `0xa9` = `©`) crashed with
+`UnicodeDecodeError`.
+
+**Fix:** Added `try/except UnicodeDecodeError` with Latin-1 fallback.
+
+**Files changed:**
+- `formats/audio_handler.py` — use tempdir for orchestrator output
+- `formats/media_handler.py` — use tempdir for orchestrator output
+- `formats/ini_handler.py` — catch `AttributeError` in `_try_configparser`
+- `formats/markdown_handler.py` — Latin-1 fallback for non-UTF-8 `.md` files
+- `core/version.py` — bump to 0.19.6.11
+
+---
+
 ## v0.19.6.10 — Reduce PDF Image Extraction Log Noise (2026-04-05)
 
 **Problem:** WSJ newspaper PDFs embed images as raw FlateDecode pixel streams (no image

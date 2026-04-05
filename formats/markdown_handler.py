@@ -356,7 +356,12 @@ class MarkdownHandler(FormatHandler):
 
     def ingest(self, file_path: Path) -> DocumentModel:
         """Read a .md file and return a DocumentModel."""
-        text = Path(file_path).read_text(encoding="utf-8")
+        file_path = Path(file_path)
+        try:
+            text = file_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            # Fall back for files saved in legacy encodings (e.g. Latin-1)
+            text = file_path.read_text(encoding="latin-1")
         return self._ingest_text(text)
 
     def ingest_text(self, md_text: str) -> DocumentModel:

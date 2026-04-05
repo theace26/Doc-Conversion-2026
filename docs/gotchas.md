@@ -276,6 +276,9 @@ the relevant subsystem. Referenced from CLAUDE.md.
 - **Bulk SSE separate from single-file SSE**: `_bulk_progress_queues` vs `_progress_queues`.
 
 - **Source share is read-only**: `/mnt/source` mounted `:ro`. Never write to it.
+  Media/audio handlers previously wrote `_markflow/` sidecars to `file_path.parent`
+  which fails on the read-only mount. Fixed in v0.19.6.11 — handlers now use a
+  temp dir; the bulk worker places sidecars in the output tree.
 
 - **worker_id in SSE events**: 1-based in events (internal 0-based, +1 applied at emission).
 

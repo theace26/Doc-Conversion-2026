@@ -26,16 +26,15 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.19.6.10
+## Current Status — v0.19.6.11
 
-v0.19.6.10: Reduce PDF image extraction log noise. WSJ newspaper PDFs (and similar)
-embed images as raw FlateDecode pixel streams without image headers, causing hundreds of
-`image_handler.convert_failed` warnings per file. Fix: (1) PDF handler now detects image
-format from magic bytes (JPEG `\xff\xd8`, PNG `\x89PNG`) and passes the correct format
-to the image handler instead of hardcoding "png". (2) For raw pixel streams, passes
-Width/Height from the PDF stream attributes. (3) New `_reconstruct_raw_pixels()` in
-`image_handler.py` rebuilds valid PNG from raw pixel data using `Image.frombytes()`.
-(4) Unidentifiable images now log at debug level instead of warning.
+v0.19.6.11: Fix three scan failures (12 files total). (1) Media/audio handlers wrote
+`_markflow/` sidecar to source mount (read-only) — now use tempdir. (2) INI parser
+crashed on XGI driver configs — `configparser` raises `AttributeError` not caught by
+handler; added to exception list so fallback parser runs. (3) Markdown handler crashed
+on Latin-1 encoded `.md` files — added encoding fallback.
+
+Previous (v0.19.6.10): Reduce PDF image extraction log noise.
 
 Previous (v0.19.6.9): Fix search page crash and optimize search API response size.
 

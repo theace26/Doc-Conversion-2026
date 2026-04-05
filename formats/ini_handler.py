@@ -169,7 +169,11 @@ class IniHandler(FormatHandler):
         )
         try:
             parser.read_string(text)
-        except (configparser.Error, KeyError):
+        except (configparser.Error, KeyError, AttributeError):
+            # AttributeError: configparser internally does
+            # cursect[optname].append(value) which blows up when
+            # allow_no_value=True and the file has continuation lines
+            # after a no-value key (value is None, .append fails).
             return None
 
         sections: dict[str, dict[str, str]] = {}

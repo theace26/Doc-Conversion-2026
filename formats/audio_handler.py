@@ -121,13 +121,17 @@ class AudioHandler(FormatHandler):
 
 def _run_media_conversion(file_path: Path):
     """Run MediaOrchestrator.convert() from a synchronous context."""
+    import tempfile
     from core.media_orchestrator import MediaOrchestrator
 
     async def _convert():
         from core.database import get_all_preferences
 
         preferences = await get_all_preferences()
-        output_dir = file_path.parent / "_markflow"
+        # Use a temp dir for orchestrator output — the source mount may be
+        # read-only (/mnt/source).  The bulk worker places the final .md and
+        # sidecar in the correct output tree independently.
+        output_dir = Path(tempfile.mkdtemp(prefix="markflow_audio_"))
         return await MediaOrchestrator.convert(file_path, output_dir, preferences)
 
     # If there's already a running event loop (called from bulk worker),
