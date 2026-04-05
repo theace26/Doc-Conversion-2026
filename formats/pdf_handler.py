@@ -317,12 +317,28 @@ class PdfHandler(FormatHandler):
                 return
             for idx, img_info in enumerate(page.images):
                 if hasattr(img_info, "get") and "stream" in img_info:
-                    raw = img_info["stream"].get_data()
+                    stream = img_info["stream"]
+                    raw = stream.get_data()
                     if raw and len(raw) > 100:
+                        # Detect format from magic bytes / PDF filter
+                        fmt = "png"  # default
+                        raw_w, raw_h = None, None
+                        if raw[:2] == b"\xff\xd8":
+                            fmt = "jpeg"
+                        elif raw[:8] == b"\x89PNG\r\n\x1a\n":
+                            fmt = "png"
+                        else:
+                            # Raw pixel data — pass dimensions for reconstruction
+                            fmt = "raw"
+                            attrs = getattr(stream, "attrs", {})
+                            raw_w = int(attrs.get("Width", 0)) or None
+                            raw_h = int(attrs.get("Height", 0)) or None
                         hash_name, png_data, meta = extract_image(
-                            raw, "png",
+                            raw, fmt,
                             source_document=str(file_path),
                             image_index=idx,
+                            raw_width=raw_w,
+                            raw_height=raw_h,
                         )
                         model.images[hash_name] = ImageData(
                             data=png_data,

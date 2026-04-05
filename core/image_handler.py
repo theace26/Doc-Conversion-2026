@@ -28,6 +28,9 @@ def extract_image(
     original_format: str,
     source_document: str | None = None,
     image_index: int | None = None,
+    *,
+    raw_width: int | None = None,
+    raw_height: int | None = None,
 ) -> tuple[str, bytes, dict[str, Any]]:
     """
     Process raw image data from a document.
@@ -37,12 +40,14 @@ def extract_image(
         original_format: Source format extension (e.g., "png", "emf", "jpeg").
         source_document: Path of the document this image was extracted from.
         image_index: Index of the image within the source document.
+        raw_width: Pixel width hint for raw (headerless) pixel data.
+        raw_height: Pixel height hint for raw (headerless) pixel data.
 
     Returns:
         (hash_filename, png_data, metadata)
         where hash_filename = sha256[:12].png
     """
-    from PIL import Image
+    from PIL import Image, UnidentifiedImageError
 
     hash_hex = hashlib.sha256(data).hexdigest()[:12]
     hash_filename = f"{hash_hex}.png"
@@ -58,6 +63,15 @@ def extract_image(
             png_data = _convert_to_png(data)
         else:
             png_data = _normalize_to_png(data)
+    except UnidentifiedImageError:
+        # Raw pixel data (e.g. PDF FlateDecode streams) — try reconstruction
+        png_data = _reconstruct_raw_pixels(data, raw_width, raw_height)
+        if png_data is None:
+            log.debug("image_handler.raw_unidentified",
+                      format=fmt,
+                      source_document=source_document,
+                      image_index=image_index)
+            png_data = data
     except Exception as exc:
         log.warning("image_handler.convert_failed",
                     format=fmt,
@@ -72,9 +86,46 @@ def extract_image(
             metadata["width"] = img.width
             metadata["height"] = img.height
     except Exception:
-        pass
+        if raw_width and raw_height:
+            metadata["width"] = raw_width
+            metadata["height"] = raw_height
 
     return hash_filename, png_data, metadata
+
+
+def _reconstruct_raw_pixels(
+    data: bytes, width: int | None, height: int | None
+) -> bytes | None:
+    """Attempt to reconstruct an image from raw (headerless) pixel data.
+
+    PDF FlateDecode streams store pixel data without image headers.
+    We infer the colour mode from data length vs. dimensions.
+
+    Returns PNG bytes on success, None if reconstruction is not possible.
+    """
+    if not width or not height:
+        return None
+    from PIL import Image
+
+    npixels = width * height
+    if len(data) == npixels:
+        mode = "L"
+    elif len(data) == npixels * 3:
+        mode = "RGB"
+    elif len(data) == npixels * 4:
+        mode = "CMYK"
+    else:
+        return None
+
+    try:
+        img = Image.frombytes(mode, (width, height), data)
+        if mode == "CMYK":
+            img = img.convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception:
+        return None
 
 
 def _convert_to_png(data: bytes) -> bytes:

@@ -26,16 +26,18 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.19.6.9
+## Current Status — v0.19.6.10
 
-v0.19.6.9: Fix search page crash and optimize search API response size. (1) Fixed
-`TypeError: Cannot read properties of null` on search.html — the `preview-popup` and
-`flag-modal` DOM elements were placed after the `</script>` tag, so the IIFE that wired
-up preview mouse events crashed on null, killing the entire script block including
-`doSearch()`. Moved both elements before the script. (2) Search API `/api/search/all`
-now whitelists returned fields via `attributesToRetrieve` and `_map_hit` — previously
-copied every Meilisearch field including full `content` and `headings` (1.38 MB for a
-single archive file), causing 2.7 MB responses for 10 results. Now returns ~13 KB.
+v0.19.6.10: Reduce PDF image extraction log noise. WSJ newspaper PDFs (and similar)
+embed images as raw FlateDecode pixel streams without image headers, causing hundreds of
+`image_handler.convert_failed` warnings per file. Fix: (1) PDF handler now detects image
+format from magic bytes (JPEG `\xff\xd8`, PNG `\x89PNG`) and passes the correct format
+to the image handler instead of hardcoding "png". (2) For raw pixel streams, passes
+Width/Height from the PDF stream attributes. (3) New `_reconstruct_raw_pixels()` in
+`image_handler.py` rebuilds valid PNG from raw pixel data using `Image.frombytes()`.
+(4) Unidentifiable images now log at debug level instead of warning.
+
+Previous (v0.19.6.9): Fix search page crash and optimize search API response size.
 
 Previous (v0.19.6.8): HEIC/HEIF image support and search page auto-browse on load.
 

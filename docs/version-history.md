@@ -4,6 +4,40 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.19.6.10 — Reduce PDF Image Extraction Log Noise (2026-04-05)
+
+**Problem:** WSJ newspaper PDFs embed images as raw FlateDecode pixel streams (no image
+headers). The image handler tried `PIL.Image.open()` on these headerless byte buffers,
+producing hundreds of `image_handler.convert_failed` warnings per PDF file — flooding logs
+during bulk conversion.
+
+**Root cause:** `_extract_page_images()` in `pdf_handler.py` hardcoded `format="png"` for
+all PDF image streams, regardless of the actual encoding. FlateDecode streams contain raw
+pixel data that requires Width/Height/BPC metadata from the PDF dictionary to interpret.
+
+**Fix (4 changes):**
+
+1. **Format detection via magic bytes** — PDF handler now checks `\xff\xd8` (JPEG) and
+   `\x89PNG` headers before calling `extract_image()`. Passes `"jpeg"`, `"png"`, or `"raw"`
+   accordingly.
+
+2. **Stream metadata passthrough** — For raw streams, Width and Height from
+   `stream.attrs` are passed as `raw_width`/`raw_height` keyword args.
+
+3. **Raw pixel reconstruction** — New `_reconstruct_raw_pixels()` function infers PIL
+   colour mode (L/RGB/CMYK) from data length vs. dimensions, then uses
+   `Image.frombytes()` to build a valid image and export as PNG.
+
+4. **Log level downgrade** — `UnidentifiedImageError` now logs at debug level
+   (`image_handler.raw_unidentified`) instead of warning. Unexpected errors still warn.
+
+**Files changed:**
+- `core/image_handler.py` — added `raw_width`/`raw_height` params, `_reconstruct_raw_pixels()`, split `UnidentifiedImageError` from general exceptions
+- `formats/pdf_handler.py` — magic-byte format detection, stream metadata extraction
+- `core/version.py` — bump to 0.19.6.10
+
+---
+
 ## v0.19.6.9 — Fix Search Page Crash & Optimize Search API (2026-04-04)
 
 **Two fixes that made the search page non-functional:**
