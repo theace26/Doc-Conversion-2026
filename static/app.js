@@ -95,6 +95,12 @@ function timeAgo(isoString) {
 function parseUTC(isoString) {
     if (!isoString) return null;
     let s = String(isoString);
+    // SQLite datetime('now') produces "YYYY-MM-DD HH:MM:SS" (space, no T, no offset).
+    // Normalize to ISO 8601 with T separator so Date() can parse it.
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s)) {
+        s = s.replace(' ', 'T');
+    }
+    // Backend stores all timestamps in UTC. Append Z if no offset present.
     if (s.includes('T') && !s.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(s)) {
         s += 'Z';
     }

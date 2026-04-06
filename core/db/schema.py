@@ -7,7 +7,7 @@ import uuid
 import aiosqlite
 import structlog
 
-from core.db.connection import get_db, log
+from core.db.connection import get_db, log, now_iso
 
 # ── Schema DDL ────────────────────────────────────────────────────────────────
 _SCHEMA_SQL = """
@@ -788,15 +788,17 @@ async def cleanup_orphaned_jobs() -> None:
     """Clean up jobs stuck in active states from a previous container run."""
     async with get_db() as conn:
         cursor = await conn.execute(
-            """UPDATE bulk_jobs SET status='cancelled', completed_at=datetime('now'),
+            """UPDATE bulk_jobs SET status='cancelled', completed_at=?,
                cancellation_reason='Cancelled: container restarted while job was active'
-               WHERE status IN ('scanning', 'running', 'pending')"""
+               WHERE status IN ('scanning', 'running', 'pending')""",
+            (now_iso(),)
         )
         cancelled_jobs = cursor.rowcount
 
         cursor = await conn.execute(
-            """UPDATE scan_runs SET status='interrupted', finished_at=datetime('now')
-               WHERE status='running' AND finished_at IS NULL"""
+            """UPDATE scan_runs SET status='interrupted', finished_at=?
+               WHERE status='running' AND finished_at IS NULL""",
+            (now_iso(),)
         )
         interrupted_scans = cursor.rowcount
 
