@@ -26,11 +26,13 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.22.3
+## Current Status — v0.22.4
 
-v0.22.3: Settings toggle state persistence fix. Toggle labels now correctly display
-saved ON/OFF state on page load. Generic `updateToggleLabel()` replaces hardcoded
-single-label updater.
+v0.22.4: Help icon link fix (`/help#` -> `/help.html#`) and new auto-conversion
+help article covering modes, workers, batch sizing, pipeline master switch,
+decision logging, and Run Now interaction with manual jobs.
+
+Previous (v0.22.3): Settings toggle state persistence fix.
 
 Previous (v0.22.2): Toggle switch UX redesign, SQLite timestamp format fix.
 

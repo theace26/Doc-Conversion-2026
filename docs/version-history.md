@@ -4,6 +4,24 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.22.4 — Help Link Fix + Auto-Conversion Article (2026-04-06)
+
+**Fixes:**
+- **Help icon links broken**: The `?` icons added by `static/js/help-link.js` linked to
+  `/help#slug`, but the static catch-all in `main.py` only matches paths ending in
+  `.html`. Updated to `/help.html#slug`.
+- **Missing auto-conversion help article**: Added `docs/help/auto-conversion.md`
+  covering modes (immediate/business-hours/scheduled/manual), workers, batch sizing,
+  the pipeline master switch, decision logging, Run Now, priority interaction with
+  manual jobs, and troubleshooting. Registered in `_index.json` under "Core Features".
+
+**Modified files:**
+- `static/js/help-link.js` — `/help#` -> `/help.html#`
+- `docs/help/auto-conversion.md` — New help article
+- `docs/help/_index.json` — Added auto-conversion entry
+
+---
+
 ## v0.22.3 — Settings Toggle State Persistence Fix (2026-04-06)
 
 **Fix:** Toggle switches on the Settings page did not display their saved state on

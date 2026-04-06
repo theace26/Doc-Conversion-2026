@@ -2,7 +2,7 @@
  * Contextual help link component — adds "?" icons next to elements with data-help attributes.
  *
  * Usage: <h2 data-help="bulk-conversion">Bulk Conversion</h2>
- * The script appends a clickable "?" icon linking to /help#bulk-conversion.
+ * The script appends a clickable "?" icon linking to /help.html#bulk-conversion.
  */
 (function() {
     'use strict';
@@ -22,7 +22,7 @@
             if (el.querySelector('.help-icon')) return;
             var slug = el.getAttribute('data-help');
             var link = document.createElement('a');
-            link.href = '/help#' + slug;
+            link.href = '/help.html#' + slug;
             link.className = 'help-icon';
             link.title = 'Help';
             link.setAttribute('aria-label', 'Help');
