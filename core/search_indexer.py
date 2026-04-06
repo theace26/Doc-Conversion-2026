@@ -413,6 +413,9 @@ class SearchIndexer:
                    GROUP BY sf.id"""
             )
 
+        from core.request_pressure import get_request_pressure
+        pressure = get_request_pressure()
+
         for f in files:
             if error_monitor.should_abort():
                 log.error("index_rebuild_abort",
@@ -420,6 +423,9 @@ class SearchIndexer:
                           indexed=status.documents_indexed,
                           errors=status.errors)
                 break
+
+            # Yield to user-facing requests under load
+            await pressure.adaptive_delay()
 
             output_path = f.get("output_path")
             if not output_path:

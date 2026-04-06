@@ -184,11 +184,19 @@ async def run_lifecycle_scan(
         _scan_state["total"] = 0
     _started_at_dt = datetime.now(timezone.utc)
 
-    # ── Load exclusion paths (prefix-match) ────────────────────────────
+    # ── Load exclusion paths (prefix-match) and skip patterns (substring) ──
     from core.database import get_exclusion_paths, get_preference as _get_pref
     exclusion_paths = await get_exclusion_paths()
     if exclusion_paths:
         log.info("lifecycle_scan.exclusions_loaded", count=len(exclusion_paths), paths=exclusion_paths)
+    import json as _json
+    _raw_skip = await _get_pref("scan_skip_patterns") or "[]"
+    try:
+        skip_patterns: list[str] = _json.loads(_raw_skip)
+    except (_json.JSONDecodeError, TypeError):
+        skip_patterns = []
+    if skip_patterns:
+        log.info("lifecycle_scan.skip_patterns_loaded", count=len(skip_patterns), patterns=skip_patterns)
 
     # ── Incremental scan decision ──────────────────────────────────
     from core.db.bulk import (
@@ -282,6 +290,7 @@ async def run_lifecycle_scan(
                     dir_mtime_cache=dir_mtime_cache,
                     current_dir_mtimes=current_dir_mtimes,
                     incremental_mode=incremental_mode,
+                    skip_patterns=skip_patterns,
                 )
             else:
                 await _serial_lifecycle_walk(
@@ -291,6 +300,7 @@ async def run_lifecycle_scan(
                     dir_mtime_cache=dir_mtime_cache,
                     current_dir_mtimes=current_dir_mtimes,
                     incremental_mode=incremental_mode,
+                    skip_patterns=skip_patterns,
                 )
         except Exception as exc:
             # Log error for this root but continue to next root
@@ -573,15 +583,18 @@ async def _serial_lifecycle_walk(
     dir_mtime_cache: dict[str, float] | None = None,
     current_dir_mtimes: dict[str, float] | None = None,
     incremental_mode: bool = False,
+    skip_patterns: list[str] | None = None,
 ) -> None:
     """Serial walk for local SSD/HDD sources with error-rate abort."""
     error_monitor = ErrorRateMonitor()
     _excl = exclusion_paths or []
     _dir_mtime_cache = dir_mtime_cache or {}
     _current_dir_mtimes = current_dir_mtimes if current_dir_mtimes is not None else {}
+    _skip = skip_patterns or []
 
     def _is_excluded(p: str) -> bool:
-        return any(p.startswith(ep) for ep in _excl)
+        return (any(p.startswith(ep) for ep in _excl)
+                or any(f in p for f in _skip))
 
     def _lifecycle_walk_error(err: OSError) -> None:
         if isinstance(err, PermissionError):
@@ -655,6 +668,7 @@ async def _parallel_lifecycle_walk(
     dir_mtime_cache: dict[str, float] | None = None,
     current_dir_mtimes: dict[str, float] | None = None,
     incremental_mode: bool = False,
+    skip_patterns: list[str] | None = None,
 ) -> None:
     """Parallel walk with feedback-loop throttling for NAS/SMB sources."""
     import time as _time
@@ -662,9 +676,14 @@ async def _parallel_lifecycle_walk(
     _excl = exclusion_paths or []
     _dir_mtime_cache = dir_mtime_cache or {}
     _current_dir_mtimes = current_dir_mtimes if current_dir_mtimes is not None else {}
+    _skip = skip_patterns or []
 
     def _is_excluded(p: str) -> bool:
-        return any(p.startswith(ep) for ep in _excl)
+        return (any(p.startswith(ep) for ep in _excl)
+                or any(f in p for f in _skip))
+
+    from core.request_pressure import get_request_pressure
+    pressure = get_request_pressure()
 
     throttler = ScanThrottler(baseline_ms=baseline_ms, max_threads=thread_count)
     error_monitor = ErrorRateMonitor()
@@ -803,6 +822,9 @@ async def _parallel_lifecycle_walk(
             path_str = str(file_path)
             seen_paths.add(path_str)
             counters["files_scanned"] += 1
+
+            # Yield to user-facing requests under load
+            await pressure.adaptive_delay()
 
             if ext not in ALL_SUPPORTED and ext not in CONVERTIBLE_EXTENSIONS and ext not in ADOBE_EXTENSIONS:
                 existing = await get_source_file_by_path(path_str)

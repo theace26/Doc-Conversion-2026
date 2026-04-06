@@ -15,9 +15,13 @@ from fastapi import FastAPI, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from core.logging_config import bind_request_context, clear_context
+from core.request_pressure import get_request_pressure
 
 log = structlog.get_logger(__name__)
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+
+# Routes that count as user-facing traffic for backpressure purposes
+_PRESSURE_PREFIXES = ("/api/search", "/api/files", "/api/history", "/api/drive")
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
@@ -26,6 +30,12 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         request_id = str(uuid.uuid4())
         start = time.perf_counter()
+
+        # Track user-facing requests for background-task backpressure
+        pressure = get_request_pressure()
+        track = any(request.url.path.startswith(p) for p in _PRESSURE_PREFIXES)
+        if track:
+            pressure.enter()
 
         # Bind request context for all downstream log calls
         clear_context()
@@ -55,6 +65,8 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             )
             raise
         finally:
+            if track:
+                pressure.exit()
             clear_context()
 
 

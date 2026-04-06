@@ -1,14 +1,14 @@
 # MarkFlow: Document Search & Discovery Capabilities
 
 **Prepared for:** Stakeholder Review
-**Date:** April 5, 2026
-**Version:** MarkFlow v0.20.2
+**Date:** April 6, 2026
+**Version:** MarkFlow v0.22.0
 
 ---
 
 ## Executive Summary
 
-MarkFlow is an enterprise document conversion and search system that transforms documents from 130+ file formats into searchable, indexed content. It combines three layers of search capability — from basic keyword matching to AI-powered natural language queries — enabling staff to find information across thousands of documents without knowing exact filenames, locations, or search terms.
+MarkFlow is an enterprise document conversion and search system that transforms documents from 130+ file formats into searchable, indexed content. It combines four layers of search capability — from basic keyword matching through semantic vector search to AI-powered natural language queries — enabling staff to find information across thousands of documents without knowing exact filenames, locations, or search terms.
 
 This document outlines each search capability, how it works, and provides practical examples relevant to day-to-day use.
 
@@ -59,7 +59,37 @@ Traditional file search (Windows Explorer, network share search) only looks at f
 
 ---
 
-### Level 2: API-Driven Programmatic Search
+### Level 2: Semantic Vector Search (Built In)
+
+**What it is:** A second search engine that understands the *meaning* of your query, not just the words. Powered by a local AI model (all-MiniLM-L6-v2) and Qdrant vector database, it runs alongside keyword search and merges results automatically.
+
+**How it works:**
+
+1. Every converted document is split into contextual chunks (~400 tokens each)
+2. Each chunk is converted into a mathematical vector representing its meaning
+3. When you search, your query is also converted to a vector
+4. The system finds chunks whose meaning is closest to your query
+5. Results from both keyword search and vector search are merged using Reciprocal Rank Fusion (RRF)
+
+**Key features:**
+- **Meaning-based matching** — Searching "employee termination procedures" also finds documents about "dismissal process," "letting someone go," or "separation policy" even if they never use the word "termination"
+- **Runs locally** — The embedding model runs entirely on the server. No documents or queries are sent to any external service.
+- **Automatic fallback** — If the vector engine is unavailable, search seamlessly falls back to keyword-only mode
+- **Time-aware queries** — Queries like "recent budget reports" automatically bias results toward newer documents
+
+**Practical examples:**
+
+| You Search For | What Keyword Search Finds | What Vector Search Also Finds |
+|---------------|--------------------------|------------------------------|
+| `workplace safety requirements` | Documents with those exact words | OSHA compliance docs, hazard assessments, and safety training materials that discuss the concept differently |
+| `hiring process` | Documents mentioning "hiring process" | Recruitment guides, onboarding checklists, and job posting templates |
+| `financial projections` | Exact matches only | Budget forecasts, revenue models, and capital planning documents |
+
+**Who can use it:** Any authorized user. Vector search is automatic — it enhances every search without any extra steps.
+
+---
+
+### Level 3: API-Driven Programmatic Search
 
 **What it is:** A REST API that allows other software systems to search MarkFlow's document index programmatically. Enables integration with existing internal tools, dashboards, and workflows.
 
@@ -82,7 +112,29 @@ Traditional file search (Windows Explorer, network share search) only looks at f
 
 ---
 
-### Level 3: AI-Powered Natural Language Search (via Claude Integration)
+### Level 4: AI-Assisted Search (Built In, Optional)
+
+**What it is:** A toggle in the search bar activates a side panel that uses Claude to synthesize a plain-English answer from your search results. Think of it as having an analyst read through the matching documents and write you a summary.
+
+**How it works:**
+
+1. You search normally using the search bar
+2. With the AI toggle enabled, a side drawer streams a synthesized answer
+3. Each answer cites its source documents — click "Read full doc" for a deeper single-document analysis
+4. The AI reads the actual converted content, not just titles or snippets
+
+**Key features:**
+- **Opt-in per search** — Toggle on/off at any time; state persists across sessions
+- **Source citations** — Every claim links back to the specific document it came from
+- **Document expansion** — Click any cited source for a deeper AI-driven analysis of that single document
+- **Streaming responses** — Answers appear progressively, no waiting for the full response
+- **Completely optional** — Only available when an Anthropic API key is configured; search works fully without it
+
+**Who can use it:** Any authorized user. Requires the administrator to configure an Anthropic API key in settings.
+
+---
+
+### Level 5: AI-Powered Natural Language Search (via Claude Integration)
 
 **What it is:** MarkFlow connects to Claude (Anthropic's AI assistant) through a protocol called MCP (Model Context Protocol). This allows users to ask questions about their documents in plain English — no search syntax, no exact keywords needed.
 
@@ -130,7 +182,7 @@ Transparency about limitations is important for setting expectations:
 
 | Limitation | Explanation |
 |-----------|-------------|
-| **Not real-time** | Documents must be scanned and converted before they are searchable. New files are picked up on the next scan cycle (configurable, typically minutes). |
+| **Not real-time** | Documents must be scanned and converted before they are searchable. New files are picked up on the next scan cycle (configurable, typically minutes). The scanner automatically excludes non-document directories (media server metadata, OS indexing files, system binaries) via configurable exclusion paths and skip patterns in Settings. |
 | **Not a document editor** | MarkFlow finds and displays documents. Editing happens in the original application (Word, Excel, etc.). |
 | **No sentiment analysis** | Cannot search by tone or emotion (e.g., "find angry emails"). The AI layer helps but is limited to what the text says, not how it feels. |
 | **Single-site deployment** | Searches documents on the connected file shares. Does not search the internet, email servers, or cloud services unless files are synced to the source share. |
@@ -157,19 +209,24 @@ Transparency about limitations is important for setting expectations:
 | **Runs on** | Docker (any Linux server or VM) |
 | **Storage** | Reads from existing network shares (SMB/CIFS or NFS) — no file migration required |
 | **File types** | 130+ formats including Office, PDF, email, images, audio, video, archives, Adobe creative files |
-| **Search engine** | Meilisearch (open-source, enterprise-grade) |
-| **AI integration** | Claude via MCP (optional, enhances search with natural language) |
+| **Search engine** | Meilisearch (full-text keyword) + Qdrant (semantic vector), merged via Reciprocal Rank Fusion |
+| **Embedding model** | all-MiniLM-L6-v2 (runs locally, no external API calls for search) |
+| **AI integration** | In-app AI-assisted search (optional) + Claude via MCP (optional, enhances search with natural language) |
 | **Users access via** | Web browser (no client software to install) |
 
 ---
 
 ## Recommendation
 
-MarkFlow provides three progressively powerful ways to find information locked inside documents:
+MarkFlow provides five progressively powerful ways to find information locked inside documents:
 
 1. **Keyword search** for daily lookups — fast, familiar, works like any search box
-2. **API integration** for connecting document search to existing systems and workflows
-3. **AI-powered natural language search** for complex questions, cross-document analysis, and conversational exploration of your document repository
+2. **Semantic vector search** for meaning-based discovery — finds relevant documents even when wording differs
+3. **API integration** for connecting document search to existing systems and workflows
+4. **AI-assisted search** for in-app synthesized answers grounded in your documents
+5. **AI-powered natural language search** for complex questions, cross-document analysis, and conversational exploration of your document repository
+
+Background indexing (scan, conversion, and re-indexing) uses request-aware throttling to ensure search remains responsive at all times — when users are actively searching, background work automatically yields resources to keep queries fast.
 
 The system is already built, tested, and running. Deployment requires connecting it to existing file shares — no data migration, no file reorganization, and no disruption to current workflows. Users access it through a web browser with no software installation.
 

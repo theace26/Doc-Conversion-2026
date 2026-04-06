@@ -84,6 +84,9 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     # File flagging (v0.16.0)
     "flag_webhook_url": "",
     "flag_default_expiry_days": "14",
+    # Scan skip patterns (v0.22.1) — JSON list of substrings; any path
+    # containing one of these fragments is skipped during scanning.
+    "scan_skip_patterns": '["/@eaDir/", "/@eadir/", "/SYNOINDEX_", ".bundle/Contents/"]',
     # Scan parallelism (v0.13.1)
     "scan_max_threads": "auto",
     # Search preview (v0.16.3)

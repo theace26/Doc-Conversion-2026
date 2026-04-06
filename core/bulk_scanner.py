@@ -159,11 +159,16 @@ class BulkScanner:
         self.output_path = Path(output_path) if output_path else None
         self._yield_interval = 1000  # yield control every N files
         self._exclusion_paths: list[str] = []
+        self._skip_patterns: list[str] = []
 
     def _is_excluded(self, file_path: str) -> bool:
-        """Return True if file_path starts with any exclusion prefix."""
+        """Return True if file_path starts with any exclusion prefix or
+        contains a skip-pattern fragment from user preferences."""
         for ep in self._exclusion_paths:
             if file_path.startswith(ep):
+                return True
+        for frag in self._skip_patterns:
+            if frag in file_path:
                 return True
         return False
 
@@ -202,11 +207,19 @@ class BulkScanner:
 
         log.info("bulk_scan_start", job_id=self.job_id, source_path=str(self.source_path))
 
-        # ── Load exclusion paths (prefix-match) ─────────────────────────
-        from core.database import get_exclusion_paths
+        # ── Load exclusion paths (prefix-match) and skip patterns (substring) ──
+        from core.database import get_exclusion_paths, get_preference
         self._exclusion_paths = await get_exclusion_paths()
         if self._exclusion_paths:
             log.info("scan_exclusions_loaded", count=len(self._exclusion_paths), paths=self._exclusion_paths)
+        import json
+        raw = await get_preference("scan_skip_patterns") or "[]"
+        try:
+            self._skip_patterns = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            self._skip_patterns = []
+        if self._skip_patterns:
+            log.info("scan_skip_patterns_loaded", count=len(self._skip_patterns), patterns=self._skip_patterns)
 
         # ── Incremental scan decision ──────────────────────────────────
         from core.db.bulk import (
