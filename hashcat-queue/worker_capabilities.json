@@ -1,11 +1,11 @@
 {
-  "available": false,
-  "gpu_vendor": "none",
-  "gpu_name": "",
-  "gpu_vram_mb": 0,
-  "hashcat_backend": "OpenCL-CPU",
-  "hashcat_version": "v6.2.6",
-  "host_os": "Linux",
-  "host_machine": "x86_64",
-  "timestamp": "2026-04-04T04:55:00Z"
+  "available": true,
+  "gpu_vendor": "apple",
+  "gpu_name": "Apple M4 Pro (20-core GPU)",
+  "gpu_vram_mb": 36864,
+  "hashcat_backend": "Metal",
+  "hashcat_version": "v7.1.2",
+  "host_os": "Darwin",
+  "host_machine": "arm64",
+  "timestamp": "2026-04-06T21:30:30.118310+00:00"
 }
