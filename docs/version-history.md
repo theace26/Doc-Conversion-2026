@@ -4,6 +4,24 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.22.2 — Toggle Switch UX Redesign, SQLite Timestamp Fix (2026-04-06)
+
+**Fixes:**
+- **Toggle switches redesigned**: Settings page toggles now have a visible track outline
+  showing the knob travel path, dim knob/track when off, accent-colored glow when on,
+  and label text to the right that lights up with the accent color on check. Replaces the
+  cramped "OFF" text that overlapped the switch bubble.
+- **SQLite `datetime('now')` timestamps**: `cleanup_orphaned_jobs()` now uses `now_iso()`
+  instead of SQLite's `datetime('now')` for consistent `+00:00` offset formatting.
+  Frontend `parseUTC()` also handles legacy space-separated timestamps from SQLite.
+
+**Modified files:**
+- `static/markflow.css` — Toggle switch redesign (`.toggle-track`, `.toggle-label`)
+- `static/app.js` — `parseUTC()` handles `YYYY-MM-DD HH:MM:SS` format
+- `core/db/schema.py` — `cleanup_orphaned_jobs()` uses `now_iso()` instead of `datetime('now')`
+
+---
+
 ## v0.22.1 — Timestamp Localization, GPU Detection Fix, Script Portability (2026-04-06)
 
 **Fixes:**

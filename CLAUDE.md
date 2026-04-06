@@ -26,12 +26,13 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.22.1
+## Current Status — v0.22.2
 
-v0.22.1: Timestamp localization, GPU detection fix, cross-platform script portability.
-All user-facing timestamps now convert UTC to browser local time via `parseUTC()`.
-GPU health check reads per-machine `worker_capabilities.json` (gitignored, generated
-at deploy time). All 18 deploy scripts use ASCII-only characters for PS5.1 compat.
+v0.22.2: Toggle switch UX redesign and SQLite timestamp format fix. Settings page
+toggles now show a visible travel path outline, dim/lit states, and accent-colored
+label text. SQLite `datetime('now')` timestamps handled in both frontend and backend.
+
+Previous (v0.22.1): Timestamp localization, GPU detection fix, ASCII-only scripts.
 
 Previous (v0.22.0): Hybrid Vector Search — Qdrant + Meilisearch via RRF.
 

@@ -404,18 +404,19 @@ small, .text-sm { font-size: 0.85rem; }
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.75rem;
   cursor: pointer;
 }
 
 .toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
 
 .toggle-track {
-  width: 44px;
-  height: 24px;
-  background: var(--border);
-  border-radius: 12px;
-  transition: background var(--transition);
+  width: 46px;
+  height: 26px;
+  background: rgba(255,255,255,.08);
+  border: 2px solid rgba(255,255,255,.15);
+  border-radius: 13px;
+  transition: background var(--transition), border-color var(--transition), box-shadow var(--transition);
   position: relative;
   flex-shrink: 0;
 }
@@ -425,26 +426,37 @@ small, .text-sm { font-size: 0.85rem; }
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
-  background: white;
-  box-shadow: 0 1px 2px rgba(0,0,0,.15);
-  transition: transform var(--transition);
+  background: rgba(255,255,255,.35);
+  box-shadow: 0 1px 3px rgba(0,0,0,.3);
+  transition: transform var(--transition), background var(--transition), box-shadow var(--transition);
 }
 
 .toggle input:checked + .toggle-track {
   background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 8px rgba(99,102,241,.4);
 }
 
 .toggle input:checked + .toggle-track::after {
   transform: translateX(20px);
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,.25);
 }
 
 .toggle-label {
   font-size: 0.85rem;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-muted);
+  transition: color var(--transition);
+  user-select: none;
+  min-width: 2em;
+}
+
+.toggle input:checked ~ .toggle-label {
+  color: var(--accent);
 }
 
 /* ── Inline Error ───────────────────────────────────────────────────────────── */
