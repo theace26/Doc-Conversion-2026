@@ -26,11 +26,13 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.22.2
+## Current Status — v0.22.3
 
-v0.22.2: Toggle switch UX redesign and SQLite timestamp format fix. Settings page
-toggles now show a visible travel path outline, dim/lit states, and accent-colored
-label text. SQLite `datetime('now')` timestamps handled in both frontend and backend.
+v0.22.3: Settings toggle state persistence fix. Toggle labels now correctly display
+saved ON/OFF state on page load. Generic `updateToggleLabel()` replaces hardcoded
+single-label updater.
+
+Previous (v0.22.2): Toggle switch UX redesign, SQLite timestamp format fix.
 
 Previous (v0.22.1): Timestamp localization, GPU detection fix, ASCII-only scripts.
 

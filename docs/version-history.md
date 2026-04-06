@@ -4,6 +4,24 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.22.3 — Settings Toggle State Persistence Fix (2026-04-06)
+
+**Fix:** Toggle switches on the Settings page did not display their saved state on
+page load. `updateToggleLabel()` was hardcoded to update only the "unattended" toggle
+label ID, so all other toggles always showed "OFF" regardless of their actual saved
+value. Users attempting to re-save saw "nothing to save" because the underlying
+checkbox values were correct -- only the visible labels were wrong.
+
+- Rewrote `updateToggleLabel()` to generically find the sibling `.toggle-label`
+  within the same `.toggle` parent via `el.closest('.toggle')`.
+- Added a single `document.querySelectorAll('.toggle input')` change handler for
+  all toggles, replacing scattered per-toggle event wiring.
+
+**Modified files:**
+- `static/settings.html` — Generic `updateToggleLabel()`, bulk change handler
+
+---
+
 ## v0.22.2 — Toggle Switch UX Redesign, SQLite Timestamp Fix (2026-04-06)
 
 **Fixes:**

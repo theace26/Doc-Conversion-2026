@@ -1369,8 +1369,18 @@
   toggle.addEventListener('change', () => updateToggleLabel(toggle));
 
   function updateToggleLabel(el) {
-    document.getElementById('toggle-label').textContent = el.checked ? 'ON' : 'OFF';
+    // Find the sibling .toggle-label within the same .toggle parent
+    const parent = el.closest('.toggle');
+    if (parent) {
+      const lbl = parent.querySelector('.toggle-label');
+      if (lbl) lbl.textContent = el.checked ? 'ON' : 'OFF';
+    }
   }
+
+  // Generic change handler for ALL toggle checkboxes
+  document.querySelectorAll('.toggle input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', () => updateToggleLabel(cb));
+  });
 
   // Save
   document.getElementById('settings-form').addEventListener('submit', async (e) => {
