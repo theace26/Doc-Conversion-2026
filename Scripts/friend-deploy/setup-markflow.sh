@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 # MarkFlow First-Time Setup Script (macOS)
 #
 # Interactive directory picker, GPU detection, Docker build,
@@ -9,11 +9,11 @@
 #   ./setup-markflow.sh                    # interactive
 #   ./setup-markflow.sh --skip-prune       # keep old Docker artifacts
 #   ./setup-markflow.sh --repo /my/path    # custom repo location
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 
 set -euo pipefail
 
-# ── Colors ──
+# -- Colors --
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -23,11 +23,11 @@ GRAY='\033[0;90m'
 WHITE='\033[1;37m'
 NC='\033[0m' # No Color
 
-# ── Defaults ──
+# -- Defaults --
 REPO_DIR=""
 SKIP_PRUNE=false
 
-# ── Parse arguments ──
+# -- Parse arguments --
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --repo)       REPO_DIR="$2"; shift 2 ;;
@@ -36,9 +36,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  Locate the repository
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 if [[ -z "$REPO_DIR" ]]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     CANDIDATE="$(cd "$SCRIPT_DIR/../.." 2>/dev/null && pwd)"
@@ -61,9 +61,9 @@ echo -e "${CYAN}  MarkFlow Setup (macOS)${NC}"
 echo -e "${GRAY}  Repo: $REPO_DIR${NC}"
 echo -e "${CYAN}==========================================${NC}"
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  Prerequisites check
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 echo ""
 echo -e "${YELLOW}Checking prerequisites...${NC}"
 
@@ -90,9 +90,9 @@ if ! command -v docker compose &>/dev/null && ! docker compose version &>/dev/nu
     exit 1
 fi
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  Folder Picker (macOS native via AppleScript)
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 pick_folder() {
     local PROMPT="$1"
     local DEFAULT_DIR="${2:-$HOME}"
@@ -112,9 +112,9 @@ pick_folder() {
     echo "${RESULT%/}"
 }
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  1. Pick Source Directory
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 echo ""
 echo -e "${YELLOW}[1/6] Select your SOURCE directory${NC}"
 echo -e "${GRAY}  This is the folder containing documents you want to convert.${NC}"
@@ -122,7 +122,7 @@ echo -e "${GRAY}  (It will be mounted read-only -- MarkFlow never modifies your 
 echo ""
 echo -e "${GRAY}  A folder picker dialog will open...${NC}"
 
-SOURCE_DIR=$(pick_folder "Select your SOURCE directory — the folder of documents to convert" "$HOME/Documents")
+SOURCE_DIR=$(pick_folder "Select your SOURCE directory -- the folder of documents to convert" "$HOME/Documents")
 
 if [[ -z "$SOURCE_DIR" ]]; then
     echo -e "${RED}  [ERROR] No source directory selected. Setup cancelled.${NC}"
@@ -143,16 +143,16 @@ else
     echo -e "${YELLOW}  [WARN] Source directory does not exist: $SOURCE_DIR${NC}"
 fi
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  2. Pick Output Directory
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 echo ""
 echo -e "${YELLOW}[2/6] Select your OUTPUT directory${NC}"
 echo -e "${GRAY}  This is where MarkFlow writes converted Markdown files during bulk jobs.${NC}"
 echo ""
 echo -e "${GRAY}  A folder picker dialog will open...${NC}"
 
-OUTPUT_DIR=$(pick_folder "Select your OUTPUT directory — where converted files will be saved" "$HOME")
+OUTPUT_DIR=$(pick_folder "Select your OUTPUT directory -- where converted files will be saved" "$HOME")
 
 if [[ -z "$OUTPUT_DIR" ]]; then
     echo -e "${RED}  [ERROR] No output directory selected. Setup cancelled.${NC}"
@@ -165,9 +165,9 @@ if [[ ! -d "$OUTPUT_DIR" ]]; then
 fi
 echo -e "${GREEN}  [OK] Output dir: $OUTPUT_DIR${NC}"
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  3. Hardware Detection & Tuning
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 echo ""
 echo -e "${YELLOW}[3/7] Detecting hardware for optimal configuration...${NC}"
 
@@ -227,9 +227,9 @@ echo -e "${GREEN}  [OK] Meilisearch memory: $MEILI_MEM (of ${USER_RAM_GB}GB RAM)
 MEILI_KEY=$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p 2>/dev/null || echo "markflow-$(date +%s)-$(od -An -tx4 -N4 /dev/urandom | tr -d ' ')")
 echo -e "${GREEN}  [OK] Meilisearch API key generated${NC}"
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  4. GPU Detection (macOS)
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 echo ""
 echo -e "${YELLOW}[4/7] Detecting GPU and hashcat...${NC}"
 
@@ -249,7 +249,7 @@ if command -v system_profiler &>/dev/null; then
 
         if echo "$GPU_NAME" | grep -qi "apple"; then
             GPU_VENDOR="apple"
-            # Apple Silicon unified memory — report system memory
+            # Apple Silicon unified memory -- report system memory
             TOTAL_MEM=$(sysctl -n hw.memsize 2>/dev/null || echo 0)
             GPU_VRAM_MB=$((TOTAL_MEM / 1048576))
             echo -e "${GREEN}  [OK] Apple Silicon: $GPU_NAME (unified memory: ${GPU_VRAM_MB} MB)${NC}"
@@ -289,7 +289,7 @@ if command -v hashcat &>/dev/null; then
         echo -e "${GREEN}  [OK] hashcat backend: $HASHCAT_BACKEND${NC}"
     fi
 else
-    echo -e "${GRAY}  [--] hashcat not found (optional — install via: brew install hashcat)${NC}"
+    echo -e "${GRAY}  [--] hashcat not found (optional -- install via: brew install hashcat)${NC}"
 fi
 
 # Write worker_capabilities.json
@@ -316,9 +316,9 @@ if [[ "$GPU_VENDOR" != "none" && -n "$HASHCAT_PATH" ]]; then
     echo -e "${MAGENTA}  [GPU] Host worker path: $GPU_VENDOR ($HASHCAT_BACKEND)${NC}"
 fi
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  5. Write .env
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 echo ""
 echo -e "${YELLOW}[5/7] Writing .env configuration...${NC}"
 
@@ -353,9 +353,9 @@ echo "    OUTPUT_DIR    = $OUTPUT_DIR"
 echo "    WORKERS       = $CALC_WORKERS"
 echo "    MEILI_MEMORY  = $MEILI_MEM"
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  6. Prepare Docker environment
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 echo ""
 echo -e "${YELLOW}[6/7] Preparing Docker environment...${NC}"
 
@@ -396,9 +396,9 @@ else
     echo -e "${GREEN}  [OK] Base image already exists: $BASE_INFO${NC}"
 fi
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  7. Build and start
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 echo ""
 echo -e "${YELLOW}[7/7] Building and starting MarkFlow...${NC}"
 
@@ -415,9 +415,9 @@ if [[ -n "$HASHCAT_PATH" && "$GPU_VENDOR" != "none" ]]; then
     fi
 fi
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  Done
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 echo ""
 echo -e "${CYAN}==========================================${NC}"
 echo -e "${GREEN}  Setup Complete!${NC}"

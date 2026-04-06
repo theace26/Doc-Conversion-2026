@@ -12,14 +12,14 @@ set -euo pipefail
 #    ./reset-markflow.sh --source /mnt/custom --output /mnt/out
 # ============================================================
 
-# ── Defaults ────────────────────────────────────────────────────
+# -- Defaults ----------------------------------------------------
 REPO_DIR="/opt/doc-conversion-2026"
 SOURCE_DIR="/mnt/source-share"
 OUTPUT_DIR="/mnt/markflow-output"
 SKIP_PRUNE=false
 DEV_MODE=false
 
-# ── Parse args ──────────────────────────────────────────────────
+# -- Parse args --------------------------------------------------
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --repo)        REPO_DIR="$2"; shift 2 ;;
@@ -44,7 +44,7 @@ echo "=========================================="
 # ----------------------------------------------------------
 AVAIL_GB=$(df -BG / | awk 'NR==2 {gsub("G",""); print $4}')
 if [[ "${AVAIL_GB:-0}" -lt 10 ]]; then
-    echo "  ⚠️  WARNING: Only ${AVAIL_GB}GB free on /. Docker builds may fail."
+    echo "  [!!]  WARNING: Only ${AVAIL_GB}GB free on /. Docker builds may fail."
     echo "     Free space before continuing: docker system prune -f"
 else
     echo "  [OK] Disk space: ${AVAIL_GB}GB free"
@@ -159,7 +159,7 @@ elif [[ "$GPU_VENDOR" != "none" ]]; then
     echo "  [GPU] GPU found but hashcat not installed -- install hashcat for GPU cracking"
 fi
 
-# ── Build compose args ──────────────────────────────────────────
+# -- Build compose args ------------------------------------------
 COMPOSE_ARGS=("-f" "$COMPOSE_FILE")
 
 if $USE_NVIDIA_OVERLAY; then
@@ -177,7 +177,7 @@ docker compose "${COMPOSE_ARGS[@]}" down -v 2>/dev/null || true
 
 if ! $SKIP_PRUNE; then
     echo "  Pruning dangling images and build cache (preserving markflow-base)..."
-    # Only prune dangling images — NOT volumes (docker compose down -v already removed ours)
+    # Only prune dangling images -- NOT volumes (docker compose down -v already removed ours)
     # docker system prune --volumes would nuke ALL unused volumes on the host, not just ours
     docker image prune -f
     # Remove markflow app images but preserve the base image
@@ -244,20 +244,20 @@ OUTPUT_DIR=$OUTPUT_DIR
 DRIVE_C=$SOURCE_DIR
 DRIVE_D=$OUTPUT_DIR
 
-# Meilisearch — set a real key before exposing port 7700 to the network
+# Meilisearch -- set a real key before exposing port 7700 to the network
 MEILI_MASTER_KEY=
 
 # Bulk conversion
 BULK_WORKER_COUNT=4
 
-# App — replace SECRET_KEY with: openssl rand -hex 32
+# App -- replace SECRET_KEY with: openssl rand -hex 32
 SECRET_KEY=dev-secret-change-in-prod
 DEFAULT_LOG_LEVEL=normal
 DEV_BYPASS_AUTH=$DEV_MODE
 ENV_CONTENT
 
 if $DEV_MODE; then
-    echo "  ⚠️  DEV_MODE: DEV_BYPASS_AUTH=true — authentication disabled"
+    echo "  [!!]  DEV_MODE: DEV_BYPASS_AUTH=true -- authentication disabled"
 else
     echo "  [OK] Auth enabled (DEV_BYPASS_AUTH=false)"
 fi
@@ -327,7 +327,7 @@ for i in $(seq 1 30); do
         break
     fi
     if [[ $i -eq 30 ]]; then
-        echo "  ⚠️  Health check timed out after 60s"
+        echo "  [!!]  Health check timed out after 60s"
         echo "     Check logs: docker compose logs markflow"
     else
         sleep 2

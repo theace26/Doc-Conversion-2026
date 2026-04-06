@@ -17,11 +17,11 @@
 
 set -euo pipefail
 
-# ── Defaults ────────────────────────────────────────────────────
+# -- Defaults ----------------------------------------------------
 REPO_DIR="/opt/doc-conversion-2026"
 NO_BUILD=false
 
-# ── Parse args ──────────────────────────────────────────────────
+# -- Parse args --------------------------------------------------
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --repo)      REPO_DIR="$2"; shift 2 ;;
@@ -36,7 +36,7 @@ echo "  MarkFlow Quick Refresh"
 echo "  Machine: Proxmox VM (Linux)"
 echo "=========================================="
 
-# ── GPU Auto-Detection ──────────────────────────────────────────
+# -- GPU Auto-Detection ------------------------------------------
 echo ""
 echo "[GPU] Detecting host GPU hardware..."
 
@@ -143,14 +143,14 @@ elif [[ "$GPU_VENDOR" != "none" ]]; then
     echo "  [GPU] GPU found but hashcat not installed -- install hashcat for GPU cracking"
 fi
 
-# ── Build compose args ──────────────────────────────────────────
+# -- Build compose args ------------------------------------------
 COMPOSE_ARGS=("-f" "$REPO_DIR/docker-compose.yml")
 
 if $USE_NVIDIA_OVERLAY; then
     COMPOSE_ARGS+=("-f" "$REPO_DIR/docker-compose.gpu.yml")
 fi
 
-# ── 1. Pull latest code ────────────────────────────────────────
+# -- 1. Pull latest code ----------------------------------------
 echo ""
 echo "[1/3] Pulling latest code from GitHub..."
 
@@ -179,7 +179,7 @@ cat > "$QUEUE_DIR/worker_capabilities.json" <<CAPS
 CAPS
 echo "  [OK] worker_capabilities.json written"
 
-# ── 2. Rebuild (or skip) ───────────────────────────────────────
+# -- 2. Rebuild (or skip) ---------------------------------------
 echo ""
 
 if $NO_BUILD; then
@@ -190,7 +190,7 @@ else
     echo "  [OK] Build complete"
 fi
 
-# ── 3. Restart containers ──────────────────────────────────────
+# -- 3. Restart containers --------------------------------------
 echo ""
 echo "[3/3] Restarting containers..."
 
@@ -205,7 +205,7 @@ done
 
 docker compose "${COMPOSE_ARGS[@]}" up -d
 
-# ── Auto-start hashcat host worker ─────────────────────────────
+# -- Auto-start hashcat host worker -----------------------------
 if [[ -n "$HASHCAT_PATH" && "$GPU_VENDOR" != "none" && "$USE_NVIDIA_OVERLAY" == "false" ]]; then
     WORKER_SCRIPT="$REPO_DIR/tools/markflow-hashcat-worker.py"
     WORKER_PID_FILE="$QUEUE_DIR/worker.pid"
@@ -224,7 +224,7 @@ if [[ -n "$HASHCAT_PATH" && "$GPU_VENDOR" != "none" && "$USE_NVIDIA_OVERLAY" == 
     fi
 fi
 
-# ── Health Check ────────────────────────────────────────────────
+# -- Health Check ------------------------------------------------
 echo ""
 echo "Waiting for MarkFlow to be ready..."
 for i in $(seq 1 30); do
@@ -233,14 +233,14 @@ for i in $(seq 1 30); do
         break
     fi
     if [[ $i -eq 30 ]]; then
-        echo "  ⚠️  Health check timed out after 60s"
+        echo "  [!!]  Health check timed out after 60s"
         echo "     Check logs: docker compose logs markflow"
     else
         sleep 2
     fi
 done
 
-# ── Done ────────────────────────────────────────────────────────
+# -- Done --------------------------------------------------------
 echo ""
 echo "=========================================="
 echo "  Refresh Complete!"

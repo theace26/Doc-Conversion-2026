@@ -30,7 +30,7 @@ sudo apt-get install -y \
     jq
 
 # Enable guest agent so Proxmox can see IP and manage shutdowns
-sudo systemctl enable --now qemu-guest-agent || echo "  ⚠️  Guest agent failed to start (non-fatal, continuing)"
+sudo systemctl enable --now qemu-guest-agent || echo "  [!!]  Guest agent failed to start (non-fatal, continuing)"
 
 # ----------------------------------------------------------
 #  2. Install Docker (official method)
@@ -57,7 +57,7 @@ sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plug
 # Add current user to docker group (takes effect on next login)
 sudo usermod -aG docker "$USER"
 
-echo "  ✅ Docker installed"
+echo "  [OK] Docker installed"
 
 # ----------------------------------------------------------
 #  3. Create directory structure and mount points
@@ -69,7 +69,7 @@ sudo mkdir -p /mnt/source-share
 sudo mkdir -p /mnt/markflow-output
 sudo mkdir -p /opt/markflow-output
 
-echo "  ✅ Directories created"
+echo "  [OK] Directories created"
 
 # ----------------------------------------------------------
 #  4. Set up NAS mounts (SMB or NFS)
@@ -175,9 +175,9 @@ username=${SMB_USER}
 password=${SMB_PASS}
 CREDS
         sudo chmod 600 "$CREDS_FILE"
-        echo "  ✅ Credentials file created at $CREDS_FILE"
+        echo "  [OK] Credentials file created at $CREDS_FILE"
     else
-        echo "  Credentials file already exists — skipping"
+        echo "  Credentials file already exists -- skipping"
     fi
 fi
 
@@ -188,9 +188,9 @@ FSTAB_OUTPUT=$(generate_fstab_entry "$OUT_PROTO_CHOICE" "$OUT_SERVER" "$OUT_SHAR
 if ! grep -q "source-share" /etc/fstab; then
     echo "$FSTAB_SOURCE" | sudo tee -a /etc/fstab > /dev/null
     echo "$FSTAB_OUTPUT" | sudo tee -a /etc/fstab > /dev/null
-    echo "  ✅ fstab entries added"
+    echo "  [OK] fstab entries added"
 else
-    echo "  fstab entries already exist — skipping"
+    echo "  fstab entries already exist -- skipping"
 fi
 
 # Save mount config JSON for the Settings UI
@@ -216,10 +216,10 @@ sudo tee /etc/markflow/mounts.json > /dev/null << MOUNTJSON
   }
 }
 MOUNTJSON
-echo "  ✅ Mount config saved to /etc/markflow/mounts.json"
+echo "  [OK] Mount config saved to /etc/markflow/mounts.json"
 
 # Try mounting
-sudo mount -a && echo "  ✅ Mounts successful" || echo "  ⚠️  mount -a failed — check credentials/exports and NAS availability"
+sudo mount -a && echo "  [OK] Mounts successful" || echo "  [!!]  mount -a failed -- check credentials/exports and NAS availability"
 
 # ----------------------------------------------------------
 #  5. Clone the MarkFlow repository
@@ -233,7 +233,7 @@ if [ ! -d "$REPO_DIR" ]; then
     sudo git clone https://github.com/theace26/Doc-Conversion-2026.git "$REPO_DIR"
     sudo chown -R "$USER":"$USER" "$REPO_DIR"
 else
-    echo "  Repo already exists at $REPO_DIR — pulling latest..."
+    echo "  Repo already exists at $REPO_DIR -- pulling latest..."
     cd "$REPO_DIR"
     git pull
 fi
@@ -251,14 +251,14 @@ if [ ! -f "$ENV_FILE" ]; then
 # MarkFlow Environment Configuration
 # Proxmox VM (5 cores / 28GB RAM)
 
-# Paths — these map into the Docker containers
+# Paths -- these map into the Docker containers
 SOURCE_DIR=/mnt/source-share
 OUTPUT_DIR=/opt/markflow-output
 
 # Meilisearch
 MEILI_MASTER_KEY=f7b85048ef044c5e64c7e0dec03deebaef4c78e3327aaca89e9814ae4cb3d8c4
 
-# Bulk conversion — 4 workers (reserve 1 core for OS + Meilisearch)
+# Bulk conversion -- 4 workers (reserve 1 core for OS + Meilisearch)
 BULK_WORKER_COUNT=4
 
 # MarkFlow app
@@ -266,9 +266,9 @@ SECRET_KEY=change-me-in-production-use-openssl-rand-hex-32
 DEFAULT_LOG_LEVEL=normal
 DEV_BYPASS_AUTH=true
 ENV_CONTENT
-    echo "  ✅ Created $ENV_FILE"
+    echo "  [OK] Created $ENV_FILE"
 else
-    echo "  .env already exists — skipping"
+    echo "  .env already exists -- skipping"
 fi
 
 # ----------------------------------------------------------

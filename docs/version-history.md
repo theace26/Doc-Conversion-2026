@@ -4,6 +4,37 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.22.1 — Timestamp Localization, GPU Detection Fix, Script Portability (2026-04-06)
+
+**Fixes:**
+- **UTC timestamps displayed as local time**: All user-facing pages now correctly convert
+  UTC timestamps to the browser's local timezone. Added `parseUTC()` helper in `app.js`
+  that appends `Z` to bare ISO timestamps (no timezone suffix) before parsing. Updated
+  `formatLocalTime()` and fixed 6 pages that bypassed it with raw `new Date()` calls:
+  `bulk.html`, `db-health.html`, `trash.html`, `pipeline-files.html`, `version-panel.js`.
+- **GPU health check showing wrong hardware**: `worker_capabilities.json` was committed
+  to git with stale Apple M4 Pro data from a different machine. Now gitignored — each
+  machine generates it at deploy time via the refresh/reset scripts. Added `.json.example`
+  for reference.
+- **PowerShell script parse errors**: All `.ps1` and `.sh` scripts under `Scripts/` had
+  non-ASCII characters (em dashes, box-drawing, emojis) that broke Windows PowerShell 5.1
+  (reads BOM-less UTF-8 as Windows-1252, where byte 0x94 from em dash becomes a right
+  double quote, breaking string parsing). Replaced with ASCII equivalents across all 18
+  script files for cross-platform safety (Windows PS5.1, macOS zsh, Linux bash over SSH).
+
+**Modified files:**
+- `static/app.js` — `parseUTC()` helper, `formatLocalTime()` rewrite
+- `static/bulk.html` — Use `parseUTC()` for last-scan time
+- `static/db-health.html` — Use `formatLocalTime()` for compaction/integrity dates
+- `static/trash.html` — Use `formatLocalTime()` for trash/purge dates
+- `static/pipeline-files.html` — Use `parseUTC()` in local `formatLocalTime()`
+- `static/js/version-panel.js` — Use `parseUTC()` for recorded_at
+- `.gitignore` — Add `hashcat-queue/worker_capabilities.json`
+- `hashcat-queue/worker_capabilities.json.example` — New reference template
+- `Scripts/**/*.ps1`, `Scripts/**/*.sh` — ASCII-only characters (18 files)
+
+---
+
 ## v0.22.0 — Hybrid Vector Search (2026-04-05)
 
 **Feature:** Semantic vector search augmenting existing Meilisearch keyword search.

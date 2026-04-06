@@ -16,7 +16,7 @@ async function renderVersionPanel(containerId, bulkFileId) {
 
     let html = '<div class="version-timeline">';
     for (const v of data.versions) {
-      const date = v.recorded_at ? new Date(v.recorded_at).toLocaleString() : '';
+      const date = v.recorded_at ? (parseUTC(v.recorded_at) || new Date(v.recorded_at)).toLocaleString() : '';
       const typeLabel = _changeTypeLabel(v.change_type);
       const icon = _changeTypeIcon(v.change_type);
 

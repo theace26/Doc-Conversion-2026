@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 # Build the MarkFlow base Docker image (macOS)
 #
 # Builds the heavy base layer containing all apt packages
@@ -9,11 +9,11 @@
 #   ./build-base.sh              # build the base image
 #   ./build-base.sh --no-cache   # force full rebuild
 #   ./build-base.sh --repo /path # custom repo location
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 
 set -euo pipefail
 
-# ── Colors ──
+# -- Colors --
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -21,11 +21,11 @@ CYAN='\033[0;36m'
 GRAY='\033[0;90m'
 NC='\033[0m'
 
-# ── Defaults ──
+# -- Defaults --
 REPO_DIR=""
 NO_CACHE=""
 
-# ── Parse arguments ──
+# -- Parse arguments --
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --repo)     REPO_DIR="$2"; shift 2 ;;
@@ -34,7 +34,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ── Locate repo ──
+# -- Locate repo --
 if [[ -z "$REPO_DIR" ]]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     CANDIDATE="$(cd "$SCRIPT_DIR/../.." 2>/dev/null && pwd)"
@@ -64,7 +64,7 @@ fi
 
 echo ""
 echo -e "${YELLOW}Building markflow-base:latest ...${NC}"
-echo -e "${GRAY}  (5-15 min on SSD — only needs to happen once)${NC}"
+echo -e "${GRAY}  (5-15 min on SSD -- only needs to happen once)${NC}"
 echo ""
 
 START_TIME=$(date +%s)

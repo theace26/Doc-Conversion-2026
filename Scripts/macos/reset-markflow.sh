@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 # MarkFlow Docker Reset & Rebuild (macOS - personal machine)
 #
 # Tears down everything, force-pulls latest from GitHub, rebuilds
@@ -13,11 +13,11 @@
 #   ./reset-markflow.sh                    # full reset
 #   ./reset-markflow.sh --skip-prune       # keep old Docker artifacts
 #   ./reset-markflow.sh --repo /my/path    # custom repo location
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 
 set -euo pipefail
 
-# ── Colors ──
+# -- Colors --
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -27,13 +27,13 @@ GRAY='\033[0;90m'
 WHITE='\033[1;37m'
 NC='\033[0m'
 
-# ── Defaults ──
+# -- Defaults --
 REPO_DIR=""
 SOURCE_DIR="$HOME/Library/CloudStorage/OneDrive-Personal/IBEW 46 Internship/1_K_Drive_Test"
 OUTPUT_DIR="$HOME/Documents/test_k_drv_test"
 SKIP_PRUNE=false
 
-# ── Parse arguments ──
+# -- Parse arguments --
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --repo)        REPO_DIR="$2"; shift 2 ;;
@@ -44,7 +44,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ── Locate repo ──
+# -- Locate repo --
 if [[ -z "$REPO_DIR" ]]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     CANDIDATE="$(cd "$SCRIPT_DIR/../.." 2>/dev/null && pwd)"
@@ -66,9 +66,9 @@ echo -e "${CYAN}  Machine: macOS (personal)${NC}"
 echo -e "${GRAY}  Repo: $REPO_DIR${NC}"
 echo -e "${CYAN}==========================================${NC}"
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  GPU Auto-Detection
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 echo ""
 echo -e "${YELLOW}[GPU] Detecting host GPU hardware...${NC}"
 
@@ -192,14 +192,14 @@ elif [[ "$GPU_VENDOR" != "none" ]]; then
     echo -e "${YELLOW}  [GPU] GPU found but hashcat not installed -- install hashcat for GPU cracking${NC}"
 fi
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  Compose args (no NVIDIA overlay on macOS)
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 COMPOSE_ARGS=(-f docker-compose.yml)
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  1. Tear down everything
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 echo ""
 echo -e "${YELLOW}[1/5] Tearing down containers, volumes, and images...${NC}"
 
@@ -238,9 +238,9 @@ else
     echo -e "${GREEN}  [OK] Base image already exists: $BASE_INFO${NC}"
 fi
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  2. Force-pull latest code from GitHub
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 echo ""
 echo -e "${YELLOW}[2/5] Force-pulling latest code from GitHub...${NC}"
 
@@ -250,9 +250,9 @@ git -C "$REPO_DIR" reset --hard origin/main
 COMMIT_HASH=$(git -C "$REPO_DIR" log -1 --format="%h %s")
 echo -e "${GREEN}  [OK] Now at: $COMMIT_HASH${NC}"
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  3. Write .env for this machine
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 echo ""
 echo -e "${YELLOW}[3/5] Configuring .env for macOS personal machine...${NC}"
 
@@ -295,7 +295,7 @@ cat > "$ENV_FILE" << EOF
 SOURCE_DIR=$SOURCE_DIR
 OUTPUT_DIR=$OUTPUT_DIR
 
-# Drive browser mounts (macOS — no C:/D: drives)
+# Drive browser mounts (macOS -- no C:/D: drives)
 DRIVE_C=$HOME
 DRIVE_D=$HOME/Documents
 
@@ -319,9 +319,9 @@ echo "    OUTPUT_DIR    = $OUTPUT_DIR"
 echo "    WORKERS       = $CALC_WORKERS"
 echo "    MEILI_MEMORY  = $MEILI_MEM"
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  4. Verify paths exist
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 echo ""
 echo -e "${YELLOW}[4/5] Verifying paths...${NC}"
 
@@ -345,9 +345,9 @@ else
     echo -e "${GREEN}  [OK] Output dir created: $OUTPUT_DIR${NC}"
 fi
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  5. Build and start
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 echo ""
 echo -e "${YELLOW}[5/5] Building and starting MarkFlow...${NC}"
 
@@ -364,9 +364,9 @@ if [[ -n "$HASHCAT_PATH" && "$GPU_VENDOR" != "none" ]]; then
     fi
 fi
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  Done
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 echo ""
 echo -e "${CYAN}==========================================${NC}"
 echo -e "${GREEN}  Reset Complete!${NC}"

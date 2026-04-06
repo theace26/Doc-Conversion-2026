@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    MarkFlow Branch Switcher — fetches all branches and lets you pick one.
+    MarkFlow Branch Switcher -- fetches all branches and lets you pick one.
 
 .DESCRIPTION
     Fetches all branches from origin, displays an interactive numbered menu,
@@ -29,9 +29,9 @@ Write-Host "==========================================" -ForegroundColor Cyan
 
 Set-Location $RepoDir
 
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 #  1. Fetch latest
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 Write-Host ""
 Write-Host "[1/3] Fetching branches from origin..." -ForegroundColor Yellow
 git fetch --all --prune
@@ -44,9 +44,9 @@ Write-Host ""
 Write-Host "  Current branch: $currentBranch" -ForegroundColor Magenta
 Write-Host "  Latest commit:  $currentCommit" -ForegroundColor DarkGray
 
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 #  2. Build branch list
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 Write-Host ""
 Write-Host "[2/3] Available branches:" -ForegroundColor Yellow
 Write-Host ""
@@ -111,14 +111,14 @@ else {
     }
 }
 
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 #  3. Switch to branch
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 Write-Host ""
 Write-Host "[3/3] Switching to branch: $targetBranch" -ForegroundColor Yellow
 
 if ($targetBranch -eq $currentBranch) {
-    Write-Host "  Already on $targetBranch — pulling latest..." -ForegroundColor DarkGray
+    Write-Host "  Already on $targetBranch -- pulling latest..." -ForegroundColor DarkGray
     git pull origin $targetBranch
 }
 else {
@@ -154,9 +154,9 @@ $newCommit = (git log -1 --format="%h %s").Trim()
 Write-Host "  [OK] Now on: $targetBranch" -ForegroundColor Green
 Write-Host "  [OK] Latest: $newCommit" -ForegroundColor Green
 
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 #  Optional: Rebuild + restart
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 $composeArgs = @("-f", (Join-Path $RepoDir "docker-compose.yml"))
 
 $gpuFile = Join-Path $RepoDir "docker-compose.gpu.yml"
@@ -198,9 +198,9 @@ elseif ($doBuild -eq "no") {
     Write-Host "  [OK] Containers restarted" -ForegroundColor Green
 }
 
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 #  Done
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 Write-Host ""
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host "  Branch Switch Complete!"                 -ForegroundColor Green

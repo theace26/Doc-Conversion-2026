@@ -113,7 +113,7 @@
     stats.innerHTML =
       `<span class="trash-stat"><strong>${data.total}</strong> files in trash</span>` +
       `<span class="trash-stat"><strong>${formatBytes(totalSize)}</strong> total</span>` +
-      (earliest ? `<span class="trash-stat">Earliest auto-delete: <strong>${new Date(earliest).toLocaleDateString()}</strong></span>` : '');
+      (earliest ? `<span class="trash-stat">Earliest auto-delete: <strong>${formatLocalTime(earliest)}</strong></span>` : '');
 
     tbody.innerHTML = files.map(f => {
       const name = f.source_path.split('/').pop();
@@ -121,8 +121,8 @@
       return `<tr>
         <td>${esc(name)}</td>
         <td class="text-sm text-muted">${esc(f.source_path)}</td>
-        <td class="text-sm">${f.moved_to_trash_at ? new Date(f.moved_to_trash_at).toLocaleDateString() : ''}</td>
-        <td class="text-sm">${f.purge_at ? new Date(f.purge_at).toLocaleDateString() : ''}</td>
+        <td class="text-sm">${f.moved_to_trash_at ? formatLocalTime(f.moved_to_trash_at) : ''}</td>
+        <td class="text-sm">${f.purge_at ? formatLocalTime(f.purge_at) : ''}</td>
         <td><span class="days-pill ${daysCls}">${f.days_remaining}d</span></td>
         <td>
           <button class="btn btn-ghost btn-sm" onclick="restoreFile('${f.id}')">Restore</button>

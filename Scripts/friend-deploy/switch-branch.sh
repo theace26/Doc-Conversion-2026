@@ -13,11 +13,11 @@
 
 set -euo pipefail
 
-# ── Defaults ────────────────────────────────────────────────────
+# -- Defaults ----------------------------------------------------
 REPO_DIR="${REPO_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 DO_BUILD=""
 
-# ── Parse args ──────────────────────────────────────────────────
+# -- Parse args --------------------------------------------------
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --repo)      REPO_DIR="$2"; shift 2 ;;
@@ -34,7 +34,7 @@ echo "=========================================="
 
 cd "$REPO_DIR"
 
-# ── 1. Fetch latest ────────────────────────────────────────────
+# -- 1. Fetch latest --------------------------------------------
 echo ""
 echo "[1/3] Fetching branches from origin..."
 git fetch --all --prune
@@ -46,7 +46,7 @@ echo ""
 echo "  Current branch: $CURRENT_BRANCH"
 echo "  Latest commit:  $CURRENT_COMMIT"
 
-# ── 2. Build branch list ──────────────────────────────────────
+# -- 2. Build branch list --------------------------------------
 echo ""
 echo "[2/3] Available branches:"
 echo ""
@@ -109,12 +109,12 @@ else
     fi
 fi
 
-# ── 3. Switch to branch ──────────────────────────────────────
+# -- 3. Switch to branch --------------------------------------
 echo ""
 echo "[3/3] Switching to branch: $TARGET_BRANCH"
 
 if [[ "$TARGET_BRANCH" == "$CURRENT_BRANCH" ]]; then
-    echo "  Already on $TARGET_BRANCH — pulling latest..."
+    echo "  Already on $TARGET_BRANCH -- pulling latest..."
     git pull origin "$TARGET_BRANCH"
 else
     if ! git diff --quiet || ! git diff --cached --quiet; then
@@ -144,15 +144,15 @@ NEW_COMMIT=$(git log -1 --format="%h %s")
 echo "  [OK] Now on: $TARGET_BRANCH"
 echo "  [OK] Latest: $NEW_COMMIT"
 
-# ── Optional: Rebuild + restart ───────────────────────────────
+# -- Optional: Rebuild + restart -------------------------------
 COMPOSE_ARGS=("-f" "$REPO_DIR/docker-compose.yml")
 
 if [[ -z "$DO_BUILD" ]]; then
     echo ""
     echo "  Would you like to rebuild and restart Docker containers?"
-    echo "    1) Yes — rebuild + restart"
+    echo "    1) Yes -- rebuild + restart"
     echo "    2) Restart only (no rebuild)"
-    echo "    3) No — just switch branch"
+    echo "    3) No -- just switch branch"
     echo ""
     read -rp "  Choice [3]: " BUILD_CHOICE
     case "${BUILD_CHOICE:-3}" in
@@ -168,7 +168,7 @@ if [[ "$DO_BUILD" == "yes" ]]; then
 
     BASE_EXISTS=$(docker images markflow-base:latest --format "{{.ID}}" 2>/dev/null || true)
     if [[ -z "$BASE_EXISTS" ]]; then
-        echo "  [!] Base image missing — building it first..."
+        echo "  [!] Base image missing -- building it first..."
         docker build -f Dockerfile.base -t markflow-base:latest .
     fi
 
@@ -184,7 +184,7 @@ elif [[ "$DO_BUILD" == "no" ]]; then
     echo "  [OK] Containers restarted"
 fi
 
-# ── Done ──────────────────────────────────────────────────────
+# -- Done ------------------------------------------------------
 echo ""
 echo "=========================================="
 echo "  Branch Switch Complete!"

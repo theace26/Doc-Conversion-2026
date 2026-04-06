@@ -85,8 +85,8 @@
         <div class="health-card"><div class="label">Journal Mode</div><div class="value">${health.journal_mode || 'unknown'}</div></div>
         <div class="health-card"><div class="label">Page Count</div><div class="value">${health.page_count || 0}</div></div>
         <div class="health-card"><div class="label">Freelist Pages</div><div class="value">${health.freelist_count || 0}</div></div>
-        <div class="health-card"><div class="label">Last Compaction</div><div class="value text-sm">${health.last_compaction ? new Date(health.last_compaction).toLocaleDateString() : 'Never'}</div></div>
-        <div class="health-card"><div class="label">Last Integrity Check</div><div class="value text-sm">${health.last_integrity_check ? new Date(health.last_integrity_check).toLocaleDateString() : 'Never'} <span class="result-badge ${health.last_integrity_result || 'ok'}">${health.last_integrity_result || 'N/A'}</span></div></div>
+        <div class="health-card"><div class="label">Last Compaction</div><div class="value text-sm">${health.last_compaction ? formatLocalTime(health.last_compaction) : 'Never'}</div></div>
+        <div class="health-card"><div class="label">Last Integrity Check</div><div class="value text-sm">${health.last_integrity_check ? formatLocalTime(health.last_integrity_check) : 'Never'} <span class="result-badge ${health.last_integrity_result || 'ok'}">${health.last_integrity_result || 'N/A'}</span></div></div>
       `;
     } catch (err) {
       showError(err.message);
@@ -102,7 +102,7 @@
         return;
       }
       tbody.innerHTML = data.entries.map(e => `<tr>
-        <td class="text-sm">${e.run_at ? new Date(e.run_at).toLocaleString() : ''}</td>
+        <td class="text-sm">${e.run_at ? formatLocalTime(e.run_at) : ''}</td>
         <td>${e.operation}</td>
         <td><span class="result-badge ${e.result}">${e.result}</span></td>
         <td class="text-sm">${e.duration_ms != null ? e.duration_ms + 'ms' : ''}</td>

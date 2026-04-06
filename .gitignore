@@ -38,6 +38,9 @@ input/
 *.swp
 *.swo
 
+# Host-specific worker capabilities (generated per-machine at deploy time)
+hashcat-queue/worker_capabilities.json
+
 # OS
 .DS_Store
 Thumbs.db

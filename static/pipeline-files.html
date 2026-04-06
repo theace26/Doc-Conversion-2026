@@ -300,7 +300,10 @@
 
     function formatLocalTime(iso) {
       if (!iso) return '';
-      try { return new Date(iso).toLocaleString(); } catch (e) { return iso; }
+      try {
+        const d = parseUTC(iso);
+        return d ? d.toLocaleString() : iso;
+      } catch (e) { return iso; }
     }
 
     function driveLink(sourcePath) {

@@ -1,0 +1,11 @@
+{
+  "available": true,
+  "gpu_vendor": "nvidia",
+  "gpu_name": "NVIDIA GeForce RTX 3080",
+  "gpu_vram_mb": 10240,
+  "hashcat_backend": "CUDA",
+  "hashcat_version": "v7.1.2",
+  "host_os": "Linux",
+  "host_machine": "x86_64",
+  "timestamp": "2026-01-01T00:00:00+00:00"
+}

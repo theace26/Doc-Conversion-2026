@@ -26,15 +26,14 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.22.0
+## Current Status — v0.22.1
 
-v0.22.0: Hybrid Vector Search — Qdrant vector DB augments Meilisearch keyword
-search via Reciprocal Rank Fusion. Documents chunked with contextual headers,
-embedded locally via sentence-transformers (all-MiniLM-L6-v2, 384d). Query
-preprocessor detects temporal intent. Graceful fallback to keyword-only when
-Qdrant is unavailable.
-New: core/vector/ package (chunker, embedder, index_manager, hybrid_search,
-     query_preprocessor). Qdrant container in docker-compose.yml.
+v0.22.1: Timestamp localization, GPU detection fix, cross-platform script portability.
+All user-facing timestamps now convert UTC to browser local time via `parseUTC()`.
+GPU health check reads per-machine `worker_capabilities.json` (gitignored, generated
+at deploy time). All 18 deploy scripts use ASCII-only characters for PS5.1 compat.
+
+Previous (v0.22.0): Hybrid Vector Search — Qdrant + Meilisearch via RRF.
 
 Previous (v0.21.0): AI-Assisted Search with org toggle + usage tracking.
 
@@ -454,7 +453,7 @@ Critical files to know:
 
 ## Gotchas & Fixes
 
-Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.md)
+Full list (~100 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.md)
 
 **Most commonly needed:**
 
@@ -488,6 +487,9 @@ Full list (~90 items organized by subsystem): [`docs/gotchas.md`](docs/gotchas.m
 - **hashcat -I requires cwd**: hashcat resolves its `OpenCL/` kernel directory relative to the current working directory, not its binary location. Scripts must `cd` to hashcat's install dir before running `hashcat -I`, or it fails silently with `./OpenCL/: No such file or directory`.
 - **PowerShell Set-Content BOM**: `Set-Content -Encoding UTF8` writes a UTF-8 BOM on Windows PowerShell 5.x. Python's `json.loads()` rejects this. Use `[IO.File]::WriteAllText()` for BOM-free output. Python readers should use `encoding="utf-8-sig"` defensively.
 - **PowerShell stderr from native commands**: Native command stderr (e.g., hashcat's `nvmlDeviceGetFanSpeed(): Not Supported`) becomes a `RemoteException` via `2>&1`, caught by `try/catch` and silently aborting. Set `$ErrorActionPreference = 'SilentlyContinue'` around the call.
+- **No non-ASCII in `.ps1` scripts**: Windows PowerShell 5.1 reads BOM-less UTF-8 as Windows-1252. Em dash `—` (bytes `E2 80 94`) becomes `â€"` where `0x94` = right double quote, breaking string parsing. Use ASCII-only in all `.ps1` files.
+- **`worker_capabilities.json` is per-machine**: Gitignored — generated at deploy time by refresh/reset scripts. Do NOT commit it.
+- **Frontend timestamps must use `parseUTC()`**: Backend stores UTC but SQLite round-trips can strip the `+00:00` offset. `parseUTC()` in `app.js` appends `Z` to bare ISO strings. Never use `new Date(isoString)` directly for backend timestamps.
 - **GPU health component needs ok/version**: The convert page renders health components generically using `s.ok` and `s.version`. The GPU component in `health.py` must include both fields or it renders as FAIL with blank detail.
 - **Whisper model lazy-load**: Model is loaded on first transcription call, NOT at startup. Lazy import `import whisper` inside `_load_model()` to avoid slow lifespan. Model cached as class-level state.
 - **Vector search is best-effort**: `get_vector_indexer()` returns `None` when Qdrant is unreachable. All call sites must handle `None`. Never make vector search a hard dependency.

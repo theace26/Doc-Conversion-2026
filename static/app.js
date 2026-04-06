@@ -89,14 +89,28 @@ function timeAgo(isoString) {
 }
 
 /**
+ * Parse a backend ISO timestamp as UTC. Appends "Z" when the offset
+ * suffix is missing so the browser doesn't treat it as local time.
+ */
+function parseUTC(isoString) {
+    if (!isoString) return null;
+    let s = String(isoString);
+    if (s.includes('T') && !s.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(s)) {
+        s += 'Z';
+    }
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+}
+
+/**
  * Format an ISO timestamp as local time, always showing full date + time.
  * Use this anywhere a date/time is displayed to the user.
  */
 function formatLocalTime(isoString) {
     if (!isoString) return '—';
     try {
-        const d = new Date(isoString);
-        if (isNaN(d.getTime())) return isoString;
+        const d = parseUTC(isoString);
+        if (!d) return isoString;
         return d.toLocaleString(undefined, {
             year: 'numeric', month: 'short', day: 'numeric',
             hour: 'numeric', minute: '2-digit',

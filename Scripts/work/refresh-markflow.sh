@@ -12,11 +12,11 @@
 
 set -euo pipefail
 
-# ── Defaults ────────────────────────────────────────────────────────
+# -- Defaults --------------------------------------------------------
 REPO_DIR="${REPO_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 NO_BUILD=false
 
-# ── Parse args ──────────────────────────────────────────────────────
+# -- Parse args ------------------------------------------------------
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --repo)      REPO_DIR="$2"; shift 2 ;;
@@ -30,7 +30,7 @@ echo "=========================================="
 echo "  MarkFlow Quick Refresh"
 echo "=========================================="
 
-# ── GPU Auto-Detection ──────────────────────────────────────────────
+# -- GPU Auto-Detection ----------------------------------------------
 echo ""
 echo "[GPU] Detecting host GPU hardware..."
 
@@ -213,14 +213,14 @@ elif [[ "$GPU_VENDOR" != "none" ]]; then
     echo "  [GPU] GPU found but hashcat not installed -- install hashcat for GPU cracking"
 fi
 
-# ── Build compose args ──────────────────────────────────────────────
+# -- Build compose args ----------------------------------------------
 COMPOSE_ARGS=("-f" "$REPO_DIR/docker-compose.yml")
 
 if $USE_NVIDIA_OVERLAY; then
     COMPOSE_ARGS+=("-f" "$REPO_DIR/docker-compose.gpu.yml")
 fi
 
-# ── 1. Pull latest code ────────────────────────────────────────────
+# -- 1. Pull latest code --------------------------------------------
 echo ""
 echo "[1/3] Pulling latest code from GitHub..."
 
@@ -230,7 +230,7 @@ git -C "$REPO_DIR" reset --hard origin/main
 COMMIT=$(git -C "$REPO_DIR" log -1 --format="%h %s")
 echo "  [OK] Now at: $COMMIT"
 
-# ── 2. Rebuild (or skip) ───────────────────────────────────────────
+# -- 2. Rebuild (or skip) -------------------------------------------
 echo ""
 
 if $NO_BUILD; then
@@ -241,13 +241,13 @@ else
     echo "  [OK] Build complete"
 fi
 
-# ── 3. Restart containers ──────────────────────────────────────────
+# -- 3. Restart containers ------------------------------------------
 echo ""
 echo "[3/3] Restarting containers..."
 
 docker compose "${COMPOSE_ARGS[@]}" up -d
 
-# ── Auto-start hashcat host worker ─────────────────────────────────
+# -- Auto-start hashcat host worker ---------------------------------
 if [[ -n "$HASHCAT_PATH" && "$GPU_VENDOR" != "none" && "$USE_NVIDIA_OVERLAY" == "false" ]]; then
     WORKER_SCRIPT="$REPO_DIR/tools/markflow-hashcat-worker.py"
     if [[ -f "$WORKER_SCRIPT" ]]; then
@@ -258,7 +258,7 @@ if [[ -n "$HASHCAT_PATH" && "$GPU_VENDOR" != "none" && "$USE_NVIDIA_OVERLAY" == 
     fi
 fi
 
-# ── Done ────────────────────────────────────────────────────────────
+# -- Done ------------------------------------------------------------
 echo ""
 echo "=========================================="
 echo "  Refresh Complete!"

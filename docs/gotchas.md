@@ -710,6 +710,10 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 - **Host worker capabilities**: Cached at startup, re-read live on health check.
 
+- **`worker_capabilities.json` is per-machine (v0.22.1)**: This file is gitignored and
+  generated at deploy time by the refresh/reset scripts. Do NOT commit it — each machine
+  (Windows/macOS/Linux) has different GPU hardware. The `.json.example` shows the schema.
+
 - **hashcat --force required in Docker**.
 
 - **hashcat potfile conflicts**: Each attack uses unique temp potfile.
@@ -957,3 +961,30 @@ the relevant subsystem. Referenced from CLAUDE.md.
   Only non-None values are included in the `job_overrides` dict passed to `BulkJob`. The
   `overrides` dict defaults to `{}`. Scanner/converter code should check `self.overrides.get(key)`
   with a fallback to the global preference.
+
+## Timestamps & Timezones (v0.22.1)
+
+- **All backend timestamps are UTC**: `now_iso()` uses `datetime.now(timezone.utc).isoformat()`.
+  Docker containers default to UTC. Never use naive `datetime.now()` — always pass `timezone.utc`.
+
+- **UTC offset can be stripped by SQLite round-trip**: When a timestamp like
+  `2026-04-06T13:09:00+00:00` is stored in SQLite TEXT and read back via aiosqlite,
+  the `+00:00` suffix sometimes gets lost. Without it, JS `new Date()` treats bare
+  ISO strings as local time, displaying UTC values without conversion.
+
+- **`parseUTC()` is the fix**: All frontend date parsing must go through `parseUTC()`
+  (in `app.js`), which appends `Z` to bare ISO strings. Do NOT use `new Date(isoString)`
+  directly — always `parseUTC(isoString)` or `formatLocalTime(isoString)`.
+
+- **`pipeline-files.html` has its own `formatLocalTime()`**: It shadows the global one
+  from `app.js`. Updated to use `parseUTC()` internally, but be aware of the shadowing.
+
+## Deploy Scripts (v0.22.1)
+
+- **No non-ASCII in `.ps1` files**: Windows PowerShell 5.1 reads BOM-less UTF-8 as
+  Windows-1252. Byte `0x94` (from UTF-8 em dash `E2 80 94`) becomes a right double quote
+  `"` in Windows-1252, breaking string parsing. Use `--` not `—`, `-` not `─`, ASCII only.
+
+- **`.sh` scripts tolerate UTF-8 but keep ASCII for consistency**: macOS Terminal and Linux
+  bash handle UTF-8 fine, but SSH sessions with misconfigured locale may not render
+  box-drawing characters. Use ASCII decoration for portability.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 # MarkFlow Log Extractor (macOS / Linux)
 #
 # Pulls log files from Docker containers, runs initial triage.
@@ -12,11 +12,11 @@
 #   ./pull-logs.sh --no-archive             # skip archived logs
 #   ./pull-logs.sh --debug-only             # only pull debug log
 #   ./pull-logs.sh --repo ~/Projects/Doc-Conversion-2026
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 
 set -euo pipefail
 
-# ── Colors ──
+# -- Colors --
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -24,7 +24,7 @@ CYAN='\033[0;36m'
 GRAY='\033[0;90m'
 NC='\033[0m'
 
-# ── Defaults ──
+# -- Defaults --
 TAIL_LINES=2000
 OUTPUT_DIR=""
 REPO_DIR=""
@@ -32,7 +32,7 @@ SKIP_ARCHIVE=false
 DEBUG_ONLY=false
 ANALYZE=false
 
-# ── Parse arguments ──
+# -- Parse arguments --
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --tail)        TAIL_LINES="$2"; shift 2 ;;
@@ -49,7 +49,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ── Locate repo ──
+# -- Locate repo --
 if [[ -z "$REPO_DIR" ]]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     # Try: script is in Scripts/friend-deploy/
@@ -66,14 +66,14 @@ if [[ -z "$REPO_DIR" ]]; then
     fi
 fi
 
-# ── Timestamp and output dir ──
+# -- Timestamp and output dir --
 TIMESTAMP=$(date +%Y-%m-%d-%H%M)
 if [[ -z "$OUTPUT_DIR" ]]; then
     OUTPUT_DIR="./markflow-logs-${TIMESTAMP}"
 fi
 mkdir -p "$OUTPUT_DIR"
 
-# ── Find the container ──
+# -- Find the container --
 cd "$REPO_DIR"
 
 CONTAINER=$(docker compose ps --format '{{.Name}}' 2>/dev/null | grep -E 'markflow-1$|markflow$' | grep -v mcp | head -1 || true)
@@ -97,9 +97,9 @@ echo -e "${GRAY}  Container: $CONTAINER${NC}"
 echo -e "${GRAY}  Output:    $OUTPUT_DIR/${NC}"
 echo -e "${CYAN}==========================================${NC}"
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  1. Copy app logs from container
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 echo ""
 echo -e "${YELLOW}[1/4] Copying app logs...${NC}"
 
@@ -144,9 +144,9 @@ if [[ "$SKIP_ARCHIVE" != "true" ]]; then
     fi
 fi
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  2. Capture docker compose logs
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 echo ""
 echo -e "${YELLOW}[2/4] Capturing Docker stdout...${NC}"
 
@@ -159,16 +159,16 @@ echo -e "${GREEN}  [OK] docker-mcp.log (500 lines)${NC}"
 docker compose logs --tail 500 --timestamps meilisearch > "$OUTPUT_DIR/docker-meilisearch.log" 2>&1 || true
 echo -e "${GREEN}  [OK] docker-meilisearch.log (500 lines)${NC}"
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  3. Triage
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 echo ""
 echo -e "${YELLOW}[3/4] Running triage...${NC}"
 
 TRIAGE="$OUTPUT_DIR/triage.txt"
 LOG="$OUTPUT_DIR/markflow.log"
 
-echo "MarkFlow Log Triage — $(date)" > "$TRIAGE"
+echo "MarkFlow Log Triage -- $(date)" > "$TRIAGE"
 echo "Container: $CONTAINER" >> "$TRIAGE"
 echo "Extracted: $TIMESTAMP" >> "$TRIAGE"
 echo "==========================================" >> "$TRIAGE"
@@ -197,7 +197,7 @@ if [[ -f "$LOG" ]]; then
     grep '"level": "warning"' "$LOG" 2>/dev/null | tail -10 >> "$TRIAGE" || true
     echo "" >> "$TRIAGE"
 
-    # ── Extended analysis ──
+    # -- Extended analysis --
     if [[ "$ANALYZE" == "true" ]]; then
         echo ""
         echo -e "${YELLOW}  Running extended analysis...${NC}"
@@ -237,13 +237,13 @@ if [[ -f "$LOG" ]]; then
         echo -e "${GREEN}  [OK] Extended analysis complete${NC}"
     fi
 else
-    echo "  [--] No markflow.log found — skipping triage" >> "$TRIAGE"
+    echo "  [--] No markflow.log found -- skipping triage" >> "$TRIAGE"
     echo -e "${GRAY}  [--] No markflow.log found (debug-only mode or container issue)${NC}"
 fi
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  4. Summary
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 echo ""
 echo -e "${YELLOW}[4/4] Done!${NC}"
 echo ""

@@ -23,9 +23,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  Locate repo
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 if (-not $RepoDir) {
     $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
     $candidate = (Resolve-Path (Join-Path $scriptDir "..\..") -ErrorAction SilentlyContinue).Path
@@ -42,7 +42,7 @@ if (-not $RepoDir) {
     }
 }
 
-# ── Timestamp and output dir ──
+# -- Timestamp and output dir --
 $timestamp = Get-Date -Format "yyyy-MM-dd-HHmm"
 if (-not $OutputDir) {
     $OutputDir = Join-Path (Get-Location).Path "markflow-logs-$timestamp"
@@ -51,7 +51,7 @@ if (-not (Test-Path $OutputDir)) {
     New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 }
 
-# ── Find the container ──
+# -- Find the container --
 Push-Location $RepoDir
 
 $allContainers = docker compose ps --format '{{.Name}}' 2>$null
@@ -77,9 +77,9 @@ Write-Host "  Container: $Container" -ForegroundColor DarkGray
 Write-Host "  Output:    $OutputDir\" -ForegroundColor DarkGray
 Write-Host "==========================================" -ForegroundColor Cyan
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  1. Copy app logs from container
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 Write-Host ""
 Write-Host "[1/4] Copying app logs..." -ForegroundColor Yellow
 
@@ -142,9 +142,9 @@ if (-not $SkipArchive) {
     }
 }
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  2. Capture docker compose logs
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 Write-Host ""
 Write-Host "[2/4] Capturing Docker stdout..." -ForegroundColor Yellow
 
@@ -157,9 +157,9 @@ Write-Host "  [OK] docker-mcp.log (500 lines)" -ForegroundColor Green
 docker compose logs --tail 500 --timestamps meilisearch 2>&1 | Out-File (Join-Path $OutputDir "docker-meilisearch.log") -Encoding utf8
 Write-Host "  [OK] docker-meilisearch.log (500 lines)" -ForegroundColor Green
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  3. Triage
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 Write-Host ""
 Write-Host "[3/4] Running triage..." -ForegroundColor Yellow
 
@@ -205,7 +205,7 @@ if (Test-Path $logFile) {
     if ($lastWarnings) { $triageLines += $lastWarnings }
     $triageLines += ""
 
-    # ── Extended analysis ──
+    # -- Extended analysis --
     if ($Analyze) {
         Write-Host ""
         Write-Host "  Running extended analysis..." -ForegroundColor Yellow
@@ -262,9 +262,9 @@ else {
 # Write triage file (BOM-free)
 [IO.File]::WriteAllText($triageFile, ($triageLines -join "`n"))
 
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 #  4. Summary
-# ══════════════════════════════════════════════════════════════
+# ==============================================================
 Write-Host ""
 Write-Host "[4/4] Done!" -ForegroundColor Yellow
 Write-Host ""

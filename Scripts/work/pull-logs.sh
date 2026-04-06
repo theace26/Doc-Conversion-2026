@@ -43,7 +43,7 @@ echo "=========================================="
 # ----------------------------------------------------------
 if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER}$"; then
     echo ""
-    echo "  ⚠️  Container '${CONTAINER}' is not running."
+    echo "  [!!]  Container '${CONTAINER}' is not running."
     echo "  Available containers:"
     docker ps -a --format "  {{.Names}}  ({{.Status}})"
     exit 1
@@ -56,12 +56,12 @@ echo ""
 echo "[1/3] Copying logs from container..."
 
 docker cp "${CONTAINER}:/app/logs/markflow.log" ~/"${MAIN_LOG}" 2>/dev/null && \
-    echo "  ✅ Main log copied" || \
-    echo "  ⚠️  Main log not found in container"
+    echo "  [OK] Main log copied" || \
+    echo "  [!!]  Main log not found in container"
 
 docker cp "${CONTAINER}:/app/logs/markflow-debug.log" ~/"${DEBUG_LOG}" 2>/dev/null && \
-    echo "  ✅ Debug log copied" || \
-    echo "  ⚠️  Debug log not found in container"
+    echo "  [OK] Debug log copied" || \
+    echo "  [!!]  Debug log not found in container"
 
 # ----------------------------------------------------------
 #  3. Tail if requested (for large logs)
@@ -75,7 +75,7 @@ if [ -n "${TAIL_LINES}" ]; then
         MAIN_LOG="markflow-tail-${TIMESTAMP}.log"
         tail -n "${TAIL_LINES}" ~/"${FULL_MAIN}" > ~/"${MAIN_LOG}"
         rm ~/"${FULL_MAIN}"
-        echo "  ✅ Main log trimmed → ${MAIN_LOG}"
+        echo "  [OK] Main log trimmed -> ${MAIN_LOG}"
     fi
 
     if [ -f ~/"${DEBUG_LOG}" ]; then
@@ -83,7 +83,7 @@ if [ -n "${TAIL_LINES}" ]; then
         DEBUG_LOG="markflow-debug-tail-${TIMESTAMP}.log"
         tail -n "${TAIL_LINES}" ~/"${FULL_DEBUG}" > ~/"${DEBUG_LOG}"
         rm ~/"${FULL_DEBUG}"
-        echo "  ✅ Debug log trimmed → ${DEBUG_LOG}"
+        echo "  [OK] Debug log trimmed -> ${DEBUG_LOG}"
     fi
 else
     echo ""
@@ -99,16 +99,16 @@ echo ""
 
 if [ -f ~/"${MAIN_LOG}" ]; then
     MAIN_SIZE=$(ls -lh ~/"${MAIN_LOG}" | awk '{print $5}')
-    echo "  📄 ~/${MAIN_LOG}  (${MAIN_SIZE})"
+    echo "  [>] ~/${MAIN_LOG}  (${MAIN_SIZE})"
 else
-    echo "  ❌ Main log — not available"
+    echo "  [X] Main log -- not available"
 fi
 
 if [ -f ~/"${DEBUG_LOG}" ]; then
     DEBUG_SIZE=$(ls -lh ~/"${DEBUG_LOG}" | awk '{print $5}')
-    echo "  📄 ~/${DEBUG_LOG}  (${DEBUG_SIZE})"
+    echo "  [>] ~/${DEBUG_LOG}  (${DEBUG_SIZE})"
 else
-    echo "  ❌ Debug log — not available"
+    echo "  [X] Debug log -- not available"
 fi
 
 echo ""

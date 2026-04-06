@@ -375,8 +375,8 @@
       document.getElementById('pl-pending').textContent = (data.pending_conversion || 0).toLocaleString();
 
       if (data.last_scan && data.last_scan.finished_at) {
-        const d = new Date(data.last_scan.finished_at);
-        document.getElementById('pl-last-scan').textContent = d.toLocaleTimeString();
+        const d = parseUTC(data.last_scan.finished_at);
+        document.getElementById('pl-last-scan').textContent = d ? d.toLocaleTimeString() : '';
       } else {
         document.getElementById('pl-last-scan').textContent = 'Never';
       }

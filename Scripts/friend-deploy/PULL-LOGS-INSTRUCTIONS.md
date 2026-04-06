@@ -71,7 +71,7 @@ $Container = docker compose ps --format '{{.Name}}' | Where-Object { $_ -match '
 ### Copy files out
 
 ```bash
-# bash — copy entire logs directory
+# bash -- copy entire logs directory
 docker cp "$CONTAINER:/app/logs/." "$OUTPUT_DIR/"
 
 # PowerShell
@@ -81,7 +81,7 @@ docker cp "${Container}:/app/logs/." "$OutputDir/"
 ### Capture docker compose logs
 
 ```bash
-# bash — last 2000 lines per service, with timestamps
+# bash -- last 2000 lines per service, with timestamps
 docker compose logs --tail 2000 --timestamps markflow > "$OUTPUT_DIR/docker-stdout.log" 2>&1
 docker compose logs --tail 500 --timestamps markflow-mcp > "$OUTPUT_DIR/docker-mcp.log" 2>&1
 docker compose logs --tail 500 --timestamps meilisearch > "$OUTPUT_DIR/docker-meilisearch.log" 2>&1
@@ -161,9 +161,9 @@ When the analyze flag is set, after extracting logs the script should also:
 1. **Error frequency by event type**: Parse the `"event"` field from error-level JSON lines
    and count occurrences of each unique event name. Print the top 15 most frequent.
 
-2. **Error timeline**: Group errors by hour and show a simple histogram (e.g., `14:00  ████████ 43`).
+2. **Error timeline**: Group errors by hour and show a simple histogram (e.g., `14:00  ######## 43`).
 
-3. **Database lock detection**: Count occurrences of `"database is locked"` — this indicates
+3. **Database lock detection**: Count occurrences of `"database is locked"` -- this indicates
    SQLite concurrency issues.
 
 4. **Conversion failure summary**: Count errors where the event matches common conversion
@@ -258,11 +258,11 @@ Before generating the script, ask:
 - **Container must be running** for `docker cp` and `docker exec`. If the container is
   stopped, `docker compose logs` still works (reads from Docker's log driver) but
   `docker cp` fails. Check with `docker compose ps` first.
-- **Log files are structured JSON** — one JSON object per line. Do NOT try to parse them
+- **Log files are structured JSON** -- one JSON object per line. Do NOT try to parse them
   as plain text with naive string splitting. Use `grep` for field matching.
 - **Debug log may not exist** if the user has never set log_level to "developer". Handle
   missing files gracefully (skip with a message, not an error).
-- **Archive directory may not exist** on fresh installations. Same — skip gracefully.
+- **Archive directory may not exist** on fresh installations. Same -- skip gracefully.
 - **Large log files consume context**: If the user plans to upload logs to Claude.ai for
   analysis, warn them that files over 1-2 MB will consume significant context window.
   Recommend filtering to errors/warnings first, or using `--tail` to limit scope.
@@ -283,7 +283,7 @@ Before generating the script, ask:
   The script should use POSIX-compatible patterns or detect and adapt.
 - **sed differences**: macOS uses BSD sed. For in-place edits, use `sed -i ''` (empty
   string backup suffix) instead of `sed -i` (GNU). For this script, sed is only used
-  for output formatting — no in-place edits needed.
+  for output formatting -- no in-place edits needed.
 
 ---
 
@@ -337,10 +337,10 @@ After extracting logs, the typical analysis workflow is:
    grep '"level": "error"' markflow.log > errors-only.log
    grep '"level": "warning"' markflow.log > warnings-only.log
    ```
-4. **For conversion failures**: Look for `"event": "conversion_failed"` lines — they
+4. **For conversion failures**: Look for `"event": "conversion_failed"` lines -- they
    include the source file path and the exception message.
-5. **For SQLite issues**: Look for `"database is locked"` — if frequent, check whether
+5. **For SQLite issues**: Look for `"database is locked"` -- if frequent, check whether
    the lifecycle scanner is running during active bulk jobs (should be yielding as of v0.13.7).
 6. **For MCP issues**: Check `docker-mcp.log` for crash-loops or connection errors.
-7. **For startup crashes**: Check the first 50 lines of `docker-stdout.log` — import errors
+7. **For startup crashes**: Check the first 50 lines of `docker-stdout.log` -- import errors
    and missing dependencies show up here before structlog is initialized.
