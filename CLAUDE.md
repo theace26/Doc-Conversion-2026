@@ -26,11 +26,17 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.22.4
+## Current Status — v0.22.5
 
-v0.22.4: Help icon link fix (`/help#` -> `/help.html#`) and new auto-conversion
-help article covering modes, workers, batch sizing, pipeline master switch,
-decision logging, and Run Now interaction with manual jobs.
+v0.22.5: Bulk scanner files/sec display fix. Parallel drain loop recorded
+~200 per-file completions in a tight loop, stamping the RollingWindowETA
+deque with near-identical timestamps and producing absurd rates like
+`783184.5 files/sec`. Replaced with a single
+`tracker.record_completion(count=len(batch))` per drain.
+
+Previous (v0.22.4): Help icon link fix (`/help#` -> `/help.html#`) and new
+auto-conversion help article covering modes, workers, batch sizing, pipeline
+master switch, decision logging, and Run Now interaction with manual jobs.
 
 Previous (v0.22.3): Settings toggle state persistence fix.
 

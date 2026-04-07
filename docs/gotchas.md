@@ -271,6 +271,18 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 ## Bulk & Lifecycle
 
+- **RollingWindowETA hates burst completions (v0.22.5)**: `RollingWindowETA` in
+  `core/progress_tracker.py` stores `(time.monotonic(), completed_count)` tuples
+  in a 100-slot deque and computes `fps = (newest_count - oldest_count) /
+  (newest_ts - oldest_ts)`. Any code path that calls `record_completion()` N
+  times in a tight loop stamps N entries with near-identical timestamps,
+  producing nonsense rates like 783,184 files/sec and a `~0s` ETA. The bulk
+  scanner's parallel drain loop hit this — it drained batches of up to 200
+  files from the worker queue and iterated per-file. Fix: pass
+  `count=len(batch)` in a single call so each drain yields exactly one window
+  entry, and fps reflects real wall-clock pacing between drains. Rule of
+  thumb: one window entry per real pacing event, never per item in a burst.
+
 - **asyncio.Queue sentinel pattern**: Workers break on `None` sentinel. N sentinels for N workers.
 
 - **Bulk SSE separate from single-file SSE**: `_bulk_progress_queues` vs `_progress_queues`.

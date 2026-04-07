@@ -4,6 +4,34 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.22.5 — Bulk Scanner files/sec Display Fix (2026-04-07)
+
+**Fix:** The Active Job panel on the Bulk Jobs page displayed nonsensical scan
+rates like `783184.5 files/sec` and a meaningless `~0s remaining` ETA during
+parallel scans. Root cause was in `core/bulk_scanner.py` — the parallel drain
+loop collected up to 200 files from the worker queue per cycle, then called
+`tracker.record_completion()` once per file in a tight loop. All ~200 entries
+landed in `RollingWindowETA`'s 100-slot deque with near-identical
+`time.monotonic()` timestamps (sub-millisecond apart), so the fps math
+(`(newest_count - oldest_count) / elapsed`) divided ~100 files by a ~127µs
+span, producing ~787k files/sec.
+
+Replaced the per-file loop with a single
+`await tracker.record_completion(count=len(batch))` so each drain cycle yields
+exactly one window entry. Window entries are now spaced by the real wall-clock
+interval between drains (tens of ms to seconds), giving a realistic files/sec
+and a usable scan ETA.
+
+The serial scan path and single-file path were unaffected — they already call
+`record_completion()` once per discovered file with real wall-clock pacing.
+`RollingWindowETA.record_completion()` already accepted a `count` parameter;
+this fix just uses it instead of iterating.
+
+**Modified files:**
+- `core/bulk_scanner.py` — parallel drain loop records batch as single window entry
+
+---
+
 ## v0.22.4 — Help Link Fix + Auto-Conversion Article (2026-04-06)
 
 **Fixes:**
