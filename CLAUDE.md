@@ -25,9 +25,30 @@ read the relevant `gotchas.md` section first. Most bugs there have already been 
 
 ---
 
-## Current Version — v0.22.10
+## Current Version — v0.22.11
 
-AI Assist now uses the same provider configuration as the image scanner:
+Per-provider "Use for AI Assist" opt-in checkbox:
+- **Migration #25** adds `use_for_ai_assist INTEGER NOT NULL DEFAULT 0` to
+  `llm_providers`. Mutually exclusive across rows (like `is_active`).
+- **`core/db/catalog.py`** — new `get_ai_assist_provider()` and
+  `set_ai_assist_provider(provider_id|None)` helpers.
+- **`core/ai_assist.py`** — `_get_provider_config()` now follows a 3-step
+  lookup: opted-in provider → active provider (fallback) → env var (legacy).
+  Decouples AI Assist from the image scanner's active provider so admins
+  can pick a different provider for each.
+- **`api/routes/llm_providers.py`** — Create/Update accept the new
+  `use_for_ai_assist` field; new endpoint
+  `POST /api/llm-providers/{id}/use-for-ai-assist` (or `id=none` to clear).
+- **`static/providers.html`** — checkbox in the add form, "Use for AI
+  Assist" / "Disable AI Assist" button on each card, purple "AI Assist"
+  badge next to the opted-in provider. Card rendering refactored to safe
+  DOM construction (no innerHTML).
+- **Status endpoint** carries a new `provider_source` field
+  (`opted_in` / `active_fallback` / `env_fallback` / `none`) for UI clarity.
+
+Previous (v0.22.10): AI Assist now reads its API key from the same
+`llm_providers` row as the image scanner (instead of `ANTHROPIC_API_KEY`
+env var). Provider record's model and api_base_url are honored.
 - **`core/ai_assist.py`** — `_get_provider_config()` reads the active
   `llm_providers` row via `core.db.catalog.get_active_provider()` (the same
   source the image scanner / vision pipeline uses). It honors the provider's

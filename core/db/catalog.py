@@ -337,6 +337,46 @@ async def get_active_provider() -> dict[str, Any] | None:
     return row
 
 
+async def get_ai_assist_provider() -> dict[str, Any] | None:
+    """
+    Return the provider that has been opted-in for AI Assist (the row with
+    `use_for_ai_assist=1`), with `api_key` DECRYPTED. Returns None if no
+    provider is opted in.
+
+    This is INTENTIONALLY independent from `is_active` — the user may want
+    AI Assist to use a different provider than the image scanner. (For
+    example: image scanner uses a cheap Gemini provider for vision OCR,
+    while AI Assist uses an Anthropic provider for natural-language
+    synthesis.)
+    """
+    row = await db_fetch_one(
+        "SELECT * FROM llm_providers WHERE use_for_ai_assist=1"
+    )
+    if row and row.get("api_key"):
+        from core.crypto import decrypt_value
+        try:
+            row["api_key"] = decrypt_value(row["api_key"])
+        except Exception:
+            row["api_key"] = None
+    return row
+
+
+async def set_ai_assist_provider(provider_id: str | None) -> None:
+    """
+    Mark exactly one provider as the AI Assist provider, clearing the flag
+    on all others. Pass `provider_id=None` to clear the flag everywhere
+    (disable AI Assist provider routing entirely).
+    """
+    async with get_db() as conn:
+        await conn.execute("UPDATE llm_providers SET use_for_ai_assist=0")
+        if provider_id:
+            await conn.execute(
+                "UPDATE llm_providers SET use_for_ai_assist=1, updated_at=? WHERE id=?",
+                (now_iso(), provider_id),
+            )
+        await conn.commit()
+
+
 # ── Unrecognized file helpers ────────────────────────────────────────────
 
 async def get_unrecognized_files(

@@ -10,6 +10,7 @@ DELETE /api/llm-providers/{id}           — Delete provider
 POST   /api/llm-providers/{id}/verify    — Verify saved provider
 POST   /api/llm-providers/verify-draft   — Verify unsaved provider config
 POST   /api/llm-providers/{id}/activate  — Set as active provider
+POST   /api/llm-providers/{id}/use-for-ai-assist — Opt this provider in for AI Assist
 """
 
 from datetime import datetime, timezone
@@ -25,9 +26,11 @@ from core.database import (
     create_llm_provider,
     delete_llm_provider,
     get_active_provider,
+    get_ai_assist_provider,
     get_llm_provider,
     list_llm_providers,
     set_active_provider,
+    set_ai_assist_provider,
     update_llm_provider,
 )
 from core.llm_client import LLMClient
@@ -45,6 +48,7 @@ class CreateProviderRequest(BaseModel):
     model: str = Field(..., min_length=1)
     api_key: str | None = None
     api_base_url: str | None = None
+    use_for_ai_assist: bool | None = None  # v0.22.11
 
 
 class UpdateProviderRequest(BaseModel):
@@ -52,6 +56,7 @@ class UpdateProviderRequest(BaseModel):
     model: str | None = None
     api_key: str | None = None
     api_base_url: str | None = None
+    use_for_ai_assist: bool | None = None  # v0.22.11
 
 
 class VerifyDraftRequest(BaseModel):
@@ -122,6 +127,10 @@ async def create_provider(
             api_key=req.api_key,
             api_base_url=req.api_base_url,
         )
+        # If the create request asked to use this provider for AI Assist,
+        # opt it in (mutually exclusive — clears the flag on others).
+        if req.use_for_ai_assist:
+            await set_ai_assist_provider(provider_id)
         return {"id": provider_id, "name": req.name}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -157,7 +166,23 @@ async def update_provider(
     if fields:
         await update_llm_provider(provider_id, **fields)
 
-    return {"id": provider_id, "updated": list(fields.keys())}
+    # The AI Assist opt-in flag is mutually exclusive across providers, so
+    # it's handled separately via set_ai_assist_provider() (which clears
+    # the flag on every other row in the same transaction). Setting it
+    # via update_llm_provider() with use_for_ai_assist would not clear the
+    # flag elsewhere and could leave two rows opted in at once.
+    updated_keys = list(fields.keys())
+    if req.use_for_ai_assist is not None:
+        if req.use_for_ai_assist:
+            await set_ai_assist_provider(provider_id)
+        else:
+            # Only clear if THIS provider is currently the opted-in one.
+            current = await get_ai_assist_provider()
+            if current and current.get("id") == provider_id:
+                await set_ai_assist_provider(None)
+        updated_keys.append("use_for_ai_assist")
+
+    return {"id": provider_id, "updated": updated_keys}
 
 
 # ── DELETE /api/llm-providers/{id} ──────────────────────────────────────────
@@ -273,3 +298,31 @@ async def activate_provider(
 
     await set_active_provider(provider_id)
     return {"active": provider_id, "name": existing["name"]}
+
+
+# ── POST /api/llm-providers/{id}/use-for-ai-assist ─────────────────────────
+
+@router.post("/{provider_id}/use-for-ai-assist")
+async def use_for_ai_assist(
+    provider_id: str,
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
+    """
+    Mark this provider as the one AI Assist will use (mutually exclusive
+    across providers — clears the flag on all others). Independent of the
+    `is_active` flag used by the image scanner.
+
+    Pass `provider_id="none"` to clear the AI Assist opt-in entirely
+    (disables AI Assist provider routing; falls back to active provider
+    if any).
+    """
+    if provider_id == "none":
+        await set_ai_assist_provider(None)
+        return {"ai_assist_provider": None}
+
+    existing = await get_llm_provider(provider_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Provider not found.")
+
+    await set_ai_assist_provider(provider_id)
+    return {"ai_assist_provider": provider_id, "name": existing["name"]}

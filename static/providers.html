@@ -80,6 +80,17 @@
         <div class="form-group" id="f-ollama-fetch" style="display:none">
           <button type="button" class="btn btn-ghost btn-sm" onclick="fetchOllamaModels()">Fetch Available Models</button>
         </div>
+        <div class="form-group" id="f-ai-assist-group" style="margin-top:0.75rem">
+          <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-weight:normal">
+            <input type="checkbox" id="f-use-for-ai-assist">
+            <span>Also use this provider for the <strong>AI Assist search</strong> feature</span>
+          </label>
+          <p class="hint" id="f-ai-assist-hint" style="margin:0.25rem 0 0">
+            AI Assist requires an Anthropic provider. When checked, this provider
+            replaces any other AI Assist opt-in. Independent of the "Active"
+            flag used by the image scanner.
+          </p>
+        </div>
         <div style="display:flex;gap:0.5rem;align-items:center;margin-top:1rem">
           <button class="btn btn-ghost btn-sm" onclick="verifyDraft()">Verify Connection</button>
           <span id="verify-spinner" hidden><span class="spinner spinner-sm"></span></span>
@@ -263,18 +274,40 @@
     const model = modelSel.style.display !== 'none' ? modelSel.value : modelCustom.value;
     const apiKey = document.getElementById('f-api-key').value || null;
     const baseUrl = document.getElementById('f-base-url').value || null;
+    const useForAIAssist = document.getElementById('f-use-for-ai-assist').checked;
 
     if (!provider || !name || !model) {
       showToast('Fill in all required fields.', 'error');
       return;
     }
 
+    // Warn (but allow) opting in a non-Anthropic provider — AI Assist will
+    // surface a clear "incompatible" notice when actually invoked.
+    if (useForAIAssist && provider !== 'anthropic') {
+      var ok = confirm(
+        "AI Assist currently only supports Anthropic providers. " +
+        "Opting in '" + provider + "' will leave AI Assist disabled until you " +
+        "switch to an Anthropic provider. Continue anyway?"
+      );
+      if (!ok) return;
+    }
+
     try {
       if (editingId) {
-        await API.put(`/api/llm-providers/${editingId}`, { name, model, api_key: apiKey, api_base_url: baseUrl });
+        await API.put(`/api/llm-providers/${editingId}`, {
+          name, model,
+          api_key: apiKey,
+          api_base_url: baseUrl,
+          use_for_ai_assist: useForAIAssist,
+        });
         showToast('Provider updated.', 'success');
       } else {
-        await API.post('/api/llm-providers', { name, provider, model, api_key: apiKey, api_base_url: baseUrl });
+        await API.post('/api/llm-providers', {
+          name, provider, model,
+          api_key: apiKey,
+          api_base_url: baseUrl,
+          use_for_ai_assist: useForAIAssist,
+        });
         showToast('Provider created.', 'success');
       }
       cancelForm();
@@ -302,6 +335,7 @@
     document.getElementById('f-model-custom').value = '';
     document.getElementById('f-api-key').value = '';
     document.getElementById('f-base-url').value = '';
+    document.getElementById('f-use-for-ai-assist').checked = false;
     document.getElementById('verify-result').hidden = true;
   }
 
@@ -316,37 +350,116 @@
         return;
       }
 
-      list.innerHTML = providers.map(p => {
-        const isActive = p.is_active;
-        const activeBadge = isActive ? '<span class="active-badge">Active</span>' : '';
-        const verifiedIcon = p.is_verified
-          ? `<span class="verified-badge">&#10003; Verified</span>`
-          : `<span class="unverified-badge">&mdash; Not verified</span>`;
-        const verifiedAgo = p.last_verified ? ` &middot; ${formatTimeAgo(p.last_verified)}` : '';
-
-        const activateBtn = isActive
-          ? ''
-          : `<button class="btn btn-ghost btn-sm" onclick="activateProvider('${p.id}')">Activate</button>`;
-        const deleteConfirm = isActive ? `deleteProvider('${p.id}', true)` : `deleteProvider('${p.id}', false)`;
-
-        return `<div class="provider-card">
-          <div class="provider-header">
-            <div>
-              <span class="provider-name">${p.name}</span>${activeBadge}
-              <div class="provider-meta">${p.provider} &middot; ${p.model} &middot; ${verifiedIcon}${verifiedAgo}</div>
-            </div>
-            <div class="provider-actions">
-              <button class="btn btn-ghost btn-sm" onclick="verifyProvider('${p.id}')">Verify</button>
-              ${activateBtn}
-              <button class="btn btn-ghost btn-sm" onclick="${deleteConfirm}" style="color:var(--error)">Delete</button>
-            </div>
-          </div>
-        </div>`;
-      }).join('');
+      _renderProviderCards(list, providers);
     } catch (e) {
       document.getElementById('provider-list').innerHTML =
         '<p class="text-sm" style="padding:1rem;color:var(--error)">Failed to load providers.</p>';
     }
+  }
+
+  // Render provider cards using safe DOM methods (no innerHTML).
+  function _renderProviderCards(container, providers) {
+    container.textContent = '';
+    providers.forEach(function(p) {
+      var card = document.createElement('div');
+      card.className = 'provider-card';
+
+      var header = document.createElement('div');
+      header.className = 'provider-header';
+
+      // ── Left column: name + meta ─────────────────────────────────────────
+      var left = document.createElement('div');
+
+      var nameSpan = document.createElement('span');
+      nameSpan.className = 'provider-name';
+      nameSpan.textContent = p.name;
+      left.appendChild(nameSpan);
+
+      if (p.is_active) {
+        var activeBadge = document.createElement('span');
+        activeBadge.className = 'active-badge';
+        activeBadge.textContent = 'Active';
+        left.appendChild(activeBadge);
+      }
+      if (p.use_for_ai_assist) {
+        var aiBadge = document.createElement('span');
+        aiBadge.className = 'active-badge';
+        aiBadge.style.background = 'rgba(124, 58, 237, 0.15)';
+        aiBadge.style.color = '#7c3aed';
+        aiBadge.style.marginLeft = '0.35rem';
+        aiBadge.textContent = 'AI Assist';
+        left.appendChild(aiBadge);
+      }
+
+      var meta = document.createElement('div');
+      meta.className = 'provider-meta';
+      meta.appendChild(document.createTextNode(
+        p.provider + ' \u00b7 ' + p.model + ' \u00b7 '
+      ));
+      var verifiedSpan = document.createElement('span');
+      verifiedSpan.className = p.is_verified ? 'verified-badge' : 'unverified-badge';
+      verifiedSpan.textContent = p.is_verified ? '\u2713 Verified' : '\u2014 Not verified';
+      meta.appendChild(verifiedSpan);
+      if (p.last_verified) {
+        meta.appendChild(document.createTextNode(' \u00b7 ' + formatTimeAgo(p.last_verified)));
+      }
+      left.appendChild(meta);
+
+      header.appendChild(left);
+
+      // ── Right column: actions ────────────────────────────────────────────
+      var actions = document.createElement('div');
+      actions.className = 'provider-actions';
+
+      function _btn(label, handler, color) {
+        var b = document.createElement('button');
+        b.className = 'btn btn-ghost btn-sm';
+        b.textContent = label;
+        if (color) b.style.color = color;
+        b.addEventListener('click', handler);
+        return b;
+      }
+
+      actions.appendChild(_btn('Verify', function() { verifyProvider(p.id); }));
+
+      if (!p.is_active) {
+        actions.appendChild(_btn('Activate', function() { activateProvider(p.id); }));
+      }
+
+      if (p.use_for_ai_assist) {
+        actions.appendChild(_btn('Disable AI Assist', function() {
+          setAIAssistProvider('none');
+        }));
+      } else {
+        actions.appendChild(_btn('Use for AI Assist', function() {
+          setAIAssistProvider(p.id, p.provider);
+        }));
+      }
+
+      actions.appendChild(_btn('Delete', function() {
+        deleteProvider(p.id, !!p.is_active);
+      }, 'var(--error)'));
+
+      header.appendChild(actions);
+      card.appendChild(header);
+      container.appendChild(card);
+    });
+  }
+
+  async function setAIAssistProvider(id, providerType) {
+    if (id !== 'none' && providerType && providerType !== 'anthropic') {
+      var ok = confirm(
+        "AI Assist currently only supports Anthropic providers. " +
+        "Opting in '" + providerType + "' will leave AI Assist disabled until you " +
+        "switch to an Anthropic provider. Continue anyway?"
+      );
+      if (!ok) return;
+    }
+    try {
+      await API.post('/api/llm-providers/' + id + '/use-for-ai-assist');
+      showToast(id === 'none' ? 'AI Assist provider cleared.' : 'AI Assist will use this provider.', 'success');
+      loadProviders();
+    } catch (e) { showToast(e.message, 'error'); }
   }
 
   async function verifyProvider(id) {

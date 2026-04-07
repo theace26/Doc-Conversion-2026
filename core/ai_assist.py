@@ -58,68 +58,99 @@ def _estimate_tokens(text: str) -> int:
 
 async def _get_provider_config() -> dict:
     """
-    Resolve the AI Assist API key + model + base URL from the active
-    llm_providers record (the same source the image scanner / vision pipeline
-    uses). Falls back to ANTHROPIC_API_KEY env var for backward compatibility.
+    Resolve the AI Assist API key + model + base URL.
+
+    Lookup order (v0.22.11):
+      1. Provider opted-in via the "Use for AI Assist" checkbox on the
+         Providers page (`llm_providers.use_for_ai_assist=1`). This is the
+         preferred path — admins explicitly choose which provider AI Assist
+         uses, independent of the image-scanner active provider.
+      2. Active llm_provider (`is_active=1`) if no provider has been opted in
+         yet — backward compatibility with v0.22.10 behavior.
+      3. `ANTHROPIC_API_KEY` env var if no provider record exists at all
+         (legacy / dev compat, deprecated).
 
     Returns a dict with these keys:
-        api_key      — str or None
-        model        — str (resolved from provider, AI_ASSIST_MODEL env, or DEFAULT_MODEL)
-        api_url      — str (the messages endpoint URL)
-        provider     — str (e.g. "anthropic", "openai", "env_fallback")
-        configured   — bool (True if api_key is non-empty)
-        compatible   — bool (True if the provider is anthropic; AI Assist
-                       only supports Anthropic streaming today)
-        error        — str or None (human-readable reason when not usable)
+        api_key          — str or None
+        model            — str (resolved from provider, AI_ASSIST_MODEL env, or DEFAULT_MODEL)
+        api_url          — str (the messages endpoint URL)
+        provider         — str ("anthropic" / "env_fallback" / "openai" / etc.)
+        provider_source  — str ("opted_in" / "active_fallback" / "env_fallback" / "none")
+        configured       — bool (True if api_key is non-empty)
+        compatible       — bool (True if the provider is anthropic; AI Assist
+                           only supports Anthropic streaming today)
+        error            — str or None (human-readable reason when not usable)
     """
     api_key: Optional[str] = None
     model = os.environ.get("AI_ASSIST_MODEL") or DEFAULT_MODEL
     api_url = ANTHROPIC_API_URL_DEFAULT
     provider_name = "env_fallback"
+    provider_source = "none"
     compatible = True
     error: Optional[str] = None
 
+    chosen: Optional[dict] = None
+
+    # 1. Preferred: provider opted in via "Use for AI Assist" checkbox.
     try:
-        from core.db.catalog import get_active_provider  # local import to avoid cycles
-        active = await get_active_provider()
+        from core.db.catalog import get_ai_assist_provider, get_active_provider  # local import
+        opted_in = await get_ai_assist_provider()
     except Exception as exc:
         log.warning("ai_assist.provider_lookup_failed", error=str(exc))
-        active = None
+        opted_in = None
 
-    if active and active.get("api_key"):
-        provider_name = (active.get("provider") or "").strip().lower()
+    if opted_in and opted_in.get("api_key"):
+        chosen = opted_in
+        provider_source = "opted_in"
+    else:
+        # 2. Fallback: the image scanner's active provider.
+        try:
+            active = await get_active_provider()
+        except Exception:
+            active = None
+        if active and active.get("api_key"):
+            chosen = active
+            provider_source = "active_fallback"
+
+    if chosen:
+        provider_name = (chosen.get("provider") or "").strip().lower()
         if provider_name == "anthropic":
-            api_key = active["api_key"]
-            # Provider record may override the model and base URL.
-            if active.get("model"):
-                model = active["model"]
-            if active.get("api_base_url"):
-                base = active["api_base_url"].rstrip("/")
-                # The provider record stores a base URL like
-                # https://api.anthropic.com — append the messages path.
+            api_key = chosen["api_key"]
+            if chosen.get("model"):
+                model = chosen["model"]
+            if chosen.get("api_base_url"):
+                base = chosen["api_base_url"].rstrip("/")
                 api_url = base + "/v1/messages" if not base.endswith("/v1/messages") else base
         else:
-            # An active provider exists but it's not Anthropic — AI Assist
-            # cannot use it (different SSE format / auth scheme).
             compatible = False
-            error = (
-                f"Active LLM provider is '{provider_name}'. AI Assist currently "
-                f"requires an Anthropic provider. Switch the active provider on "
-                f"the Settings → Providers page."
-            )
+            if provider_source == "opted_in":
+                error = (
+                    f"The provider opted in for AI Assist is '{provider_name}'. "
+                    f"AI Assist currently requires an Anthropic provider. Edit the "
+                    f"provider on the Providers page or opt in a different one."
+                )
+            else:
+                error = (
+                    f"Active LLM provider is '{provider_name}'. AI Assist currently "
+                    f"requires an Anthropic provider. Either opt in a specific Anthropic "
+                    f"provider via the 'Use for AI Assist' checkbox on the Providers page, "
+                    f"or switch the active provider."
+                )
 
-    # Backward-compat env-var fallback (only if there's no active provider at all)
-    if not api_key and not active:
+    # 3. Last-resort env fallback when there is no provider record at all.
+    if not api_key and chosen is None:
         env_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
         if env_key:
             api_key = env_key
             provider_name = "env_fallback"
+            provider_source = "env_fallback"
 
     return {
         "api_key": api_key,
         "model": model,
         "api_url": api_url,
         "provider": provider_name,
+        "provider_source": provider_source,
         "configured": bool(api_key),
         "compatible": compatible,
         "error": error,

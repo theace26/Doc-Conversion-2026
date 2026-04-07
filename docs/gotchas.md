@@ -494,18 +494,36 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 ## LLM & Vision
 
-- **AI Assist + image scanner share the same provider record (v0.22.10)**:
-  AI Assist resolves its API key, model, and base URL from
-  `core.db.catalog.get_active_provider()` — the SAME row the vision
-  pipeline uses. Set the Anthropic key once on the Providers page; both
-  features pick it up. AI Assist requires the active provider's
-  `provider` field to be `anthropic` (the SSE format and `x-api-key`
-  header are Anthropic-specific). If a user has OpenAI/Gemini active,
-  `_get_provider_config()` returns `compatible: False` with a clear error
-  message, and the UI tells them to switch providers — it does NOT
-  silently fall through to env vars in that case. The `ANTHROPIC_API_KEY`
-  env var is still honored as a legacy fallback when there is NO provider
-  record at all (deprecated, slated for removal).
+- **AI Assist provider lookup is a 3-step chain (v0.22.11)**:
+  `core/ai_assist.py:_get_provider_config()` resolves its API key, model,
+  and base URL in this order:
+    1. **Opted-in provider** — the row with `llm_providers.use_for_ai_assist=1`,
+       set via the "Use for AI Assist" checkbox/button on the Providers
+       page (`core.db.catalog.get_ai_assist_provider()`). This is the
+       preferred path. The flag is mutually exclusive across rows
+       (managed by `set_ai_assist_provider()` which clears all others
+       in the same transaction).
+    2. **Active provider** — `get_active_provider()` (the row used by the
+       image scanner). Backward-compat fallback for users who haven't
+       opted in a specific AI Assist provider yet.
+    3. **`ANTHROPIC_API_KEY` env var** — last-resort legacy fallback.
+       Deprecated, slated for removal.
+  In all paths AI Assist requires the chosen provider to be `anthropic`
+  (the SSE format and `x-api-key` header are Anthropic-specific). If the
+  chosen provider is OpenAI/Gemini/etc, `_get_provider_config()` returns
+  `compatible: False` with a clear error message that distinguishes
+  "wrong opted-in provider" from "wrong active provider" so the UI can
+  point users to the right fix. The `provider_source` field
+  (`opted_in` / `active_fallback` / `env_fallback` / `none`) tells the
+  frontend which path was taken.
+
+- **AI Assist `use_for_ai_assist` flag is independent from `is_active`
+  (v0.22.11)**: They are two separate columns. The image scanner reads
+  `is_active`; AI Assist reads `use_for_ai_assist` (with `is_active` as
+  fallback). Admins can have one provider active for image analysis and
+  a totally different provider opted in for AI Assist. Both flags are
+  mutually exclusive within their own column but never compete with each
+  other.
 
 
 - **SECRET_KEY required for LLM providers**: Must be set if any provider configured.

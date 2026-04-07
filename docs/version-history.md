@@ -4,6 +4,98 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.22.11 — Per-Provider "Use for AI Assist" Opt-In (2026-04-07)
+
+**Problem (raised in chat):** v0.22.10 wired AI Assist to use the active
+`llm_providers` record. But what if the admin wants AI Assist to use a
+DIFFERENT provider than the image scanner? For example: image analysis
+runs against a cheap Gemini provider for vision OCR, while AI Assist runs
+against an Anthropic provider for natural-language synthesis. With v0.22.10
+the two features were locked to the same active provider.
+
+**Fix:** Add a per-provider opt-in flag (`use_for_ai_assist`) and a
+checkbox/button on the Providers page. The flag is mutually exclusive across
+providers (exactly like `is_active`) but **independent** from `is_active`.
+
+### Schema
+
+Migration #25:
+```sql
+ALTER TABLE llm_providers ADD COLUMN use_for_ai_assist INTEGER NOT NULL DEFAULT 0;
+```
+
+The base `CREATE TABLE` definition for `llm_providers` was also updated so
+fresh installs get the column without relying on the migration.
+
+### Code changes
+
+- **`core/db/catalog.py`** — two new helpers:
+  - `get_ai_assist_provider()` — returns the row with `use_for_ai_assist=1`,
+    api_key DECRYPTED, or None.
+  - `set_ai_assist_provider(provider_id | None)` — clears the flag on every
+    row, then sets it on the named row. Pass `None` to clear entirely.
+
+- **`core/db/__init__.py`** — re-exports the two new helpers via the
+  `core.db` package so `from core.database import ...` works.
+
+- **`core/ai_assist.py`** — `_get_provider_config()` is now a 3-step lookup:
+  1. **Opted-in provider** — `get_ai_assist_provider()`. Preferred path.
+  2. **Active provider** — `get_active_provider()`. Backward-compat fallback
+     for users who haven't opted in a specific AI Assist provider yet.
+  3. **`ANTHROPIC_API_KEY` env var** — last-resort legacy fallback.
+  Returns a new field `provider_source` with one of `"opted_in"`,
+  `"active_fallback"`, `"env_fallback"`, or `"none"` so the UI can render
+  an accurate state indicator.
+
+- **`api/routes/llm_providers.py`**:
+  - `CreateProviderRequest` and `UpdateProviderRequest` gain an optional
+    `use_for_ai_assist: bool` field. When True on create, the new provider
+    is opted in immediately (and the flag is cleared on all others).
+  - `update_provider()` handles the flag separately from other fields
+    because the flip-others-to-zero behavior is mutually exclusive and
+    cannot be done via a generic UPDATE — calls `set_ai_assist_provider()`
+    instead.
+  - New endpoint `POST /api/llm-providers/{id}/use-for-ai-assist` that
+    accepts a literal `id` to opt in, or `id="none"` to clear.
+
+- **`static/providers.html`**:
+  - Add-provider form gains a "Also use this provider for the AI Assist
+    search feature" checkbox with an explanatory hint.
+  - Save logic warns (but allows) opting in a non-Anthropic provider —
+    AI Assist will then surface a clear "incompatible" notice when invoked.
+  - Provider cards refactored from template-string injection to safe DOM
+    construction (`_renderProviderCards()`). Each card shows:
+    - Existing **Active** badge (green) if `is_active`
+    - New **AI Assist** badge (purple) if `use_for_ai_assist`
+    - Existing Verify / Activate / Delete buttons
+    - New **Use for AI Assist** button (or **Disable AI Assist** if it's
+      already opted in) wired to `setAIAssistProvider(id)`.
+
+### Independence from `is_active`
+
+The two flags (`is_active` and `use_for_ai_assist`) are completely
+orthogonal. Common configurations:
+
+| `is_active` | `use_for_ai_assist` | Effect |
+|---|---|---|
+| Provider A | Provider A | Same provider for both (the v0.22.10 default) |
+| Provider A | Provider B | Image scanner uses A, AI Assist uses B |
+| Provider A | (none) | AI Assist falls back to A — v0.22.10 behavior |
+| (none)      | Provider B | Image scanner has no provider; AI Assist uses B |
+
+### Modified files
+
+- `core/version.py` — 0.22.10 → 0.22.11
+- `core/db/schema.py` — migration #25 + base CREATE TABLE update
+- `core/db/catalog.py` — `get_ai_assist_provider()`, `set_ai_assist_provider()`
+- `core/db/__init__.py` — re-exports
+- `core/ai_assist.py` — 3-step lookup chain, `provider_source` field
+- `api/routes/llm_providers.py` — request models, create/update flag, new endpoint
+- `static/providers.html` — checkbox, badge, button, safe DOM rendering
+- `CLAUDE.md`, `docs/version-history.md`, `docs/gotchas.md` — updates
+
+---
+
 ## v0.22.10 — AI Assist Uses llm_providers (2026-04-07)
 
 **Problem:** AI Assist read its API key from `os.environ["ANTHROPIC_API_KEY"]`
