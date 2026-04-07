@@ -26,13 +26,15 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.22.5
+## Current Status — v0.22.6
 
-v0.22.5: Bulk scanner files/sec display fix. Parallel drain loop recorded
-~200 per-file completions in a tight loop, stamping the RollingWindowETA
-deque with near-identical timestamps and producing absurd rates like
-`783184.5 files/sec`. Replaced with a single
-`tracker.record_completion(count=len(batch))` per drain.
+v0.22.6: Critical hashlib UnboundLocalError fix in bulk_worker.py (an inner
+`import hashlib` shadowed the module-level import, breaking 100% of files in
+every bulk job and triggering 124K+ error_rate_abort cascades). Plus a
+size-aware batch splitter for the Anthropic vision adapter to avoid
+413 Payload Too Large on large keyframes.
+
+Previous (v0.22.5): Bulk scanner files/sec display fix.
 
 Previous (v0.22.4): Help icon link fix (`/help#` -> `/help.html#`) and new
 auto-conversion help article covering modes, workers, batch sizing, pipeline

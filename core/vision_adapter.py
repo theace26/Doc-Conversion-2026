@@ -21,6 +21,10 @@ log = structlog.get_logger(__name__)
 _VISION_PROVIDERS = {"anthropic", "openai", "gemini", "ollama"}
 _TIMEOUT = 60.0
 
+# Anthropic API hard limit is 32 MB per request. Stay well under to leave room
+# for JSON envelope, headers, and the prompt text.
+_ANTHROPIC_MAX_PAYLOAD_BYTES = 24 * 1024 * 1024  # 24 MB
+
 
 @dataclass
 class FrameDescription:
@@ -202,54 +206,106 @@ class VisionAdapter:
         ]
 
     async def _batch_anthropic(self, image_paths: list[Path], prompt: str) -> list["BatchImageResult"]:
-        base = self._base_url or "https://api.anthropic.com"
-        content: list[dict] = []
+        # Pre-encode all images and group into sub-batches that stay under
+        # Anthropic's 32 MB request limit. Each sub-batch hits the API once.
+        encoded: list[tuple[Path, str, str, int]] = []  # (path, b64, mime, size)
         for path in image_paths:
-            image_b64 = base64.b64encode(path.read_bytes()).decode()
+            try:
+                raw = path.read_bytes()
+            except OSError as exc:
+                log.warning("vision_adapter.image_read_failed", path=str(path), error=str(exc))
+                encoded.append((path, "", "", 0))
+                continue
+            b64 = base64.b64encode(raw).decode()
             mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
-            content.append({
-                "type": "image",
-                "source": {"type": "base64", "media_type": mime, "data": image_b64},
-            })
-        content.append({"type": "text", "text": prompt})
+            encoded.append((path, b64, mime, len(b64)))
 
-        timeout = max(_TIMEOUT, _TIMEOUT * len(image_paths) / 3)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(
-                f"{base}/v1/messages",
-                headers={
-                    "x-api-key": self._api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": self._model,
-                    "max_tokens": 400 * len(image_paths),
-                    "messages": [{"role": "user", "content": content}],
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            text = "".join(
-                block.get("text", "")
-                for block in data.get("content", [])
-                if block.get("type") == "text"
-            )
-            usage = data.get("usage", {})
-            tokens = (usage.get("input_tokens", 0) or 0) + (usage.get("output_tokens", 0) or 0)
+        # Greedy split into size-bounded sub-batches (preserve original index order).
+        sub_batches: list[list[int]] = []
+        current: list[int] = []
+        current_size = 0
+        for idx, (_, b64, _, size) in enumerate(encoded):
+            if not b64:
+                # Failed to read; place into its own slot so the index is preserved
+                if current:
+                    sub_batches.append(current)
+                    current, current_size = [], 0
+                sub_batches.append([idx])
+                continue
+            if current and current_size + size > _ANTHROPIC_MAX_PAYLOAD_BYTES:
+                sub_batches.append(current)
+                current, current_size = [], 0
+            current.append(idx)
+            current_size += size
+        if current:
+            sub_batches.append(current)
 
-        parsed = self._parse_batch_response(text, len(image_paths))
-        per_image = (tokens // len(image_paths)) if tokens and len(image_paths) > 0 else None
-        return [
-            BatchImageResult(
-                index=i,
-                description=item.get("description", ""),
-                extracted_text=item.get("extracted_text", ""),
-                error=item.get("error"),
-                tokens_used=per_image,
-            )
-            for i, item in enumerate(parsed)
-        ]
+        # Per-image results, populated in original order.
+        results: list[BatchImageResult | None] = [None] * len(image_paths)
+
+        base = self._base_url or "https://api.anthropic.com"
+        async with httpx.AsyncClient(timeout=_TIMEOUT * 4) as client:
+            for batch_indices in sub_batches:
+                # Skip slots that failed to read (single-index batches with empty b64).
+                if len(batch_indices) == 1 and not encoded[batch_indices[0]][1]:
+                    i = batch_indices[0]
+                    results[i] = BatchImageResult(
+                        index=i, description="", extracted_text="",
+                        error="[image read failed]",
+                    )
+                    continue
+
+                content: list[dict] = []
+                for i in batch_indices:
+                    _, b64, mime, _ = encoded[i]
+                    content.append({
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": mime, "data": b64},
+                    })
+                content.append({"type": "text", "text": prompt})
+
+                resp = await client.post(
+                    f"{base}/v1/messages",
+                    headers={
+                        "x-api-key": self._api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": self._model,
+                        "max_tokens": 400 * len(batch_indices),
+                        "messages": [{"role": "user", "content": content}],
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                text = "".join(
+                    block.get("text", "")
+                    for block in data.get("content", [])
+                    if block.get("type") == "text"
+                )
+                usage = data.get("usage", {})
+                tokens = (usage.get("input_tokens", 0) or 0) + (usage.get("output_tokens", 0) or 0)
+
+                parsed = self._parse_batch_response(text, len(batch_indices))
+                per_image = (tokens // len(batch_indices)) if tokens else None
+                for slot, item in zip(batch_indices, parsed):
+                    results[slot] = BatchImageResult(
+                        index=slot,
+                        description=item.get("description", ""),
+                        extracted_text=item.get("extracted_text", ""),
+                        error=item.get("error"),
+                        tokens_used=per_image,
+                    )
+
+        # Fill any remaining None slots (defensive — shouldn't happen).
+        for i, r in enumerate(results):
+            if r is None:
+                results[i] = BatchImageResult(
+                    index=i, description="", extracted_text="",
+                    error="[no result returned]",
+                )
+        return results  # type: ignore[return-value]
 
     async def _batch_openai(self, image_paths: list[Path], prompt: str) -> list["BatchImageResult"]:
         content: list[dict] = [{"type": "text", "text": prompt}]

@@ -4,6 +4,38 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.22.6 — Critical hashlib Bug + Vision Payload Splitter (2026-04-06)
+
+**Critical Fixes:**
+
+- **`hashlib` UnboundLocalError in bulk_worker**: A local `import hashlib` inside
+  the vector-indexing block (line 802) shadowed the module-level import. Python's
+  scoping rules then treated `hashlib` as a local variable for the **entire function**,
+  causing the earlier `hashlib.sha256(...)` call on line 726 to raise
+  `UnboundLocalError: cannot access local variable 'hashlib' where it is not
+  associated with a value`. This caused **every file in every bulk job to fail**,
+  triggering the 100% error-rate auto-abort in a runaway cascade.
+  - Log impact: 124,216 `bulk_worker_error_rate_abort` events, 67
+    `bulk_worker_unhandled` errors, 506 files marked failed, 19+ jobs cancelled.
+  - **Fix:** Removed the redundant inner import (`hashlib` is already imported
+    at module level).
+
+- **Vision adapter `413 Payload Too Large` from Anthropic API**:
+  `_batch_anthropic()` sent up to 10 base64-encoded images per request without
+  checking total size. Large keyframes pushed requests over Anthropic's 32 MB
+  hard limit, killing entire vision batches.
+  - **Fix:** Rewrote `_batch_anthropic()` with a size-aware greedy splitter.
+    Pre-encodes all images, groups into sub-batches that stay under 24 MB (leaving
+    8 MB headroom for JSON envelope, headers, and prompt text), and makes
+    multiple sequential API calls per logical batch. Results are reassembled in
+    original input order. New constant `_ANTHROPIC_MAX_PAYLOAD_BYTES = 24 MB`.
+
+**Modified files:**
+- `core/bulk_worker.py` — Removed shadowing inner `import hashlib`
+- `core/vision_adapter.py` — Size-aware batch splitter for Anthropic vision
+
+---
+
 ## v0.22.5 — Bulk Scanner files/sec Display Fix (2026-04-07)
 
 **Fix:** The Active Job panel on the Bulk Jobs page displayed nonsensical scan

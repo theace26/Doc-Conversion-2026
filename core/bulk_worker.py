@@ -799,7 +799,6 @@ class BulkJob:
                         from core.vector.index_manager import get_vector_indexer
                         vec_indexer = await get_vector_indexer()
                         if vec_indexer:
-                            import hashlib
                             vec_doc_id = hashlib.sha256(str(actual_output).encode()).hexdigest()[:16]
                             await vec_indexer.index_document(
                                 md_path=actual_output,
