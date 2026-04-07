@@ -8,20 +8,84 @@ Auto-loaded by Claude Code at session start. Detailed references live in `docs/`
 documents bidirectionally between their original format and Markdown. Runs in Docker.
 GitHub: `github.com/theace26/Doc-Conversion-2026`
 
-## When to read the reference docs
+## Project documentation map
 
-Read on demand — not loaded automatically:
+Read on demand — none of these are auto-loaded. Listed by role.
 
-| File | Read it when... |
-|------|-----------------|
-| [`docs/gotchas.md`](docs/gotchas.md) | Modifying or debugging a subsystem — check its section before writing code |
-| [`docs/key-files.md`](docs/key-files.md) | Locating a file by purpose or understanding what a file does |
-| [`docs/version-history.md`](docs/version-history.md) | Needing context on why something was built or what changed in a version |
-| [`docs/security-audit.md`](docs/security-audit.md) | Working on auth, input validation, or pre-prod hardening |
-| [`docs/phase-1-instructions.md`](docs/phase-1-instructions.md) | Rarely — only if revisiting the original Phase 1 design spec |
+### Core engineering references (read these first when working on code)
 
-**Rule of thumb:** If a task touches bulk/lifecycle/auth/password/GPU/OCR/search/vector,
-read the relevant `gotchas.md` section first. Most bugs there have already been hit and documented.
+| File | Role / read it when... |
+|------|------------------------|
+| [`docs/gotchas.md`](docs/gotchas.md) | Hard-won subsystem-specific lessons (~100 items, organized by subsystem). **Always check the relevant section before modifying or debugging code in that area** — most foot-guns here have already been hit. |
+| [`docs/key-files.md`](docs/key-files.md) | 189-row file reference table mapping every important file to its purpose. Read when locating a file by what it does or understanding what an unfamiliar file is for. |
+| [`docs/version-history.md`](docs/version-history.md) | Detailed per-version changelog (one entry per release, full context: problem, fix, modified files, why-it-matters). The canonical "why was this built" reference. Append a new entry on every release. |
+
+### Pre-production / hardening
+
+| File | Role / read it when... |
+|------|------------------------|
+| [`docs/security-audit.md`](docs/security-audit.md) | Findings-only security audit performed at v0.16.0. **62 findings, 3 critical + 5 high — pre-prod blocker.** Read when working on auth, input validation, JWT, role guards, or anything customer-data-sensitive. |
+| [`docs/streamlining-audit.md`](docs/streamlining-audit.md) | Code-quality / DRY audit performed at v0.16.0. All 24 items resolved across v0.16.1–v0.16.2. Read only when you want history of how the codebase was tightened (e.g., why `core/db/` is split into 8 modules). |
+
+### Integration / contracts (Phase 10+)
+
+| File | Role / read it when... |
+|------|------------------------|
+| [`docs/unioncore-integration-contract.md`](docs/unioncore-integration-contract.md) | The agreed-upon API contract between MarkFlow and UnionCore (Phase 10 auth integration). Two surfaces: user-facing search render + backend webhook. Read when touching `/api/search/*` shape, JWT validation, or anything UnionCore consumes. |
+| [`docs/MarkFlow-Search-Capabilities.md`](docs/MarkFlow-Search-Capabilities.md) | Stakeholder-facing capability brief (last updated v0.22.0). Sales / executive tone. Read when the user asks for a feature summary suitable for non-engineers, or when updating it after major search/index changes. |
+
+### Operations
+
+| File | Role / read it when... |
+|------|------------------------|
+| [`docs/drive-setup.md`](docs/drive-setup.md) | End-user instructions for sharing host drives with the Docker container (Windows/Mac/Linux). Read when troubleshooting "MarkFlow can't see my files" or updating Docker mount setup. |
+| [`docs/phase-1-instructions.md`](docs/phase-1-instructions.md) | Original Phase 1 design spec (DocumentModel, DocxHandler, metadata, upload UI). **Historical only** — read only if revisiting the foundation architecture. |
+
+### User-facing help wiki (`docs/help/*.md` — 18 articles)
+
+These render in the in-app help drawer (`/help.html`). Update them when shipping
+user-visible features or changing UX. Article inventory:
+
+| Article | Covers |
+|---------|--------|
+| [`getting-started.md`](docs/help/getting-started.md) | First-time user walkthrough |
+| [`document-conversion.md`](docs/help/document-conversion.md) | Single-file Convert page |
+| [`bulk-conversion.md`](docs/help/bulk-conversion.md) | Bulk Convert page, jobs, pause/resume/cancel |
+| [`auto-conversion.md`](docs/help/auto-conversion.md) | Auto-conversion pipeline (modes, workers, batch sizing, master switch) |
+| [`search.md`](docs/help/search.md) | Search page, filters, batch download, hover preview |
+| [`fidelity-tiers.md`](docs/help/fidelity-tiers.md) | Tier 1/2/3 round-trip explanation |
+| [`ocr-pipeline.md`](docs/help/ocr-pipeline.md) | OCR detection, confidence, review queue |
+| [`file-lifecycle.md`](docs/help/file-lifecycle.md) | Active → marked → trashed → purged states + timers |
+| [`adobe-files.md`](docs/help/adobe-files.md) | Adobe Level-2 indexing (.psd/.ai/.indd) |
+| [`unrecognized-files.md`](docs/help/unrecognized-files.md) | Catalog page, MIME detection |
+| [`llm-providers.md`](docs/help/llm-providers.md) | Provider setup, AI Assist, image analysis |
+| [`gpu-setup.md`](docs/help/gpu-setup.md) | NVIDIA Container Toolkit, host worker, hashcat |
+| [`password-recovery.md`](docs/help/password-recovery.md) | PDF/Office/archive password cascade |
+| [`mcp-integration.md`](docs/help/mcp-integration.md) | Port 8001 MCP server, tools, auth token |
+| [`nfs-setup.md`](docs/help/nfs-setup.md) | NFS mount Settings UI |
+| [`status-page.md`](docs/help/status-page.md) | System Status page, health checks |
+| [`resources-monitoring.md`](docs/help/resources-monitoring.md) | Resources page, activity log |
+| [`admin-tools.md`](docs/help/admin-tools.md) | Admin-only pages (flagged files, users, providers) |
+| [`settings-guide.md`](docs/help/settings-guide.md) | Settings page section-by-section reference |
+| [`keyboard-shortcuts.md`](docs/help/keyboard-shortcuts.md) | Page-level keyboard shortcuts |
+| [`troubleshooting.md`](docs/help/troubleshooting.md) | Common problems + fixes by symptom |
+
+### Implementation plans / specs (`docs/superpowers/`)
+
+`docs/superpowers/plans/*.md` and `docs/superpowers/specs/*.md` contain the
+written plans and design specs for major features (image-analysis-queue,
+hdd-scan-optimizations, pipeline-file-explorer, nfs-mount-support, vector-search,
+cloud-prefetch, file-flagging, source-files-dedup, auto-conversion-pipeline).
+**Historical / context-only** — once a plan is shipped, the canonical
+documentation lives in `version-history.md` and the code itself. Read a plan
+only when investigating a feature's original intent or design rationale.
+
+### Rule of thumb
+
+If a task touches **bulk / lifecycle / auth / password / GPU / OCR / search / vector**,
+read the relevant `gotchas.md` section first. Most bugs in those areas have already
+been hit and documented. For "what changed and why" questions, jump to
+`version-history.md`. For "where does X live" questions, jump to `key-files.md`.
 
 ---
 
