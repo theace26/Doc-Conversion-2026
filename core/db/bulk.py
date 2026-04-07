@@ -539,3 +539,132 @@ async def get_unprocessed_bulk_files(job_id: str) -> list[dict[str, Any]]:
            ORDER BY source_path""",
         (job_id,),
     )
+
+
+# ── Self-correction (v0.22.7): phantom prune + cross-job dedup ──────────────
+
+# Job statuses that mean "still in flight" — bulk_files rows for these jobs
+# must NEVER be touched by the cleanup (they are actively being processed).
+_ACTIVE_JOB_STATUSES = ("scanning", "running", "paused", "pending")
+
+
+async def _delete_bulk_files_by_select(
+    conn, select_sql: str, params: tuple
+) -> int:
+    """
+    Stage-then-delete helper. Given a SELECT that returns the bulk_files.id
+    rows to remove, deletes child rows in bulk_review_queue and archive_members
+    first (FK constraints), then deletes the parent rows. Returns the parent
+    delete count. Uses chunked IN clauses to stay under SQLite's parameter
+    limit (~999) for very large deletion sets.
+    """
+    cur = await conn.execute(select_sql, params)
+    rows = await cur.fetchall()
+    ids = [r[0] for r in rows]
+    if not ids:
+        return 0
+
+    CHUNK = 500  # well under SQLite's 999 host-parameter limit
+    for start in range(0, len(ids), CHUNK):
+        chunk = ids[start:start + CHUNK]
+        placeholders = ",".join("?" for _ in chunk)
+        # Children first (no ON DELETE CASCADE in schema)
+        await conn.execute(
+            f"DELETE FROM bulk_review_queue WHERE bulk_file_id IN ({placeholders})",
+            chunk,
+        )
+        await conn.execute(
+            f"DELETE FROM archive_members WHERE bulk_file_id IN ({placeholders})",
+            chunk,
+        )
+        await conn.execute(
+            f"DELETE FROM bulk_files WHERE id IN ({placeholders})",
+            chunk,
+        )
+    return len(ids)
+
+
+async def cleanup_stale_bulk_files() -> dict[str, int]:
+    """
+    Self-correction sweep for the bulk_files table.
+
+    Performs three deletions. Active jobs (scanning/running/paused/pending)
+    are always excluded so in-flight work is never disturbed. Returns a dict
+    of counts for logging.
+
+      1. Phantom prune  -- delete bulk_files rows whose source_path no longer
+                           exists in the source_files registry (file deleted
+                           from disk and tracked accordingly).
+      2. Purged prune   -- delete bulk_files rows whose source_file has
+                           lifecycle_status='purged' (permanently trashed).
+      3. Cross-job dedup -- for each source_path, keep only the row from the
+                           most recent finished job and delete older duplicates.
+                           "Most recent" is determined by bulk_jobs.started_at.
+
+    Child tables (bulk_review_queue, archive_members) reference bulk_files(id)
+    without ON DELETE CASCADE, so child rows are removed first via the
+    _delete_bulk_files_by_select helper.
+
+    Why: bulk_files is keyed by (job_id, source_path), so each scan creates a
+    fresh copy of every file. After 10 jobs, ~12k unique files balloon to
+    ~120k rows. The pipeline status badge sums across all rows and reports
+    nonsensical pending counts. This cleanup keeps the table truthful.
+    """
+    placeholders = ",".join("?" for _ in _ACTIVE_JOB_STATUSES)
+
+    async with get_db() as conn:
+        # 1. Phantom prune
+        phantom_deleted = await _delete_bulk_files_by_select(
+            conn,
+            f"""SELECT id FROM bulk_files
+                WHERE source_path NOT IN (SELECT source_path FROM source_files)
+                  AND job_id NOT IN (
+                      SELECT id FROM bulk_jobs WHERE status IN ({placeholders})
+                  )""",
+            _ACTIVE_JOB_STATUSES,
+        )
+
+        # 2. Purged prune
+        purged_deleted = await _delete_bulk_files_by_select(
+            conn,
+            f"""SELECT id FROM bulk_files
+                WHERE source_path IN (
+                    SELECT source_path FROM source_files
+                    WHERE lifecycle_status = 'purged'
+                )
+                AND job_id NOT IN (
+                    SELECT id FROM bulk_jobs WHERE status IN ({placeholders})
+                )""",
+            _ACTIVE_JOB_STATUSES,
+        )
+
+        # 3. Cross-job dedup -- keep only the row from the most recently STARTED
+        #    job per source_path; delete the rest (subject to active-job exclusion).
+        dedup_deleted = await _delete_bulk_files_by_select(
+            conn,
+            f"""SELECT bf.id FROM bulk_files bf
+                JOIN bulk_jobs bj ON bf.job_id = bj.id
+                WHERE bf.id NOT IN (
+                    SELECT bf2.id FROM bulk_files bf2
+                    JOIN bulk_jobs bj2 ON bf2.job_id = bj2.id
+                    JOIN (
+                        SELECT bf3.source_path, MAX(bj3.started_at) AS latest_start
+                        FROM bulk_files bf3
+                        JOIN bulk_jobs bj3 ON bf3.job_id = bj3.id
+                        GROUP BY bf3.source_path
+                    ) latest
+                      ON latest.source_path = bf2.source_path
+                     AND latest.latest_start = bj2.started_at
+                )
+                AND bj.status NOT IN ({placeholders})""",
+            _ACTIVE_JOB_STATUSES,
+        )
+
+        await conn.commit()
+
+    return {
+        "phantom_deleted": phantom_deleted,
+        "purged_deleted": purged_deleted,
+        "dedup_deleted": dedup_deleted,
+        "total_deleted": phantom_deleted + purged_deleted + dedup_deleted,
+    }

@@ -450,6 +450,44 @@ async def _expire_flags() -> None:
         log.error("flag_expiry_failed", error=str(exc))
 
 
+async def _bulk_files_self_correction() -> None:
+    """
+    Periodic self-correction for the bulk_files table.
+
+    Removes phantom rows (source file gone from disk), purged rows
+    (source_files.lifecycle_status='purged'), and cross-job duplicates
+    (older copies of the same source_path from finished jobs). Skips work
+    while any bulk job is active to avoid touching in-flight rows.
+
+    Why: bulk_files is keyed by (job_id, source_path), so each scan creates
+    a fresh copy of every file. Without periodic cleanup the table balloons
+    to 10x+ the unique file count and the pipeline status badge reports
+    nonsensical pending counts.
+    """
+    try:
+        # Skip if any bulk job is currently scanning/running/paused.
+        from core.bulk_worker import get_all_active_jobs
+        if get_all_active_jobs():
+            log.info("bulk_files_self_correction_skipped",
+                     reason="active_bulk_job")
+            return
+
+        from core.db import cleanup_stale_bulk_files
+        result = await cleanup_stale_bulk_files()
+        if result["total_deleted"] > 0:
+            log.info(
+                "bulk_files_self_correction_run",
+                phantom_deleted=result["phantom_deleted"],
+                purged_deleted=result["purged_deleted"],
+                dedup_deleted=result["dedup_deleted"],
+                total_deleted=result["total_deleted"],
+            )
+        else:
+            log.debug("bulk_files_self_correction_run", total_deleted=0)
+    except Exception as exc:
+        log.error("bulk_files_self_correction_failed", error=str(exc))
+
+
 def start_scheduler() -> None:
     """Register all jobs and start the scheduler. Called from lifespan."""
     from core.metrics_collector import collect_metrics, collect_disk_snapshot, purge_old_metrics
@@ -604,8 +642,20 @@ def start_scheduler() -> None:
         misfire_grace_time=60,
     )
 
+    # v0.22.7: bulk_files self-correction (phantom prune + cross-job dedup)
+    # Runs every 6 hours; skips automatically if a bulk job is in flight.
+    scheduler.add_job(
+        _bulk_files_self_correction,
+        trigger=IntervalTrigger(hours=6),
+        id="bulk_files_self_correction",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=300,
+    )
+
     scheduler.start()
-    log.info("scheduler.started", jobs=14)
+    log.info("scheduler.started", jobs=15)
 
 
 def get_pipeline_status() -> dict:

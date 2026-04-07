@@ -34,6 +34,7 @@ from core.db.preferences import (
 
 # Bulk jobs & files
 from core.db.bulk import (
+    cleanup_stale_bulk_files,
     create_bulk_job,
     get_bulk_file_count,
     get_bulk_files,
@@ -176,6 +177,7 @@ __all__ = [
     "upsert_source_file", "upsert_bulk_file", "upsert_bulk_files_batch",
     "get_bulk_files", "get_bulk_file_count", "update_bulk_file",
     "get_unprocessed_bulk_files", "get_pipeline_files",
+    "cleanup_stale_bulk_files",
     "load_dir_mtimes", "save_dir_mtimes_batch",
     "get_incremental_scan_count", "increment_scan_count", "reset_scan_count",
     # conversions

@@ -26,13 +26,18 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.22.6
+## Current Status — v0.22.7
 
-v0.22.6: Critical hashlib UnboundLocalError fix in bulk_worker.py (an inner
-`import hashlib` shadowed the module-level import, breaking 100% of files in
-every bulk job and triggering 124K+ error_rate_abort cascades). Plus a
-size-aware batch splitter for the Anthropic vision adapter to avoid
-413 Payload Too Large on large keyframes.
+v0.22.7: bulk_files self-correction. Adds a periodic cleanup job that prunes
+phantom rows (source file gone), purged rows (lifecycle_status='purged'),
+and cross-job duplicates (older copies of the same source_path from finished
+jobs). Runs every 6 hours via the scheduler; auto-skips while any bulk job
+is active. Also exposed via `POST /api/admin/cleanup-bulk-files` for manual
+trigger. Fixes the issue where the pipeline status badge reported nonsensical
+pending counts (e.g. 325k for ~34k unique files) due to bulk_files
+accumulating ~10x duplicates over multiple scan jobs.
+
+Previous (v0.22.6): hashlib UnboundLocalError + Anthropic vision splitter.
 
 Previous (v0.22.5): Bulk scanner files/sec display fix.
 

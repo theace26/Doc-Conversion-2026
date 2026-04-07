@@ -30,11 +30,22 @@ the relevant subsystem. Referenced from CLAUDE.md.
   dump-and-restore repair. The repair endpoint checks `stop_controller.registered_tasks`
   and refuses to run if any tasks are active.
 
-- **bulk_files table duplicates across jobs**: `upsert_bulk_file()` is keyed by
-  `(job_id, source_path)`, so each new scan job inserts its own copy of every file.
-  12,847 distinct files → 34K+ rows after 5 jobs. Per-job counts are accurate, but
-  cross-job aggregation or total row count overcounts. Needs a dedup strategy or a
-  separate global file registry.
+- **bulk_files table duplicates across jobs (mitigated v0.22.7)**:
+  `upsert_bulk_file()` is keyed by `(job_id, source_path)`, so each new scan job
+  inserts its own copy of every file. After ~10 jobs, 12,847 distinct files
+  balloon to 120K+ rows and the pipeline status badge reports inflated pending
+  counts (observed: 325,186 pending for 34,814 unique files). The single source
+  of truth for unique files is `source_files`, NOT `bulk_files`.
+  - **Mitigation (v0.22.7):** A scheduled job `bulk_files_self_correction`
+    runs every 6 hours and prunes phantom rows (source_path no longer in
+    source_files), purged rows (lifecycle_status='purged'), and cross-job
+    duplicates (keeps only the latest job's row per source_path). Active jobs
+    are excluded from cleanup. Manual trigger:
+    `POST /api/admin/cleanup-bulk-files`.
+  - The underlying schema is unchanged — bulk_files is still per-job by design.
+    For per-job counts, query `WHERE job_id=?` (always accurate). For total
+    pending across the repo, query `source_files` and JOIN to the latest
+    bulk_files row, NOT `SELECT COUNT(*) FROM bulk_files`.
 
 - **bulk_files upsert must be atomic (v0.18.1)**: `upsert_bulk_file()` now uses
   `INSERT ... ON CONFLICT DO UPDATE` instead of SELECT-then-INSERT. The old pattern

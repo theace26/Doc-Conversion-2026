@@ -406,6 +406,29 @@ async def stop_state(
     return get_stop_state()
 
 
+# ── POST /api/admin/cleanup-bulk-files ────────────────────────────────────
+
+@router.post("/cleanup-bulk-files")
+async def cleanup_bulk_files_now(
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
+    """
+    Manually trigger the bulk_files self-correction sweep (phantom prune,
+    purged prune, cross-job dedup). Normally runs every 6 hours via the
+    scheduler. Skips if any bulk job is currently active.
+    """
+    from core.bulk_worker import get_all_active_jobs
+    if get_all_active_jobs():
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot run cleanup while a bulk job is active",
+        )
+    from core.db import cleanup_stale_bulk_files
+    result = await cleanup_stale_bulk_files()
+    log.info("admin_cleanup_bulk_files", by=user.sub, **result)
+    return result
+
+
 # ── GET /api/admin/active-jobs ────────────────────────────────────────────
 
 @router.get("/active-jobs")

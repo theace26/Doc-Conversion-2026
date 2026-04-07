@@ -11,7 +11,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `core/db/connection.py` | DB_PATH, get_db(), db_fetch_one/all, db_execute, db_write_with_retry, now_iso |
 | `core/db/schema.py` | Schema DDL, versioned migrations, init_db(), cleanup_orphaned_jobs |
 | `core/db/preferences.py` | DEFAULT_PREFERENCES, get/set/all preference helpers |
-| `core/db/bulk.py` | Bulk jobs, bulk files, source file upsert/query helpers |
+| `core/db/bulk.py` | Bulk jobs, bulk files, source file upsert/query helpers + `cleanup_stale_bulk_files()` self-correction (v0.22.7) |
 | `core/db/conversions.py` | Conversion history, batch state, OCR flags, review queue, scene keyframes |
 | `core/db/catalog.py` | Adobe index, locations, LLM providers, unrecognized files, archive members |
 | `core/db/lifecycle.py` | Lifecycle queries, file versions, path issues, scan runs, maintenance log |

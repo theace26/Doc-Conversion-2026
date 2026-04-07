@@ -4,6 +4,65 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.22.7 — bulk_files Self-Correction (2026-04-07)
+
+**Feature:** Periodic cleanup sweep for the `bulk_files` table that prunes
+phantom rows, purged rows, and cross-job duplicates. Solves the long-standing
+issue where the pipeline status badge reported nonsensical pending counts
+(observed: 325,186 pending for 34,814 unique source files — a ~9.3x
+duplication factor across 9-10 historical bulk jobs).
+
+**Background:**
+The `bulk_files` table is keyed by `(job_id, source_path)`, so each new scan
+job inserts a fresh row for every file even if previous jobs already converted
+it. Over time the table balloons to many multiples of the unique source file
+count. The pipeline status badge sums across all `bulk_files` rows without
+deduplicating by `source_path`, producing inflated and misleading pending
+counts. Documented as a known issue in `docs/gotchas.md`.
+
+**The cleanup performs three deletions in a single transaction:**
+
+1. **Phantom prune**: `DELETE FROM bulk_files WHERE source_path NOT IN
+   (SELECT source_path FROM source_files)` — removes rows for files that no
+   longer exist in the source registry (file deleted from disk).
+2. **Purged prune**: `DELETE FROM bulk_files WHERE source_path IN (SELECT
+   source_path FROM source_files WHERE lifecycle_status='purged')` — removes
+   rows for files that were permanently trashed.
+3. **Cross-job dedup**: For each `source_path`, keep only the row from the
+   most recent job (by `bulk_jobs.started_at`) and delete older duplicates.
+
+**Safety:** All three deletions exclude rows belonging to active jobs
+(status in `scanning`, `running`, `paused`, `pending`). The scheduler
+wrapper additionally skips the entire job if `get_all_active_jobs()` is
+non-empty, providing two layers of protection against touching in-flight rows.
+
+**Schedule:** Every 6 hours via `_bulk_files_self_correction()` in
+`core/scheduler.py`. Job ID `bulk_files_self_correction`.
+
+**Manual trigger:** `POST /api/admin/cleanup-bulk-files` (admin role required).
+Returns 409 Conflict if a bulk job is currently active. Response payload:
+```json
+{
+  "phantom_deleted": 12,
+  "purged_deleted": 0,
+  "dedup_deleted": 290847,
+  "total_deleted": 290859
+}
+```
+
+**Modified files:**
+- `core/db/bulk.py` — New `cleanup_stale_bulk_files()` function with
+  three-pass deletion logic and active-job exclusion
+- `core/db/__init__.py` — Export `cleanup_stale_bulk_files`
+- `core/scheduler.py` — New `_bulk_files_self_correction()` wrapper that
+  checks `get_all_active_jobs()` before delegating, plus job registration
+  in `start_scheduler()` (now reports 15 jobs)
+- `api/routes/admin.py` — New `POST /api/admin/cleanup-bulk-files` endpoint
+- `core/version.py` — 0.22.6 → 0.22.7
+- `CLAUDE.md`, `docs/version-history.md`, `docs/gotchas.md` — Updates
+
+---
+
 ## v0.22.6 — Critical hashlib Bug + Vision Payload Splitter (2026-04-06)
 
 **Critical Fixes:**
