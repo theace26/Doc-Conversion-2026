@@ -758,8 +758,10 @@ class BulkScanner:
                 await self._record_unrecognized(file_path, ext, file_size, mtime)
 
             file_count += len(batch)
-            for _ in batch:
-                await tracker.record_completion()
+            # Record the whole drain as a single window entry — per-file calls
+            # would stamp ~200 entries with near-identical timestamps, poisoning
+            # the rolling-window fps calculation (see progress_tracker.py).
+            await tracker.record_completion(count=len(batch))
             last_progress_file = batch[-1][0]
 
             # Periodically ask throttler to re-evaluate
