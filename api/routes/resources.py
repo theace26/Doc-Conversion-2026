@@ -9,6 +9,7 @@ GET  /api/resources/summary          — executive summary (the IT admin pitch c
 GET  /api/resources/export           — CSV download of any metrics table
 GET  /api/resources/ocr-quality      — OCR confidence avg / min / max / distribution
 GET  /api/resources/scan-throttle    — scan throttle adjustment history
+GET  /api/resources/active           — currently active users + live stream connections (v0.22.13)
 """
 
 import csv
@@ -20,6 +21,11 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
+from core.active_connections import (
+    get_active_streams,
+    get_active_users,
+    get_total_active_streams,
+)
 from core.auth import AuthenticatedUser, UserRole, require_role
 from core.database import db_fetch_all, get_preference
 from core.metrics_collector import (
@@ -334,3 +340,38 @@ async def export_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ── GET /api/resources/active ────────────────────────────────────────────────
+
+@router.get("/active")
+async def get_active_connections(
+    window_seconds: int = Query(default=300, ge=10, le=3600,
+                                description="Sliding window for 'recently active' users"),
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
+    """
+    Return who/what is currently using MarkFlow (v0.22.13).
+
+    Two independent in-memory counters (no DB schema, resets on restart):
+
+    - **Recently active users** — last-seen timestamp per `user.sub`,
+      updated by the request middleware. Returns users seen in the last
+      `window_seconds` (default 5 min).
+    - **Live SSE / streaming connections** — incremented when a long-lived
+      StreamingResponse generator starts and decremented in `finally`.
+      Bucketed by endpoint label so admins can see *which* live streams
+      are open.
+
+    The widget on the Resources page polls this endpoint every ~5 seconds.
+    """
+    users = get_active_users(window_seconds=window_seconds)
+    streams_by_endpoint = get_active_streams()
+    total_streams = get_total_active_streams()
+    return {
+        "window_seconds": window_seconds,
+        "users": users,
+        "total_users": len(users),
+        "total_streams": total_streams,
+        "streams_by_endpoint": streams_by_endpoint,
+    }

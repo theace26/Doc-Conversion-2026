@@ -4,6 +4,118 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.22.13 — Active Connections Widget (2026-04-07)
+
+**Asked in chat:** "Under the resources page — are you able to show how
+many connections are active on the website?"
+
+The Resources page previously tracked CPU/RAM/disk metrics, activity log,
+OCR quality, and scan throttle history but had no concept of "who/what is
+currently using MarkFlow". This release adds a small in-memory tracker
+plus a polled widget to show:
+
+1. **Recently active users** — sliding window (default 5 minutes) of who
+   has made an authenticated request, sorted most-recent-first.
+2. **Live SSE / streaming connections** — exact count of long-lived
+   StreamingResponse generators currently open, bucketed by endpoint
+   label so admins can see which features are in active use.
+
+### Why no DB schema
+
+Both counters are in-process dicts. Resets on container restart are
+**intentional** — these are "right now" diagnostics, not historical
+metrics. The widget shows 0 immediately after a rebuild and refills
+within seconds as clients reconnect. Avoiding the DB also avoids write
+contention with the bulk worker / scanner during heavy load.
+
+### Code changes
+
+- **`core/active_connections.py`** (new, ~150 lines):
+  - `_user_last_seen: dict[str, tuple[str, str]]` — sub → (iso_ts, email)
+  - `_active_streams: dict[str, int]` — endpoint label → count
+  - `record_request_activity(user_sub, user_email)` — middleware hook
+  - `get_active_users(window_seconds)` — sliding window query that
+    drops stale entries on every call (so the dict can't grow unbounded
+    over a long-running process)
+  - `track_stream(endpoint)` — async context manager that increments
+    on enter and decrements in `finally`. Exception-safe so client
+    disconnects (`CancelledError` / `BrokenPipeError`) still drop the
+    counter back.
+  - `get_active_streams()` / `get_total_active_streams()`
+
+- **`core/auth.py`** — `get_current_user()` stashes the resolved
+  `AuthenticatedUser` on `request.state.user` (in all 3 auth paths:
+  DEV_BYPASS_AUTH, X-API-Key, JWT Bearer). This is the integration point
+  the middleware needs.
+
+- **`api/middleware.py`** — `RequestContextMiddleware.dispatch()` reads
+  `getattr(request.state, "user", None)` after `call_next()` returns and
+  fires `record_request_activity(user.sub, user.email)`. Skips silently
+  for unauthenticated routes (e.g. `/api/health`, static assets).
+
+- **SSE generators wrapped** with `async with track_stream(...)`:
+  - `api/routes/bulk.py` — `bulk_job_events`, `ocr_gap_fill`
+  - `api/routes/batch.py` — `batch_progress` (refactored: outer
+    `event_generator()` wraps the body in `track_stream`, original body
+    moved to inner `_batch_event_generator()`)
+  - `core/ai_assist.py` — `ai_assist_search`, `ai_assist_expand`
+    (same refactor pattern: outer wrapper + inner `_impl()` body)
+
+- **`api/routes/resources.py`** — new admin-only endpoint:
+  ```
+  GET /api/resources/active?window_seconds=300
+  ```
+  Returns:
+  ```json
+  {
+    "window_seconds": 300,
+    "users": [{"sub": "...", "email": "...", "last_seen": "..."}, ...],
+    "total_users": 5,
+    "total_streams": 3,
+    "streams_by_endpoint": {"bulk_job_events": 2, "ai_assist_search": 1}
+  }
+  ```
+
+- **`static/resources.html`** — new "Active Connections" section between
+  the Live System Metrics and Activity Log sections. Two cards
+  side-by-side:
+  - **Active Users** — count badge + scrollable list
+    (`email` left-aligned, "Xs ago" right-aligned). 200px max height.
+  - **Live Streams** — count badge + scrollable list (endpoint label
+    monospaced, count badge right-aligned). Sorted by count desc.
+  Both rendered with safe DOM construction (no innerHTML / template
+  injection). Polled every 5 seconds via `pollActiveConnections()`.
+  Polling pauses when the tab is hidden (visibility change handler).
+
+### Limitations / known non-features
+
+- **Anonymous traffic is invisible.** The auth model has no concept of an
+  unauthenticated visitor identity, so there's nothing to count. Anyone
+  hitting the app is either authenticated (counted under users) or holds
+  an SSE stream (counted under streams).
+- **Two browser tabs in one browser look like one user** because they
+  share the same JWT `sub`.
+- **DEV_BYPASS_AUTH=true makes everything look like the user "dev"** —
+  expected, since that's the only identity the auth dependency hands out
+  in dev mode.
+- The endpoint requires admin role. Non-admins polling it get a silent
+  failure in the widget (the "--" badges stay).
+
+### Modified files
+
+- `core/version.py` — 0.22.12 → 0.22.13
+- `core/active_connections.py` — new
+- `core/auth.py` — stash user on request.state
+- `api/middleware.py` — record activity hook
+- `core/ai_assist.py` — wrap both stream functions
+- `api/routes/bulk.py` — wrap two SSE generators
+- `api/routes/batch.py` — wrap batch progress generator
+- `api/routes/resources.py` — `/api/resources/active` endpoint
+- `static/resources.html` — new section + JS poller
+- `CLAUDE.md`, `docs/version-history.md` — updates
+
+---
+
 ## v0.22.12 — AI Assist Settings Copy Fix + Provider Badge (2026-04-07)
 
 **Problem:** The Settings page "AI-Assisted Search" section still carried

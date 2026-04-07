@@ -89,9 +89,30 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.22.12
+## Current Version — v0.22.13
 
-Settings page AI Assist section copy fix:
+Active Connections widget on the Resources page (Option C):
+- **`core/active_connections.py`** — new in-memory tracker with two
+  counters: recently-active users (sliding window, last-seen per `user.sub`)
+  and live SSE/streaming connections (bucketed by short endpoint label).
+  No DB schema; resets on container restart by design.
+- **`core/auth.py`** — `get_current_user()` now stashes the resolved user
+  on `request.state.user` so the middleware can read it after the response.
+- **`api/middleware.py`** — `RequestContextMiddleware` reads
+  `request.state.user` and calls `record_request_activity()` on every
+  successful authenticated request.
+- **SSE generators wrapped** with `async with track_stream(<endpoint>):`
+  in `bulk.py` (`bulk_job_events`, `ocr_gap_fill`), `batch.py`
+  (`batch_progress`), and `ai_assist.py` (`ai_assist_search`,
+  `ai_assist_expand`).
+- **`GET /api/resources/active`** — admin-only endpoint returning
+  `{users, total_users, total_streams, streams_by_endpoint, window_seconds}`.
+- **`static/resources.html`** — new "Active Connections" section between
+  Live System Metrics and Activity Log. Two cards (Active Users + Live
+  Streams) polled every 5 seconds. Safe DOM construction. Pauses when
+  the tab is hidden.
+
+Previous (v0.22.12): AI Assist Settings copy fix + live provider info badge.
 - The blurb under "Enable AI Assist" still said "Requires `ANTHROPIC_API_KEY`
   in the environment" — stale since v0.22.10. Replaced with explicit text
   saying AI Assist uses the same provider system as Vision & Frame

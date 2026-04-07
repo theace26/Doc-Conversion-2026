@@ -14,6 +14,7 @@ import structlog
 from fastapi import FastAPI, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from core.active_connections import record_request_activity
 from core.logging_config import bind_request_context, clear_context
 from core.request_pressure import get_request_pressure
 
@@ -49,6 +50,15 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             if DEBUG:
                 response.headers["X-MarkFlow-Request-Id"] = request_id
                 response.headers["X-MarkFlow-Duration-Ms"] = str(duration_ms)
+
+            # Record per-user "last seen" activity for the active-connections
+            # widget on the Resources page (v0.22.13). The auth dependency
+            # stashes the resolved user on request.state.user; if no auth ran
+            # for this route (e.g. /api/health, static asset) state.user will
+            # be unset and we skip silently.
+            user = getattr(request.state, "user", None)
+            if user is not None and getattr(user, "sub", None):
+                record_request_activity(user.sub, getattr(user, "email", ""))
 
             log.info(
                 "request_complete",

@@ -239,62 +239,64 @@ async def job_stream(
         raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
 
     async def event_generator():
-        event_id = 0
+        from core.active_connections import track_stream
+        async with track_stream("bulk_job_events"):
+            event_id = 0
 
-        # If job already complete, emit summary and review queue state
-        if job["status"] in ("completed", "cancelled", "failed"):
-            event_id += 1
-            yield _format_sse("job_complete", {
-                "job_id": job_id,
-                "converted": job.get("converted", 0),
-                "skipped": job.get("skipped", 0),
-                "failed": job.get("failed", 0),
-                "adobe_indexed": job.get("adobe_indexed", 0),
-                "review_queue_count": job.get("review_queue_count", 0),
-                "duration_ms": 0,
-            }, event_id)
-            # Include review queue summary if there are review items
-            rq_count = job.get("review_queue_count", 0)
-            if rq_count and rq_count > 0:
-                summary = await get_review_queue_summary(job_id)
+            # If job already complete, emit summary and review queue state
+            if job["status"] in ("completed", "cancelled", "failed"):
                 event_id += 1
-                yield _format_sse("review_queue_summary", {
+                yield _format_sse("job_complete", {
                     "job_id": job_id,
-                    **summary,
+                    "converted": job.get("converted", 0),
+                    "skipped": job.get("skipped", 0),
+                    "failed": job.get("failed", 0),
+                    "adobe_indexed": job.get("adobe_indexed", 0),
+                    "review_queue_count": job.get("review_queue_count", 0),
+                    "duration_ms": 0,
                 }, event_id)
-            event_id += 1
-            yield _format_sse("done", {}, event_id)
-            return
-
-        # Wait for queue to appear
-        queue = get_bulk_progress_queue(job_id)
-        if queue is None:
-            for _ in range(20):
-                await asyncio.sleep(0.3)
-                queue = get_bulk_progress_queue(job_id)
-                if queue is not None:
-                    break
-            if queue is None:
-                yield _format_sse("done", {}, 0)
+                # Include review queue summary if there are review items
+                rq_count = job.get("review_queue_count", 0)
+                if rq_count and rq_count > 0:
+                    summary = await get_review_queue_summary(job_id)
+                    event_id += 1
+                    yield _format_sse("review_queue_summary", {
+                        "job_id": job_id,
+                        **summary,
+                    }, event_id)
+                event_id += 1
+                yield _format_sse("done", {}, event_id)
                 return
 
-        while True:
-            if await request.is_disconnected():
-                break
-            try:
-                msg = await asyncio.wait_for(queue.get(), timeout=30.0)
-            except asyncio.TimeoutError:
-                yield ": keepalive\n\n"
-                continue
+            # Wait for queue to appear
+            queue = get_bulk_progress_queue(job_id)
+            if queue is None:
+                for _ in range(20):
+                    await asyncio.sleep(0.3)
+                    queue = get_bulk_progress_queue(job_id)
+                    if queue is not None:
+                        break
+                if queue is None:
+                    yield _format_sse("done", {}, 0)
+                    return
 
-            event_id += 1
-            yield _format_sse(msg["event"], msg["data"], event_id)
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=30.0)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
 
-            if msg["event"] == "done":
-                break
+                event_id += 1
+                yield _format_sse(msg["event"], msg["data"], event_id)
 
-        # Cleanup
-        _bulk_progress_queues.pop(job_id, None)
+                if msg["event"] == "done":
+                    break
+
+            # Cleanup
+            _bulk_progress_queues.pop(job_id, None)
 
     return StreamingResponse(
         event_generator(),
@@ -506,35 +508,37 @@ async def gap_fill_stream(
     """SSE stream for live gap-fill progress."""
 
     async def event_generator():
-        event_id = 0
+        from core.active_connections import track_stream
+        async with track_stream("ocr_gap_fill"):
+            event_id = 0
 
-        queue = get_gap_fill_queue(gap_fill_id)
-        if queue is None:
-            for _ in range(20):
-                await asyncio.sleep(0.3)
-                queue = get_gap_fill_queue(gap_fill_id)
-                if queue is not None:
-                    break
+            queue = get_gap_fill_queue(gap_fill_id)
             if queue is None:
-                yield _format_sse("done", {}, 0)
-                return
+                for _ in range(20):
+                    await asyncio.sleep(0.3)
+                    queue = get_gap_fill_queue(gap_fill_id)
+                    if queue is not None:
+                        break
+                if queue is None:
+                    yield _format_sse("done", {}, 0)
+                    return
 
-        while True:
-            if await request.is_disconnected():
-                break
-            try:
-                msg = await asyncio.wait_for(queue.get(), timeout=30.0)
-            except asyncio.TimeoutError:
-                yield ": keepalive\n\n"
-                continue
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=30.0)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
 
-            event_id += 1
-            yield _format_sse(msg["event"], msg["data"], event_id)
+                event_id += 1
+                yield _format_sse(msg["event"], msg["data"], event_id)
 
-            if msg["event"] == "done":
-                break
+                if msg["event"] == "done":
+                    break
 
-        _gap_fill_queues.pop(gap_fill_id, None)
+            _gap_fill_queues.pop(gap_fill_id, None)
 
     return StreamingResponse(
         event_generator(),

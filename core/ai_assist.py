@@ -185,6 +185,17 @@ async def stream_search_synthesis(
     Stream a Claude synthesis of search results as SSE-formatted strings.
     Yields lines ready to write directly to a StreamingResponse.
     """
+    from core.active_connections import track_stream
+    async with track_stream("ai_assist_search"):
+        async for evt in _stream_search_synthesis_impl(query, results, on_complete):
+            yield evt
+
+
+async def _stream_search_synthesis_impl(
+    query: str,
+    results: list[dict],
+    on_complete=None,
+) -> AsyncGenerator[str, None]:
     cfg = await _get_provider_config()
     if not cfg["compatible"]:
         yield _sse("error", {"message": cfg["error"] or "AI Assist provider is not compatible"})
@@ -297,6 +308,18 @@ async def stream_document_expand(
     Stream a deep analysis of a single document in context of the original query.
     markdown_content should be the full converted markdown text.
     """
+    from core.active_connections import track_stream
+    async with track_stream("ai_assist_expand"):
+        async for evt in _stream_document_expand_impl(query, doc_id, markdown_content, on_complete):
+            yield evt
+
+
+async def _stream_document_expand_impl(
+    query: str,
+    doc_id: str,
+    markdown_content: str,
+    on_complete=None,
+) -> AsyncGenerator[str, None]:
     cfg = await _get_provider_config()
     if not cfg["compatible"]:
         yield _sse("error", {"message": cfg["error"] or "AI Assist provider is not compatible"})

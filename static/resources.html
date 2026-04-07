@@ -156,6 +156,31 @@
     </section>
 
     <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <!-- Section 4b: Active Connections (v0.22.13)                             -->
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <section class="res-section" id="active-section">
+      <h2>Active Connections</h2>
+      <p class="text-sm text-muted" style="margin:0 0 0.75rem">
+        Who and what is currently using MarkFlow. Counters reset on container
+        restart and refresh every 5 seconds. Window: last 5 minutes.
+      </p>
+
+      <div class="tm-grid">
+        <div class="tm-cpu-panel">
+          <h3>Active Users <span id="ac-users-count" class="tm-badge">--</span></h3>
+          <ul id="ac-users-list" class="ac-users-list" style="list-style:none;padding:0;margin:0;max-height:200px;overflow-y:auto"></ul>
+          <p class="tm-note" id="ac-users-empty" hidden>No users active in the last 5 minutes.</p>
+        </div>
+
+        <div class="tm-mem-panel">
+          <h3>Live Streams <span id="ac-streams-count" class="tm-badge">--</span></h3>
+          <ul id="ac-streams-list" class="ac-streams-list" style="list-style:none;padding:0;margin:0;max-height:200px;overflow-y:auto"></ul>
+          <p class="tm-note" id="ac-streams-empty" hidden>No live SSE / streaming connections open right now.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
     <!-- Section 5: Activity Log                                               -->
     <!-- ══════════════════════════════════════════════════════════════════════ -->
     <section class="res-section" id="activity-section">
@@ -1398,6 +1423,114 @@
     wireRangeSelector('throttle-range', loadThrottleHistory);
 
     /* ════════════════════════════════════════════════════════════════════════
+     *  Active Connections widget (v0.22.13) — polls /api/resources/active
+     *  every 5 seconds. Renders two lists (users + live streams) in the
+     *  Active Connections section. Uses safe DOM construction (no innerHTML).
+     * ════════════════════════════════════════════════════════════════════ */
+
+    var activeInterval = null;
+
+    function _formatTimeAgo(iso) {
+      try {
+        var d = new Date(iso);
+        var diff = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+        if (diff < 5) return 'just now';
+        if (diff < 60) return diff + 's ago';
+        if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+        return Math.floor(diff / 3600) + 'h ago';
+      } catch (e) { return ''; }
+    }
+
+    function _renderActiveUsers(users) {
+      var list = document.getElementById('ac-users-list');
+      var empty = document.getElementById('ac-users-empty');
+      var count = document.getElementById('ac-users-count');
+      count.textContent = String(users.length);
+      list.textContent = '';
+
+      if (!users.length) {
+        empty.hidden = false;
+        return;
+      }
+      empty.hidden = true;
+
+      users.forEach(function(u) {
+        var li = document.createElement('li');
+        li.style.padding = '0.4rem 0';
+        li.style.borderBottom = '1px solid var(--border)';
+        li.style.fontSize = '0.85rem';
+        li.style.display = 'flex';
+        li.style.justifyContent = 'space-between';
+        li.style.alignItems = 'baseline';
+
+        var nameSpan = document.createElement('span');
+        nameSpan.style.fontWeight = '500';
+        nameSpan.textContent = u.email || u.sub || '(unknown)';
+        li.appendChild(nameSpan);
+
+        var ago = document.createElement('span');
+        ago.className = 'text-muted';
+        ago.style.fontSize = '0.78rem';
+        ago.textContent = _formatTimeAgo(u.last_seen);
+        li.appendChild(ago);
+
+        list.appendChild(li);
+      });
+    }
+
+    function _renderActiveStreams(byEndpoint, total) {
+      var list = document.getElementById('ac-streams-list');
+      var empty = document.getElementById('ac-streams-empty');
+      var count = document.getElementById('ac-streams-count');
+      count.textContent = String(total);
+      list.textContent = '';
+
+      var entries = Object.entries(byEndpoint || {});
+      if (!entries.length) {
+        empty.hidden = false;
+        return;
+      }
+      empty.hidden = true;
+
+      // Sort by count desc for stable display
+      entries.sort(function(a, b) { return b[1] - a[1]; });
+
+      entries.forEach(function(pair) {
+        var endpoint = pair[0];
+        var n = pair[1];
+        var li = document.createElement('li');
+        li.style.padding = '0.4rem 0';
+        li.style.borderBottom = '1px solid var(--border)';
+        li.style.fontSize = '0.85rem';
+        li.style.display = 'flex';
+        li.style.justifyContent = 'space-between';
+        li.style.alignItems = 'baseline';
+
+        var label = document.createElement('span');
+        label.style.fontFamily = 'var(--font-mono, monospace)';
+        label.textContent = endpoint;
+        li.appendChild(label);
+
+        var nSpan = document.createElement('span');
+        nSpan.className = 'tm-badge';
+        nSpan.textContent = String(n);
+        li.appendChild(nSpan);
+
+        list.appendChild(li);
+      });
+    }
+
+    async function pollActiveConnections() {
+      try {
+        var data = await API.get('/api/resources/active');
+        _renderActiveUsers(data.users || []);
+        _renderActiveStreams(data.streams_by_endpoint || {}, data.total_streams || 0);
+      } catch (e) {
+        // Non-admin or auth failure — silently leave widget at "--".
+      }
+    }
+
+    /* ════════════════════════════════════════════════════════════════════════
      *  Init
      * ════════════════════════════════════════════════════════════════════ */
 
@@ -1406,6 +1539,8 @@
       loadMetricsCharts('24h');
       loadDiskChart('30d');
       initLiveMetrics();
+      pollActiveConnections();
+      activeInterval = setInterval(pollActiveConnections, 5000);
       loadEvents('7d');
       loadOcrQuality('30d');
       loadThrottleHistory('7d');
@@ -1415,7 +1550,11 @@
     // Pause live polling when tab is hidden
     document.addEventListener('visibilitychange', function() {
       clearInterval(tmInterval);
-      if (!document.hidden) tmInterval = setInterval(pollLiveMetrics, 2000);
+      clearInterval(activeInterval);
+      if (!document.hidden) {
+        tmInterval = setInterval(pollLiveMetrics, 2000);
+        activeInterval = setInterval(pollActiveConnections, 5000);
+      }
     });
   </script>
 </body>

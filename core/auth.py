@@ -133,16 +133,24 @@ async def get_current_user(request: Request) -> AuthenticatedUser:
     2. X-API-Key header → service account
     3. Authorization: Bearer <token> → JWT user
     4. Neither → 401
+
+    The resolved user is stashed on `request.state.user` so the
+    RequestContextMiddleware can record per-user "last seen" activity
+    after the response is generated (v0.22.13).
     """
     if DEV_BYPASS_AUTH:
-        return AuthenticatedUser(
+        user = AuthenticatedUser(
             sub="dev", email="dev@local", role=UserRole.ADMIN, is_service_account=False
         )
+        request.state.user = user
+        return user
 
     # Check X-API-Key header
     api_key = request.headers.get("X-API-Key")
     if api_key:
-        return await verify_api_key(api_key)
+        user = await verify_api_key(api_key)
+        request.state.user = user
+        return user
 
     # Check Authorization: Bearer <token>
     auth_header = request.headers.get("Authorization")
@@ -151,7 +159,9 @@ async def get_current_user(request: Request) -> AuthenticatedUser:
         secret = _get_jwt_secret()
         if not secret:
             raise HTTPException(status_code=401, detail="JWT auth not configured.")
-        return await verify_token(token, secret)
+        user = await verify_token(token, secret)
+        request.state.user = user
+        return user
 
     raise HTTPException(status_code=401, detail="Authentication required.")
 

@@ -115,6 +115,12 @@ async def batch_stream(
         raise HTTPException(status_code=404, detail=f"Batch '{batch_id}' not found.")
 
     async def event_generator():
+        from core.active_connections import track_stream
+        async with track_stream("batch_progress"):
+            async for evt in _batch_event_generator(batch_id, request, state):
+                yield evt
+
+    async def _batch_event_generator(batch_id, request, state):
         event_id = 0
 
         # If batch is already complete, replay from DB
