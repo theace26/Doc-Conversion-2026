@@ -20,6 +20,10 @@ var AIAssist = (function() {
   var _abortController = null;
   var _cachedResponseText = '';
 
+  // Server-side status: { key_configured, org_enabled, enabled }.
+  // Determined by /api/ai-assist/status during init().
+  var _serverStatus = null;
+
   // DOM refs (set in init)
   var toggleBtn, drawer, drawerBody, drawerQueryBadge;
 
@@ -357,7 +361,19 @@ var AIAssist = (function() {
 
     _updateToggleUI();
 
-    toggleBtn.addEventListener('click', function() { setEnabled(!_enabled); });
+    toggleBtn.addEventListener('click', function() {
+      // Gating: if the server says we're not configured / not enabled, do
+      // NOT toggle the local enabled flag — instead surface a clear notice.
+      if (_serverStatus && !_serverStatus.key_configured) {
+        _showNotConfiguredNotice('missing_key');
+        return;
+      }
+      if (_serverStatus && _serverStatus.key_configured && !_serverStatus.org_enabled) {
+        _showNotConfiguredNotice('org_disabled');
+        return;
+      }
+      setEnabled(!_enabled);
+    });
 
     var closeBtn = document.getElementById('ai-drawer-close');
     if (closeBtn) closeBtn.addEventListener('click', function() { closeDrawer(); });
@@ -367,15 +383,94 @@ var AIAssist = (function() {
       if (e.key === 'Escape' && drawer.classList.contains('open')) closeDrawer();
     });
 
-    // Check if AI Assist is configured on the server; hide toggle if not
+    // Check the server status and reflect it on the toggle button without
+    // hiding it. The button remains visible so the user knows the feature
+    // exists; click handler above shows a clear notice when misconfigured.
     fetch('/api/ai-assist/status')
       .then(function(r) { return r.json(); })
       .then(function(data) {
-        if (!data.enabled) {
-          toggleBtn.style.display = 'none';
-        }
+        _serverStatus = data || {};
+        _applyServerStatusToButton();
       })
-      .catch(function() { /* silent */ });
+      .catch(function() {
+        _serverStatus = { key_configured: false, org_enabled: false, enabled: false };
+        _applyServerStatusToButton();
+      });
+  }
+
+  function _applyServerStatusToButton() {
+    if (!toggleBtn || !_serverStatus) return;
+    if (!_serverStatus.key_configured) {
+      toggleBtn.classList.add('needs-config');
+      toggleBtn.title = 'AI Assist not configured \u2014 click for setup instructions';
+    } else if (!_serverStatus.org_enabled) {
+      toggleBtn.classList.add('needs-config');
+      toggleBtn.title = 'AI Assist is disabled by an administrator \u2014 click for details';
+    } else {
+      toggleBtn.classList.remove('needs-config');
+      toggleBtn.title = 'Toggle AI-assisted synthesis of search results';
+    }
+  }
+
+  function _showNotConfiguredNotice(reason) {
+    if (!drawer || !drawerBody) {
+      alert(
+        reason === 'missing_key'
+          ? 'AI Assist requires the ANTHROPIC_API_KEY environment variable. Add it to .env and restart the container.'
+          : 'AI Assist is currently disabled by an administrator. Enable it on the Settings page.'
+      );
+      return;
+    }
+    openDrawer();
+    drawerBody.textContent = '';
+
+    var box = document.createElement('div');
+    box.className = 'ai-drawer-error';
+    box.style.padding = '1rem';
+
+    var h = document.createElement('strong');
+    h.textContent = 'AI Assist is not available';
+    box.appendChild(h);
+
+    var p = document.createElement('p');
+    p.style.marginTop = '0.5rem';
+
+    if (reason === 'missing_key') {
+      // Build the paragraph as plain text + <code> spans (no innerHTML).
+      p.appendChild(document.createTextNode('The '));
+      var codeKey = document.createElement('code');
+      codeKey.textContent = 'ANTHROPIC_API_KEY';
+      p.appendChild(codeKey);
+      p.appendChild(document.createTextNode(' environment variable is not set. Add it to your '));
+      var codeEnv = document.createElement('code');
+      codeEnv.textContent = '.env';
+      p.appendChild(codeEnv);
+      p.appendChild(document.createTextNode(' file and restart the container:'));
+      box.appendChild(p);
+
+      var pre = document.createElement('pre');
+      pre.style.marginTop = '0.5rem';
+      pre.style.padding = '0.5rem';
+      pre.style.background = 'var(--bg)';
+      pre.style.borderRadius = '4px';
+      pre.style.overflowX = 'auto';
+      pre.textContent =
+        '# in .env\n' +
+        'ANTHROPIC_API_KEY=sk-ant-...\n\n' +
+        '# then restart\n' +
+        'docker-compose restart markflow';
+      box.appendChild(pre);
+    } else {
+      p.appendChild(document.createTextNode('An administrator must enable AI Assist on the '));
+      var a = document.createElement('a');
+      a.href = '/settings.html#ai-assist-settings';
+      a.textContent = 'Settings page';
+      p.appendChild(a);
+      p.appendChild(document.createTextNode('.'));
+      box.appendChild(p);
+    }
+
+    drawerBody.appendChild(box);
   }
 
   return { init: init, onResults: onResults };

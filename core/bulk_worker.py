@@ -533,6 +533,22 @@ class BulkJob:
                     continue
                 await self._process_convertible(file_dict, worker_id)
                 self._error_monitor.record_success()
+
+                # v0.22.9: Adobe files also get Level-2 indexed (rich
+                # metadata + text layers → adobe_index table → adobe-files
+                # Meilisearch index). The markdown conversion above already
+                # handled the documents index; this is the supplementary
+                # rich-index pass that the unified-dispatch refactor dropped.
+                if ext in ADOBE_EXTENSIONS and self.include_adobe:
+                    try:
+                        await self._index_adobe_l2(file_dict)
+                    except Exception as exc:
+                        log.warning(
+                            "bulk_worker.adobe_l2_failed",
+                            file_id=file_id,
+                            path=str(source_path),
+                            error=str(exc),
+                        )
             except Exception as exc:
                 self._error_monitor.record_error(str(exc))
                 log.error(
@@ -847,6 +863,56 @@ class BulkJob:
                 "failed": self._failed,
                 "worker_id": worker_id + 1,
             })
+
+    async def _index_adobe_l2(self, file_dict: dict) -> None:
+        """
+        Run Level-2 Adobe indexing on a file that has ALREADY been processed
+        through the regular convertible pipeline.
+
+        Populates `adobe_index` table (via AdobeIndexer.index_file → upsert_adobe_index)
+        and the 'adobe-files' Meilisearch index. Does NOT change the file's
+        bulk_files status — `_process_convertible` already set it to 'converted'
+        and produced the markdown summary that goes into the documents index.
+
+        Files whose extension is not handled by AdobeIndexer (e.g. .ait, .indt
+        templates, .psb) return success=False with "Unsupported Adobe extension"
+        and are silently skipped.
+        """
+        from core.adobe_indexer import AdobeIndexer
+
+        source_path = Path(file_dict["source_path"])
+        indexer = AdobeIndexer()
+        result = await indexer.index_file(source_path)
+
+        if not result.success:
+            # Quiet skip for unsupported template extensions; warn for real failures.
+            if result.error_msg and "Unsupported" in result.error_msg:
+                log.debug(
+                    "adobe_l2_unsupported",
+                    path=str(source_path),
+                    ext=result.file_ext,
+                )
+            else:
+                log.warning(
+                    "adobe_l2_index_failed",
+                    path=str(source_path),
+                    error=result.error_msg,
+                )
+            return
+
+        self._adobe_indexed += 1
+
+        try:
+            from core.search_indexer import get_search_indexer
+            search_indexer = get_search_indexer()
+            if search_indexer:
+                await search_indexer.index_adobe_file(result, self.job_id)
+        except Exception as exc:
+            log.warning(
+                "adobe_l2_meili_failed",
+                path=str(source_path),
+                error=str(exc),
+            )
 
     async def _process_adobe(self, file_dict: dict, worker_id: int = 0) -> None:
         """Index an Adobe file."""

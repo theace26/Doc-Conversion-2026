@@ -4,6 +4,170 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.22.9 — UX + Data Integrity Pass (2026-04-07)
+
+A grab-bag of UX and pipeline-truthfulness fixes that emerged from a single
+diagnostic session.
+
+### 1. Search default view
+
+**Problem:** Clicking Search in the nav bar opened the search page in "browse
+all" mode by default, immediately running an empty-query search and showing
+date-sorted hits. Users expected an empty input waiting for them to type or
+click Browse All explicitly.
+
+**Fix:** `static/search.html` init block now only auto-runs a search when a
+`?q=` URL param is present. Otherwise it hides all results UI (`results-card`,
+`results-toolbar`, `search-meta`, `pagination`, `empty-state`) and focuses
+the input. Browse All button is still available as an explicit one-click
+action.
+
+### 2. AI Assist "needs configuration" UX
+
+**Problem:** When `ANTHROPIC_API_KEY` is not set in the environment:
+- The search-page AI Assist toggle button was silently `display: none`'d
+  by `js/ai-assist.js` after `/api/ai-assist/status` returned
+  `key_configured: false`.
+- The Settings page "AI-Assisted Search" section was likewise
+  `style="display:none"` until JS toggled it on, and the toggle never fired
+  because the same status check returned early.
+
+The user couldn't tell the feature existed, let alone how to enable it.
+
+**Fix:**
+- `static/settings.html` — section is always rendered. A new
+  `#ai-assist-not-configured` notice element shows clear setup instructions
+  (`ANTHROPIC_API_KEY=...` in `.env`, then `docker-compose restart markflow`)
+  when the status endpoint reports `key_configured: false`. The configured
+  controls are wrapped in `#ai-assist-configured-controls` and only shown
+  when the key IS configured.
+- `static/js/ai-assist.js` — server status is cached in module state. The
+  toggle button stays visible at all times. A new `.needs-config` CSS class
+  paints it amber. Clicking the button when misconfigured opens the drawer
+  with an inline help message (missing key vs. admin disabled) instead of
+  toggling the local enabled flag.
+- `static/css/ai-assist.css` — `.ai-assist-toggle.needs-config` styling.
+
+### 3. Pipeline "pending" count was 2-3× inflated
+
+**Problem:** Pipeline status badge reported 84,656 pending while only 36,296
+distinct files existed. Root cause: `bulk_files` is keyed by
+`(job_id, source_path)`, so each new scan job inserts its own row for every
+file — including files that were already successfully converted in older
+jobs. The naive `COUNT(*) FROM bulk_files WHERE status='pending'` query in
+`/api/pipeline/status` and `/api/pipeline/status-overview` summed across all
+those duplicate rows.
+
+The v0.22.7 self-correction job's "cross-job dedup" step kept only the most
+recent job's row per source_path, but new scan runs immediately recreated the
+duplication and the cleanup only ran every 6 hours.
+
+**Fix (two layers):**
+
+a) **Query layer** (`api/routes/pipeline.py`) — both endpoints now use a
+   `NOT EXISTS` subquery against `bulk_files`:
+
+   ```sql
+   SELECT COUNT(*) FROM source_files sf
+   WHERE sf.lifecycle_status = 'active'
+     AND NOT EXISTS (
+         SELECT 1 FROM bulk_files bf
+         WHERE bf.source_path = sf.source_path
+           AND bf.status = 'converted'
+     )
+   ```
+
+   This counts truly-distinct unconverted source files. The `failed` and
+   `unrecognized` counts in `status-overview` were rewritten the same way
+   (`COUNT(DISTINCT source_path)` + same `NOT EXISTS` guard) so a file
+   that failed in one job and converted in another no longer shows up in
+   the failed bucket.
+
+b) **Cleanup layer** (`core/db/bulk.py`) — `cleanup_stale_bulk_files()` now
+   has a 4th deletion step, **pending-superseded prune**:
+
+   ```sql
+   DELETE FROM bulk_files
+   WHERE status = 'pending'
+     AND job_id NOT IN ({active_job_statuses})
+     AND EXISTS (
+         SELECT 1 FROM bulk_files bf2
+         WHERE bf2.source_path = bulk_files.source_path
+           AND bf2.status = 'converted'
+     )
+   ```
+
+   This catches the common case where a newer scan job inserts a fresh
+   `pending` row for a file that was already converted in an older job.
+   Active jobs (scanning/running/paused/pending) are still excluded so
+   in-flight work is never disturbed. Counts are returned via a new
+   `pending_superseded_deleted` key in the cleanup result dict.
+
+### 4. Adobe-files index regression — silently empty since "unified dispatch"
+
+**Problem:** The Meilisearch `adobe-files` index reported 0 documents and the
+`adobe_index` SQLite table was empty, despite ~1,400 .ai/.psd/.indd files
+being scanned and 100+ .ai files showing `status='converted'` in `bulk_files`.
+
+**Root cause:** `core/bulk_worker.py:_worker()` dispatch routes ALL files
+through `_process_convertible()` (per the "unified scanning" architecture
+note in CLAUDE.md). Adobe files therefore go through the regular conversion
+pipeline → `AdobeHandler.ingest()` → markdown summary → `documents`
+Meilisearch index. That's correct as far as it goes.
+
+But the older `_process_adobe()` method, which calls
+`AdobeIndexer.index_file()` to extract XMP/EXIF metadata + text layers and
+upserts them into the `adobe_index` table (the data backing the
+`adobe-files` Meilisearch index), was **never called** from the dispatch
+loop. It became dead code at some point during the unified-dispatch
+refactor. Result: rich Level-2 metadata for Adobe files was being silently
+dropped.
+
+**Fix:** `core/bulk_worker.py` —
+- Added `_index_adobe_l2(file_dict)`: a focused method that runs
+  `AdobeIndexer().index_file(source_path)` to populate `adobe_index` (via
+  `upsert_adobe_index()`), then calls
+  `search_indexer.index_adobe_file(result, job_id)` to push the result into
+  the `adobe-files` Meilisearch index. Does NOT touch `bulk_files` status —
+  the markdown conversion above already handled that. Files with extensions
+  AdobeIndexer doesn't support (.ait/.indt templates, .psb) return an
+  "Unsupported Adobe extension" result and are debug-logged + skipped.
+- `_worker()` now invokes `_index_adobe_l2(file_dict)` immediately after
+  `_process_convertible(file_dict, worker_id)` returns successfully, gated
+  on `ext in ADOBE_EXTENSIONS and self.include_adobe`. Wrapped in
+  `try/except` so an L2 failure never aborts the conversion.
+
+The dead `_process_adobe()` method was left in place for now (unused but
+harmless) — can be removed in a follow-up cleanup pass.
+
+### 5. Other findings (not fixed this round)
+
+Diagnostic findings recorded for follow-up:
+
+- **Vector search IS working.** Qdrant has 14,377 points in collection
+  `markflow_chunks` and `hybrid_search_merged` events show successful
+  RRF fusion (`keyword=10, vector=10, merged=10`). `indexed_vectors_count: 0`
+  in the collection info is misleading — it just means HNSW per-segment
+  threshold (10k) hasn't been crossed across the 5 segments, so Qdrant uses
+  brute-force search. Still returns results correctly.
+- **`analysis_queue` is mostly stalled** — 2,078 pending + 1,010 failed +
+  190 batched + 90 completed. Likely tied to LLM provider config and/or
+  the missing ANTHROPIC_API_KEY. Worth investigating in a dedicated session.
+
+### Modified files
+
+- `core/version.py` — 0.22.8 → 0.22.9
+- `core/db/bulk.py` — 4th cleanup step + extended docstring/return dict
+- `core/bulk_worker.py` — `_index_adobe_l2()` + dispatch hook
+- `api/routes/pipeline.py` — both pending queries rewritten
+- `static/search.html` — init block, no auto browse-all
+- `static/settings.html` — AI Assist section restructured + JS init
+- `static/js/ai-assist.js` — server status caching + needs-config UX
+- `static/css/ai-assist.css` — `.needs-config` styling
+- `CLAUDE.md`, `docs/version-history.md`, `docs/gotchas.md` — updates
+
+---
+
 ## v0.22.8 — GPU Detector Live Re-Resolution Fix (2026-04-07)
 
 **Fix:** `get_gpu_info_live()` in `core/gpu_detector.py` re-reads the

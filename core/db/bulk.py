@@ -588,18 +588,28 @@ async def cleanup_stale_bulk_files() -> dict[str, int]:
     """
     Self-correction sweep for the bulk_files table.
 
-    Performs three deletions. Active jobs (scanning/running/paused/pending)
+    Performs four deletions. Active jobs (scanning/running/paused/pending)
     are always excluded so in-flight work is never disturbed. Returns a dict
     of counts for logging.
 
-      1. Phantom prune  -- delete bulk_files rows whose source_path no longer
-                           exists in the source_files registry (file deleted
-                           from disk and tracked accordingly).
-      2. Purged prune   -- delete bulk_files rows whose source_file has
-                           lifecycle_status='purged' (permanently trashed).
-      3. Cross-job dedup -- for each source_path, keep only the row from the
-                           most recent finished job and delete older duplicates.
-                           "Most recent" is determined by bulk_jobs.started_at.
+      1. Phantom prune        -- delete bulk_files rows whose source_path no
+                                 longer exists in the source_files registry
+                                 (file deleted from disk and tracked accordingly).
+      2. Purged prune         -- delete bulk_files rows whose source_file has
+                                 lifecycle_status='purged' (permanently trashed).
+      3. Cross-job dedup      -- for each source_path, keep only the row from
+                                 the most recent finished job and delete older
+                                 duplicates. "Most recent" is determined by
+                                 bulk_jobs.started_at.
+      4. Pending-superseded   -- (v0.22.9) for any source_path that has at
+                                 least one bulk_files row with status='converted'
+                                 in any job, delete every row with status='pending'
+                                 (regardless of job age). This catches the
+                                 common case where a newer scan job inserts a
+                                 fresh `pending` row for a file that was
+                                 already successfully converted in an older
+                                 job — the file is NOT actually pending and
+                                 should not inflate the badge count.
 
     Child tables (bulk_review_queue, archive_members) reference bulk_files(id)
     without ON DELETE CASCADE, so child rows are removed first via the
@@ -660,11 +670,35 @@ async def cleanup_stale_bulk_files() -> dict[str, int]:
             _ACTIVE_JOB_STATUSES,
         )
 
+        # 4. Pending-superseded (v0.22.9) -- delete any pending row whose
+        #    source_path has been successfully converted in some other job.
+        #    Active jobs are still excluded so an in-flight scan job's pending
+        #    rows aren't yanked out from under it.
+        pending_superseded_deleted = await _delete_bulk_files_by_select(
+            conn,
+            f"""SELECT bf.id FROM bulk_files bf
+                JOIN bulk_jobs bj ON bf.job_id = bj.id
+                WHERE bf.status = 'pending'
+                  AND bj.status NOT IN ({placeholders})
+                  AND EXISTS (
+                      SELECT 1 FROM bulk_files bf2
+                      WHERE bf2.source_path = bf.source_path
+                        AND bf2.status = 'converted'
+                  )""",
+            _ACTIVE_JOB_STATUSES,
+        )
+
         await conn.commit()
 
     return {
         "phantom_deleted": phantom_deleted,
         "purged_deleted": purged_deleted,
         "dedup_deleted": dedup_deleted,
-        "total_deleted": phantom_deleted + purged_deleted + dedup_deleted,
+        "pending_superseded_deleted": pending_superseded_deleted,
+        "total_deleted": (
+            phantom_deleted
+            + purged_deleted
+            + dedup_deleted
+            + pending_superseded_deleted
+        ),
     }

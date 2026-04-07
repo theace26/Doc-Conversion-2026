@@ -282,6 +282,26 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 ## Bulk & Lifecycle
 
+- **Adobe files need TWO conversion passes (v0.22.9)**: `_worker()` in
+  `core/bulk_worker.py` dispatches every file through `_process_convertible()`
+  for the regular markdown conversion (which lands in the `documents`
+  Meilisearch index). Adobe files (`ext in ADOBE_EXTENSIONS and
+  self.include_adobe`) ALSO need to go through `_index_adobe_l2()`
+  immediately after, which calls `AdobeIndexer.index_file()` to populate the
+  `adobe_index` SQLite table and then `search_indexer.index_adobe_file()` to
+  push rich metadata + text layers into the `adobe-files` Meilisearch index.
+  Skipping the L2 step (as the unified-dispatch refactor accidentally did
+  pre-v0.22.9) leaves `adobe_index` and `adobe-files` empty even though
+  .ai/.psd files appear `converted` in `bulk_files`. The L2 step does NOT
+  update `bulk_files` status; the markdown conversion handles that.
+
+- **`_process_adobe()` is dead code (v0.22.9)**: kept for now but never
+  called from `_worker()`. The L2 indexing path is `_index_adobe_l2()`
+  which runs alongside the unified dispatch. Don't add the old method back
+  to the dispatch loop — it would compete with `_process_convertible()` for
+  the same `bulk_files` row.
+
+
 - **RollingWindowETA hates burst completions (v0.22.5)**: `RollingWindowETA` in
   `core/progress_tracker.py` stores `(time.monotonic(), completed_count)` tuples
   in a 100-slot deque and computes `fps = (newest_count - oldest_count) /
@@ -366,6 +386,33 @@ the relevant subsystem. Referenced from CLAUDE.md.
   pending write task must be `await`ed before a new `create_task()` is issued — otherwise
   tasks pile up unboundedly and SQLite write contention spikes. Pattern:
   `if pending_write: await pending_write; pending_write = asyncio.create_task(flush_batch(...))`.
+
+- **Lifecycle scanner flushes counters every 500 files**: `_flush_counters_to_db()`
+  persists `scan_run` counters periodically during both serial and parallel walks,
+  so a container crash mid-scan leaves partial progress recorded rather than
+  resetting everything to zero on the next startup.
+
+- **`bulk_files.status='pending'` is NOT the same as "files left to convert"
+  (v0.22.9)**: `bulk_files` is keyed by `(job_id, source_path)`, so each new
+  scan job inserts its own pending row for every file — including files that
+  were already converted in older jobs. The naive `COUNT(*) FROM bulk_files
+  WHERE status='pending'` query reports 2-3× the real number of unconverted
+  files. Always count truly-pending source files via a NOT EXISTS join:
+
+  ```sql
+  SELECT COUNT(*) FROM source_files sf
+  WHERE sf.lifecycle_status = 'active'
+    AND NOT EXISTS (
+        SELECT 1 FROM bulk_files bf
+        WHERE bf.source_path = sf.source_path
+          AND bf.status = 'converted'
+    )
+  ```
+
+  v0.22.9 also added a 4th step to `cleanup_stale_bulk_files()`
+  (`pending_superseded_deleted`) that prunes pending rows whose source_path
+  has any converted row in any job, so the table itself stays sane between
+  cleanup runs.
 
 ## Path Safety & Collisions
 
@@ -474,6 +521,11 @@ the relevant subsystem. Referenced from CLAUDE.md.
 - **VisionAdapter uses active LLM provider**: No separate provider system. One provider, two uses.
 
 - **Vision preferences in existing system**: Stored in `user_preferences` via `_PREFERENCE_SCHEMA`.
+
+- **AI Assist uses `httpx` for streaming, not `aiohttp`**: `core/ai_assist.py`
+  streams SSE from the Anthropic API via `httpx.AsyncClient.stream()`. Keep
+  `httpx` in `requirements.txt`. `ANTHROPIC_API_KEY` env var gates the feature;
+  when absent, the UI toggle is hidden and endpoints return clear errors.
 
 - **SceneDetector always returns at least 1 scene**: Falls back to single full-video boundary.
 
@@ -749,6 +801,28 @@ the relevant subsystem. Referenced from CLAUDE.md.
 - **hashcat --force required in Docker**.
 
 - **hashcat potfile conflicts**: Each attack uses unique temp potfile.
+
+- **hashcat `-I` requires cwd**: hashcat resolves its `OpenCL/` kernel directory
+  relative to the current working directory, not its binary location. Scripts
+  must `cd` to the hashcat install dir before running `hashcat -I`, otherwise
+  it fails silently with `./OpenCL/: No such file or directory`.
+
+- **GPU health component needs `ok` and `version`**: The convert page renders
+  health components generically using `s.ok` and `s.version`. The GPU block in
+  `core/health.py` must include both fields or it renders as a FAIL with blank
+  detail even when the GPU is working.
+
+- **PowerShell `Set-Content -Encoding UTF8` writes a BOM on PS 5.x**: Python's
+  `json.loads()` rejects the BOM. Use `[IO.File]::WriteAllText()` for BOM-free
+  output. Python readers of files that might come from PS should use
+  `encoding="utf-8-sig"` defensively.
+
+- **PowerShell stderr from native commands becomes RemoteException**: When
+  redirecting native stderr with `2>&1` (e.g., hashcat's
+  `nvmlDeviceGetFanSpeed(): Not Supported`), PS 5.1 wraps each stderr line as a
+  `RemoteException`, which is caught by `try/catch` and silently aborts the
+  script. Set `$ErrorActionPreference = 'SilentlyContinue'` around the call, or
+  redirect stderr to `$null`.
 
 - **Host worker queue is fire-and-forget**: Jobs accumulate if worker not running.
 

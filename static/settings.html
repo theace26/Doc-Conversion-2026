@@ -1133,9 +1133,26 @@
       </details>
 
       <!-- AI-Assisted Search (admin only, v0.21.0) -->
-      <details class="settings-section" id="ai-assist-settings" style="display:none">
+      <details class="settings-section" id="ai-assist-settings">
       <summary>AI-Assisted Search</summary>
       <div class="card">
+        <!-- "Not configured" notice (shown when ANTHROPIC_API_KEY is missing) -->
+        <div id="ai-assist-not-configured" class="notice notice-warn" style="display:none;margin-bottom:1rem">
+          <strong>Not configured.</strong>
+          <p class="text-sm" style="margin:0.35rem 0 0">
+            AI Assist requires the <code>ANTHROPIC_API_KEY</code> environment variable.
+            Add it to your <code>.env</code> file at the project root and restart the
+            container:
+          </p>
+          <pre class="text-sm" style="margin:0.5rem 0 0;padding:0.5rem;background:var(--bg);border-radius:var(--radius-sm);overflow-x:auto"># in .env
+ANTHROPIC_API_KEY=sk-ant-...
+
+# then restart
+docker-compose restart markflow</pre>
+        </div>
+
+        <!-- Configured controls (shown when key is present) -->
+        <div id="ai-assist-configured-controls" style="display:none">
         <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem">
           <label class="toggle" style="margin:0">
             <input type="checkbox" id="ai-assist-org-toggle">
@@ -1192,6 +1209,7 @@
             Token counts are estimates (chars / 4). See your Anthropic dashboard for exact billing.
           </p>
         </div>
+        </div> <!-- /#ai-assist-configured-controls -->
       </div>
       </details>
 
@@ -1947,16 +1965,28 @@
     var section = document.getElementById('ai-assist-settings');
     var toggle = document.getElementById('ai-assist-org-toggle');
     var usageSec = document.getElementById('ai-usage-section');
+    var notConfigured = document.getElementById('ai-assist-not-configured');
+    var configuredCtrls = document.getElementById('ai-assist-configured-controls');
 
     var status;
     try {
       var resp = await fetch('/api/ai-assist/status');
       status = await resp.json();
-    } catch (e) { return; }
+    } catch (e) {
+      // Network error — leave the section visible with the not-configured notice.
+      if (notConfigured) notConfigured.style.display = '';
+      return;
+    }
 
-    if (!status || !status.key_configured) return;
+    if (!status || !status.key_configured) {
+      // Section stays visible; show the not-configured notice.
+      if (notConfigured) notConfigured.style.display = '';
+      if (configuredCtrls) configuredCtrls.style.display = 'none';
+      return;
+    }
 
-    section.style.display = '';
+    if (notConfigured) notConfigured.style.display = 'none';
+    if (configuredCtrls) configuredCtrls.style.display = '';
     toggle.checked = status.org_enabled;
     if (status.org_enabled) _loadAIUsageData();
 

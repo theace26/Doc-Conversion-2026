@@ -48,6 +48,19 @@
   background: var(--accent);
 }
 
+/* "Needs configuration" state — feature exists but key/admin toggle missing */
+.ai-assist-toggle.needs-config {
+  border-color: color-mix(in srgb, var(--warning, #d97706) 50%, var(--border));
+  color: var(--warning, #d97706);
+  background: color-mix(in srgb, var(--warning, #d97706) 8%, transparent);
+}
+.ai-assist-toggle.needs-config .toggle-dot {
+  background: var(--warning, #d97706);
+}
+.ai-assist-toggle.needs-config:hover {
+  border-color: var(--warning, #d97706);
+}
+
 /* Drawer overlay */
 .ai-assist-drawer {
   position: fixed;

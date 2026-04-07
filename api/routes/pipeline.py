@@ -70,8 +70,20 @@ async def pipeline_status(
     pending_row = await db_fetch_one(
         "SELECT COUNT(*) as cnt FROM source_files WHERE lifecycle_status = 'active'"
     )
+    # True pending conversion count: distinct source files that are still
+    # active in source_files AND have NEVER successfully converted in ANY job.
+    # The naive `COUNT(*) FROM bulk_files WHERE status='pending'` over-counts
+    # by ~2-3x because each new scan job inserts its own pending rows for
+    # files that were already converted in older jobs (cross-job duplication).
+    # Fixed in v0.22.9 — see docs/gotchas.md > Database & aiosqlite.
     pending_conversion = await db_fetch_one(
-        "SELECT COUNT(*) as cnt FROM bulk_files WHERE status = 'pending'"
+        """SELECT COUNT(*) AS cnt FROM source_files sf
+           WHERE sf.lifecycle_status = 'active'
+             AND NOT EXISTS (
+                 SELECT 1 FROM bulk_files bf
+                 WHERE bf.source_path = sf.source_path
+                   AND bf.status = 'converted'
+             )"""
     )
 
     # Last auto-conversion run
@@ -237,11 +249,37 @@ async def pipeline_stats(
             total += stats.get("numberOfDocuments", 0)
         return total
 
+    # See pipeline_status() above for why pending_conversion uses a NOT EXISTS
+    # join against bulk_files instead of `COUNT(*) WHERE status='pending'`.
     scanned, pending_conv, failed, unrecognized, analysis, search_count = await asyncio.gather(
         _safe(_count("SELECT COUNT(*) AS cnt FROM source_files WHERE lifecycle_status = 'active'")),
-        _safe(_count("SELECT COUNT(*) AS cnt FROM bulk_files WHERE status = 'pending'")),
-        _safe(_count("SELECT COUNT(*) AS cnt FROM bulk_files WHERE status = 'failed'")),
-        _safe(_count("SELECT COUNT(*) AS cnt FROM bulk_files WHERE status = 'unrecognized'")),
+        _safe(_count(
+            """SELECT COUNT(*) AS cnt FROM source_files sf
+               WHERE sf.lifecycle_status = 'active'
+                 AND NOT EXISTS (
+                     SELECT 1 FROM bulk_files bf
+                     WHERE bf.source_path = sf.source_path
+                       AND bf.status = 'converted'
+                 )"""
+        )),
+        _safe(_count(
+            """SELECT COUNT(DISTINCT bf.source_path) AS cnt FROM bulk_files bf
+               WHERE bf.status = 'failed'
+                 AND NOT EXISTS (
+                     SELECT 1 FROM bulk_files bf2
+                     WHERE bf2.source_path = bf.source_path
+                       AND bf2.status = 'converted'
+                 )"""
+        )),
+        _safe(_count(
+            """SELECT COUNT(DISTINCT bf.source_path) AS cnt FROM bulk_files bf
+               WHERE bf.status = 'unrecognized'
+                 AND NOT EXISTS (
+                     SELECT 1 FROM bulk_files bf2
+                     WHERE bf2.source_path = bf.source_path
+                       AND bf2.status = 'converted'
+                 )"""
+        )),
         _safe(get_analysis_stats()),
         _safe(_count_search_index()),
     )

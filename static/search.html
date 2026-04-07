@@ -940,14 +940,20 @@
     doSearch();
   });
 
-  // Auto-search if query in URL, otherwise browse all on load
+  // Auto-search ONLY if a query was passed in the URL (?q=...).
+  // Otherwise show an empty page with the input focused, waiting for user
+  // input or an explicit click on "Browse All".
   var initQuery = document.getElementById('search-input').value.trim();
   if (initQuery.length >= 2) {
     doSearch();
   } else {
-    currentSort = 'date';
-    document.getElementById('sort-select').value = 'date';
-    doSearch();
+    // Make sure all results UI is hidden — nothing happens until the user acts.
+    var rcard = document.getElementById('results-card');           if (rcard)  rcard.hidden = true;
+    var rtool = document.getElementById('results-toolbar');        if (rtool)  rtool.hidden = true;
+    var smeta = document.getElementById('search-meta');            if (smeta)  smeta.hidden = true;
+    var pgn   = document.getElementById('pagination');             if (pgn)    pgn.hidden = true;
+    var empty = document.getElementById('empty-state');            if (empty)  empty.hidden = true;
+    document.getElementById('search-input').focus();
   }
 
   // ── AI Assist init ─────────────────────────────────────────────────────────
