@@ -14,7 +14,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Any
 
-from core.ai_assist import stream_search_synthesis, stream_document_expand
+from core.ai_assist import (
+    stream_search_synthesis,
+    stream_document_expand,
+    _get_provider_config,
+)
 from core.auth import AuthenticatedUser, UserRole, get_current_user, require_role
 from core.db.connection import db_fetch_one
 from core.db.ai_usage import (
@@ -44,8 +48,10 @@ class AIAssistToggleRequest(BaseModel):
     enabled: bool
 
 
-def _api_key_configured() -> bool:
-    return bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
+async def _api_key_configured() -> bool:
+    """Backward-compat wrapper — true iff a usable provider is configured."""
+    cfg = await _get_provider_config()
+    return bool(cfg.get("configured") and cfg.get("compatible"))
 
 
 # ── Search synthesis ─────────────────────────────────────────────────────────
@@ -159,15 +165,25 @@ async def ai_expand_document(
 @router.get("/status")
 async def ai_assist_status():
     """
-    Returns whether AI Assist is both configured (API key present)
-    and enabled org-wide by an admin.
+    Returns whether AI Assist is both configured (active llm_provider has
+    a usable Anthropic API key) and enabled org-wide by an admin.
+
+    The frontend uses `provider_source` and `provider_error` to render an
+    accurate "needs configuration" notice — pointing users to either the
+    Providers page (no/incompatible provider) or the AI Assist toggle
+    (provider OK but admin hasn't enabled).
     """
-    key_present = _api_key_configured()
+    cfg = await _get_provider_config()
+    key_present = bool(cfg.get("configured") and cfg.get("compatible"))
     org_enabled = await get_ai_assist_enabled() if key_present else False
     return {
         "key_configured": key_present,
         "org_enabled": org_enabled,
         "enabled": key_present and org_enabled,
+        "provider_source": cfg.get("provider"),  # "anthropic" / "env_fallback" / "openai" / etc.
+        "provider_compatible": cfg.get("compatible"),
+        "provider_error": cfg.get("error"),
+        "model": cfg.get("model"),
     }
 
 

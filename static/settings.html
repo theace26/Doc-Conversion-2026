@@ -1136,19 +1136,14 @@
       <details class="settings-section" id="ai-assist-settings">
       <summary>AI-Assisted Search</summary>
       <div class="card">
-        <!-- "Not configured" notice (shown when ANTHROPIC_API_KEY is missing) -->
+        <!-- "Not configured" notice (shown when no usable provider is set) -->
         <div id="ai-assist-not-configured" class="notice notice-warn" style="display:none;margin-bottom:1rem">
           <strong>Not configured.</strong>
-          <p class="text-sm" style="margin:0.35rem 0 0">
-            AI Assist requires the <code>ANTHROPIC_API_KEY</code> environment variable.
-            Add it to your <code>.env</code> file at the project root and restart the
-            container:
+          <p class="text-sm" id="ai-assist-not-configured-msg" style="margin:0.35rem 0 0">
+            AI Assist uses the active LLM provider configured on the
+            <a href="/providers.html">Providers page</a>. Add an Anthropic
+            provider with a valid API key and mark it as Active.
           </p>
-          <pre class="text-sm" style="margin:0.5rem 0 0;padding:0.5rem;background:var(--bg);border-radius:var(--radius-sm);overflow-x:auto"># in .env
-ANTHROPIC_API_KEY=sk-ant-...
-
-# then restart
-docker-compose restart markflow</pre>
         </div>
 
         <!-- Configured controls (shown when key is present) -->
@@ -1966,6 +1961,7 @@ docker-compose restart markflow</pre>
     var toggle = document.getElementById('ai-assist-org-toggle');
     var usageSec = document.getElementById('ai-usage-section');
     var notConfigured = document.getElementById('ai-assist-not-configured');
+    var notConfiguredMsg = document.getElementById('ai-assist-not-configured-msg');
     var configuredCtrls = document.getElementById('ai-assist-configured-controls');
 
     var status;
@@ -1979,9 +1975,21 @@ docker-compose restart markflow</pre>
     }
 
     if (!status || !status.key_configured) {
-      // Section stays visible; show the not-configured notice.
+      // Section stays visible; show the not-configured notice. Tailor the
+      // message based on whether the active provider is just missing
+      // (no provider) vs. incompatible (e.g. OpenAI/Gemini active).
       if (notConfigured) notConfigured.style.display = '';
       if (configuredCtrls) configuredCtrls.style.display = 'none';
+      if (notConfiguredMsg && status && status.provider_error) {
+        notConfiguredMsg.textContent = '';
+        var t1 = document.createTextNode(status.provider_error + ' Open the ');
+        notConfiguredMsg.appendChild(t1);
+        var a = document.createElement('a');
+        a.href = '/providers.html';
+        a.textContent = 'Providers page';
+        notConfiguredMsg.appendChild(a);
+        notConfiguredMsg.appendChild(document.createTextNode('.'));
+      }
       return;
     }
 

@@ -25,14 +25,27 @@ read the relevant `gotchas.md` section first. Most bugs there have already been 
 
 ---
 
-## Current Version — v0.22.9
+## Current Version — v0.22.10
 
-UX + data-integrity fixes:
-- **Search default view** — clicking Search in nav no longer auto-loads "browse all"; the page shows an empty input waiting for user action.
-- **AI Assist UX** — when `ANTHROPIC_API_KEY` is missing, the search-page toggle and Settings section stay visible with a clear "needs configuration" notice instead of silently hiding.
-- **Pipeline pending count** — `/api/pipeline/status` and `/api/pipeline/status-overview` now count truly-distinct unconverted source files (NOT EXISTS join against `bulk_files`), eliminating the 2-3x cross-job duplication that inflated the badge to 84k.
-- **bulk_files self-correction** — added a 4th cleanup step (`pending_superseded_deleted`) that removes pending rows whose `source_path` has any `converted` row in any job.
-- **adobe-files index regression** — `bulk_worker._worker()` now runs Adobe files through Level-2 indexing (`_index_adobe_l2`) AFTER the regular conversion. The unified-dispatch refactor had silently dropped the L2 path, leaving `adobe_index` and the `adobe-files` Meilisearch index empty even though .ai/.psd files were being converted to markdown.
+AI Assist now uses the same provider configuration as the image scanner:
+- **`core/ai_assist.py`** — `_get_provider_config()` reads the active
+  `llm_providers` row via `core.db.catalog.get_active_provider()` (the same
+  source the image scanner / vision pipeline uses). It honors the provider's
+  `api_key`, `model`, and `api_base_url`. Falls back to `ANTHROPIC_API_KEY`
+  env var only if no provider record exists at all (legacy compat).
+- **Provider compatibility check** — AI Assist requires an `anthropic`
+  provider (because the SSE format and `x-api-key` header are
+  Anthropic-specific). If the active provider is OpenAI/Gemini/etc, the
+  status endpoint returns a clear `provider_error` and the UI tells the user
+  to switch the active provider on the Providers page.
+- **Frontend UX** — both the search-page drawer and the Settings page now
+  link to `/providers.html` instead of asking users to edit `.env`. Server
+  status response carries `provider_source`, `provider_compatible`,
+  `provider_error`, and `model` so the UI can render an accurate notice.
+
+Previous (v0.22.9): UX + data-integrity pass — search default view, AI
+Assist needs-config UX, pipeline pending count NOT EXISTS rewrite,
+bulk_files self-correction 4th step, adobe-files L2 indexing rewire.
 
 All earlier versions (v0.13.x – v0.22.7) are documented per-release in
 [`docs/version-history.md`](docs/version-history.md). Do NOT duplicate that here.

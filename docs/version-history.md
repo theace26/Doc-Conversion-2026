@@ -4,6 +4,108 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.22.10 — AI Assist Uses llm_providers (2026-04-07)
+
+**Problem:** AI Assist read its API key from `os.environ["ANTHROPIC_API_KEY"]`
+in `core/ai_assist.py:_get_api_key()`. Meanwhile the image scanner / vision
+pipeline read it from the `llm_providers` SQLite table managed via the
+Settings → Providers page (encrypted at rest, set per-deployment in the UI).
+Two separate configurations for what was effectively the same Anthropic key.
+This was confusing — users who set up image analysis assumed AI Assist
+"just worked" too, but it silently fell back to the env var (almost always
+empty in this deployment).
+
+**Fix:** AI Assist now resolves its key/model/base URL from the same source.
+
+### Code changes
+
+- **`core/ai_assist.py`**
+  - New async helper `_get_provider_config()` that:
+    1. Calls `core.db.catalog.get_active_provider()` (the same call the
+       vision pipeline uses).
+    2. If the active provider is `anthropic` and has an `api_key`, returns
+       `{api_key, model, api_url, provider, configured: True, compatible: True}`.
+       The provider's `model` and `api_base_url` (if set) override the
+       defaults — so an admin can point AI Assist at a different Anthropic
+       model or a self-hosted Anthropic-compatible proxy from the UI.
+    3. If the active provider is set but is NOT `anthropic` (openai, gemini,
+       ollama, custom), returns `compatible: False` with a clear error
+       message ("Active LLM provider is 'openai'. AI Assist currently
+       requires an Anthropic provider..."). AI Assist's SSE format and
+       `x-api-key` header are Anthropic-specific.
+    4. As a fallback only when there is NO provider record at all, reads
+       `ANTHROPIC_API_KEY` from env (legacy compatibility — should be
+       considered deprecated). Returned with `provider="env_fallback"`.
+  - `stream_search_synthesis()` and `stream_document_expand()` both
+    call `await _get_provider_config()` and short-circuit with a clear SSE
+    error event if `compatible` is false or `configured` is false.
+  - The hard-coded `ANTHROPIC_API_URL` constant became
+    `ANTHROPIC_API_URL_DEFAULT`. The actual URL used per request comes
+    from `cfg["api_url"]` so a custom `api_base_url` in the provider
+    record is honored.
+  - Added `provider=cfg["provider"]` to the start/complete log events for
+    observability.
+
+- **`api/routes/ai_assist.py`**
+  - Imported `_get_provider_config` from `core.ai_assist`.
+  - `_api_key_configured()` is now async and delegates to
+    `_get_provider_config()` — returns true iff a usable
+    (configured + compatible) provider exists.
+  - `GET /api/ai-assist/status` response gained four new fields:
+    - `provider_source` — "anthropic" / "env_fallback" / "openai" / etc.
+    - `provider_compatible` — bool
+    - `provider_error` — human-readable reason when not usable
+    - `model` — the actual model that will be used
+  - `key_configured` is unchanged in shape (still bool) so existing
+    frontends keep working.
+
+- **`static/settings.html`**
+  - The "Not configured" notice in the AI Assist section was rewritten to
+    point users at the **Providers page** (`/providers.html`) instead of
+    asking them to edit `.env`.
+  - The `_initAIAssistSettings()` JS now reads `status.provider_error`
+    and substitutes it into the notice when present, so a user with the
+    wrong provider active sees "Active LLM provider is 'openai'..." with a
+    direct link to fix it.
+
+- **`static/js/ai-assist.js`**
+  - The `_showNotConfiguredNotice('missing_key')` drawer message now uses
+    `_serverStatus.provider_error` when present and links to
+    `/providers.html`. The old `.env` / `docker-compose restart` snippet
+    was removed.
+
+- **`core/version.py`** — 0.22.9 → 0.22.10
+- **`CLAUDE.md`, `docs/version-history.md`, `docs/gotchas.md`** — updates.
+
+### Why this matters
+
+1. **Single source of truth.** Setting up an Anthropic key in the
+   Providers page is now sufficient to enable both image analysis AND AI
+   Assist. No more split-brain config.
+2. **Per-deployment overrides.** The provider record's `model` and
+   `api_base_url` columns flow through to AI Assist, so an admin can point
+   it at a non-default model or an Anthropic-compatible proxy without
+   touching environment variables.
+3. **Encrypted at rest.** Provider API keys are stored encrypted in
+   `llm_providers.api_key` (via `core.crypto.encrypt_value`). Env-var
+   storage was plaintext.
+4. **Clearer error UX.** A user with OpenAI active no longer sees AI
+   Assist silently disabled — they see "Active LLM provider is 'openai'.
+   AI Assist currently requires an Anthropic provider. Switch the active
+   provider on the Settings → Providers page."
+
+### Backward compatibility
+
+- The `ANTHROPIC_API_KEY` env var still works as a fallback when there is
+  no `llm_providers` record at all. This keeps existing dev/test setups
+  working without immediate config migration. The env-var path should be
+  considered deprecated and removed in a future release.
+- The `/api/ai-assist/status` response shape is a strict superset of the
+  old shape — existing callers reading only `key_configured`/`org_enabled`/
+  `enabled` keep working unchanged.
+
+---
+
 ## v0.22.9 — UX + Data Integrity Pass (2026-04-07)
 
 A grab-bag of UX and pipeline-truthfulness fixes that emerged from a single

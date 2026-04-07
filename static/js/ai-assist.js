@@ -416,7 +416,7 @@ var AIAssist = (function() {
     if (!drawer || !drawerBody) {
       alert(
         reason === 'missing_key'
-          ? 'AI Assist requires the ANTHROPIC_API_KEY environment variable. Add it to .env and restart the container.'
+          ? 'AI Assist requires an active Anthropic provider on the Providers page.'
           : 'AI Assist is currently disabled by an administrator. Enable it on the Settings page.'
       );
       return;
@@ -436,30 +436,19 @@ var AIAssist = (function() {
     p.style.marginTop = '0.5rem';
 
     if (reason === 'missing_key') {
-      // Build the paragraph as plain text + <code> spans (no innerHTML).
-      p.appendChild(document.createTextNode('The '));
-      var codeKey = document.createElement('code');
-      codeKey.textContent = 'ANTHROPIC_API_KEY';
-      p.appendChild(codeKey);
-      p.appendChild(document.createTextNode(' environment variable is not set. Add it to your '));
-      var codeEnv = document.createElement('code');
-      codeEnv.textContent = '.env';
-      p.appendChild(codeEnv);
-      p.appendChild(document.createTextNode(' file and restart the container:'));
+      // Server-provided error message (e.g. "Active LLM provider is 'openai'.
+      // AI Assist currently requires an Anthropic provider...") is preferred
+      // when present. Otherwise fall back to the generic instructions.
+      var msg = (_serverStatus && _serverStatus.provider_error)
+        || 'AI Assist uses the same LLM provider as the image scanner. Add an Anthropic provider with a valid API key on the Providers page and mark it as Active.';
+      p.appendChild(document.createTextNode(msg + ' '));
+      p.appendChild(document.createTextNode('Open the '));
+      var providersLink = document.createElement('a');
+      providersLink.href = '/providers.html';
+      providersLink.textContent = 'Providers page';
+      p.appendChild(providersLink);
+      p.appendChild(document.createTextNode(' to configure it.'));
       box.appendChild(p);
-
-      var pre = document.createElement('pre');
-      pre.style.marginTop = '0.5rem';
-      pre.style.padding = '0.5rem';
-      pre.style.background = 'var(--bg)';
-      pre.style.borderRadius = '4px';
-      pre.style.overflowX = 'auto';
-      pre.textContent =
-        '# in .env\n' +
-        'ANTHROPIC_API_KEY=sk-ant-...\n\n' +
-        '# then restart\n' +
-        'docker-compose restart markflow';
-      box.appendChild(pre);
     } else {
       p.appendChild(document.createTextNode('An administrator must enable AI Assist on the '));
       var a = document.createElement('a');

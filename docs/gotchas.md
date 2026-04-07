@@ -494,6 +494,20 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 ## LLM & Vision
 
+- **AI Assist + image scanner share the same provider record (v0.22.10)**:
+  AI Assist resolves its API key, model, and base URL from
+  `core.db.catalog.get_active_provider()` — the SAME row the vision
+  pipeline uses. Set the Anthropic key once on the Providers page; both
+  features pick it up. AI Assist requires the active provider's
+  `provider` field to be `anthropic` (the SSE format and `x-api-key`
+  header are Anthropic-specific). If a user has OpenAI/Gemini active,
+  `_get_provider_config()` returns `compatible: False` with a clear error
+  message, and the UI tells them to switch providers — it does NOT
+  silently fall through to env vars in that case. The `ANTHROPIC_API_KEY`
+  env var is still honored as a legacy fallback when there is NO provider
+  record at all (deprecated, slated for removal).
+
+
 - **SECRET_KEY required for LLM providers**: Must be set if any provider configured.
 
 - **MCP server is a separate process**: Port 8001, shares DB and filesystem.

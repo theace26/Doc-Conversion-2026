@@ -1,16 +1,29 @@
 """
 AI-assisted search synthesis using the Anthropic Messages API.
 Streams a grounded answer based on Meilisearch result snippets.
+
+Provider key resolution (v0.22.10)
+----------------------------------
+The API key, model, and base URL are pulled from the **active llm_providers
+record** managed via the Settings → Providers page — the same source the
+image scanner / vision pipeline uses. The legacy `ANTHROPIC_API_KEY` env var
+is honored as a fallback for backward compatibility but should be considered
+deprecated.
+
+Only an `anthropic` provider is supported by AI Assist today (because the
+streaming SSE format and `x-api-key` header are Anthropic-specific). If the
+active provider is OpenAI/Gemini/Ollama/etc, AI Assist returns a clear
+configuration error telling the user to set Anthropic as the active provider.
 """
 import os
 import json
 import httpx
 import structlog
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
 log = structlog.get_logger()
 
-ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_API_URL_DEFAULT = "https://api.anthropic.com/v1/messages"
 DEFAULT_MODEL = "claude-sonnet-4-20250514"
 DEFAULT_MAX_TOKENS = 700
 DEFAULT_MAX_SNIPPETS = 8
@@ -43,8 +56,74 @@ def _estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
-def _get_api_key() -> str | None:
-    return os.environ.get("ANTHROPIC_API_KEY", "").strip() or None
+async def _get_provider_config() -> dict:
+    """
+    Resolve the AI Assist API key + model + base URL from the active
+    llm_providers record (the same source the image scanner / vision pipeline
+    uses). Falls back to ANTHROPIC_API_KEY env var for backward compatibility.
+
+    Returns a dict with these keys:
+        api_key      — str or None
+        model        — str (resolved from provider, AI_ASSIST_MODEL env, or DEFAULT_MODEL)
+        api_url      — str (the messages endpoint URL)
+        provider     — str (e.g. "anthropic", "openai", "env_fallback")
+        configured   — bool (True if api_key is non-empty)
+        compatible   — bool (True if the provider is anthropic; AI Assist
+                       only supports Anthropic streaming today)
+        error        — str or None (human-readable reason when not usable)
+    """
+    api_key: Optional[str] = None
+    model = os.environ.get("AI_ASSIST_MODEL") or DEFAULT_MODEL
+    api_url = ANTHROPIC_API_URL_DEFAULT
+    provider_name = "env_fallback"
+    compatible = True
+    error: Optional[str] = None
+
+    try:
+        from core.db.catalog import get_active_provider  # local import to avoid cycles
+        active = await get_active_provider()
+    except Exception as exc:
+        log.warning("ai_assist.provider_lookup_failed", error=str(exc))
+        active = None
+
+    if active and active.get("api_key"):
+        provider_name = (active.get("provider") or "").strip().lower()
+        if provider_name == "anthropic":
+            api_key = active["api_key"]
+            # Provider record may override the model and base URL.
+            if active.get("model"):
+                model = active["model"]
+            if active.get("api_base_url"):
+                base = active["api_base_url"].rstrip("/")
+                # The provider record stores a base URL like
+                # https://api.anthropic.com — append the messages path.
+                api_url = base + "/v1/messages" if not base.endswith("/v1/messages") else base
+        else:
+            # An active provider exists but it's not Anthropic — AI Assist
+            # cannot use it (different SSE format / auth scheme).
+            compatible = False
+            error = (
+                f"Active LLM provider is '{provider_name}'. AI Assist currently "
+                f"requires an Anthropic provider. Switch the active provider on "
+                f"the Settings → Providers page."
+            )
+
+    # Backward-compat env-var fallback (only if there's no active provider at all)
+    if not api_key and not active:
+        env_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        if env_key:
+            api_key = env_key
+            provider_name = "env_fallback"
+
+    return {
+        "api_key": api_key,
+        "model": model,
+        "api_url": api_url,
+        "provider": provider_name,
+        "configured": bool(api_key),
+        "compatible": compatible,
+        "error": error,
+    }
 
 
 def _build_snippet_prompt(query: str, results: list[dict]) -> str:
@@ -75,12 +154,20 @@ async def stream_search_synthesis(
     Stream a Claude synthesis of search results as SSE-formatted strings.
     Yields lines ready to write directly to a StreamingResponse.
     """
-    api_key = _get_api_key()
-    if not api_key:
-        yield _sse("error", {"message": "AI Assist is not configured (missing ANTHROPIC_API_KEY)"})
+    cfg = await _get_provider_config()
+    if not cfg["compatible"]:
+        yield _sse("error", {"message": cfg["error"] or "AI Assist provider is not compatible"})
+        return
+    if not cfg["configured"]:
+        yield _sse("error", {
+            "message": "AI Assist is not configured. Add an Anthropic provider with a valid "
+                       "API key on the Settings \u2192 Providers page and mark it active.",
+        })
         return
 
-    model = os.environ.get("AI_ASSIST_MODEL", DEFAULT_MODEL)
+    api_key = cfg["api_key"]
+    model = cfg["model"]
+    api_url = cfg["api_url"]
     max_tokens = int(os.environ.get("AI_ASSIST_MAX_TOKENS", DEFAULT_MAX_TOKENS))
 
     user_prompt = _build_snippet_prompt(query, results)
@@ -101,12 +188,13 @@ async def stream_search_synthesis(
         "content-type": "application/json",
     }
 
-    log.info("ai_assist.stream_start", query=query, result_count=len(results), model=model)
+    log.info("ai_assist.stream_start", query=query, result_count=len(results),
+             model=model, provider=cfg["provider"])
 
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             async with client.stream(
-                "POST", ANTHROPIC_API_URL, json=payload, headers=headers
+                "POST", api_url, json=payload, headers=headers
             ) as resp:
                 if resp.status_code != 200:
                     body = await resp.aread()
@@ -178,12 +266,20 @@ async def stream_document_expand(
     Stream a deep analysis of a single document in context of the original query.
     markdown_content should be the full converted markdown text.
     """
-    api_key = _get_api_key()
-    if not api_key:
-        yield _sse("error", {"message": "AI Assist is not configured (missing ANTHROPIC_API_KEY)"})
+    cfg = await _get_provider_config()
+    if not cfg["compatible"]:
+        yield _sse("error", {"message": cfg["error"] or "AI Assist provider is not compatible"})
+        return
+    if not cfg["configured"]:
+        yield _sse("error", {
+            "message": "AI Assist is not configured. Add an Anthropic provider with a valid "
+                       "API key on the Settings \u2192 Providers page and mark it active.",
+        })
         return
 
-    model = os.environ.get("AI_ASSIST_MODEL", DEFAULT_MODEL)
+    api_key = cfg["api_key"]
+    model = cfg["model"]
+    api_url = cfg["api_url"]
     max_tokens = int(os.environ.get("AI_ASSIST_EXPAND_MAX_TOKENS", 900))
 
     # Truncate content to avoid blowing context
@@ -213,12 +309,13 @@ async def stream_document_expand(
         "content-type": "application/json",
     }
 
-    log.info("ai_assist.expand_start", query=query, doc_id=doc_id, model=model)
+    log.info("ai_assist.expand_start", query=query, doc_id=doc_id,
+             model=model, provider=cfg["provider"])
 
     try:
         async with httpx.AsyncClient(timeout=90.0) as client:
             async with client.stream(
-                "POST", ANTHROPIC_API_URL, json=payload, headers=headers
+                "POST", api_url, json=payload, headers=headers
             ) as resp:
                 if resp.status_code != 200:
                     body = await resp.aread()
