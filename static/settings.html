@@ -1146,8 +1146,24 @@
           </p>
         </div>
 
-        <!-- Configured controls (shown when key is present) -->
+        <!-- Configured controls (shown when a usable provider is set) -->
         <div id="ai-assist-configured-controls" style="display:none">
+        <p class="text-sm text-muted" style="margin:0 0 1rem">
+          AI Assist uses the same LLM provider system as
+          <strong>Vision &amp; Frame Description</strong> and
+          <strong>AI Enhancement</strong> above. By default it uses the
+          provider marked <em>Active</em> on the
+          <a href="/providers.html">Providers page</a>; you can override
+          this by clicking <em>Use for AI Assist</em> on a specific
+          provider. AI Assist requires an Anthropic provider.
+        </p>
+
+        <!-- Live provider source / model badge -->
+        <div id="ai-assist-provider-info" class="notice" style="display:none;margin-bottom:1rem;padding:0.6rem 0.8rem;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.85rem">
+          <span id="ai-assist-provider-info-text"></span>
+          <a href="/providers.html" style="margin-left:0.5rem">Manage Providers \u2192</a>
+        </div>
+
         <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem">
           <label class="toggle" style="margin:0">
             <input type="checkbox" id="ai-assist-org-toggle">
@@ -1157,7 +1173,8 @@
             <strong>Enable AI Assist</strong>
             <p class="text-sm text-muted" style="margin:0">
               Allows users to synthesize search results via Claude.
-              Requires <code>ANTHROPIC_API_KEY</code> in the environment.
+              Uses the provider shown above &mdash; no environment
+              variable required.
             </p>
           </div>
         </div>
@@ -1995,6 +2012,31 @@
 
     if (notConfigured) notConfigured.style.display = 'none';
     if (configuredCtrls) configuredCtrls.style.display = '';
+
+    // Render the live provider info badge so admins can see exactly which
+    // provider AI Assist will use and where the choice came from.
+    var infoBox = document.getElementById('ai-assist-provider-info');
+    var infoText = document.getElementById('ai-assist-provider-info-text');
+    if (infoBox && infoText && status.provider) {
+      var sourceLabel = {
+        opted_in: 'opted-in via "Use for AI Assist"',
+        active_fallback: 'falling back to the Active provider',
+        env_fallback: 'using the legacy ANTHROPIC_API_KEY env var (deprecated)',
+        none: 'no provider configured'
+      }[status.provider_source] || status.provider_source;
+
+      infoText.textContent = '';
+      var b1 = document.createElement('strong');
+      b1.textContent = 'Provider: ';
+      infoText.appendChild(b1);
+      infoText.appendChild(document.createTextNode(status.provider + ' \u00b7 '));
+      var b2 = document.createElement('strong');
+      b2.textContent = status.model || '(default)';
+      infoText.appendChild(b2);
+      infoText.appendChild(document.createTextNode(' \u00b7 ' + sourceLabel));
+      infoBox.style.display = '';
+    }
+
     toggle.checked = status.org_enabled;
     if (status.org_enabled) _loadAIUsageData();
 

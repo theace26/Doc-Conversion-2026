@@ -4,6 +4,54 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.22.12 — AI Assist Settings Copy Fix + Provider Badge (2026-04-07)
+
+**Problem:** The Settings page "AI-Assisted Search" section still carried
+v0.21.0-era copy under the "Enable AI Assist" toggle:
+
+> Allows users to synthesize search results via Claude.
+> Requires `ANTHROPIC_API_KEY` in the environment.
+
+This was wrong as of v0.22.10 (AI Assist reads from `llm_providers`) and
+doubly wrong as of v0.22.11 (per-provider opt-in flag). Admins reading the
+text would still think they needed to set an env var.
+
+The user also wanted the section to clearly tell them that AI Assist uses
+the same provider system as **Vision & Frame Description** and **AI
+Enhancement** above it on the same page.
+
+**Fix:** `static/settings.html`:
+
+- Replaced the stale "Requires `ANTHROPIC_API_KEY`" line with:
+  > Allows users to synthesize search results via Claude. Uses the
+  > provider shown above — no environment variable required.
+- Added a top-of-section blurb above the toggle:
+  > AI Assist uses the same LLM provider system as **Vision & Frame
+  > Description** and **AI Enhancement** above. By default it uses the
+  > provider marked _Active_ on the Providers page; you can override
+  > this by clicking _Use for AI Assist_ on a specific provider. AI
+  > Assist requires an Anthropic provider.
+- Added a new live provider-info badge (`#ai-assist-provider-info`)
+  rendered from the `/api/ai-assist/status` response. It shows
+  `Provider: anthropic · claude-opus-4-6 · opted-in via "Use for AI
+  Assist"` (or `falling back to the Active provider`, or `using the
+  legacy ANTHROPIC_API_KEY env var (deprecated)`, or `no provider
+  configured`) plus a "Manage Providers →" link. Built with safe DOM
+  construction (no innerHTML).
+
+**Why this matters:** UX clarity. The previous text was a recipe for
+support tickets ("I set ANTHROPIC_API_KEY in .env but the toggle still
+won't enable"). Now the section explicitly tells admins which provider
+record AI Assist will use, where it came from, and how to switch it.
+
+### Modified files
+
+- `core/version.py` — 0.22.11 → 0.22.12
+- `static/settings.html` — section copy + provider info badge + JS render
+- `CLAUDE.md`, `docs/version-history.md` — updates
+
+---
+
 ## v0.22.11 — Per-Provider "Use for AI Assist" Opt-In (2026-04-07)
 
 **Problem (raised in chat):** v0.22.10 wired AI Assist to use the active

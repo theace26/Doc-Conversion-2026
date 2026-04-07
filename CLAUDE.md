@@ -89,9 +89,21 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.22.11
+## Current Version — v0.22.12
 
-Per-provider "Use for AI Assist" opt-in checkbox:
+Settings page AI Assist section copy fix:
+- The blurb under "Enable AI Assist" still said "Requires `ANTHROPIC_API_KEY`
+  in the environment" — stale since v0.22.10. Replaced with explicit text
+  saying AI Assist uses the same provider system as Vision & Frame
+  Description and AI Enhancement.
+- New live "Provider: anthropic · claude-opus-4-6 · opted-in via 'Use for
+  AI Assist'" badge on the AI Assist Settings section. Pulls
+  `provider_source` and `model` from `/api/ai-assist/status` so admins can
+  see exactly which provider AI Assist will use and which lookup path
+  produced it (`opted_in` / `active_fallback` / `env_fallback` / `none`).
+- Includes a "Manage Providers →" link directly in the badge.
+
+Previous (v0.22.11): per-provider "Use for AI Assist" opt-in checkbox.
 - **Migration #25** adds `use_for_ai_assist INTEGER NOT NULL DEFAULT 0` to
   `llm_providers`. Mutually exclusive across rows (like `is_active`).
 - **`core/db/catalog.py`** — new `get_ai_assist_provider()` and
