@@ -44,3 +44,10 @@ hashcat-queue/worker_capabilities.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude Code auto-memory should NEVER live in the project tree.
+# The canonical path is ~/.claude/projects/<encoded-project>/memory/.
+# If a stray `memory/` ever appears here it's an artifact from an earlier
+# session writing to the wrong path — ignore it so it can't pollute
+# `git status` or be committed by accident.
+/memory/
