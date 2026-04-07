@@ -733,6 +733,15 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 - **Host worker capabilities**: Cached at startup, re-read live on health check.
 
+- **`get_gpu_info_live()` must re-resolve execution_path (v0.22.8)**: The live
+  re-read updates `host_worker_*` fields but the derived `execution_path`,
+  `effective_gpu_name`, and `effective_backend` are computed once during
+  `detect_gpu()` at startup. If `worker_capabilities.json` appears AFTER
+  startup (common during dev), the cached `execution_path="container_cpu"`
+  persists and the health page reports `gpu: FAIL / CPU` even though
+  `host_worker_available=true` with the correct GPU. Fix: re-run the same
+  resolution logic at the end of `get_gpu_info_live()`.
+
 - **`worker_capabilities.json` is per-machine (v0.22.1)**: This file is gitignored and
   generated at deploy time by the refresh/reset scripts. Do NOT commit it — each machine
   (Windows/macOS/Linux) has different GPU hardware. The `.json.example` shows the schema.

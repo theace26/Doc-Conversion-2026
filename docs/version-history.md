@@ -4,6 +4,43 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.22.8 — GPU Detector Live Re-Resolution Fix (2026-04-07)
+
+**Fix:** `get_gpu_info_live()` in `core/gpu_detector.py` re-reads the
+`host_worker_*` fields on every health check (correctly), but never re-resolved
+the derived `execution_path`, `effective_gpu_name`, or `effective_backend`
+values. Those are computed once during `detect_gpu()` at container startup
+and cached on the singleton `_gpu_info`. If `worker_capabilities.json` did
+not exist at startup but appeared later (common during dev when running the
+refresh script after the container was already up), the health page kept
+reporting "CPU (no GPU detected)" even though the live re-read had populated
+`host_worker_available=true` with the correct GPU details.
+
+**Symptom:** The Status page System Health Check showed `gpu: FAIL / CPU`
+while the underlying API response had a fully-populated `host_worker` block
+with the correct NVIDIA / AMD / Apple GPU identified.
+
+**Fix:** Added the same execution-path resolution block from `detect_gpu()`
+to the end of `get_gpu_info_live()`. Now the live re-read also re-evaluates:
+
+```python
+if container_gpu_available and container_hashcat_backend in ("CUDA", "OpenCL"):
+    -> "container"
+elif host_worker_available and host_worker_gpu_backend in _gpu_backends:
+    -> "host"   # this branch was being missed
+elif container_hashcat_available:
+    -> "container_cpu"
+else:
+    -> "none"
+```
+
+**Modified files:**
+- `core/gpu_detector.py` — Added execution-path resolution to `get_gpu_info_live()`
+- `core/version.py` — 0.22.7 → 0.22.8
+- `CLAUDE.md`, `docs/version-history.md` — Updates
+
+---
+
 ## v0.22.7 — bulk_files Self-Correction (2026-04-07)
 
 **Feature:** Periodic cleanup sweep for the `bulk_files` table that prunes

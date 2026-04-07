@@ -26,16 +26,19 @@ GitHub: `github.com/theace26/Doc-Conversion-2026`
 
 ---
 
-## Current Status — v0.22.7
+## Current Status — v0.22.8
 
-v0.22.7: bulk_files self-correction. Adds a periodic cleanup job that prunes
-phantom rows (source file gone), purged rows (lifecycle_status='purged'),
-and cross-job duplicates (older copies of the same source_path from finished
-jobs). Runs every 6 hours via the scheduler; auto-skips while any bulk job
-is active. Also exposed via `POST /api/admin/cleanup-bulk-files` for manual
-trigger. Fixes the issue where the pipeline status badge reported nonsensical
-pending counts (e.g. 325k for ~34k unique files) due to bulk_files
-accumulating ~10x duplicates over multiple scan jobs.
+v0.22.8: GPU detector live re-resolution fix. `get_gpu_info_live()` re-read the
+host_worker fields on each health check but never re-resolved
+`execution_path` / `effective_gpu_name` / `effective_backend`, so the cached
+values from `detect_gpu()` at startup persisted forever. If the host worker
+file appeared AFTER container startup (common during dev when generating
+worker_capabilities.json), the health page kept reporting "CPU
+(no GPU detected)" even though the host_worker block showed the correct GPU.
+
+Previous (v0.22.7): bulk_files self-correction. Adds a periodic cleanup job
+that prunes phantom rows, purged rows, and cross-job duplicates. Initial run
+collapsed 338,229 -> 36,296 bulk_files rows.
 
 Previous (v0.22.6): hashlib UnboundLocalError + Anthropic vision splitter.
 

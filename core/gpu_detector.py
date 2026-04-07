@@ -183,6 +183,28 @@ def get_gpu_info_live() -> GPUInfo:
         info.host_worker_hashcat_version = report.get("hashcat_version")
     else:
         info.host_worker_available = False
+
+    # Re-resolve execution_path based on the live host_worker state. Without
+    # this, the cached value from detect_gpu() at startup persists and reports
+    # "container_cpu" even after the host worker file appears.
+    _gpu_backends = ("CUDA", "OpenCL", "ROCm", "Metal")
+    if info.container_gpu_available and info.container_hashcat_backend in ("CUDA", "OpenCL"):
+        info.execution_path = "container"
+        info.effective_gpu_name = info.container_gpu_name
+        info.effective_backend = info.container_hashcat_backend or "CUDA"
+    elif info.host_worker_available and info.host_worker_gpu_backend in _gpu_backends:
+        info.execution_path = "host"
+        info.effective_gpu_name = info.host_worker_gpu_name
+        info.effective_backend = info.host_worker_gpu_backend
+    elif info.container_hashcat_available:
+        info.execution_path = "container_cpu"
+        info.effective_gpu_name = "CPU (no GPU detected)"
+        info.effective_backend = "CPU"
+    else:
+        info.execution_path = "none"
+        info.effective_gpu_name = ""
+        info.effective_backend = ""
+
     return info
 
 
