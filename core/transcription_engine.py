@@ -105,9 +105,13 @@ class TranscriptionEngine:
         cloud_fallback = (
             preferences.get("transcription_cloud_fallback", "true") == "true"
         )
+        no_audio_provider_configured = False
         if cloud_fallback:
             try:
-                from core.cloud_transcriber import CloudTranscriber
+                from core.cloud_transcriber import (
+                    CloudTranscriber,
+                    NoAudioProviderError,
+                )
 
                 language = preferences.get("whisper_language", "auto")
                 result = await CloudTranscriber.transcribe(
@@ -120,9 +124,27 @@ class TranscriptionEngine:
                     segments=len(result.segments),
                 )
                 return result
+            except NoAudioProviderError as e:
+                # Distinct from a generic provider failure — the user simply
+                # has no audio-capable provider configured. Log at info (this
+                # is a config state, not a bug) and fall through to raise an
+                # actionable error below.
+                no_audio_provider_configured = True
+                log.info("cloud_transcription_no_audio_provider", reason=str(e))
             except Exception as e:
                 log.error("cloud_transcription_failed", error=str(e))
 
+        # Every path exhausted — raise an error the user can actually act on.
+        # The message varies depending on WHY we failed, so the UI can surface
+        # the right next step (fix Whisper vs. add a provider vs. enable cloud).
+        if no_audio_provider_configured:
+            raise RuntimeError(
+                f"Cannot transcribe {original_path.name}: local Whisper failed "
+                f"or is unavailable, and no cloud provider that supports audio "
+                f"is configured. Add an OpenAI or Gemini API key in "
+                f"Settings → AI Providers, or troubleshoot Whisper/GPU setup. "
+                f"(Anthropic/Claude does not currently support audio.)"
+            )
         raise RuntimeError(
             f"All transcription methods failed for {original_path.name}. "
             f"Whisper available: {WhisperTranscriber.is_available()}, "

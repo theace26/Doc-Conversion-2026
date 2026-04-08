@@ -58,9 +58,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Pre-install heavy Python dependencies in base image (torch ~2GB, whisper ~1GB)
+# Pre-install heavy Python dependencies in base image (torch ~2.5GB, whisper ~1GB)
 # These rarely change and are very slow to install on every rebuild.
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+#
+# torch CUDA 12.1 build — lights up Whisper GPU transcription on NVIDIA hosts
+# (Turing / CC 7.5 and newer, e.g. GTX 1660 Ti). On hosts without an NVIDIA
+# GPU, torch.cuda.is_available() returns False and Whisper transparently
+# falls back to CPU — same binary works everywhere. Host must have NVIDIA
+# driver >= 525 and NVIDIA Container Toolkit installed to use the GPU.
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu121 \
     && pip install --no-cache-dir openai-whisper
 
 WORKDIR /app

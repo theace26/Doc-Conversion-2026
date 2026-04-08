@@ -61,6 +61,18 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_healthy
+    # GPU passthrough for Whisper transcription (v0.22.15).
+    # Requires NVIDIA Container Toolkit installed on the host (Docker Desktop
+    # on Windows: enable GPU support in WSL2; Linux: install nvidia-container-toolkit).
+    # If the host has no NVIDIA GPU, comment out this whole block — the CUDA
+    # torch wheel transparently falls back to CPU, so the app still runs.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     restart: unless-stopped
 
   # ── MCP server (Claude.ai connector) ──────────────────────────────────────

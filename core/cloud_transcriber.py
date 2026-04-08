@@ -26,7 +26,14 @@ log = structlog.get_logger(__name__)
 # disables cloud fallback for the rest of the session to avoid wasting time.
 _cloud_error_monitor = ErrorRateMonitor(window_size=20, abort_threshold=0.6, min_ops=5)
 
-# Provider audio support map
+# Provider audio support map.
+#
+# IMPORTANT: Anthropic (Claude) does NOT support audio transcription as of
+# 2026-04-07 — Claude's API accepts text, images, and PDFs but not audio.
+# If a user has ONLY Anthropic configured, there is no cloud fallback path
+# for MP3/WAV/etc, and we must fail with a clear, actionable error instead
+# of the generic "all cloud providers failed" message. See
+# NoAudioProviderError below and docs/gotchas.md → Transcription.
 AUDIO_CAPABLE_PROVIDERS = {
     "openai": True,
     "gemini": True,
@@ -34,6 +41,15 @@ AUDIO_CAPABLE_PROVIDERS = {
     "ollama": False,
     "custom": False,
 }
+
+
+class NoAudioProviderError(RuntimeError):
+    """
+    Raised when cloud transcription is attempted but no configured provider
+    can handle audio. Distinct from generic provider failures (rate limits,
+    API errors) so the caller can render an actionable, user-facing message
+    instead of a cryptic "all providers failed" stack trace.
+    """
 
 
 class CloudTranscriber:
@@ -70,26 +86,40 @@ class CloudTranscriber:
         providers = await db_fetch_all(
             "SELECT * FROM llm_providers ORDER BY is_active DESC, name ASC"
         )
+
+        # Pre-flight: is there ANY provider that (a) has an audio-capable type
+        # and (b) has an api_key configured? If not, bail immediately with a
+        # distinct error type so the caller can render an actionable message.
+        # This catches the common "user has only Anthropic / Ollama" case
+        # before we burn time iterating a loop that can't possibly succeed.
+        eligible = [
+            p for p in providers
+            if AUDIO_CAPABLE_PROVIDERS.get(p.get("provider", ""), False)
+            and p.get("api_key")
+        ]
+        if not eligible:
+            configured_types = sorted({
+                p.get("provider", "unknown") for p in providers if p.get("api_key")
+            })
+            audio_types = sorted(
+                k for k, v in AUDIO_CAPABLE_PROVIDERS.items() if v
+            )
+            log.warning(
+                "cloud_transcribe_no_audio_provider",
+                configured_providers=configured_types,
+                audio_capable_providers=audio_types,
+            )
+            raise NoAudioProviderError(
+                "No cloud provider configured that supports audio transcription. "
+                f"Configured providers: {configured_types or 'none'}. "
+                f"Audio-capable provider types: {audio_types}. "
+                "Add an OpenAI or Gemini API key in Settings → AI Providers, "
+                "or rely on local Whisper (check GPU/CPU availability)."
+            )
+
         last_error = None
-
-        for provider in providers:
+        for provider in eligible:
             provider_type = provider.get("provider", "")
-            if not AUDIO_CAPABLE_PROVIDERS.get(provider_type, False):
-                log.debug(
-                    "cloud_transcribe_skip_provider",
-                    provider=provider_type,
-                    reason="no_audio_support",
-                )
-                continue
-
-            if not provider.get("api_key"):
-                log.debug(
-                    "cloud_transcribe_skip_provider",
-                    provider=provider_type,
-                    reason="no_api_key",
-                )
-                continue
-
             try:
                 if provider_type == "openai":
                     result = await cls._transcribe_openai(audio_path, provider, language)
@@ -109,10 +139,13 @@ class CloudTranscriber:
                 last_error = e
                 continue
 
+        # All eligible providers tried and failed (API errors, rate limits, etc).
+        # The pre-flight above guarantees eligible is non-empty here, so this
+        # is always a real failure — not a "never had a chance" situation.
+        tried = [p.get("provider") for p in eligible]
         raise RuntimeError(
-            f"All cloud providers failed. Last error: {last_error}. "
-            f"Audio-capable providers checked: "
-            f"{[p.get('provider') for p in providers if AUDIO_CAPABLE_PROVIDERS.get(p.get('provider', ''), False)]}"
+            f"All audio-capable cloud providers failed. "
+            f"Tried: {tried}. Last error: {last_error!r}"
         )
 
     @staticmethod

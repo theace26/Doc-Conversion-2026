@@ -4,6 +4,152 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.22.15 — GPU Whisper + Audio Fallback Graceful Fail (2026-04-07)
+
+Two related problems surfaced by diagnosing a stuck manual-convert batch
+of four MP3 files on the Convert page. Batch `20260408_021247_8847` stalled
+after 17 hours with one file failing on a Whisper tensor-reshape error,
+one failing on an empty cloud-provider list, and two others stuck mid-load.
+
+### Issue #1 — Whisper was running on CPU despite having a GTX 1660 Ti
+
+**Symptom:** `whisper_device_auto` events logged `"device": "cpu",
+"cuda_available": false` on every batch. A 75-minute MP3 (`240306_1116.mp3`)
+sat for hours with no progress after the model-load event. The machine
+has a GTX 1660 Ti (Turing / CC 7.5) that should have been doing the work
+in ~10-15 minutes instead of ~17 hours.
+
+**Root cause:** Two bugs stacked, either of which would have been enough
+on its own:
+
+1. **`Dockerfile.base:63`** installed the CPU-only PyTorch wheel via
+   `pip install torch --index-url https://download.pytorch.org/whl/cpu`.
+   That wheel ships no CUDA libraries at all, so `torch.cuda.is_available()`
+   returned `False` inside the container regardless of what Docker passed
+   through. The CPU-only wheel was chosen to keep the base image small
+   (~200 MB vs ~2.5 GB) during early development, and that choice became
+   a silent production cap.
+2. **`docker-compose.yml`** had no GPU reservation on the `markflow`
+   service — no `deploy.resources.reservations.devices` block, no
+   `runtime: nvidia`, no `NVIDIA_VISIBLE_DEVICES` env var. Even if torch
+   had been CUDA-enabled, the container had zero visibility into host
+   GPU devices.
+
+**Fix:** Switched the base image to the CUDA 12.1 wheel
+(`whl/cu121`) and added a `deploy.resources.reservations.devices` block
+to the `markflow` service requesting `driver: nvidia, count: 1`. On
+hosts without an NVIDIA GPU, `torch.cuda.is_available()` returns `False`
+and Whisper transparently falls back to CPU — so the same image works
+on GPU and CPU-only machines. Friends deploying on GPU-less hosts can
+comment out the compose block and the app still runs. Host prereq:
+NVIDIA Container Toolkit installed inside the WSL2 distro (Windows) or
+the `nvidia-container-toolkit` package (Linux).
+
+**Why CUDA 12.1 specifically:** GTX 1660 Ti is Turing (CC 7.5) and
+supports every current CUDA release; cu121 is the mainstream default
+with broad driver compatibility (≥ 525), smaller than cu124 (~2.5 GB vs
+~2.7 GB), and large enough to cover any modern RTX card a friend-deploy
+might have.
+
+**Modified files:**
+- `Dockerfile.base:61-70` — comment block + `whl/cu121` index URL
+- `docker-compose.yml:64-75` — `deploy.resources.reservations.devices`
+  block with inline commenting explaining how to disable for CPU-only hosts
+
+### Issue #2 — Cloud fallback failed cryptically when no audio provider exists
+
+**Symptom:** When Whisper crashed on `240306_1004.mp3` (corrupt audio →
+tensor reshape error), the cloud fallback logged:
+
+```
+All cloud providers failed. Last error: None.
+Audio-capable providers checked: []
+```
+
+This is a two-part problem: (a) the empty list shows no eligible provider
+was ever found, so the loop didn't iterate and `last_error` stayed `None`;
+(b) the final user-facing error was the generic "all transcription methods
+failed", which gave the user no indication of what to actually fix.
+
+**Root cause:** The user has only Anthropic / Claude configured as an AI
+provider. Claude does not support audio input (it handles text, images,
+and PDFs, but not audio). `AUDIO_CAPABLE_PROVIDERS` in `cloud_transcriber.py`
+correctly maps `anthropic: False`, so the loop skipped every candidate and
+fell through to the terminal `RuntimeError` with a meaningless message.
+There was no pre-flight check, no distinct exception type, and no
+user-actionable guidance — just a stack trace mentioning "Last error: None".
+
+**Fix:** Three-layer graceful-fail:
+
+1. **New exception type** — `NoAudioProviderError` in `core/cloud_transcriber.py`,
+   subclass of `RuntimeError`, raised when the eligible-provider list is
+   empty. Distinct from generic provider failures (rate limits, API errors)
+   so the caller can distinguish "config issue, user action needed" from
+   "transient failure, maybe retry".
+2. **Pre-flight in `CloudTranscriber.transcribe()`** — compute the eligible
+   list (audio-capable provider type AND api_key present) up front. If
+   empty, raise `NoAudioProviderError` with the full context: which providers
+   the user has configured, which provider types support audio, and
+   exactly what to do (add an OpenAI or Gemini key). Logs a `warning`-level
+   event `cloud_transcribe_no_audio_provider` with both lists for post-mortem.
+3. **Dedicated catch in `transcription_engine.py`** — separate `except
+   NoAudioProviderError` clause that logs the condition at `info` level
+   (this is a config state, not a bug) and raises a user-facing `RuntimeError`
+   with actionable text: "Cannot transcribe <file>: local Whisper failed or
+   is unavailable, and no cloud provider that supports audio is configured.
+   Add an OpenAI or Gemini API key in Settings → AI Providers, or
+   troubleshoot Whisper/GPU setup. (Anthropic/Claude does not currently
+   support audio.)"
+
+The existing terminal `RuntimeError` message was also tightened — it now
+only fires when eligible providers exist but all actually failed, so the
+"Last error" field is always populated with a real cause.
+
+**Why distinguish the two failure modes:** They lead to different user
+actions. "No provider configured" is a Settings-screen fix. "All providers
+failed with real errors" is a "check API key expiry / billing / outage"
+fix. Lumping them into one message left the user guessing.
+
+**Modified files:**
+- `core/cloud_transcriber.py:29-48` — added `NoAudioProviderError` class,
+  enriched the `AUDIO_CAPABLE_PROVIDERS` comment with the Anthropic caveat
+- `core/cloud_transcriber.py:67-105` — pre-flight eligibility check, logs
+  `cloud_transcribe_no_audio_provider` warning, raises typed exception
+- `core/cloud_transcriber.py:117-124` — tightened terminal error message
+- `core/transcription_engine.py:104-148` — `NoAudioProviderError` catch
+  + branched user-facing error message
+- `docs/gotchas.md` — Media & Transcription section updated with GPU
+  passthrough, Anthropic no-audio graceful fail, and Dockerfile.base
+  CUDA wheel entries
+- `docs/help/troubleshooting.md` — new "Audio or Video Transcription
+  Fails" section with Whisper model sizing table and ffmpeg re-encode
+  recipe for corrupt audio
+- `core/version.py` — 0.22.14 → 0.22.15
+
+### Side-findings (flagged for a future release, not fixed here)
+
+These surfaced during the log diagnostic but are out of scope for this
+release:
+
+- **`/api/batch/.../stream` returned 404** on the Convert page SSE
+  progress channel at batch start. The UI has no live progress for
+  manual-convert batches.
+- **`asyncio.wait_for` does not cancel threadpool work.**
+  `transcription_engine.py:73-81` wraps `WhisperTranscriber.transcribe`
+  in `asyncio.wait_for(timeout=3600)`, but the actual transcription runs
+  inside `asyncio.to_thread`. CPython cannot cancel a running thread, so
+  the timeout fires at 3600 s but the thread keeps running — which
+  explains why the 75-min file's timeout event never logged.
+- **Whisper should catch and re-raise corrupt-audio errors with a
+  cleaner message.** The `cannot reshape tensor of 0 elements into
+  shape [1, 0, 16, -1]` error on `240306_1004.mp3` should surface as
+  "audio file contains no decodable frames" so the user can re-encode.
+- **`convert_batch_completed` event never fires** in `api/routes/convert.py`
+  — only the per-file `file_conversion_complete` or `_error` events. Makes
+  "is the batch done?" hard to answer from logs alone.
+
+---
+
 ## v0.22.14 — Log Diagnostic Fixes (2026-04-07)
 
 A diagnostic log scan after v0.22.13 surfaced four issues. All four

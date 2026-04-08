@@ -102,6 +102,81 @@ See [Password-Protected Documents](/help#password-recovery) for workarounds.
 
 ---
 
+## Audio or Video Transcription Fails
+
+**Symptom:** An MP3, WAV, MP4, or other media file uploads but the conversion
+returns an error mentioning transcription, Whisper, or "no cloud provider."
+
+MarkFlow transcribes media files using a three-step fallback chain:
+**caption file → local Whisper → cloud provider**. If all three fail, the
+conversion is marked as an error. Here is how to diagnose each step.
+
+**Error: "No cloud provider configured that supports audio transcription"**
+
+This means local Whisper failed (or is unavailable) and none of your
+configured AI providers can handle audio. Note that **Anthropic / Claude
+does not currently support audio transcription** — only OpenAI (Whisper API)
+and Google Gemini do. If you only have an Anthropic key configured, the
+fallback chain has nothing to fall back *to*.
+
+Fix: In **Settings > AI Providers**, add an API key for OpenAI or Gemini.
+Even a free-tier Gemini key works. Alternatively, make sure local Whisper is
+functioning (see next section).
+
+**Whisper is running but transcription is extremely slow**
+
+Check whether Whisper is running on GPU. Visit `/api/health` and look for
+the `whisper` section:
+
+```json
+"whisper": { "cuda_available": true, "gpu_name": "NVIDIA ..." }
+```
+
+If `cuda_available` is `false` on a machine that has an NVIDIA GPU, Whisper
+is stuck on CPU — a 75-minute audio file can take many hours on CPU with
+the `medium` model, versus 10-15 minutes on GPU. Two things must be true:
+
+1. The **NVIDIA Container Toolkit** must be installed inside WSL2 (not just
+   Windows). Smoke test from your terminal:
+   ```bash
+   docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi
+   ```
+   If this does not list your GPU, fix the toolkit installation first.
+2. The `markflow` service in `docker-compose.yml` must have the
+   `deploy.resources.reservations.devices` block requesting an NVIDIA GPU.
+   This ships enabled by default; if you commented it out for a CPU-only
+   deployment, uncomment it on the GPU host.
+
+**Whisper fails with a "tensor reshape" or "cannot reshape" error**
+
+The audio file is corrupt or has zero decodable frames. Re-encode the file
+to a clean MP3 or WAV using ffmpeg:
+
+```bash
+ffmpeg -i broken.mp3 -c:a libmp3lame -b:a 128k fixed.mp3
+```
+
+Then retry the conversion. If the re-encoded file also fails, the source
+media is unrecoverable.
+
+**Whisper model preference is wrong for your hardware**
+
+In **Settings > Transcription**, pick a Whisper model size based on your
+hardware:
+
+| Model | VRAM (GPU) | RAM (CPU) | Speed | Accuracy |
+|-------|-----------|-----------|-------|----------|
+| `tiny` | ~1 GB | ~1 GB | Very fast | Rough |
+| `base` | ~1 GB | ~1 GB | Fast | Good |
+| `small` | ~2 GB | ~2 GB | Medium | Better |
+| `medium` | ~5 GB | ~5 GB | Slow | Very good |
+| `large` | ~10 GB | ~10 GB | Very slow | Best |
+
+A GTX 1660 Ti (6 GB VRAM) handles `medium` comfortably; `large` needs a
+higher-end card.
+
+---
+
 ## Search Not Working
 
 **Symptom:** The search page shows "Search index offline" or returns no

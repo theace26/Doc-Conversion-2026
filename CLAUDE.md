@@ -89,36 +89,46 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.22.14
+## Current Version — v0.22.15
 
-Four fixes from the v0.22.13 log diagnostic:
+Two related fixes from diagnosing a stuck manual-convert batch of four
+MP3 files on the Convert page (batch `20260408_021247_8847`, stalled 17 h).
 
-1. **Vector indexing no longer blocks the bulk worker.** `core/bulk_worker.py`
-   used to `await vec_indexer.index_document(...)` inline, blocking up to
-   60s per file when Qdrant timed out. Conversion rate dropped to ~0.05
-   files/sec. Now wrapped in `asyncio.create_task()` via the new
-   `_index_vector_async()` helper. Should restore 5-10x throughput.
-   Also: vector-fail logs now use `repr(exc)` and `exc_type` so
-   `TimeoutError()` no longer logs an empty error string.
-2. **`database is locked` no longer marks files as failed.** The bulk
-   worker top-level handler now distinguishes the transient SQLite WAL
-   contention error from real conversion failures and `continue`s
-   (leaves the file `pending`) instead of marking it `failed`. Adobe L2
-   indexer routes its `upsert_adobe_index()` through `db_write_with_retry`.
-   Analysis worker drain and auto_metrics aggregator downgrade lock errors
-   to warnings (next scheduled tick retries naturally).
-3. **Vision API 400 errors now log the response body.** `vision_adapter.py`
-   captures `exc.response.text[:500]` and the failing image path so the
-   actual provider error reason ("Image too large", "Invalid base64", etc)
-   is visible instead of the generic "Client error '400 Bad Request'"
-   wrapper. The 1,150-failed analysis_queue backlog can now be diagnosed.
-4. **Ghostscript installed in Docker.** Added to `Dockerfile.base` for the
-   long term, plus a temporary `apt-get install ghostscript` line in the
-   app `Dockerfile` so this fix ships without a 25-min base rebuild. EPS
-   files now convert via Pillow + Ghostscript instead of failing with
-   "Unable to locate Ghostscript on paths".
+1. **Whisper now runs on GPU.** Two bugs were silently capping Whisper
+   at CPU speed on a GTX 1660 Ti host. `Dockerfile.base:63` was pulling
+   the CPU-only PyTorch wheel (`whl/cpu`) — switched to `whl/cu121`, so
+   `torch.cuda.is_available()` actually returns `True` inside the
+   container. `docker-compose.yml` had no GPU reservation on the
+   `markflow` service — added a `deploy.resources.reservations.devices`
+   block requesting `driver: nvidia`. On hosts without an NVIDIA GPU,
+   `torch.cuda.is_available()` returns `False` and Whisper transparently
+   falls back to CPU, so the same image works everywhere; friend-deploys
+   on CPU-only machines can comment out the compose block. Host prereq:
+   NVIDIA Container Toolkit installed inside WSL2 (Windows) or as a
+   system package (Linux).
+2. **Audio transcription fails gracefully when no cloud provider
+   supports audio.** Anthropic / Claude does not support audio, so users
+   with only an Anthropic key configured previously got a cryptic "All
+   cloud providers failed. Last error: None. Audio-capable providers
+   checked: []" error. New `NoAudioProviderError` exception type in
+   `core/cloud_transcriber.py`, raised by a pre-flight check that runs
+   before the provider loop. `transcription_engine.py` catches it
+   specifically and raises an actionable user-facing error: "Cannot
+   transcribe <file>: local Whisper failed or is unavailable, and no
+   cloud provider that supports audio is configured. Add an OpenAI or
+   Gemini API key in Settings → AI Providers, or troubleshoot
+   Whisper/GPU setup. (Anthropic/Claude does not currently support
+   audio.)" The distinction lets the UI guide users to the right fix —
+   Settings screen vs. Whisper/GPU troubleshooting vs. transient API
+   retry.
 
-**All prior versions** (v0.13.x – v0.22.13) are documented per-release in
+Not fixed in this release (flagged in version-history for follow-up):
+broken `/api/batch/.../stream` SSE progress on the Convert page;
+`asyncio.wait_for` can't cancel `asyncio.to_thread` Whisper runs, so
+the 1 h transcription timeout silently leaks; corrupt-audio tensor
+reshape errors need a cleaner re-raise.
+
+**All prior versions** (v0.13.x – v0.22.14) are documented per-release in
 [`docs/version-history.md`](docs/version-history.md). **Do NOT duplicate that
 changelog here.** On each release, the outgoing "Current Version" block above
 moves into `version-history.md` and is replaced with the new release notes.
