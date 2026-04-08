@@ -4,6 +4,144 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.22.18 — Production-readiness sweep: lifecycle/vision/qdrant/libreoffice (2026-04-08)
+
+Four targeted fixes from a runtime-log audit of the live `vector` branch
+stack. Each one closes a recurring failure mode that was bleeding errors
+into the logs without crashing the app, masking real signal and blocking
+the path to production.
+
+### What was wrong (from the audit)
+
+A scan of `markflow.log` / `db-active.log` / `db-contention.log` over
+the previous 24h surfaced four buckets:
+
+1. **1,929 "database is locked" errors / 24h** — lifecycle scanner
+   colliding with bulk_worker writes. Root cause was structural: the
+   scheduler-level "skip if bulk active" guard only checks at scan
+   *kickoff*. A 45-min lifecycle scan keeps walking even if a bulk job
+   starts on minute 2, and the per-file `_process_file` writes don't
+   use `db_write_with_retry` (bulk_worker has used it from day one for
+   exactly this reason). Cancel checks existed at the directory
+   boundary in the serial walk and at the *batch* boundary in the
+   parallel walk — neither was checked between individual files.
+
+2. **154 vision_adapter `describe_batch_failed` / 24h** — every single
+   one was Anthropic's per-image 5 MB hard cap. The adapter already
+   had a 24 MB *total request* sub-batch cap (good for the 32 MB
+   request limit), but no per-image enforcement. A single 22 MB camera
+   image in a batch of 10 still under-budgets the request envelope and
+   then explodes on the per-image limit.
+
+3. **381 `bulk_vector_index_fail` / 24h** — all
+   `ResponseHandlingException(ReadTimeout)`. The bulk_worker already
+   wraps `index_document` in try/except → `log.warning` (the audit
+   overstated this as a critical failure; vector indexing is
+   documented as best-effort and runs in a detached background task).
+   Real fix is just bumping `AsyncQdrantClient(timeout=…)` from the
+   default 5s to 60s — under bulk load, legitimate upserts were
+   tripping the default.
+
+4. **14 LibreOffice "not found" errors** — the helper raises
+   `"LibreOffice not found. Install libreoffice-headless."` in TWO
+   different cases: (a) neither `libreoffice` nor `soffice` is on
+   PATH, and (b) one or both binaries ran fine but the conversion
+   exited nonzero on a corrupt file. `Dockerfile.base` does install
+   `libreoffice-writer` + `libreoffice-impress`, so the 14 errors are
+   case (b) — file-level conversion failures masquerading as missing
+   binary errors. Misleading message, real bug.
+
+### Fixes
+
+**1. `core/lifecycle_scanner.py` — yield + retry-on-lock**
+
+- New `_process_file_with_retry()` wraps `_process_file` with
+  3-attempt exponential-backoff retry on
+  `OperationalError("database is locked")`. Mirrors the
+  `db_write_with_retry` pattern bulk_worker uses on line 661 and the
+  ETA writer.
+- Both `_serial_lifecycle_walk` (per-file inner loop) and
+  `_parallel_lifecycle_walk` (per-file batch loop) now check
+  `_should_cancel()` between files, not just between directories /
+  batches. A 10k-file folder no longer keeps writing for several
+  minutes after the scan_coordinator has signalled cancel.
+- Both call sites updated from `_process_file` to
+  `_process_file_with_retry`.
+
+**2. `core/vision_adapter.py` — per-image size cap**
+
+- New module-level `_compress_image_for_vision(raw, suffix)` helper.
+  Strategy: pass-through if already under 3.5 MB raw (≈4.7 MB base64,
+  comfortably under Anthropic's 5 MB cap); otherwise downscale longest
+  edge to 1568 px (Anthropic's own vision recommendation) and
+  re-encode JPEG q=85, with q=70 fallback if still oversized.
+- Wired into `describe_frame` (single-frame), `_batch_anthropic`,
+  `_batch_openai`, `_batch_gemini`. Ollama is local-only and unaffected.
+- Pillow is already a base dep (used by EPS/raster handlers); local
+  import inside the helper avoids loading it on cold start.
+- `_compress_image_for_vision` never raises — on PIL failure it
+  returns the original bytes so the existing 5 MB error path still
+  fires with the real provider message (just for the unfixable cases).
+
+**3. `core/libreoffice_helper.py` — distinguish binary-missing from conversion-failed**
+
+- Track `binary_found` flag across the
+  `("libreoffice", "soffice")` loop.
+- On loop exit: if `binary_found` is False, raise the existing
+  "LibreOffice not found on PATH" message. If True, raise a new
+  message that includes the actual stderr and exit code from the
+  failing binary, e.g.
+  `"LibreOffice failed to convert FOO.doc to docx (exit=77): source file could not be loaded"`.
+- New `libreoffice_convert_no_output` log event for the rare
+  exit-0-but-no-output-file case (corrupt files that LibreOffice
+  silently drops).
+
+**4. `core/vector/index_manager.py` — Qdrant client timeout**
+
+- `AsyncQdrantClient(timeout=…)` now defaults to 60s (was qdrant-client's
+  default 5s). Override via `QDRANT_TIMEOUT_S` env var. Vector
+  indexing runs in a detached background task in `bulk_worker`, so a
+  60s budget per upsert is harmless to throughput.
+
+### Why it matters
+
+Together these clear roughly **2,478 noisy log events / 24h** without
+adding any new code paths to maintain. The 1,929 lock errors were the
+loudest symptom of "MarkFlow is fragile under sustained load" — none
+of them caused user-visible failures, but they made the logs unusable
+for spotting real regressions. The vision and LibreOffice fixes
+restore conversions that were genuinely failing every day. The Qdrant
+timeout fix means vector index completeness should jump significantly
+during the next sustained bulk run.
+
+### Validation performed
+
+- `python -m py_compile` clean on all four edited files.
+
+### Not yet validated
+
+- **Live rebuild + 24h burn-in.** The next overnight rebuild
+  (v0.22.17 self-healing pipeline) is the natural validation window.
+  Re-scan the same log buckets after one full day and confirm:
+  lifecycle lock errors trend toward zero, vision batch failures
+  trend toward zero, Qdrant timeouts trend toward zero, and the
+  surviving LibreOffice errors carry the new specific stderr message
+  instead of the old "not found" red herring.
+- **Contention instrumentation cleanup.** Once the lifecycle lock
+  count is verified at zero, `core/db/contention_logger.py` and the
+  `db-contention.log` / `db-queries.log` / `db-active.log` writers
+  can be removed (they're explicitly tagged as temporary in CLAUDE.md
+  pre-prod checklist).
+
+### Known follow-ups still outstanding
+
+- v0.22.15: broken Convert-page SSE, uncancellable `asyncio.wait_for`
+  on Whisper, corrupt-audio tensor reshape.
+- Pre-prod: lifecycle timers at testing values, security audit
+  (62 findings), UX overhaul.
+
+---
+
 ## v0.22.17 — Overnight rebuild self-healing pipeline (2026-04-08)
 
 Full refactor of `Scripts/work/overnight/rebuild.ps1` from a linear

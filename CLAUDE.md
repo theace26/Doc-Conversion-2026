@@ -89,15 +89,72 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.22.17
+## Current Version — v0.22.18
 
-**Overnight rebuild self-healing pipeline.** Full refactor of
-`Scripts/work/overnight/rebuild.ps1` from a linear "halt on first
-failure" script into a phased pipeline with retry-on-transient,
-blue/green rollback on verification failure, and auto-captured
-morning diagnostics. Ships against the design spec at
-[`docs/superpowers/specs/2026-04-08-overnight-rebuild-self-healing-design.md`](docs/superpowers/specs/2026-04-08-overnight-rebuild-self-healing-design.md).
-Full context: [`docs/version-history.md`](docs/version-history.md).
+**Production-readiness sweep — four targeted fixes from a runtime-log
+audit of the live `vector` branch stack.** Each one closes a recurring
+failure mode that was bleeding ~2,500 noisy events / 24h into the logs
+without crashing the app, masking real signal and blocking the path to
+production. Full context:
+[`docs/version-history.md`](docs/version-history.md).
+
+**The four fixes:**
+
+1. **Lifecycle scanner yield + retry-on-lock** (`core/lifecycle_scanner.py`).
+   New `_process_file_with_retry()` wraps the per-file write in a
+   3-attempt exponential-backoff retry on
+   `OperationalError("database is locked")` (mirroring `db_write_with_retry`
+   used in `bulk_worker`). Both serial and parallel walks now check
+   `_should_cancel()` between individual files, not just between
+   directories / batches — picks up the scan_coordinator's bulk-job
+   cancel signal mid-folder instead of letting a 10k-file folder
+   keep writing for several minutes after cancellation. Closes
+   ~1,929 `lifecycle_scan.file_error` events / 24h.
+
+2. **Vision per-image size cap** (`core/vision_adapter.py`).
+   New `_compress_image_for_vision()` helper enforces Anthropic's
+   per-image 5 MB hard limit (the existing 24 MB sub-batch cap only
+   covered the request-level 32 MB limit). Strategy: pass-through
+   under 3.5 MB raw; otherwise downscale longest edge to 1568 px and
+   re-encode JPEG q=85 (q=70 fallback). Wired into `describe_frame`,
+   `_batch_anthropic`, `_batch_openai`, `_batch_gemini`. Closes
+   ~154 `vision_adapter.describe_batch_failed` events / 24h.
+
+3. **LibreOffice helper: distinguish "missing" from "conversion failed"**
+   (`core/libreoffice_helper.py`). Pre-fix the helper raised
+   `"LibreOffice not found"` in two different cases: (a) binary
+   genuinely missing, (b) binary worked but the conversion exited
+   nonzero (e.g. corrupt input). Now tracks a `binary_found` flag
+   and raises a separate, accurate error in case (b) with the actual
+   stderr / exit code. The 14 errors in the audit window were all
+   case (b) — Dockerfile.base does install
+   `libreoffice-writer` + `libreoffice-impress`.
+
+4. **Qdrant client timeout** (`core/vector/index_manager.py`).
+   `AsyncQdrantClient(timeout=60)` (was qdrant-client default 5s),
+   override via `QDRANT_TIMEOUT_S`. The bulk_worker already wraps
+   `index_document` in try/except → `log.warning` so vector failures
+   never failed bulk jobs — the audit's "critical" rating overstated
+   the impact — but the 5s default was tripping legitimate slow
+   upserts under bulk load and producing 381
+   `bulk_vector_index_fail` events / 24h. Vector indexing runs in a
+   detached background task, so a 60s budget per upsert is harmless
+   to throughput.
+
+**Validation performed:** `python -m py_compile` clean on all four
+edited files. **Not yet validated:** live 24h burn-in re-scan to
+confirm the four error counts trend toward zero. Recommended to
+re-audit the same log buckets after the next overnight rebuild.
+
+**Once validated**, the temporary DB contention instrumentation
+(`core/db/contention_logger.py`, `db-contention.log`, `db-queries.log`,
+`db-active.log`) listed in the pre-prod checklist can be removed —
+that instrumentation existed specifically to diagnose this lock
+contention, and v0.22.18 is the diagnosis-driven fix.
+
+---
+
+### v0.22.17 (carried-forward summary) — overnight rebuild self-healing pipeline
 
 **Six phases (0-5):** 0 Preflight (prereqs + `expectGpu` auto-detect
 via `nvidia-smi.exe`) -> 1 Source sync (retry 3x) -> 1.5 Anchor

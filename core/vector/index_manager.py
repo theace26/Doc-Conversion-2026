@@ -404,11 +404,18 @@ async def get_vector_indexer() -> Optional[VectorIndexManager]:
     try:
         from qdrant_client import AsyncQdrantClient  # noqa: PLC0415
 
+        # Timeout: 60s. Default is 5s which trips on legitimately slow upserts
+        # under bulk load. Pre-v0.22.18 we saw 381 bulk_vector_index_fail/24h
+        # all `ResponseHandlingException(ReadTimeout)`. Vector indexing runs
+        # in a detached background task (see bulk_worker._index_vector_async)
+        # so a 60s budget per upsert is harmless to throughput.
+        _qdrant_timeout = int(os.environ.get("QDRANT_TIMEOUT_S", "60"))
+
         # Support bare hostname ("localhost") or full URL
         if host.startswith("http://") or host.startswith("https://"):
-            client = AsyncQdrantClient(url=host)
+            client = AsyncQdrantClient(url=host, timeout=_qdrant_timeout)
         else:
-            client = AsyncQdrantClient(host=host)
+            client = AsyncQdrantClient(host=host, timeout=_qdrant_timeout)
 
         embedder = get_embedder()
         manager = VectorIndexManager(

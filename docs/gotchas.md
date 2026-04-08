@@ -282,6 +282,23 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 ## Bulk & Lifecycle
 
+- **Lifecycle scanner cancel-checks must run between INDIVIDUAL files, not
+  just between directories or batches (v0.22.18)**: Pre-v0.22.18, the
+  scheduler-level "skip if a bulk job is active" guard fired only at scan
+  *kickoff* (`scheduler.py` lines 96-100). Once a 45-min lifecycle scan was
+  running, a bulk job starting on minute 2 would call `cancel_lifecycle_scan()`
+  via the scan_coordinator, but the serial walk only re-checked
+  `_should_cancel()` at the directory boundary and the parallel walk only at
+  the batch boundary (up to 500 files). A 10k-file folder kept writing for
+  several minutes after cancellation, colliding with the bulk job's writes
+  and producing ~1,929 `lifecycle_scan.file_error` "database is locked"
+  events / 24h. Fix: cancel checks now run between individual files in both
+  walks, AND `_process_file_with_retry()` wraps the per-file write with
+  3-attempt exponential-backoff retry on `OperationalError("database is
+  locked")` — mirroring the `db_write_with_retry` pattern bulk_worker has
+  used from day one. Rule of thumb: any long-running scan loop that races
+  with writers needs both an inner-loop cancel check AND retry-on-lock.
+
 - **Adobe files need TWO conversion passes (v0.22.9)**: `_worker()` in
   `core/bulk_worker.py` dispatches every file through `_process_convertible()`
   for the regular markdown conversion (which lands in the `documents`
@@ -474,6 +491,18 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 - **Query preprocessor temporal detection**: Queries containing "current", "latest", "recent", etc. trigger a sort bias toward `converted_at:desc` in keyword results. This is lightweight and runs on every query — no LLM call involved.
 
+- **`AsyncQdrantClient` default timeout is 5s — too low under bulk load
+  (v0.22.18)**: qdrant-client's default httpx timeout is 5 seconds, which
+  trips on legitimate slow upserts during sustained bulk runs. Pre-v0.22.18
+  this produced 381 `bulk_vector_index_fail` warnings / 24h, all
+  `ResponseHandlingException(ReadTimeout)`. Vector indexing runs in a
+  detached background task in `bulk_worker._index_vector_async`, so the
+  bulk_worker isn't blocked by the timeout — but the warnings made the
+  vector index incomplete. Fix: `get_vector_indexer()` now passes
+  `timeout=int(os.environ.get("QDRANT_TIMEOUT_S", "60"))` to
+  `AsyncQdrantClient(...)`. 60s is harmless to throughput because the
+  upsert is async-detached.
+
 ## Locations & Browse
 
 - **Locations validate endpoint timeout**: `file_count_estimate` capped at 10s. Null is not an error.
@@ -493,6 +522,37 @@ the relevant subsystem. Referenced from CLAUDE.md.
 - **Locations UX flagged for redesign**: Do NOT refactor until redesign spec written. Token: LOCATIONS_UX_REDESIGN.
 
 ## LLM & Vision
+
+- **Anthropic vision has TWO size limits — request AND per-image (v0.22.18)**:
+  Anthropic enforces 32 MB per *request* AND a separate 5 MB per *individual
+  image* (base64-encoded). Pre-v0.22.18, `vision_adapter._batch_anthropic`
+  enforced the request-level cap (24 MB sub-batch envelope) but had no
+  per-image enforcement, so a single 22 MB camera image in a batch of 10
+  would pass the request envelope check and then explode on the per-image
+  limit with `messages.0.content.1.image.source.base64: image exceeds 5 MB
+  maximum`. Fix: `_compress_image_for_vision()` enforces a 3.5 MB raw
+  budget per image (≈4.7 MB base64) — pass-through under budget; otherwise
+  PIL longest-edge resize to 1568 px (Anthropic's recommended vision max)
+  and JPEG q=85 re-encode, q=70 fallback. Wired into `describe_frame` and
+  all four `_batch_*` providers (the cap is sensible everywhere, even for
+  OpenAI/Gemini's looser 20 MB limits, since it keeps token cost / latency
+  in check). Pillow is already a base dep (used by EPS/raster handlers).
+  Rule of thumb: API providers always have multiple stacked limits — the
+  envelope check is necessary but not sufficient.
+
+- **`libreoffice_helper.py` "not found" error message was ambiguous
+  pre-v0.22.18**: The helper raised `RuntimeError("LibreOffice not found.
+  Install libreoffice-headless.")` in TWO different cases: (a) neither
+  `libreoffice` nor `soffice` was on PATH, and (b) one of the binaries
+  ran fine but the conversion exited nonzero (e.g. corrupt input file).
+  This produced 14 misleading "missing dependency" errors / 24h that were
+  actually file-level conversion failures — `Dockerfile.base` does install
+  `libreoffice-writer` + `libreoffice-impress`. Fix: track a `binary_found`
+  flag across the loop and raise a separate, accurate error in case (b)
+  with the actual stderr / exit code, e.g. `"LibreOffice failed to convert
+  FOO.doc to docx (exit=77): source file could not be loaded"`. Rule of
+  thumb: never reuse one error message across structurally different
+  failure modes.
 
 - **AI Assist provider lookup is a 3-step chain (v0.22.11)**:
   `core/ai_assist.py:_get_provider_config()` resolves its API key, model,

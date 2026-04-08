@@ -10,6 +10,7 @@ package. Vision uses whatever provider is already active in the LLM provider sys
 """
 
 import base64
+import io
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,6 +25,87 @@ _TIMEOUT = 60.0
 # Anthropic API hard limit is 32 MB per request. Stay well under to leave room
 # for JSON envelope, headers, and the prompt text.
 _ANTHROPIC_MAX_PAYLOAD_BYTES = 24 * 1024 * 1024  # 24 MB
+
+# Anthropic's per-image hard limit is 5 MB *encoded* (base64). Base64 inflates
+# raw bytes by ~33%, so the raw budget is ~3.75 MB. We target 3.5 MB raw with a
+# safety margin and use Anthropic's recommended 1568px max edge for vision.
+# Pre-v0.22.18 this was unenforced and caused 154 describe_batch_failed/day
+# with the same root error: "image exceeds 5 MB maximum".
+_ANTHROPIC_MAX_IMAGE_RAW_BYTES = 3_500_000  # 3.5 MB raw → ~4.7 MB base64
+_VISION_MAX_EDGE_PX = 1568
+
+
+def _compress_image_for_vision(
+    raw: bytes, suffix: str
+) -> tuple[bytes, str]:
+    """
+    Ensure an image fits within the per-image vision API budget.
+
+    Returns (possibly-recompressed bytes, mime type). Strategy:
+      1. If already under the raw byte budget, return unchanged.
+      2. Otherwise downscale longest edge to ``_VISION_MAX_EDGE_PX`` and
+         re-encode as JPEG quality 85. JPEG q85 + 1568px is Anthropic's
+         own vision recommendation and gives 200-800 KB typical output.
+      3. If JPEG encoding fails (e.g. transparent PNG with alpha), fall
+         back to PNG re-encode at the smaller resolution.
+
+    Pillow is already a dep (used by EPS/raster handlers). On any failure
+    the original bytes are returned so the caller's existing 5 MB error
+    path still fires — this function never raises.
+    """
+    if len(raw) <= _ANTHROPIC_MAX_IMAGE_RAW_BYTES:
+        mime = "image/png" if suffix.lower() == ".png" else "image/jpeg"
+        return raw, mime
+
+    try:
+        from PIL import Image  # local import — heavy module, only load on need
+
+        img = Image.open(io.BytesIO(raw))
+        img.load()
+        # Convert palette / alpha modes to RGB for JPEG encode
+        if img.mode in ("P", "RGBA", "LA"):
+            background = Image.new("RGB", img.size, (255, 255, 255))
+            if img.mode == "P":
+                img = img.convert("RGBA")
+            background.paste(img, mask=img.split()[-1] if img.mode in ("RGBA", "LA") else None)
+            img = background
+        elif img.mode != "RGB":
+            img = img.convert("RGB")
+
+        # Longest-edge downscale
+        w, h = img.size
+        longest = max(w, h)
+        if longest > _VISION_MAX_EDGE_PX:
+            scale = _VISION_MAX_EDGE_PX / longest
+            new_size = (int(w * scale), int(h * scale))
+            img = img.resize(new_size, Image.LANCZOS)
+
+        out = io.BytesIO()
+        img.save(out, format="JPEG", quality=85, optimize=True)
+        compressed = out.getvalue()
+
+        # If still over budget (very rare for 1568px JPEG), drop quality
+        if len(compressed) > _ANTHROPIC_MAX_IMAGE_RAW_BYTES:
+            out = io.BytesIO()
+            img.save(out, format="JPEG", quality=70, optimize=True)
+            compressed = out.getvalue()
+
+        log.info(
+            "vision_adapter.image_recompressed",
+            original_bytes=len(raw),
+            new_bytes=len(compressed),
+            new_size=img.size,
+        )
+        return compressed, "image/jpeg"
+    except Exception as exc:
+        log.warning(
+            "vision_adapter.image_compress_failed",
+            error=str(exc),
+            original_bytes=len(raw),
+        )
+        # Return original; the API call will surface the real 5 MB error
+        mime = "image/png" if suffix.lower() == ".png" else "image/jpeg"
+        return raw, mime
 
 
 @dataclass
@@ -77,10 +159,12 @@ class VisionAdapter:
                 error=f"[vision unavailable -- {self._provider} does not support image input]",
             )
         try:
-            image_b64 = base64.b64encode(image_path.read_bytes()).decode()
-            mime = "image/jpeg"
-            if image_path.suffix.lower() == ".png":
-                mime = "image/png"
+            raw = image_path.read_bytes()
+            # Apply per-image budget for ALL providers — the heaviest cap
+            # (Anthropic's 5 MB) is also a sensible default elsewhere and
+            # keeps token usage / latency in check.
+            raw, mime = _compress_image_for_vision(raw, image_path.suffix)
+            image_b64 = base64.b64encode(raw).decode()
 
             if self._provider == "anthropic":
                 return await self._describe_anthropic(image_b64, mime, prompt, scene_index)
@@ -236,8 +320,10 @@ class VisionAdapter:
                 log.warning("vision_adapter.image_read_failed", path=str(path), error=str(exc))
                 encoded.append((path, "", "", 0))
                 continue
+            # Per-image cap enforcement (Anthropic 5 MB hard limit). Compresses
+            # only oversized images; small images pass through untouched.
+            raw, mime = _compress_image_for_vision(raw, path.suffix)
             b64 = base64.b64encode(raw).decode()
-            mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
             encoded.append((path, b64, mime, len(b64)))
 
         # Greedy split into size-bounded sub-batches (preserve original index order).
@@ -330,8 +416,9 @@ class VisionAdapter:
     async def _batch_openai(self, image_paths: list[Path], prompt: str) -> list["BatchImageResult"]:
         content: list[dict] = [{"type": "text", "text": prompt}]
         for path in image_paths:
-            image_b64 = base64.b64encode(path.read_bytes()).decode()
-            mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+            raw = path.read_bytes()
+            raw, mime = _compress_image_for_vision(raw, path.suffix)
+            image_b64 = base64.b64encode(raw).decode()
             content.append({
                 "type": "image_url",
                 "image_url": {"url": f"data:{mime};base64,{image_b64}", "detail": "low"},
@@ -371,8 +458,9 @@ class VisionAdapter:
         base = self._base_url or "https://generativelanguage.googleapis.com"
         parts: list[dict] = [{"text": prompt}]
         for path in image_paths:
-            image_b64 = base64.b64encode(path.read_bytes()).decode()
-            mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+            raw = path.read_bytes()
+            raw, mime = _compress_image_for_vision(raw, path.suffix)
+            image_b64 = base64.b64encode(raw).decode()
             parts.append({"inline_data": {"mime_type": mime, "data": image_b64}})
 
         timeout = max(_TIMEOUT, _TIMEOUT * len(image_paths) / 3)

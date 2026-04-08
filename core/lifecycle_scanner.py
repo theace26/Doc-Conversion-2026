@@ -61,6 +61,50 @@ def _should_cancel() -> bool:
     return should_stop() or is_lifecycle_cancelled()
 
 
+async def _process_file_with_retry(
+    file_path: Path,
+    path_str: str,
+    ext: str,
+    mtime: float,
+    size: int,
+    job_id: str,
+    scan_run_id: str,
+    counters: dict,
+    retries: int = 3,
+    base_delay: float = 0.5,
+) -> None:
+    """Wrap _process_file with retry-on-OperationalError("database is locked").
+
+    Lifecycle scanner runs concurrently with bulk_worker writes via the
+    scan_coordinator's cancel signal — but cancellation is checked at
+    directory boundaries, so a few in-flight files always race against an
+    incoming bulk job. Without retry these surfaced as
+    `lifecycle_scan.file_error` (1,929/24h before v0.22.18). Bulk_worker
+    has used `db_write_with_retry` from day one for the same reason.
+    """
+    from sqlite3 import OperationalError
+
+    for attempt in range(retries):
+        try:
+            await _process_file(
+                file_path, path_str, ext, mtime, size,
+                job_id, scan_run_id, counters,
+            )
+            return
+        except OperationalError as exc:
+            if "database is locked" in str(exc) and attempt < retries - 1:
+                delay = base_delay * (2 ** attempt)
+                log.debug(
+                    "lifecycle_scan.process_file_retry",
+                    path=path_str,
+                    attempt=attempt + 1,
+                    delay=delay,
+                )
+                await asyncio.sleep(delay)
+                continue
+            raise
+
+
 # ── In-memory scan state (resets on container restart) ────────────────────────
 _scan_state: dict = {
     "running": False,
@@ -632,6 +676,15 @@ async def _serial_lifecycle_walk(
             continue
 
         for filename in filenames:
+            # Per-file cancel check — picks up bulk-job cancel signal mid-directory
+            # instead of finishing the entire 10k-file folder before exiting.
+            if _should_cancel():
+                log.info("lifecycle_scan.cancel_mid_directory",
+                         scan_run_id=scan_run_id,
+                         scanned=counters["files_scanned"])
+                _scan_state["running"] = False
+                _scan_state["current_file"] = None
+                return
             file_path = Path(dirpath) / filename
             if _is_excluded(str(file_path)):
                 continue
@@ -819,6 +872,16 @@ async def _parallel_lifecycle_walk(
             continue
 
         for file_path, ext, mtime, size in batch:
+            # Per-file cancel check — same rationale as serial walk: picks up
+            # the scan_coordinator's bulk-job cancel signal without waiting
+            # for the entire batch (up to 500 files) to drain.
+            if _should_cancel():
+                log.info("lifecycle_scan.parallel_cancel_mid_batch",
+                         scan_run_id=scan_run_id,
+                         scanned=counters["files_scanned"])
+                executor.shutdown(wait=False)
+                return
+
             path_str = str(file_path)
             seen_paths.add(path_str)
             counters["files_scanned"] += 1
@@ -834,7 +897,7 @@ async def _parallel_lifecycle_walk(
                 continue
 
             try:
-                await _process_file(
+                await _process_file_with_retry(
                     file_path, path_str, ext, mtime, size,
                     job_id, scan_run_id, counters,
                 )
@@ -921,7 +984,7 @@ async def _lifecycle_process_entry(
         return
 
     try:
-        await _process_file(
+        await _process_file_with_retry(
             file_path, path_str, ext, mtime, size,
             job_id, scan_run_id, counters,
         )
