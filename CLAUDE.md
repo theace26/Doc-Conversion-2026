@@ -89,49 +89,69 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.22.16
+## Current Version — v0.22.17
 
-Two follow-ups to v0.22.15 surfaced the same night by the overnight
-rebuild script. Both are reporting-layer honesty fixes — no workload
-code changed.
+**Overnight rebuild self-healing pipeline.** Full refactor of
+`Scripts/work/overnight/rebuild.ps1` from a linear "halt on first
+failure" script into a phased pipeline with retry-on-transient,
+blue/green rollback on verification failure, and auto-captured
+morning diagnostics. Ships against the design spec at
+[`docs/superpowers/specs/2026-04-08-overnight-rebuild-self-healing-design.md`](docs/superpowers/specs/2026-04-08-overnight-rebuild-self-healing-design.md).
+Full context: [`docs/version-history.md`](docs/version-history.md).
 
-1. **GPU detector no longer lies on WSL2 Docker Desktop.** After
-   v0.22.15, Whisper was clearly running on CUDA
-   (`cuda_available=true, gpu_name="NVIDIA GeForce GTX 1660 Ti"` in the
-   logs), yet `/api/health` and the Resources widget still reported
-   `CPU (no GPU detected)`. `core/gpu_detector.py` was requiring BOTH
-   `container_gpu_available` AND a CUDA/OpenCL hashcat backend to
-   resolve `execution_path="container"`. On WSL2 the NVIDIA Container
-   Toolkit injects `libcuda.so` but refuses the `opencl` driver
-   capability, so `hashcat -I` reports CPU-only (pocl) even though
-   torch/Whisper are fully GPU-accelerated. New second tier in the
-   priority ladder: if `container_gpu_available` is true but hashcat is
-   CPU-only, still report `execution_path="container"` with the real
-   GPU name and `effective_backend="CUDA"`. `get_gpu_info_live()` carries
-   the same ladder so the cached-vs-live paths can't diverge. Regression
-   test `test_detect_nvidia_container_hashcat_cpu_only` locks the
-   behavior; `container_hashcat_backend` is now included in the
-   `gpu.resolution` log line for future diagnostics.
-2. **Overnight rebuild script produces usable transcript logs and
-   survives the compose-race false failure.** `Scripts/work/overnight/rebuild.ps1`
-   had two interlocking problems: (a) PS 5.1 `Start-Transcript` does
-   not capture stdout/stderr from native executables like docker/git/curl
-   because they bypass the PS host, so morning logs contained section
-   headers with empty bodies; (b) on successful rebuilds
-   `docker-compose up -d` sometimes exits 1 when its post-start
-   container cleanup loses a race with Docker Desktop's reconciler
-   (`No such container: <old id>`) even though the replacement container
-   is already Up, which threw the script and paged the user for no
-   reason. Fix: new `Invoke-Logged` helper routes every native call
-   through `ForEach-Object { Write-Host }` with ErrorRecord
-   stringification and relaxed `$ErrorActionPreference` so the
-   transcript captures every line, and new `Test-StackHealthy` probes
-   `docker-compose ps --format json` + `curl /api/health` (3 attempts,
-   5 s apart; markflow + markflow-mcp both running + top-level status,
-   database, meilisearch all ok) to override compose exit codes
-   conservatively. Whisper CUDA is intentionally not required in the
-   health probe so the script stays portable to friend-deploys on
-   CPU-only hosts.
+**Seven phases:** 0 Preflight (prereqs + `expectGpu` auto-detect via
+`nvidia-smi.exe`) -> 1 Source sync (retry 3x) -> 1.5 Capture current
+`:latest` image IDs -> 2 Image build (retry 2x) -> 2.5 Retag captured
+IDs as `:last-good` + write `Scripts/work/overnight/last-good.json`
+sidecar -> 3 Start (with race override) -> 4 Verify (containers +
+`/api/health` + `Test-GpuExpectation` + `Test-McpHealth` on port 8001)
+-> 5 Success. On verification failure after the `up -d` commit point,
+`Invoke-Rollback` retags `:last-good` -> `:latest` and recreates with
+`--force-recreate`, then re-verifies.
+
+**Five exit codes:** 0 clean / 1 pre-commit failure (old build still
+running) / 2 rollback succeeded (old build running, new build needs
+investigation) / 3 rollback attempted but failed (stack DOWN) / 4
+rollback refused because `docker-compose.yml`, `Dockerfile`, or
+`Dockerfile.base` changed since the last-good commit (stack DOWN,
+compose-old-image mismatch would silently half-work).
+
+**No auto-remediation.** Crashed containers, disk-pressure pruning,
+git reset-on-conflict were all explicitly rejected in the brainstorm
+and stay rejected — they hide real bugs. The only recovery is
+blue/green to a known-good image pair.
+
+**Phase 4 catches the v0.22.15 / v0.22.16 regression class.**
+`Test-GpuExpectation` parses `components.gpu.execution_path` and
+`components.whisper.cuda` from `/api/health` and asserts a GPU host
+actually sees its GPU end-to-end. The field name was corrected during
+implementation against the live payload: CLAUDE.md v0.22.16 referenced
+`cuda_available`, which is a structlog event field, NOT the HTTP
+response key (which is just `cuda`).
+
+**Portable via auto-detect.** `$expectGpu` resolves to `container` on
+hosts with `nvidia-smi.exe` and `none` otherwise, so the same script
+works unchanged on CPU-only friend-deploys. The design spec originally
+called for `wsl.exe -e nvidia-smi` but that's wrong on the reference
+host (the default WSL2 distro doesn't have nvidia-smi installed —
+Docker Desktop's GPU path is independent) — see spec §11 for the
+deviation rationale.
+
+**Two new PowerShell gotchas documented** in `docs/gotchas.md` under
+a new "Overnight Rebuild & PowerShell Native-Command Handling" section:
+(1) `Start-Transcript` doesn't capture native-command output in PS 5.1,
+and the only reliable fix is `SilentlyContinue` + variable capture
+(not `ForEach-Object`); (2) `docker-compose ps --format json` cannot
+be regex'd across fields because `Publishers` has nested `{}` — parse
+NDJSON line-by-line with `ConvertFrom-Json`.
+
+**Validation performed:** parser clean; dry-run end-to-end across all
+seven phases; `Get-ImageId`, `Test-GpuExpectation`, `Test-McpHealth`
+each validated in isolation against the running stack. **Not yet
+validated:** staged unattended overnight run, forced rollback
+rehearsal, compose-divergence rehearsal (exit 4 path). Recommended to
+run the last two manually before the next unattended cycle so a real
+regression isn't the first time `Invoke-Rollback` executes.
 
 v0.22.15 known follow-ups (broken Convert-page SSE, uncancellable
 `asyncio.wait_for` on Whisper, corrupt-audio tensor reshape) are still

@@ -41,6 +41,9 @@ input/
 # Host-specific worker capabilities (generated per-machine at deploy time)
 hashcat-queue/worker_capabilities.json
 
+# Overnight rebuild rollback sidecar (per-machine; tracks last-good image IDs)
+Scripts/work/overnight/last-good.json
+
 # OS
 .DS_Store
 Thumbs.db

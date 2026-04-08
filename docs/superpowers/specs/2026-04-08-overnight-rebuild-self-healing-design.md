@@ -1,6 +1,7 @@
 # Overnight Rebuild Self-Healing — Design Spec
 
-**Status:** Draft, pending user review
+**Status:** Implemented in v0.22.17 (2026-04-08). See §11 "Implementation
+notes & spec deviations" at the bottom for divergences from the draft.
 **Date:** 2026-04-08
 **Owner:** Xerxes
 **Scope:** `Scripts/work/overnight/rebuild.ps1`
@@ -405,21 +406,69 @@ orchestrates side-effecting shell commands. Validation strategy:
    re-run the script with a forced Phase 4 failure (as in 3), verify
    exit 4.
 
-## 10. Open questions
+## 10. Open questions — RESOLVED
 
-1. **Should Phase 0 warn if `$expectGpu = "container"` but the host
-   `nvidia-smi` shows a driver version mismatch** (e.g. container
-   CUDA 12.1 but host driver < 525)? Probably out of scope — the
-   driver-mismatch case manifests at `docker run` time as a clear
-   error and is caught by the GPU toolkit smoke test in Phase 0.
-2. **Should exit 2 (rollback succeeded) set an on-disk flag that the
-   morning reminder script reads** to nag the user "you have an
-   unrolled-back regression"? Out of scope — the transcript log is
-   the source of truth and the user reads it every morning.
-3. **Should the sidecar track multiple historical last-good images**
-   (e.g. last-5) to allow rollback-further when the most recent
-   last-good is also bad? Out of scope — explicitly rejected in
-   non-goals. One rollback target is enough.
+All three resolved as **out of scope** at implementation time (2026-04-08):
+
+1. **Driver-mismatch warning in Phase 0?** — **Out of scope.** The
+   driver-mismatch case manifests at `docker run` time as a clear error
+   and is already caught by the existing GPU toolkit smoke test in
+   Phase 0.
+2. **On-disk "nag flag" when exit 2 (rollback succeeded)?** — **Out of
+   scope.** The transcript log is the source of truth and the user
+   reads it every morning; adding a second channel adds cognitive load
+   without new signal.
+3. **Multi-version rollback history (last-5 instead of last-good
+   only)?** — **Out of scope.** Explicitly rejected in §2 non-goals;
+   one rollback target is enough for the "recover from last night's
+   regression" use case.
+
+## 11. Implementation notes & spec deviations (v0.22.17)
+
+One meaningful deviation from the draft spec, caught by live-probe
+validation during implementation:
+
+**§6.3 GPU auto-detection probe — changed from `wsl.exe -e nvidia-smi`
+to `nvidia-smi.exe` (Windows-native).** The spec called for probing
+nvidia-smi inside the default WSL2 distro, but on the reference host
+(Windows 11 + Docker Desktop + GTX 1660 Ti) the default WSL distro has
+no nvidia-smi installed — the CUDA/NVIDIA toolchain for the default
+distro is a separate install from Docker Desktop's GPU passthrough,
+which uses the NVIDIA Container Toolkit path independently. Result: the
+spec's probe returned a WSL exec error on a fully GPU-capable host,
+making `$expectGpu` wrongly resolve to `none` and silently disabling
+the GPU verification gate that's the entire point of Phase 4.
+
+The Windows NVIDIA driver installs `C:\Windows\System32\nvidia-smi.exe`,
+which is on the default PATH and is the authoritative "does this host
+have an NVIDIA GPU" check. Validated by dry-run: with `nvidia-smi.exe`
+it correctly resolves `expectGpu=container`. On CPU-only Windows hosts
+(friend-deploy scenario) nvidia-smi.exe is simply absent and
+`expectGpu=none`, preserving portability.
+
+**§6.2 Test-GpuExpectation regex field names corrected.** The draft
+spec and the CLAUDE.md v0.22.16 notes both referenced
+`whisper.cuda_available`, but that is the name of a structlog event
+field (and an internal whisper-module attribute), not the key in the
+`/api/health` response. The health JSON key is `whisper.cuda` (under
+`components.whisper`). Validated against the live payload on
+2026-04-08. The regex for `execution_path` is correct as specified
+because the `gpu` subobject lists `execution_path` before its nested
+`container_gpu`/`host_worker` subobjects, so the lazy `[^{}]*?` walk
+never crosses an inner brace.
+
+**§9 testing plan status:**
+- Dry-run mode (§9.1): **implemented and passed** — all seven phase
+  transitions execute without touching git/docker.
+- Staged live run (§9.2): **deferred** — requires an actual overnight
+  run. The component smoke tests (Test-StackHealthy,
+  Test-GpuExpectation, Test-McpHealth) were each validated in isolation
+  against the currently running stack.
+- Rollback rehearsal (§9.3): **deferred** — requires deliberately
+  breaking a build to exercise the Invoke-Rollback path end-to-end.
+  Recommend running this before the next unattended overnight cycle so
+  a rollback-on-real-failure isn't the first time the code path runs.
+- Compose-divergence rehearsal (§9.4): **deferred** — same rationale.
 
 ---
 

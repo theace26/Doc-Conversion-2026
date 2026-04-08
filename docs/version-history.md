@@ -4,6 +4,227 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.22.17 — Overnight rebuild self-healing pipeline (2026-04-08)
+
+Full refactor of `Scripts/work/overnight/rebuild.ps1` from a linear
+"halt on first failure" script into a phased pipeline with retry,
+rollback, and auto-diagnostics. Ships against the design spec at
+`docs/superpowers/specs/2026-04-08-overnight-rebuild-self-healing-design.md`
+(see §11 of that spec for two live-probe deviations from the draft).
+
+### Why
+
+The v0.22.16 follow-up fixes made the script's output and race handling
+honest, but the script still halted on the first transient failure (a
+single `git fetch` flake, a pip mirror hiccup during the 2.5 GB torch
+wheel pull, a compose race the override couldn't suppress) and left
+nothing actionable behind when a genuine new-build regression shipped
+from a late commit. The Whisper-on-CPU (v0.22.15) and GPU-detector-
+lying (v0.22.16) class of bug would both have been caught in the
+morning by the user reading a dead-stack transcript — not by the
+script itself. The 3 AM "stack is broken and the morning log has no
+follow-up data" failure mode had to stop.
+
+### Design principles (from the spec §2)
+
+- **Transient tolerance (A):** retry the network-sensitive steps
+  within a bounded budget. Never retry steps whose failure is
+  structural (missing NVIDIA Container Toolkit, etc.).
+- **Honest failure, no silent remediation:** never auto-restart
+  crashed containers, never `docker system prune` on disk pressure,
+  never `git reset --hard` on conflicts. These hide real bugs.
+  (Auto-remediation was option B in the brainstorm — explicitly
+  rejected and stays rejected.)
+- **Blue/green rollback (C):** if a new build fails verification,
+  retag the previous image as `:latest` and recreate. One rollback
+  target only (`:last-good`), no time-travel. Refuse rollback if
+  `docker-compose.yml` / `Dockerfile` / `Dockerfile.base` changed
+  since the last-good commit, because a compose-old-image mismatch
+  would silently half-work.
+- **Morning-ready diagnostics (D):** on any non-success exit, the
+  transcript contains 13 items (compose ps, logs from four services,
+  two health curls, host GPU + disk, git state, sidecar, app log
+  tail) — everything needed to diagnose without running a follow-up
+  command.
+- **Portable by default:** the GPU verification gate auto-detects
+  expectation from the host, so friend-deploys on CPU-only Windows
+  boxes use the script unchanged.
+
+### Phased pipeline
+
+```
+Phase 0    Preflight       - prerequisites, record HEAD commit,
+                             auto-detect expectGpu via nvidia-smi.exe
+Phase 1    Source sync     - git fetch/checkout/pull     [retry 3x]
+Phase 1.5  Capture         - snapshot current :latest image IDs
+Phase 2    Image build     - docker build base + app     [retry 2x]
+Phase 2.5  Retag last-good - tag captured IDs, write sidecar JSON
+Phase 3    Start           - docker-compose up -d          [race override]
+Phase 4    Verify          - containers + /api/health + GPU + MCP
+Phase 5    Success         - compact FINAL STATE block
+```
+
+Phases 0-2.5 never touch the running stack — `docker build` writes to
+the image store out-of-band. On failure there, exit 1 and yesterday's
+build keeps serving. Phases 3-4 have already run `up -d`, so a failure
+there triggers `Invoke-Rollback`. The `$script:PreCommit` flag makes
+this distinction unambiguous in the catch handler.
+
+### Exit codes (new contract)
+
+| Code | Meaning | Morning stack state |
+|---|---|---|
+| 0 | Clean success, new build verified | New build running, healthy |
+| 1 | Pre-commit failure (phases 0-2.5) | Old build still running, untouched |
+| 2 | Rollback succeeded — old build running; new build needs investigation | Old build running, healthy |
+| 3 | Rollback failed — stack DOWN | Stack DOWN |
+| 4 | Rollback refused — compose/Dockerfile diverged since last-good commit | New build stopped, stack DOWN |
+
+### Key implementation details
+
+**`Invoke-Retryable`** — wraps `Invoke-Logged` with linear-backoff
+retry (5s → 10s → 20s). On success after >1 attempt, emits
+`RETRY-OK: <label> succeeded on attempt N` so the morning review can
+grep `RETRY-OK` to see what flaked overnight. Applied to `git fetch`,
+`git pull`, `docker build` (base), and `docker-compose build`. Not
+applied to `git checkout` (local, no network), the GPU toolkit smoke
+test (missing toolkit is structural, not transient), or
+`docker-compose up -d` (already has the race override via
+`Test-StackHealthy`).
+
+**`Invoke-RetagImage`** — Phase 2.5 helper. Tags a captured image ID
+as `<image>:last-good` with one retry on failure. Atomicity is
+enforced across the pair: if the markflow retag succeeds but the
+mcp retag fails after its retry, Phase 2.5 aborts as exit 1 rather
+than proceeding into Phase 3 with an out-of-sync image pair (no
+safety net → don't do the risky thing).
+
+**`Invoke-Rollback`** — five steps from spec §5.4: compose/Dockerfile
+divergence check against `last-good.commit`, sidecar validation that
+both image IDs still resolve via `docker image inspect` (catches a
+stray `docker image prune`), retag of both `:last-good` → `:latest`,
+`docker-compose up -d --force-recreate markflow markflow-mcp` (the
+`--force-recreate` is load-bearing — compose won't see a tag change
+as a reason to recreate by default), 20s lifespan pause, then full
+re-verification via `Test-StackHealthy` + `Test-GpuExpectation` +
+`Test-McpHealth` against the rolled-back stack.
+
+**`Test-GpuExpectation`** — new Phase 4 check that closes the gap
+which let v0.22.15 and v0.22.16 ship. Parses `/api/health` for
+`components.gpu.execution_path` and `components.whisper.cuda`. When
+`$expectGpu="container"`, asserts execution_path ∉ {container_cpu,
+none} AND whisper.cuda=true. When `$expectGpu="none"`, skips the
+check (CPU-only friend-deploy path). Field names were corrected
+against the live `/api/health` payload during implementation —
+CLAUDE.md v0.22.16 had referenced `cuda_available`, which is a
+structlog event field and an internal attribute but not the HTTP
+response key (see spec §11).
+
+**`Test-McpHealth`** — new Phase 4 check, curls
+`http://localhost:8001/health` (the Starlette route manually
+registered in the MCP server — FastMCP.run does not accept
+host/port). Catches the case where `docker-compose ps` reports
+markflow-mcp as running but the MCP process inside has crashed or
+failed to bind.
+
+**`Write-Diagnostics`** — 13-item dump emitted on every non-success
+exit (plus a compact `FINAL STATE` block on exit 0). Budget ~20s
+total. Every command wrapped in `Invoke-Logged -AllowNonZero` so a
+failing diagnostic command can't abort the capture. Dumps:
+`docker-compose ps`, 100-line tail of markflow + markflow-mcp logs,
+20-line tail of meilisearch + qdrant logs, verbose curl of both
+`/api/health` endpoints, `nvidia-smi.exe`, `wsl df -h /`,
+`git log -5 --oneline` + `git status --short`, the `last-good.json`
+sidecar, and the last 100 lines of `logs/app.log`.
+
+**Phase 0 GPU auto-detection — diverges from spec §6.3 intentionally.**
+The spec called for `wsl.exe -e nvidia-smi` as the host probe, but
+that fails on the reference workstation (WSL2 default distro has no
+nvidia-smi — Docker Desktop's GPU passthrough uses the NVIDIA
+Container Toolkit independently). `nvidia-smi.exe` from the Windows
+driver install (in System32, on PATH) is the authoritative probe
+and correctly resolves `expectGpu=container` on the reference host.
+
+### Sidecar file
+
+`Scripts/work/overnight/last-good.json` — per-machine, gitignored via
+a new rule in `.gitignore`. Written by Phase 2.5 on a successful
+retag. Schema:
+
+```json
+{
+  "commit": "<HEAD SHA before tonight's pull>",
+  "tagged_at": "2026-04-08T03:14:27-07:00",
+  "markflow_image_id": "sha256:...",
+  "mcp_image_id": "sha256:...",
+  "host_expects_gpu": true
+}
+```
+
+The `commit` field is the pre-pull HEAD recorded in Phase 0 — i.e.
+the commit that PRODUCED the image currently being tagged as
+`:last-good`, not tonight's new HEAD. This is what the rollback
+compose-divergence check compares against.
+
+### New parameters
+
+`-DryRun` — runs Phase 0 preflight + GPU detection for real, but
+logs-and-skips every git/docker command. Validates script-level
+control flow without side effects. Always exits 0. Used during
+implementation to verify all seven phase transitions before any
+live runs.
+
+### Validation performed
+
+- PowerShell parser clean (`[Parser]::ParseFile`).
+- Dry-run end-to-end: all phases 0 → 5 transition cleanly,
+  `expectGpu=container` correctly resolved via nvidia-smi.exe.
+- `Get-ImageId` against live `doc-conversion-2026-markflow:latest`
+  and `doc-conversion-2026-markflow-mcp:latest` — returns the
+  expected sha256 IDs.
+- `Test-GpuExpectation` against the currently running stack — passes
+  with `execution_path='container', whisper.cuda=true`.
+- `Test-McpHealth` against `http://localhost:8001/health` — passes.
+- `Test-StackHealthy` regexes confirmed to match the real
+  `/api/health` response shape (components are nested under
+  `components.*` but the regexes happen to work because they scan
+  the full body and no nested `{}` appears between each component's
+  opening brace and its `ok` field).
+
+### Not yet validated — requires unattended run or deliberate break
+
+- Staged overnight run under real network/docker load.
+- Forced rollback rehearsal (break a runtime import to fail Phase 4;
+  observe rollback path + exit 2).
+- Compose-divergence rehearsal (edit docker-compose.yml after a
+  successful run, force Phase 4 failure, expect exit 4).
+
+Recommended: run the rollback and divergence rehearsals before the
+next unattended cycle, so a real regression isn't the first time
+those code paths execute.
+
+### Modified files
+
+- `Scripts/work/overnight/rebuild.ps1` — full refactor (~730 lines).
+- `.gitignore` — added `Scripts/work/overnight/last-good.json`.
+- `docs/gotchas.md` — two new entries in a new "Overnight Rebuild &
+  PowerShell Native-Command Handling" section: (1) Start-Transcript
+  does not capture native output → the Invoke-Logged +
+  SilentlyContinue + variable-capture pattern; (2) docker-compose ps
+  --format json cannot be regex'd across fields because Publishers
+  has nested `{}`, use per-line ConvertFrom-Json.
+- `docs/superpowers/specs/2026-04-08-overnight-rebuild-self-healing-design.md` —
+  status flipped to Implemented, §10 open questions resolved, new
+  §11 "Implementation notes & spec deviations" documents the GPU
+  probe change and the `cuda_available` → `cuda` field correction.
+
+### Known v0.22.15 follow-ups still outstanding
+
+(Unchanged from v0.22.16.) Broken Convert-page SSE; uncancellable
+`asyncio.wait_for` on Whisper; corrupt-audio tensor reshape.
+
+---
+
 ## v0.22.16 — GPU detector WSL2 honesty + overnight rebuild resilience (2026-04-08)
 
 Two follow-ups to the v0.22.15 GPU work, both surfaced the same night by

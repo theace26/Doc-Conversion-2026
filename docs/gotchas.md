@@ -1128,3 +1128,44 @@ the relevant subsystem. Referenced from CLAUDE.md.
 - **`.sh` scripts tolerate UTF-8 but keep ASCII for consistency**: macOS Terminal and Linux
   bash handle UTF-8 fine, but SSH sessions with misconfigured locale may not render
   box-drawing characters. Use ASCII decoration for portability.
+
+## Overnight Rebuild & PowerShell Native-Command Handling (v0.22.16+)
+
+- **`Start-Transcript` does not capture native-command output in PS 5.1**: docker, git,
+  curl, nvidia-smi, and every other native `.exe` bypass the PowerShell host and write
+  straight to the console device, so `Start-Transcript` logs the section headers but
+  leaves their bodies empty. The fix is the `Invoke-Logged` helper in
+  `Scripts/work/overnight/rebuild.ps1`: run `& $Command 2>&1` into a variable, then
+  render each item via `Write-Host` (projecting `ErrorRecord.Exception.Message` for
+  stderr lines). This forces every line through the host, which the transcript captures.
+
+- **PS 5.1 auto-displays `NativeCommandError` records before a `2>&1` pipeline can
+  stringify them — only `SilentlyContinue` + variable capture actually suppresses it**:
+  Wrapping `& docker-compose up -d 2>&1 | ForEach-Object { Write-Host $_ }` looks correct
+  but fails. With `$ErrorActionPreference='Continue'` (the default), PS 5.1 emits native
+  stderr lines as `NativeCommandError` records and **auto-displays them to the host with
+  full `CategoryInfo` / `FullyQualifiedErrorId` decoration BEFORE they reach the
+  `ForEach-Object` stage**. Your stringification is too late — the transcript already
+  logged the decorated form. Two things have to happen together: (1) set
+  `$ErrorActionPreference = 'SilentlyContinue'` so PS suppresses the auto-display, and
+  (2) capture `$captured = & $cmd 2>&1` into a variable so nothing touches the host
+  pipeline until you render it manually. Restore EAP in a `finally`. See the
+  `Invoke-Logged` comment block in `Scripts/work/overnight/rebuild.ps1` for the exact
+  pattern. The 2026-04-08 11:37:31 overnight failure log showed every docker-compose call
+  decorated with `NativeCommandError : ... FullyQualifiedErrorId : NativeCommandError`
+  until this fix landed.
+
+- **`docker-compose ps --format json` — do NOT regex across fields, parse NDJSON
+  line-by-line with `ConvertFrom-Json`**: The `Publishers` field in each compose-ps entry
+  contains nested `{...}` subobjects (one per published port, with `URL`, `TargetPort`,
+  `PublishedPort`, `Protocol`). A regex like `"Name":"markflow-1"[^}]*"State":"running"`
+  looks harmless but the `[^}]*` negated class terminates at the first inner `}` inside
+  Publishers, long before reaching `State`. Result: a perfectly-healthy stack matches
+  zero times and the script reports "containers not both Up yet" on every attempt,
+  making the race-override path permanent. The fix is to read NDJSON one line at a
+  time and `ConvertFrom-Json` each line individually (each compose-ps entry is shallow
+  enough for PS 5.1's parser). Also redirect `docker-compose` stderr to `$null` — the
+  symlink warning it emits on every invocation contaminates the NDJSON stream being
+  parsed. Same class of bug applies to any regex over `/api/health` with nested
+  subobjects: use `[^{}]*` (not `[^}]*`) to scope a match to a specific subobject,
+  so an inner `{}` can't swallow the `ok` flag lookahead.
