@@ -118,82 +118,10 @@ Four fixes from the v0.22.13 log diagnostic:
    files now convert via Pillow + Ghostscript instead of failing with
    "Unable to locate Ghostscript on paths".
 
-Previous (v0.22.13): Active Connections widget on the Resources page.
-- **`core/active_connections.py`** — new in-memory tracker with two
-  counters: recently-active users (sliding window, last-seen per `user.sub`)
-  and live SSE/streaming connections (bucketed by short endpoint label).
-  No DB schema; resets on container restart by design.
-- **`core/auth.py`** — `get_current_user()` now stashes the resolved user
-  on `request.state.user` so the middleware can read it after the response.
-- **`api/middleware.py`** — `RequestContextMiddleware` reads
-  `request.state.user` and calls `record_request_activity()` on every
-  successful authenticated request.
-- **SSE generators wrapped** with `async with track_stream(<endpoint>):`
-  in `bulk.py` (`bulk_job_events`, `ocr_gap_fill`), `batch.py`
-  (`batch_progress`), and `ai_assist.py` (`ai_assist_search`,
-  `ai_assist_expand`).
-- **`GET /api/resources/active`** — admin-only endpoint returning
-  `{users, total_users, total_streams, streams_by_endpoint, window_seconds}`.
-- **`static/resources.html`** — new "Active Connections" section between
-  Live System Metrics and Activity Log. Two cards (Active Users + Live
-  Streams) polled every 5 seconds. Safe DOM construction. Pauses when
-  the tab is hidden.
-
-Previous (v0.22.12): AI Assist Settings copy fix + live provider info badge.
-- The blurb under "Enable AI Assist" still said "Requires `ANTHROPIC_API_KEY`
-  in the environment" — stale since v0.22.10. Replaced with explicit text
-  saying AI Assist uses the same provider system as Vision & Frame
-  Description and AI Enhancement.
-- New live "Provider: anthropic · claude-opus-4-6 · opted-in via 'Use for
-  AI Assist'" badge on the AI Assist Settings section. Pulls
-  `provider_source` and `model` from `/api/ai-assist/status` so admins can
-  see exactly which provider AI Assist will use and which lookup path
-  produced it (`opted_in` / `active_fallback` / `env_fallback` / `none`).
-- Includes a "Manage Providers →" link directly in the badge.
-
-Previous (v0.22.11): per-provider "Use for AI Assist" opt-in checkbox.
-- **Migration #25** adds `use_for_ai_assist INTEGER NOT NULL DEFAULT 0` to
-  `llm_providers`. Mutually exclusive across rows (like `is_active`).
-- **`core/db/catalog.py`** — new `get_ai_assist_provider()` and
-  `set_ai_assist_provider(provider_id|None)` helpers.
-- **`core/ai_assist.py`** — `_get_provider_config()` now follows a 3-step
-  lookup: opted-in provider → active provider (fallback) → env var (legacy).
-  Decouples AI Assist from the image scanner's active provider so admins
-  can pick a different provider for each.
-- **`api/routes/llm_providers.py`** — Create/Update accept the new
-  `use_for_ai_assist` field; new endpoint
-  `POST /api/llm-providers/{id}/use-for-ai-assist` (or `id=none` to clear).
-- **`static/providers.html`** — checkbox in the add form, "Use for AI
-  Assist" / "Disable AI Assist" button on each card, purple "AI Assist"
-  badge next to the opted-in provider. Card rendering refactored to safe
-  DOM construction (no innerHTML).
-- **Status endpoint** carries a new `provider_source` field
-  (`opted_in` / `active_fallback` / `env_fallback` / `none`) for UI clarity.
-
-Previous (v0.22.10): AI Assist now reads its API key from the same
-`llm_providers` row as the image scanner (instead of `ANTHROPIC_API_KEY`
-env var). Provider record's model and api_base_url are honored.
-- **`core/ai_assist.py`** — `_get_provider_config()` reads the active
-  `llm_providers` row via `core.db.catalog.get_active_provider()` (the same
-  source the image scanner / vision pipeline uses). It honors the provider's
-  `api_key`, `model`, and `api_base_url`. Falls back to `ANTHROPIC_API_KEY`
-  env var only if no provider record exists at all (legacy compat).
-- **Provider compatibility check** — AI Assist requires an `anthropic`
-  provider (because the SSE format and `x-api-key` header are
-  Anthropic-specific). If the active provider is OpenAI/Gemini/etc, the
-  status endpoint returns a clear `provider_error` and the UI tells the user
-  to switch the active provider on the Providers page.
-- **Frontend UX** — both the search-page drawer and the Settings page now
-  link to `/providers.html` instead of asking users to edit `.env`. Server
-  status response carries `provider_source`, `provider_compatible`,
-  `provider_error`, and `model` so the UI can render an accurate notice.
-
-Previous (v0.22.9): UX + data-integrity pass — search default view, AI
-Assist needs-config UX, pipeline pending count NOT EXISTS rewrite,
-bulk_files self-correction 4th step, adobe-files L2 indexing rewire.
-
-All earlier versions (v0.13.x – v0.22.7) are documented per-release in
-[`docs/version-history.md`](docs/version-history.md). Do NOT duplicate that here.
+**All prior versions** (v0.13.x – v0.22.13) are documented per-release in
+[`docs/version-history.md`](docs/version-history.md). **Do NOT duplicate that
+changelog here.** On each release, the outgoing "Current Version" block above
+moves into `version-history.md` and is replaced with the new release notes.
 
 **Planned:** External log shipping to Grafana Loki / ELK. The current local
 log archive system is interim.
@@ -271,22 +199,10 @@ The ones that bite hardest and most often — read the full file for the rest.
 
 ## Supported Formats
 
-| Category | Extensions | Handler |
-|----------|-----------|---------|
-| Office | .docx, .doc, .docm, .pdf, .pptx, .ppt, .xlsx, .xls, .csv, .tsv | DocxHandler, PdfHandler, PptxHandler, XlsxHandler, CsvHandler |
-| WordPerfect | .wpd | DocxHandler (LibreOffice preprocessing) |
-| Rich Text | .rtf | RtfHandler |
-| OpenDocument | .odt, .ods, .odp | OdtHandler, OdsHandler, OdpHandler |
-| Markdown & Text | .md, .txt, .log, .text | MarkdownHandler, TxtHandler |
-| Web & Data | .html, .htm, .xml, .epub | HtmlHandler, XmlHandler, EpubHandler |
-| Data & Config | .json, .yaml, .yml, .ini, .cfg, .conf, .properties | JsonHandler, YamlHandler, IniHandler |
-| Email | .eml, .msg | EmlHandler (recursive attachment conversion) |
-| Archives | .zip, .tar, .tar.gz, .tgz, .tar.bz2, .7z, .rar, .cab, .iso | ArchiveHandler |
-| Adobe | .psd, .ai, .indd, .aep, .prproj, .xd, .ait, .indt | AdobeHandler |
-| Media (audio) | .mp3, .wav, .m4a, .flac, .ogg, .aac, .wma | AudioHandler |
-| Media (video) | .mp4, .mov, .avi, .mkv, .webm, .m4v, .wmv | MediaHandler |
-| Captions | .srt, .vtt, .sbv | CaptionIngestor (via AudioHandler) |
-| Images | .jpg, .jpeg, .png, .tif, .tiff, .bmp, .gif, .eps, .heic, .heif | ImageHandler |
+Full category-by-category list with every extension and its handler:
+[`docs/formats.md`](docs/formats.md). Covers ~100 extensions across Office,
+OpenDocument, Rich Text, Web, Email, Adobe Creative, archives, audio, video,
+images, fonts, code, config, and binary metadata.
 
 ---
 
