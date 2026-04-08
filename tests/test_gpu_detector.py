@@ -66,6 +66,51 @@ class TestDetection:
         assert info.container_gpu_name == "NVIDIA GeForce RTX 3080"
         assert info.execution_path == "container"
 
+    @patch("core.gpu_detector.subprocess.run")
+    @patch("core.gpu_detector.shutil.which")
+    def test_detect_nvidia_container_hashcat_cpu_only(self, mock_which, mock_run):
+        """
+        WSL2 Docker Desktop case (v0.22.16): nvidia-smi sees the GPU but
+        hashcat's OpenCL loader can't find libnvidia-opencl.so.1 and reports
+        CPU-only backend. The detector must still report execution_path
+        'container' and a real GPU name — CUDA workloads like Whisper are
+        unaffected and the widget should not lie.
+        """
+        def which_side_effect(name):
+            if name == "nvidia-smi":
+                return "/usr/bin/nvidia-smi"
+            if name == "hashcat":
+                return "/usr/bin/hashcat"
+            return None
+        mock_which.side_effect = which_side_effect
+
+        def run_side_effect(cmd, **kwargs):
+            result = MagicMock()
+            if cmd[0] == "nvidia-smi":
+                result.returncode = 0
+                result.stdout = "NVIDIA GeForce GTX 1660 Ti, 6144, 535.104.05"
+            elif cmd[0] == "hashcat" and "-I" in cmd:
+                # hashcat has no OpenCL vendor ICD -> CPU-only backend
+                result.returncode = 0
+                result.stdout = "Backend Device #1: CPU (pocl)"
+            else:
+                result.returncode = 1
+                result.stdout = ""
+            return result
+        mock_run.side_effect = run_side_effect
+
+        with patch("core.gpu_detector._HOST_WORKER_REPORT") as mock_report:
+            mock_report.exists.return_value = False
+            info = detect_gpu()
+
+        assert info.container_gpu_available is True
+        assert info.container_gpu_name == "NVIDIA GeForce GTX 1660 Ti"
+        assert info.container_hashcat_backend not in ("CUDA", "OpenCL")
+        # Key assertions: still report the GPU honestly
+        assert info.execution_path == "container"
+        assert info.effective_gpu_name == "NVIDIA GeForce GTX 1660 Ti"
+        assert info.effective_backend == "CUDA"
+
     def test_detect_host_worker_amd(self, tmp_path):
         caps = {
             "available": True,

@@ -89,44 +89,53 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.22.15
+## Current Version — v0.22.16
 
-Two related fixes from diagnosing a stuck manual-convert batch of four
-MP3 files on the Convert page (batch `20260408_021247_8847`, stalled 17 h).
+Two follow-ups to v0.22.15 surfaced the same night by the overnight
+rebuild script. Both are reporting-layer honesty fixes — no workload
+code changed.
 
-1. **Whisper now runs on GPU.** Two bugs were silently capping Whisper
-   at CPU speed on a GTX 1660 Ti host. `Dockerfile.base:63` was pulling
-   the CPU-only PyTorch wheel (`whl/cpu`) — switched to `whl/cu121`, so
-   `torch.cuda.is_available()` actually returns `True` inside the
-   container. `docker-compose.yml` had no GPU reservation on the
-   `markflow` service — added a `deploy.resources.reservations.devices`
-   block requesting `driver: nvidia`. On hosts without an NVIDIA GPU,
-   `torch.cuda.is_available()` returns `False` and Whisper transparently
-   falls back to CPU, so the same image works everywhere; friend-deploys
-   on CPU-only machines can comment out the compose block. Host prereq:
-   NVIDIA Container Toolkit installed inside WSL2 (Windows) or as a
-   system package (Linux).
-2. **Audio transcription fails gracefully when no cloud provider
-   supports audio.** Anthropic / Claude does not support audio, so users
-   with only an Anthropic key configured previously got a cryptic "All
-   cloud providers failed. Last error: None. Audio-capable providers
-   checked: []" error. New `NoAudioProviderError` exception type in
-   `core/cloud_transcriber.py`, raised by a pre-flight check that runs
-   before the provider loop. `transcription_engine.py` catches it
-   specifically and raises an actionable user-facing error: "Cannot
-   transcribe <file>: local Whisper failed or is unavailable, and no
-   cloud provider that supports audio is configured. Add an OpenAI or
-   Gemini API key in Settings → AI Providers, or troubleshoot
-   Whisper/GPU setup. (Anthropic/Claude does not currently support
-   audio.)" The distinction lets the UI guide users to the right fix —
-   Settings screen vs. Whisper/GPU troubleshooting vs. transient API
-   retry.
+1. **GPU detector no longer lies on WSL2 Docker Desktop.** After
+   v0.22.15, Whisper was clearly running on CUDA
+   (`cuda_available=true, gpu_name="NVIDIA GeForce GTX 1660 Ti"` in the
+   logs), yet `/api/health` and the Resources widget still reported
+   `CPU (no GPU detected)`. `core/gpu_detector.py` was requiring BOTH
+   `container_gpu_available` AND a CUDA/OpenCL hashcat backend to
+   resolve `execution_path="container"`. On WSL2 the NVIDIA Container
+   Toolkit injects `libcuda.so` but refuses the `opencl` driver
+   capability, so `hashcat -I` reports CPU-only (pocl) even though
+   torch/Whisper are fully GPU-accelerated. New second tier in the
+   priority ladder: if `container_gpu_available` is true but hashcat is
+   CPU-only, still report `execution_path="container"` with the real
+   GPU name and `effective_backend="CUDA"`. `get_gpu_info_live()` carries
+   the same ladder so the cached-vs-live paths can't diverge. Regression
+   test `test_detect_nvidia_container_hashcat_cpu_only` locks the
+   behavior; `container_hashcat_backend` is now included in the
+   `gpu.resolution` log line for future diagnostics.
+2. **Overnight rebuild script produces usable transcript logs and
+   survives the compose-race false failure.** `Scripts/work/overnight/rebuild.ps1`
+   had two interlocking problems: (a) PS 5.1 `Start-Transcript` does
+   not capture stdout/stderr from native executables like docker/git/curl
+   because they bypass the PS host, so morning logs contained section
+   headers with empty bodies; (b) on successful rebuilds
+   `docker-compose up -d` sometimes exits 1 when its post-start
+   container cleanup loses a race with Docker Desktop's reconciler
+   (`No such container: <old id>`) even though the replacement container
+   is already Up, which threw the script and paged the user for no
+   reason. Fix: new `Invoke-Logged` helper routes every native call
+   through `ForEach-Object { Write-Host }` with ErrorRecord
+   stringification and relaxed `$ErrorActionPreference` so the
+   transcript captures every line, and new `Test-StackHealthy` probes
+   `docker-compose ps --format json` + `curl /api/health` (3 attempts,
+   5 s apart; markflow + markflow-mcp both running + top-level status,
+   database, meilisearch all ok) to override compose exit codes
+   conservatively. Whisper CUDA is intentionally not required in the
+   health probe so the script stays portable to friend-deploys on
+   CPU-only hosts.
 
-Not fixed in this release (flagged in version-history for follow-up):
-broken `/api/batch/.../stream` SSE progress on the Convert page;
-`asyncio.wait_for` can't cancel `asyncio.to_thread` Whisper runs, so
-the 1 h transcription timeout silently leaks; corrupt-audio tensor
-reshape errors need a cleaner re-raise.
+v0.22.15 known follow-ups (broken Convert-page SSE, uncancellable
+`asyncio.wait_for` on Whisper, corrupt-audio tensor reshape) are still
+outstanding.
 
 **All prior versions** (v0.13.x – v0.22.14) are documented per-release in
 [`docs/version-history.md`](docs/version-history.md). **Do NOT duplicate that

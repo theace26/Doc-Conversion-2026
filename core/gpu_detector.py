@@ -136,11 +136,30 @@ def detect_gpu() -> GPUInfo:
                      backend=info.host_worker_gpu_backend)
 
     # ── Resolve execution path ───────────────────────────────────────────
+    # Priority:
+    #   1. Container GPU + hashcat GPU backend = ideal (CUDA/OpenCL for both
+    #      torch/Whisper and hashcat password cracking).
+    #   2. Container GPU present but hashcat is CPU-only (v0.22.16). Seen on
+    #      WSL2 Docker Desktop: the NVIDIA Container Toolkit rejects the
+    #      'opencl' driver capability, so libnvidia-opencl.so.1 is never
+    #      injected. CUDA workloads (torch/Whisper) still work; hashcat
+    #      falls back to CPU. Report the GPU honestly instead of lying
+    #      ("CPU (no GPU detected)") — consumers that need hashcat
+    #      specifically can inspect container_hashcat_backend directly.
+    #   3. Host worker GPU (Linux native, macOS Metal, etc.).
+    #   4. Container has hashcat but no GPU at all -> CPU path.
+    #   5. No hashcat, no GPU anywhere -> "none".
     _gpu_backends = ("CUDA", "OpenCL", "ROCm", "Metal")
     if info.container_gpu_available and info.container_hashcat_backend in ("CUDA", "OpenCL"):
         info.execution_path = "container"
         info.effective_gpu_name = info.container_gpu_name
         info.effective_backend = info.container_hashcat_backend or "CUDA"
+    elif info.container_gpu_available:
+        # GPU visible to torch/Whisper but not to hashcat's OpenCL loader.
+        # See priority comment above for the WSL2 case.
+        info.execution_path = "container"
+        info.effective_gpu_name = info.container_gpu_name
+        info.effective_backend = "CUDA"
     elif info.host_worker_available and info.host_worker_gpu_backend in _gpu_backends:
         info.execution_path = "host"
         info.effective_gpu_name = info.host_worker_gpu_name
@@ -155,7 +174,8 @@ def detect_gpu() -> GPUInfo:
     log.info("gpu.resolution",
              execution_path=info.execution_path,
              effective_gpu=info.effective_gpu_name,
-             backend=info.effective_backend)
+             backend=info.effective_backend,
+             container_hashcat_backend=info.container_hashcat_backend)
 
     _gpu_info = info
     return info
@@ -187,11 +207,19 @@ def get_gpu_info_live() -> GPUInfo:
     # Re-resolve execution_path based on the live host_worker state. Without
     # this, the cached value from detect_gpu() at startup persists and reports
     # "container_cpu" even after the host worker file appears.
+    #
+    # Logic must stay in lock-step with detect_gpu() above. See the priority
+    # comment there for the semantic ordering (especially the WSL2 CUDA-only
+    # case added in v0.22.16).
     _gpu_backends = ("CUDA", "OpenCL", "ROCm", "Metal")
     if info.container_gpu_available and info.container_hashcat_backend in ("CUDA", "OpenCL"):
         info.execution_path = "container"
         info.effective_gpu_name = info.container_gpu_name
         info.effective_backend = info.container_hashcat_backend or "CUDA"
+    elif info.container_gpu_available:
+        info.execution_path = "container"
+        info.effective_gpu_name = info.container_gpu_name
+        info.effective_backend = "CUDA"
     elif info.host_worker_available and info.host_worker_gpu_backend in _gpu_backends:
         info.execution_path = "host"
         info.effective_gpu_name = info.host_worker_gpu_name

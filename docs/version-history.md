@@ -4,6 +4,142 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.22.16 — GPU detector WSL2 honesty + overnight rebuild resilience (2026-04-08)
+
+Two follow-ups to the v0.22.15 GPU work, both surfaced the same night by
+the overnight rebuild script and the Resources-page widget reporting
+`CPU (no GPU detected)` on a host where Whisper was clearly running on
+CUDA.
+
+### Issue #1 — GPU detector lied on WSL2 Docker Desktop
+
+**Symptom:** After v0.22.15, `docker-compose logs markflow | grep whisper`
+showed `cuda_available=true, gpu_name="NVIDIA GeForce GTX 1660 Ti"`, yet
+`/api/health` and the Resources widget reported
+`gpu.execution_path="container_cpu"` and
+`gpu.effective_gpu="CPU (no GPU detected)"`. Same GPU, two sources of
+truth disagreeing.
+
+**Root cause:** `core/gpu_detector.py` resolved `execution_path` by
+requiring BOTH `container_gpu_available` AND
+`container_hashcat_backend in ("CUDA","OpenCL")`. On WSL2 Docker Desktop,
+`nvidia-smi` succeeds inside the container (the NVIDIA Container Toolkit
+injects `libcuda.so`), but `hashcat -I` reports CPU (pocl) only because
+the toolkit's WSL2 path does not inject `libnvidia-opencl.so.1` — the
+`opencl` driver capability is rejected. CUDA workloads (torch, Whisper)
+are unaffected; hashcat falls back to CPU. The old resolver treated
+"hashcat can't see the GPU" as "there is no GPU," which was never the
+intent.
+
+**Fix:** New second tier in the `detect_gpu()` / `get_gpu_info_live()`
+priority ladder: if `container_gpu_available` is true but the hashcat
+backend is not CUDA/OpenCL, still resolve `execution_path="container"`,
+use the real `container_gpu_name`, and set `effective_backend="CUDA"`.
+Consumers that specifically need hashcat GPU acceleration can inspect
+`container_hashcat_backend` directly — they weren't getting GPU hashcat
+in either the old or new behavior, the lie was just one level removed.
+The resolver is now a documented 5-tier ladder (see the priority comment
+in `detect_gpu()`): container GPU+hashcat → container GPU+CUDA-only →
+host worker GPU → container CPU → none. `get_gpu_info_live()` carries
+the same ladder verbatim so the live re-resolve after the host worker
+file appears doesn't diverge.
+
+**Logging:** Added `container_hashcat_backend` to the `gpu.resolution`
+log line so future diagnostics don't have to cross-reference two events.
+
+**Test:** New `test_detect_nvidia_container_hashcat_cpu_only` in
+`tests/test_gpu_detector.py` asserts the WSL2 case: nvidia-smi returns a
+1660 Ti, hashcat `-I` returns CPU (pocl), and the detector resolves
+`execution_path="container"` with the real GPU name and
+`effective_backend="CUDA"`. All 14 tests in the module pass.
+
+**Modified files:**
+- `core/gpu_detector.py` — new priority tier in `detect_gpu()` and
+  `get_vector_info_live()` [sic: `get_gpu_info_live()`], documented
+  5-tier comment, `container_hashcat_backend` in resolution log.
+- `tests/test_gpu_detector.py` — WSL2 CPU-only hashcat regression test.
+
+### Issue #2 — Overnight rebuild script had empty transcript logs and false failures
+
+**Symptom #1:** `Scripts/work/overnight/rebuild.ps1` runs unattended at
+~3 AM and writes a transcript log. Morning review on 2026-04-08 found
+section headers (`>>> git fetch origin`, `>>> docker build...`) with
+empty bodies — none of the native command output was captured. Useless
+for forensics.
+
+**Symptom #2:** On a successful rebuild where the stack came up fine,
+`docker-compose up -d` returned exit code 1 because its post-start
+cleanup lost a race with the Docker Desktop reconciler
+(`No such container: <old id>`) even though the replacement container
+was already running. The script threw, the user was paged, but the
+stack was actually healthy.
+
+**Root causes:**
+1. **PS 5.1 `Start-Transcript` does not capture native stdout/stderr.**
+   Native executables (docker, git, curl, nvidia-smi) bypass the PS host
+   and write directly to the console device. Transcript only records
+   output that goes *through* the host.
+2. **`2>&1` in PS 5.1 wraps native stderr as `RemoteException` records.**
+   Even when those are piped through `Write-Host`, the default render
+   adds the full error-decoration envelope (`CategoryInfo`, etc.) and
+   dominates the log.
+3. **`$ErrorActionPreference = "Stop"` + native stderr warnings** (e.g.
+   docker-compose's "project has been loaded without an explicit name
+   from a symlink") cause `2>&1` to terminate the whole pipeline before
+   `$LASTEXITCODE` can even be inspected.
+4. **Compose exit 1 on a working stack.** No way to distinguish the
+   race-override case from a real failure without probing the stack.
+
+**Fix:** New `Invoke-Logged` helper replaces `Assert-ExitCode`. It:
+  - Wraps the native invocation in a `scriptblock` passed as `-Command`.
+  - Temporarily relaxes `$ErrorActionPreference` to `Continue` so
+    harmless stderr warnings don't abort the pipeline.
+  - Pipes output through `ForEach-Object { Write-Host }`, stringifying
+    `ErrorRecord` objects via `$_.Exception.Message` so the log shows
+    plain text instead of PS decoration.
+  - Checks `$LASTEXITCODE` authoritatively and throws on non-zero
+    unless `-AllowNonZero` is given.
+
+Every step in `rebuild.ps1` (GPU smoke test, git fetch/checkout/pull,
+base image build, app build, `docker-compose up`, container status,
+health check) now routes through `Invoke-Logged` — the transcript now
+captures every line of native output.
+
+New `Test-StackHealthy` function handles the compose race: when
+`docker-compose up -d` exits non-zero under `-AllowNonZero`, the script
+probes `docker-compose ps --format json` (markflow + markflow-mcp both
+running) and `curl /api/health` (top-level status ok, database ok,
+meilisearch ok). Policy is deliberately conservative: 3 attempts, 5
+seconds apart, all checks must pass, false = genuine failure. Whisper
+CUDA is intentionally *not* required so the script stays portable to
+friend-deploys on CPU-only hosts. On true healthy-but-compose-returned-1,
+the rebuild is marked successful and no one gets woken up.
+
+**Modified files:**
+- `Scripts/work/overnight/rebuild.ps1` — `Invoke-Logged` helper,
+  `Test-StackHealthy` post-start probe, every native call routed through
+  the helper, health-check banner updated to mention v0.22.16
+  `gpu.execution_path="container"` expectation.
+
+### Why it matters
+
+The widget lie was a trust issue — users would see "CPU" and assume
+v0.22.15 hadn't landed, then either disable Whisper or file a ghost bug.
+The rebuild script issues meant overnight automation couldn't be trusted
+to self-report: every morning needed a manual status check, and the one
+time the stack *did* come up through a compose race, it looked like a
+failure. Both fixes restore honesty in the reporting layer without
+touching any workload code.
+
+### Known follow-ups (not in this release)
+
+- The v0.22.15 SSE / `asyncio.wait_for` / corrupt-audio items are still
+  outstanding.
+- `Test-StackHealthy`'s regex JSON matching is fine for today's health
+  payload but will need a proper parser if the shape grows nested.
+
+---
+
 ## v0.22.15 — GPU Whisper + Audio Fallback Graceful Fail (2026-04-07)
 
 Two related problems surfaced by diagnosing a stuck manual-convert batch
