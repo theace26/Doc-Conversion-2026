@@ -115,9 +115,16 @@ function Invoke-Logged {
       morning forensics on a 3am failure.
 
     Gotcha (docs/gotchas.md ~line 852):
-      '2>&1' wraps native stderr lines as RemoteException records in PS 5.1.
-      'Out-String -Stream' stringifies them before Write-Host, so the log
-      shows the actual command output instead of "RemoteException: <line>".
+      PS 5.1 wraps native stderr lines as NativeCommandError ErrorRecords.
+      With EAP=Continue, PS auto-displays those records to the host
+      (CategoryInfo / FullyQualifiedErrorId decoration) BEFORE they even
+      reach a '2>&1 | ForEach-Object' pipeline, so stringifying inside
+      the pipeline is too late — the transcript has already logged the
+      decorated form. The fix is SilentlyContinue + variable capture:
+      with SilentlyContinue, PS suppresses the auto-display of error
+      records, and '2>&1' still redirects them into the success stream,
+      where the variable collects them. We then render each entry by
+      hand via Write-Host with ErrorRecord->Exception.Message projection.
 
     Parameters:
       -What          Human label for the step header and error message.
@@ -132,28 +139,29 @@ function Invoke-Logged {
         [switch]$AllowNonZero
     )
     Write-Step $What
-    # Temporarily relax $ErrorActionPreference. With 'Stop' active, native
-    # commands that write a harmless warning to stderr (e.g. docker-compose's
-    # "project has been loaded without an explicit name from a symlink")
-    # get promoted to a terminating PS error by '2>&1' and blow up the whole
-    # pipeline before $LASTEXITCODE can even be checked. We authoritatively
-    # use the process exit code instead.
+    # SilentlyContinue (not Continue) is load-bearing here: see the comment
+    # block above. Continue allows PS to auto-display NativeCommandError
+    # records to the host before our ForEach can stringify them, which is
+    # exactly what broke the overnight log from 2026-04-08 11:37:31.
     $prevEAP = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
+    $ErrorActionPreference = "SilentlyContinue"
+    $captured = $null
     try {
-        # Stringify ErrorRecord objects before Write-Host so native stderr
-        # warnings render as their plain text instead of the full PS error
-        # decoration (CategoryInfo, FullyQualifiedErrorId, etc.) that would
-        # otherwise dominate the log. See docs/gotchas.md ~line 852.
-        & $Command 2>&1 | ForEach-Object {
-            if ($_ -is [System.Management.Automation.ErrorRecord]) {
-                Write-Host $_.Exception.Message
-            } else {
-                Write-Host "$_"
-            }
-        }
+        # Capture into a variable first so the auto-display path is bypassed
+        # entirely. '2>&1' merges stderr (wrapped as ErrorRecords) into the
+        # success stream; the assignment collects them before anything is
+        # rendered.
+        $captured = & $Command 2>&1
     } finally {
         $ErrorActionPreference = $prevEAP
+    }
+    foreach ($item in @($captured)) {
+        if ($null -eq $item) { continue }
+        if ($item -is [System.Management.Automation.ErrorRecord]) {
+            Write-Host $item.Exception.Message
+        } else {
+            Write-Host ([string]$item)
+        }
     }
     if ($LASTEXITCODE -ne 0 -and -not $AllowNonZero) {
         Write-Host ""
@@ -217,19 +225,43 @@ function Test-StackHealthy {
     # Any deviation -> return $false and let the caller throw.
 
     for ($attempt = 1; $attempt -le 3; $attempt++) {
-        $psJson = docker-compose ps --format json 2>&1 | Out-String
-        $markflowUp = $psJson -match '"Name"\s*:\s*"[^"]*markflow-1"[^}]*"State"\s*:\s*"running"'
-        $mcpUp      = $psJson -match '"Name"\s*:\s*"[^"]*markflow-mcp-1"[^}]*"State"\s*:\s*"running"'
+        # docker-compose ps --format json emits NDJSON (one JSON object per
+        # line). Parse each line individually with ConvertFrom-Json rather
+        # than regex, because the earlier regex tried to match across
+        # Name...State using '[^}]*' — and the Publishers field contains
+        # nested '{...}' objects that broke the negated class, so a
+        # perfectly-healthy stack silently read as "containers not both Up
+        # yet". Per-object parsing sidesteps that entirely. Each compose-ps
+        # entry is shallow enough for PS 5.1's parser. The leading
+        # docker-compose symlink warning goes to stderr and is redirected
+        # with 2>$null so it doesn't pollute the NDJSON stream.
+        $psLines = & docker-compose ps --format json 2>$null
+        $markflowUp = $false
+        $mcpUp = $false
+        foreach ($line in @($psLines)) {
+            $lineStr = [string]$line
+            if ([string]::IsNullOrWhiteSpace($lineStr)) { continue }
+            if ($lineStr -notmatch '^\s*\{') { continue }
+            try {
+                $obj = $lineStr | ConvertFrom-Json -ErrorAction Stop
+            } catch {
+                continue
+            }
+            if ($obj.Name -eq 'doc-conversion-2026-markflow-1'     -and $obj.State -eq 'running') { $markflowUp = $true }
+            if ($obj.Name -eq 'doc-conversion-2026-markflow-mcp-1' -and $obj.State -eq 'running') { $mcpUp = $true }
+        }
 
         if ($markflowUp -and $mcpUp) {
             $healthJson = curl.exe -sf --max-time 5 http://localhost:8000/api/health 2>$null
             if ($LASTEXITCODE -eq 0 -and $healthJson) {
-                # Minimal JSON probing without ConvertFrom-Json (PS 5.1's parser
-                # is picky with deeply nested structures and we only need three
-                # booleans). Regex against the flat string is enough.
+                # Minimal JSON probing without ConvertFrom-Json on the full
+                # health payload — we only need three booleans and the payload
+                # has nested objects that a full parse is overkill for.
+                # Scoped regex: require the 'ok' flag to appear WITHIN the
+                # immediate subobject, tolerating a handful of inner fields.
                 $statusOk = $healthJson -match '"status"\s*:\s*"ok"'
-                $dbOk     = $healthJson -match '"database"\s*:\s*\{[^}]*"ok"\s*:\s*true'
-                $meiliOk  = $healthJson -match '"meilisearch"\s*:\s*\{[^}]*"ok"\s*:\s*true'
+                $dbOk     = $healthJson -match '"database"\s*:\s*\{[^{}]*"ok"\s*:\s*true'
+                $meiliOk  = $healthJson -match '"meilisearch"\s*:\s*\{[^{}]*"ok"\s*:\s*true'
                 if ($statusOk -and $dbOk -and $meiliOk) {
                     Write-Host "    Test-StackHealthy: markflow+mcp Up, status/db/meili all ok (attempt $attempt)" -ForegroundColor Green
                     return $true
@@ -239,7 +271,8 @@ function Test-StackHealthy {
                 Write-Host "    Test-StackHealthy: /api/health unreachable (attempt $attempt)" -ForegroundColor DarkYellow
             }
         } else {
-            Write-Host "    Test-StackHealthy: containers not both Up yet (attempt $attempt)" -ForegroundColor DarkYellow
+            Write-Host ("    Test-StackHealthy: containers not both running yet " +
+                        "(markflow=$markflowUp, mcp=$mcpUp, attempt $attempt)") -ForegroundColor DarkYellow
         }
 
         if ($attempt -lt 3) { Start-Sleep -Seconds 5 }
