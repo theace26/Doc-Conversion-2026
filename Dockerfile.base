@@ -27,6 +27,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgdk-pixbuf-2.0-0 \
     # ImageMagick for EMF/WMF conversion
     imagemagick \
+    # Ghostscript for EPS file conversion via Pillow (v0.22.14)
+    ghostscript \
     # ExifTool for Adobe file metadata extraction
     libimage-exiftool-perl \
     # ffmpeg for keyframe extraction and media processing

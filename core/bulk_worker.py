@@ -103,6 +103,50 @@ def _map_sidecar_dir(output_md_path: Path) -> Path:
     return output_md_path.parent / "_markflow"
 
 
+# ── Background vector indexing helper (v0.22.14) ───────────────────────────
+
+async def _index_vector_async(
+    vec_indexer,
+    md_path: Path,
+    doc_id: str,
+    title: str,
+    source_path: str,
+    source_format: str,
+    file_id: str,
+) -> None:
+    """
+    Detached background task that runs Qdrant vector indexing for one
+    converted file. Called via `asyncio.create_task()` from the bulk worker
+    so the worker can immediately move on to the next file.
+
+    Why background: pre-v0.22.14 this was awaited inline in the worker
+    loop. When Qdrant timed out (60s default httpx timeout) the worker
+    blocked for the full timeout per file, dragging conversion throughput
+    down to ~0.05 files/sec. With this helper the worker is back to its
+    natural conversion rate; the embedding/upsert happens in parallel.
+
+    Errors are logged with `repr(exc)` and `exc_type` because some
+    exception classes (e.g. `TimeoutError()` with no message) stringify
+    to empty and silently mask the failure.
+    """
+    try:
+        await vec_indexer.index_document(
+            md_path=md_path,
+            doc_id=doc_id,
+            title=title,
+            source_path=source_path,
+            source_format=source_format,
+            source_index="documents",
+        )
+    except Exception as vec_exc:
+        log.warning(
+            "bulk_vector_index_fail",
+            file_id=file_id,
+            error=repr(vec_exc),
+            exc_type=type(vec_exc).__name__,
+        )
+
+
 # ── OCR confidence pre-scan ──────────────────────────────────────────────────
 
 async def _estimate_ocr_confidence(source_path: Path) -> float | None:
@@ -550,17 +594,39 @@ class BulkJob:
                             error=str(exc),
                         )
             except Exception as exc:
-                self._error_monitor.record_error(str(exc))
+                # v0.22.14: distinguish transient SQLite lock contention
+                # from real conversion failures. A "database is locked"
+                # error means we lost a write race with another worker /
+                # the analysis_queue / cleanup job — it does NOT mean the
+                # file failed to convert. Re-queue it (leave status as
+                # 'pending') and let the next pass pick it up.
+                err_str = str(exc)
+                is_db_lock = "database is locked" in err_str.lower()
+                if is_db_lock:
+                    log.warning(
+                        "bulk_worker_db_lock_requeue",
+                        job_id=self.job_id,
+                        file_id=file_id,
+                        error=err_str,
+                    )
+                    # Don't update status (leave as 'pending'); don't
+                    # increment failed counter; don't emit file_failed.
+                    # The next worker pass over the pending list will
+                    # retry this file naturally.
+                    self._error_monitor.record_error(err_str)
+                    continue
+
+                self._error_monitor.record_error(err_str)
                 log.error(
                     "bulk_worker_unhandled",
                     job_id=self.job_id,
                     file_id=file_id,
-                    error=str(exc),
+                    error=err_str,
                 )
                 await db_write_with_retry(lambda: update_bulk_file(
                     file_id,
                     status="failed",
-                    error_msg=str(exc),
+                    error_msg=err_str,
                 ))
                 self._failed += 1
                 await db_write_with_retry(lambda: increment_bulk_job_counter(self.job_id, "failed"))
@@ -569,7 +635,7 @@ class BulkJob:
                     "job_id": self.job_id,
                     "file_id": file_id,
                     "source_path": str(source_path),
-                    "error": str(exc),
+                    "error": err_str,
                     "failed": self._failed,
                     "worker_id": worker_id + 1,
                 })
@@ -810,22 +876,34 @@ class BulkJob:
                             lambda: increment_bulk_job_counter(self.job_id, "transcribed")
                         )
 
-                    # Vector index (best-effort, parallel to Meilisearch)
+                    # Vector index — fire-and-forget background task (v0.22.14).
+                    # Previously this was awaited inline, blocking the worker
+                    # for up to 60 seconds whenever Qdrant timed out. That
+                    # cratered conversion throughput to ~0.05 files/sec when
+                    # Qdrant was slow. Now the indexing call runs in a
+                    # detached task so the worker can move on immediately;
+                    # the embedding/upsert catches up asynchronously.
                     try:
                         from core.vector.index_manager import get_vector_indexer
                         vec_indexer = await get_vector_indexer()
                         if vec_indexer:
                             vec_doc_id = hashlib.sha256(str(actual_output).encode()).hexdigest()[:16]
-                            await vec_indexer.index_document(
+                            asyncio.create_task(_index_vector_async(
+                                vec_indexer=vec_indexer,
                                 md_path=actual_output,
                                 doc_id=vec_doc_id,
                                 title=source_path.stem,
                                 source_path=str(source_path),
                                 source_format=source_path.suffix.lstrip("."),
-                                source_index="documents",
-                            )
+                                file_id=file_id,
+                            ))
                     except Exception as vec_exc:
-                        log.warning("bulk_vector_index_fail", file_id=file_id, error=str(vec_exc))
+                        log.warning(
+                            "bulk_vector_index_fail",
+                            file_id=file_id,
+                            error=repr(vec_exc),
+                            exc_type=type(vec_exc).__name__,
+                        )
             except Exception as exc:
                 log.warning("bulk_meili_index_fail", file_id=file_id, error=str(exc))
 

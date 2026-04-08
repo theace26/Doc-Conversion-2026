@@ -89,9 +89,36 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.22.13
+## Current Version — v0.22.14
 
-Active Connections widget on the Resources page (Option C):
+Four fixes from the v0.22.13 log diagnostic:
+
+1. **Vector indexing no longer blocks the bulk worker.** `core/bulk_worker.py`
+   used to `await vec_indexer.index_document(...)` inline, blocking up to
+   60s per file when Qdrant timed out. Conversion rate dropped to ~0.05
+   files/sec. Now wrapped in `asyncio.create_task()` via the new
+   `_index_vector_async()` helper. Should restore 5-10x throughput.
+   Also: vector-fail logs now use `repr(exc)` and `exc_type` so
+   `TimeoutError()` no longer logs an empty error string.
+2. **`database is locked` no longer marks files as failed.** The bulk
+   worker top-level handler now distinguishes the transient SQLite WAL
+   contention error from real conversion failures and `continue`s
+   (leaves the file `pending`) instead of marking it `failed`. Adobe L2
+   indexer routes its `upsert_adobe_index()` through `db_write_with_retry`.
+   Analysis worker drain and auto_metrics aggregator downgrade lock errors
+   to warnings (next scheduled tick retries naturally).
+3. **Vision API 400 errors now log the response body.** `vision_adapter.py`
+   captures `exc.response.text[:500]` and the failing image path so the
+   actual provider error reason ("Image too large", "Invalid base64", etc)
+   is visible instead of the generic "Client error '400 Bad Request'"
+   wrapper. The 1,150-failed analysis_queue backlog can now be diagnosed.
+4. **Ghostscript installed in Docker.** Added to `Dockerfile.base` for the
+   long term, plus a temporary `apt-get install ghostscript` line in the
+   app `Dockerfile` so this fix ships without a 25-min base rebuild. EPS
+   files now convert via Pillow + Ghostscript instead of failing with
+   "Unable to locate Ghostscript on paths".
+
+Previous (v0.22.13): Active Connections widget on the Resources page.
 - **`core/active_connections.py`** — new in-memory tracker with two
   counters: recently-active users (sliding window, last-seen per `user.sub`)
   and live SSE/streaming connections (bucketed by short endpoint label).

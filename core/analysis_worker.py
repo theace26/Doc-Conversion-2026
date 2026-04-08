@@ -102,7 +102,13 @@ async def run_analysis_drain() -> None:
             await _reindex_completed(valid_rows, results)
 
     except Exception as exc:
-        log.error("analysis_worker.drain_failed", error=str(exc))
+        # v0.22.14: SQLite lock contention is transient — downgrade to a
+        # warning and let the next scheduled drain retry naturally.
+        err = str(exc)
+        if "database is locked" in err.lower():
+            log.warning("analysis_worker.drain_db_locked_skip", error=err)
+        else:
+            log.error("analysis_worker.drain_failed", error=err)
 
 
 async def _reindex_completed(rows: list[dict], results: list[dict]) -> None:

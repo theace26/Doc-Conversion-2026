@@ -153,7 +153,13 @@ async def aggregate_hourly_metrics():
             )
 
     except Exception as e:
-        log.error("auto_metrics_aggregation_failed", error=str(e))
+        # v0.22.14: SQLite lock contention is transient — downgrade to a
+        # warning and let the next scheduled aggregation retry naturally.
+        err = str(e)
+        if "database is locked" in err.lower():
+            log.warning("auto_metrics_aggregation_db_locked_skip", error=err)
+        else:
+            log.error("auto_metrics_aggregation_failed", error=err)
 
 
 async def purge_old_auto_metrics():

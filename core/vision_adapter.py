@@ -161,14 +161,34 @@ class VisionAdapter:
                     for i in range(len(image_paths))
                 ]
         except Exception as exc:
+            # v0.22.14: capture HTTP response body when present so 400/etc
+            # carry the actual provider error reason ("Image too large",
+            # "Invalid base64", etc) instead of the generic
+            # "Client error '400 Bad Request' for url ...". The previous
+            # generic message hid the real cause and was the main reason
+            # the analysis_queue had 1,150 unexplained failures.
+            response_body = ""
+            response = getattr(exc, "response", None)
+            if response is not None:
+                try:
+                    response_body = response.text[:500]
+                except Exception:
+                    pass
+
             log.error(
                 "vision_adapter.describe_batch_failed",
                 provider=self._provider,
                 count=len(image_paths),
                 error=str(exc),
+                exc_type=type(exc).__name__,
+                response_body=response_body,
+                first_image=str(image_paths[0]) if image_paths else None,
             )
+            err_for_rows = str(exc)
+            if response_body:
+                err_for_rows = f"{err_for_rows} | body: {response_body}"
             return [
-                BatchImageResult(index=i, description="", extracted_text="", error=str(exc))
+                BatchImageResult(index=i, description="", extracted_text="", error=err_for_rows)
                 for i in range(len(image_paths))
             ]
 

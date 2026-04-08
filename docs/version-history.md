@@ -4,6 +4,148 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.22.14 — Log Diagnostic Fixes (2026-04-07)
+
+A diagnostic log scan after v0.22.13 surfaced four issues. All four
+addressed in this release.
+
+### Issue #1 — Vector indexing was blocking conversion (BIGGEST IMPACT)
+
+**Symptom:** `bulk_vector_index_fail` warnings every 2-3 files with an
+empty error string. Conversion rate dropped to **0.048 files/sec → ETA
+6.6 days for the in-flight 28k-file job**.
+
+**Root cause:** `core/bulk_worker.py:819` did
+`await vec_indexer.index_document(...)` synchronously inside the worker
+loop. When Qdrant timed out (60s default httpx timeout) the worker
+blocked for the full timeout per file. Math: 5s convert + 60s qdrant
+timeout = 65s/file = ~0.015 files/sec; observed 0.048 ≈ ~1 in 3 files
+hitting the timeout.
+
+The empty error string was a separate logging defect: `ReadTimeout(TimeoutError())`
+stringifies to empty when the inner `TimeoutError()` has no message.
+`str(exc)` produced `""`, masking the failure entirely.
+
+**Fix:** New module-level helper `_index_vector_async()` in
+`core/bulk_worker.py`. The worker now does:
+
+```python
+asyncio.create_task(_index_vector_async(...))
+```
+
+instead of `await vec_indexer.index_document(...)`. The vector indexing
+runs as a detached background task; the worker immediately moves to the
+next file. Errors logged with `repr(exc)` and `exc_type=type(exc).__name__`
+so empty stringify no longer hides the failure.
+
+**Expected impact:** 5-10x throughput restoration when Qdrant is slow.
+Worker rate should return to its natural conversion speed; vector
+indexing catches up async.
+
+### Issue #2 — `database is locked` was permanently failing files
+
+**Symptom:** 13 lock-contention events / 30 min, 4 of which were
+non-recoverable:
+
+- `bulk_worker_unhandled error='database is locked'` — file marked
+  `failed` (real bug, lost work)
+- `analysis_worker.drain_failed`
+- `auto_metrics_aggregation_failed`
+- `adobe_index_error` + `adobe_l2_index_failed`
+
+**Root cause:** Multiple writers (4 bulk workers + Adobe L2 indexer +
+analysis worker drain + auto_metrics aggregator + cleanup jobs +
+contention logger) all competing for the SQLite WAL. The in-flight
+retry helper `db_write_with_retry()` saved most cases, but several code
+paths bypassed it.
+
+**Fix:**
+
+1. **`core/bulk_worker.py` `_worker()` top-level except**: now
+   distinguishes `"database is locked"` from real failures. On lock
+   error, logs a `bulk_worker_db_lock_requeue` warning and `continue`s
+   (leaves the file `pending`); does NOT update status, NOT increment
+   the failed counter, NOT emit `file_failed`. The next worker pass
+   over the pending list retries the file naturally.
+
+2. **`core/adobe_indexer.py`**: `upsert_adobe_index()` is now wrapped in
+   `db_write_with_retry()`. Lock errors are retried with backoff
+   instead of bubbling out as a permanent `adobe_index_error`.
+
+3. **`core/analysis_worker.py`** and **`core/auto_metrics_aggregator.py`**:
+   the top-level `except` blocks now check for `"database is locked"` in
+   the error string and downgrade to a warning. The next scheduled drain /
+   aggregation tick retries naturally — these are already periodic jobs,
+   so missing one tick during heavy contention is harmless.
+
+### Issue #3 — Vision API 400 errors had no diagnostic detail
+
+**Symptom:** `vision_adapter.describe_batch_failed count=10 error="Client
+error '400 Bad Request' for url '.../v1/messages'"`. The
+`analysis_queue` had **1,150 failed vs 90 completed** — vision pipeline
+mostly broken with no way to identify the offending image.
+
+**Fix:** `core/vision_adapter.py:describe_batch()` `except` block now
+captures the HTTP response body via `getattr(exc, "response", None)` and
+logs:
+
+```python
+log.error(
+    "vision_adapter.describe_batch_failed",
+    provider=...,
+    count=...,
+    error=str(exc),
+    exc_type=type(exc).__name__,
+    response_body=response.text[:500],
+    first_image=str(image_paths[0]),
+)
+```
+
+The actual Anthropic error message (e.g. "Image exceeds 5MB", "Invalid
+base64") and the first image path now appear in logs. Also propagated
+into the per-row `BatchImageResult.error` field so the `analysis_queue`
+table itself shows the real reason. Next log scan will be able to
+bisect the offending images.
+
+### Issue #4 — Ghostscript missing for `.eps` conversion
+
+**Symptom:** `image_handler.convert_failed Unable to locate Ghostscript
+on paths`. EPS files in source share were uniformly failing.
+
+**Fix:** Added `ghostscript` to `Dockerfile.base`'s apt install list for
+the long term. Also added a separate `apt-get install -y ghostscript`
+layer in the app `Dockerfile` so this version can ship without a 25-min
+base image rebuild. The next time `Dockerfile.base` is rebuilt, the
+duplicate becomes a no-op (apt-get reports already-installed) and the
+app-Dockerfile line can be removed.
+
+### Modified files
+
+- `core/version.py` — 0.22.13 → 0.22.14
+- `core/bulk_worker.py` — `_index_vector_async()` helper, async vector
+  task, db-lock requeue branch in worker handler
+- `core/analysis_worker.py` — db-locked downgrade
+- `core/auto_metrics_aggregator.py` — db-locked downgrade
+- `core/adobe_indexer.py` — `upsert_adobe_index` via `db_write_with_retry`
+- `core/vision_adapter.py` — capture response body + first_image path
+- `Dockerfile.base` — add `ghostscript`
+- `Dockerfile` — temporary `apt-get install ghostscript` layer
+- `CLAUDE.md`, `docs/version-history.md` — updates
+
+### Verification plan
+
+1. Rebuild + restart container.
+2. Trigger lifecycle scan.
+3. Wait 5 minutes for the bulk worker to process some files.
+4. Re-run the log scan from this session and confirm:
+   - `bulk_progress` rate has jumped (target: at least 5x previous)
+   - No `bulk_worker_unhandled error='database is locked'` events
+   - Adobe L2 errors gone (or reduced to retried warnings)
+   - Vision 400 logs now include response body
+   - `image_handler.convert_failed` for EPS gone
+
+---
+
 ## v0.22.13 — Active Connections Widget (2026-04-07)
 
 **Asked in chat:** "Under the resources page — are you able to show how

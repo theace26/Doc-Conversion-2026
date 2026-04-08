@@ -16,7 +16,7 @@ from pathlib import Path
 
 import structlog
 
-from core.database import upsert_adobe_index
+from core.database import db_write_with_retry, upsert_adobe_index
 
 log = structlog.get_logger(__name__)
 
@@ -78,14 +78,17 @@ class AdobeIndexer:
             # Truncate text layers if total > MAX_TEXT_BYTES
             text_layers = self._truncate_text(text_layers)
 
-            # Upsert into DB
-            await upsert_adobe_index(
+            # Upsert into DB. Routed through db_write_with_retry (v0.22.14)
+            # because contention with bulk worker writes is common during
+            # heavy bulk runs and the previous unguarded call would surface
+            # "database is locked" as a permanent adobe_index_error.
+            await db_write_with_retry(lambda: upsert_adobe_index(
                 source_path=str(source_path),
                 file_ext=ext,
                 file_size_bytes=file_size,
                 metadata=metadata,
                 text_layers=text_layers,
-            )
+            ))
 
             duration_ms = int((time.perf_counter() - t_start) * 1000)
             return AdobeIndexResult(
