@@ -56,15 +56,17 @@ follow-up data" failure mode had to stop.
 Phase 0    Preflight       - prerequisites, record HEAD commit,
                              auto-detect expectGpu via nvidia-smi.exe
 Phase 1    Source sync     - git fetch/checkout/pull     [retry 3x]
-Phase 1.5  Capture         - snapshot current :latest image IDs
+Phase 1.5  Anchor last-good - capture :latest IDs, tag as :last-good,
+                              write sidecar (BEFORE build - BuildKit
+                              GCs the old image as soon as :latest
+                              is reassigned)
 Phase 2    Image build     - docker build base + app     [retry 2x]
-Phase 2.5  Retag last-good - tag captured IDs, write sidecar JSON
-Phase 3    Start           - docker-compose up -d          [race override]
+Phase 3    Start           - docker-compose up -d          [20s wait + race override]
 Phase 4    Verify          - containers + /api/health + GPU + MCP
 Phase 5    Success         - compact FINAL STATE block
 ```
 
-Phases 0-2.5 never touch the running stack — `docker build` writes to
+Phases 0-2 never touch the running stack — `docker build` writes to
 the image store out-of-band. On failure there, exit 1 and yesterday's
 build keeps serving. Phases 3-4 have already run `up -d`, so a failure
 there triggers `Invoke-Rollback`. The `$script:PreCommit` flag makes
@@ -75,7 +77,7 @@ this distinction unambiguous in the catch handler.
 | Code | Meaning | Morning stack state |
 |---|---|---|
 | 0 | Clean success, new build verified | New build running, healthy |
-| 1 | Pre-commit failure (phases 0-2.5) | Old build still running, untouched |
+| 1 | Pre-commit failure (phases 0-2) | Old build still running, untouched |
 | 2 | Rollback succeeded — old build running; new build needs investigation | Old build running, healthy |
 | 3 | Rollback failed — stack DOWN | Stack DOWN |
 | 4 | Rollback refused — compose/Dockerfile diverged since last-good commit | New build stopped, stack DOWN |
@@ -92,11 +94,11 @@ test (missing toolkit is structural, not transient), or
 `docker-compose up -d` (already has the race override via
 `Test-StackHealthy`).
 
-**`Invoke-RetagImage`** — Phase 2.5 helper. Tags a captured image ID
+**`Invoke-RetagImage`** — Phase 1.5 helper. Tags a captured image ID
 as `<image>:last-good` with one retry on failure. Atomicity is
 enforced across the pair: if the markflow retag succeeds but the
-mcp retag fails after its retry, Phase 2.5 aborts as exit 1 rather
-than proceeding into Phase 3 with an out-of-sync image pair (no
+mcp retag fails after its retry, Phase 1.5 aborts as exit 1 rather
+than proceeding into Phase 2/3 with an out-of-sync image pair (no
 safety net → don't do the risky thing).
 
 **`Invoke-Rollback`** — five steps from spec §5.4: compose/Dockerfile
@@ -191,17 +193,91 @@ live runs.
   the full body and no nested `{}` appears between each component's
   opening brace and its `ok` field).
 
-### Not yet validated — requires unattended run or deliberate break
+### Bugs caught and fixed during staged live-run validation
 
-- Staged overnight run under real network/docker load.
-- Forced rollback rehearsal (break a runtime import to fail Phase 4;
-  observe rollback path + exit 2).
+The first staged live run (`-SkipPull -SkipBase -SkipGpuCheck`,
+invoked as the "refresh container" step of this release cycle)
+surfaced four real bugs in the initial implementation. All fixed
+before committing.
+
+**Bug A — Phase 2.5 retag-after-build was structurally impossible.**
+The draft spec assumed "build N is still resident on the host but
+reachable only by sha ID" after `docker-compose build` replaces
+`:latest`. That assumption is wrong on modern BuildKit: the old
+image is garbage-collected the moment its `:latest` tag is dropped.
+Phase 2.5's `docker tag <prev-sha> :last-good` failed with `Error
+response from daemon: No such image: sha256:...`. **Fix:** moved the
+retag + sidecar write into Phase 1.5 (renamed "Anchor last-good"),
+BEFORE Phase 2 build. Tagging the current `:latest` as `:last-good`
+pre-build gives the image store a second reference that keeps the
+old image resident across the build. Phase 2.5 deleted.
+
+**Bug B — `Test-StackHealthy` leaked `NativeCommandError` decoration
+on every `docker-compose ps` call.** Same class as the v0.22.16
+follow-up (commit 54d6808). The helper used `$ErrorActionPreference
+= "Continue"` locally and relied on `2>$null` to suppress
+docker-compose's symlink-warning stderr. With EAP=Continue, PS 5.1
+auto-displays native stderr as `NativeCommandError` ErrorRecords
+BEFORE the `2>$null` redirection takes effect, so the transcript
+filled with `docker-compose.exe : time="..." level=warning ...  /
+At ...rebuild.ps1:300 char:20 / FullyQualifiedErrorId :
+NativeCommandError` spam on every probe attempt. **Fix:**
+`$ErrorActionPreference = "SilentlyContinue"` inside
+`Test-StackHealthy` (same pattern as Invoke-Logged). Documented in
+the function's comment block so future edits can't re-regress this.
+
+**Bug C — Invoke-RetagImage swallowed stderr with `Out-Null`,
+hiding the actual docker error from the morning log.** Made it
+impossible to diagnose Bug A without manually re-running the tag
+command. **Fix:** capture stderr into a variable and `Write-Host`
+each line (with ErrorRecord -> Exception.Message projection) on
+retag failure.
+
+**Bug D — Phase 3's race-override path called `Test-StackHealthy`
+immediately after `up -d` non-zero exit, without any lifespan
+wait.** The 3x5s=15s retry budget is not enough for a cold
+container start that takes ~20s for FastAPI lifespan startup. On
+the second staged run, a perfectly healthy new build got rolled
+back unnecessarily because the health probe hit the container
+before uvicorn finished binding. This was actually a FALSE
+ROLLBACK - the build was functionally identical to the one being
+rolled back to. The self-healing pipeline did the right thing
+gracefully on a false positive, but the gate was over-eager.
+**Fix:** moved the 20-second lifespan pause from Phase 4 to the
+END of Phase 3 (after `up -d`, BEFORE any health probe, on both
+the clean-exit and race-override branches). Also added the same
+lifespan pause before `Test-StackHealthy` in `Invoke-Rollback`'s
+recreate step, which had the symmetric race. Phase 4 no longer
+sleeps - Phase 3 already did.
+
+### Final validation — third live run
+
+After fixes A-D, re-ran `-SkipPull -SkipBase -SkipGpuCheck`:
+- Phase 1.5 captured both image IDs AND successfully tagged them
+  as `:last-good` AND wrote `last-good.json` BEFORE the build.
+- Phase 2 rebuilt the app layer in ~57s.
+- Phase 3 `up -d` exited 1 (compose post-start race, as expected
+  from v0.22.16), waited 20s, `Test-StackHealthy` passed on the
+  first attempt, race override engaged.
+- Phase 4: `Test-StackHealthy`, `Test-GpuExpectation` (reporting
+  `execution_path='container', whisper.cuda=true`), and
+  `Test-McpHealth` all passed.
+- Phase 5: FINAL STATE block clean, exit 0, total runtime 1:36.
+- **No NativeCommandError decoration anywhere in the transcript.**
+- Stack now running image from commit d46944c with
+  `core/version.py = 0.22.17`.
+
+### Still deferred — requires deliberate break, not a normal run
+
+- Forced rollback rehearsal (break a runtime import to fail
+  Phase 4; observe rollback path + exit 2). The self-healing
+  pipeline already executed a successful rollback during Bug D
+  surfacing, but that was a false-positive scenario - a true
+  runtime-broken-build rehearsal has not been performed.
 - Compose-divergence rehearsal (edit docker-compose.yml after a
   successful run, force Phase 4 failure, expect exit 4).
 
-Recommended: run the rollback and divergence rehearsals before the
-next unattended cycle, so a real regression isn't the first time
-those code paths execute.
+Recommended before the next unattended cycle.
 
 ### Modified files
 

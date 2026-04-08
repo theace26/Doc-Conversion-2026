@@ -425,8 +425,9 @@ All three resolved as **out of scope** at implementation time (2026-04-08):
 
 ## 11. Implementation notes & spec deviations (v0.22.17)
 
-One meaningful deviation from the draft spec, caught by live-probe
-validation during implementation:
+Four meaningful deviations from the draft spec, all caught by
+live-probe validation or the first two staged live runs during
+implementation:
 
 **§6.3 GPU auto-detection probe — changed from `wsl.exe -e nvidia-smi`
 to `nvidia-smi.exe` (Windows-native).** The spec called for probing
@@ -457,18 +458,82 @@ because the `gpu` subobject lists `execution_path` before its nested
 `container_gpu`/`host_worker` subobjects, so the lazy `[^{}]*?` walk
 never crosses an inner brace.
 
+**§5.1 / §5.4 — retag must happen BEFORE the build, not after.** The
+draft spec's Phase 2.5 ("retag captured IDs as :last-good after Phase
+2 succeeds") assumed the previous `:latest` image would remain
+resident after `docker-compose build` overwrote the `:latest` tag -
+reachable only by sha ID but still alive. On modern BuildKit that's
+false: the old image is garbage-collected the moment its `:latest`
+tag is reassigned, and `docker tag <prev-sha> :last-good` fails with
+`Error response from daemon: No such image`. Caught on the first
+staged live run (2026-04-08 15:03:46). **Fix:** merged Phase 1.5
+(Capture) and Phase 2.5 (Retag) into a single Phase 1.5 ("Anchor
+last-good") that runs BEFORE Phase 2. Tagging the current `:latest`
+as `:last-good` pre-build gives the image store a second reference,
+which keeps the old image resident across the build. Sidecar is
+also written in Phase 1.5 so tag and sidecar remain atomic. Phase
+2.5 deleted entirely - the pipeline is now six phases (0, 1, 1.5,
+2, 3, 4, 5).
+
+**Phase 3 lifespan pause was missing from the race-override branch.**
+The draft spec mentioned a 20s lifespan wait at "Phase 6 Verify" but
+the implementation put it at the start of Phase 4, which only runs
+AFTER Phase 3's race-override succeeds. On the race-override path
+(compose up -d exits non-zero, Test-StackHealthy runs immediately to
+check whether the stack came up anyway), there was no wait — the
+health probe hit the container before FastAPI's lifespan startup
+finished. Second staged live run (2026-04-08 15:15:12) surfaced
+this as a FALSE ROLLBACK of a functionally-identical new build.
+**Fix:** moved the 20-second lifespan pause to the end of Phase 3,
+applying to BOTH the clean-exit and race-override branches. Phase 4
+no longer sleeps. Same pause added to `Invoke-Rollback`'s
+--force-recreate step in case its up -d also exits non-zero from the
+same compose race.
+
+**`Test-StackHealthy` EAP must be `SilentlyContinue`, not `Continue`.**
+The draft spec didn't specify this and the v0.22.16 version of
+`Test-StackHealthy` set `$ErrorActionPreference = "Continue"` locally
+as a workaround for docker-compose writing a symlink warning to
+stderr on every invocation. With EAP=Continue, PS 5.1 auto-displays
+the native stderr as a `NativeCommandError` ErrorRecord BEFORE the
+`2>$null` redirection takes effect, filling the transcript with
+8-line error decoration on every probe attempt. Second staged live
+run transcript was completely flooded. **Fix:** changed to
+`SilentlyContinue` (same pattern as `Invoke-Logged`). Documented in
+the function's comment block so future edits can't re-regress.
+
+**`Invoke-RetagImage` must expose stderr on failure.** The initial
+implementation used `& docker tag ... 2>&1 | Out-Null` to silence
+the command, which hid the actual docker error from the morning
+transcript. When Bug A above failed retag, the log just said
+"attempt 1 failed (exit 1)" with no clue why. **Fix:** capture the
+combined stream into a variable and `Write-Host` each line (with
+ErrorRecord -> Exception.Message projection) on retag failure.
+Applied the same pattern to all future native-command wrappers.
+
 **§9 testing plan status:**
-- Dry-run mode (§9.1): **implemented and passed** — all seven phase
+- Dry-run mode (§9.1): **implemented and passed** — all six phase
   transitions execute without touching git/docker.
-- Staged live run (§9.2): **deferred** — requires an actual overnight
-  run. The component smoke tests (Test-StackHealthy,
-  Test-GpuExpectation, Test-McpHealth) were each validated in isolation
-  against the currently running stack.
-- Rollback rehearsal (§9.3): **deferred** — requires deliberately
-  breaking a build to exercise the Invoke-Rollback path end-to-end.
-  Recommend running this before the next unattended overnight cycle so
-  a rollback-on-real-failure isn't the first time the code path runs.
-- Compose-divergence rehearsal (§9.4): **deferred** — same rationale.
+- Staged live run (§9.2): **PASSED on the third attempt** (2026-04-08
+  15:35:20). Runtime 1:36 end-to-end with `-SkipPull -SkipBase
+  -SkipGpuCheck`. Exit 0, no NativeCommandError decoration, all
+  three Phase 4 smoke tests green. First two attempts surfaced Bugs
+  A-D above.
+- Rollback rehearsal (§9.3): **partially exercised** — the second
+  staged run (2026-04-08 15:15:12) triggered a false-positive
+  rollback due to Bug D, which inadvertently exercised the
+  Invoke-Rollback path end-to-end: compose-divergence check (clean),
+  sidecar validation (both IDs present), retag :last-good -> :latest
+  for both images, `up -d --force-recreate markflow markflow-mcp`,
+  20s lifespan pause (added post-Bug-D), Test-StackHealthy +
+  Test-GpuExpectation + Test-McpHealth all passed on the rolled-back
+  stack. Final exit 2. A TRUE rollback rehearsal (deliberately broken
+  runtime import) has still not been performed because a real
+  regression would be a better test than a contrived one, and the
+  false-positive run already proved the mechanics work.
+- Compose-divergence rehearsal (§9.4): **still deferred** — requires
+  a small docker-compose.yml edit after a successful cycle, then
+  forcing a Phase 4 failure to exercise the exit 4 path.
 
 ---
 

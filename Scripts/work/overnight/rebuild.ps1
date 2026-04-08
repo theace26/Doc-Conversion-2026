@@ -16,17 +16,17 @@
       Phase 0    Preflight       - prerequisites, record HEAD commit,
                                    auto-detect expected GPU state
       Phase 1    Source sync     - git fetch/checkout/pull         [retry 3x]
-      Phase 1.5  Capture         - snapshot current :latest image IDs
+      Phase 1.5  Anchor last-good - capture current :latest image IDs,
+                                    tag as :last-good, write sidecar
+                                    (runs BEFORE build - see spec §11)
       Phase 2    Image build     - docker build base + app         [retry 2x]
-      Phase 2.5  Retag last-good - tag captured IDs as :last-good +
-                                   write last-good.json sidecar
       Phase 3    Start           - docker-compose up -d             [race override]
       Phase 4    Verify          - containers + health + GPU + MCP  [3x x 5s]
       Phase 5    Success         - compact final-state block
 
     Exit codes:
       0  Clean success, new build verified
-      1  Pre-commit failure (phases 0-2.5); old build still running, untouched
+      1  Pre-commit failure (phases 0-2); old build still running, untouched
       2  Rollback succeeded; old build running; new build needs investigation
       3  Rollback attempted but rolled-back stack also broken; stack DOWN
       4  Rollback refused because compose/Dockerfile diverged since last-good
@@ -118,7 +118,7 @@ $McpImageName      = "doc-conversion-2026-markflow-mcp"
 # -----------------------------------------------------------------------------
 $script:CurrentPhase      = "pre-start"
 $script:PreCommit         = $true      # flips to $false after Phase 3 up -d
-$script:RollbackAvailable = $false     # set true by Phase 2.5 on successful retag
+$script:RollbackAvailable = $false     # set true by Phase 1.5 on successful retag
 $script:PrevHeadCommit    = $null
 $script:PrevMarkflowId    = $null
 $script:PrevMcpId         = $null
@@ -289,7 +289,19 @@ function Get-ImageId {
 #   stack as "success" and we find out the hard way.
 # -----------------------------------------------------------------------------
 function Test-StackHealthy {
-    $ErrorActionPreference = "Continue"
+    # SilentlyContinue is load-bearing: docker-compose writes a symlink
+    # warning to stderr on every invocation, which PS 5.1 wraps as a
+    # NativeCommandError ErrorRecord. With EAP=Continue (or Stop via
+    # $ErrorActionPreference), PS auto-displays the record to the host
+    # with full CategoryInfo / FullyQualifiedErrorId decoration BEFORE
+    # the '2>$null' stream redirection can discard it. SilentlyContinue
+    # suppresses the auto-display so the redirection actually works.
+    # Same root cause and fix as Invoke-Logged; see docs/gotchas.md
+    # "Overnight Rebuild & PowerShell Native-Command Handling" and the
+    # v0.22.16 follow-up commit 54d6808. Caught on the 2026-04-08
+    # 15:15:12 staged live run, which decorated every compose ps call
+    # with 8-line error spam in the transcript.
+    $ErrorActionPreference = "SilentlyContinue"
     for ($attempt = 1; $attempt -le 3; $attempt++) {
         # docker-compose ps --format json emits NDJSON (one JSON object per
         # line). Parse each line individually with ConvertFrom-Json rather
@@ -491,9 +503,21 @@ function Write-FinalState {
 
 # -----------------------------------------------------------------------------
 # Invoke-RetagImage
-#   Helper for Phase 2.5. Tags $PrevId as $TargetTag. Retries once per
-#   spec section 5.3. Returns $true on success, $false after both
-#   attempts fail.
+#   Helper for Phase 1.5. Tags $PrevId as $TargetTag. Retries once on
+#   failure. Returns $true on success, $false after both attempts fail.
+#
+#   Important: this MUST run BEFORE Phase 2's build, because
+#   docker-compose build garbage-collects the previous :latest image
+#   the moment the new build tags :latest. Without a :last-good tag
+#   holding a reference, the old image's sha becomes immediately
+#   unreachable and rollback becomes impossible. This is a spec §11
+#   deviation from the original draft, which assumed "build N is
+#   still resident on the host but reachable only by sha ID" - that
+#   assumption was wrong on modern BuildKit and broke the first live
+#   staged run (2026-04-08 15:03:46 rebuild log).
+#
+#   Stderr is captured and Write-Host'd on failure so the morning
+#   log shows the actual docker error (previously was Out-Null'd).
 # -----------------------------------------------------------------------------
 function Invoke-RetagImage {
     param(
@@ -503,12 +527,23 @@ function Invoke-RetagImage {
     for ($i = 1; $i -le 2; $i++) {
         $prev = $ErrorActionPreference
         $ErrorActionPreference = "SilentlyContinue"
-        & docker tag $PrevId $TargetTag 2>&1 | Out-Null
+        $tagOutput = & docker tag $PrevId $TargetTag 2>&1
         $code = $LASTEXITCODE
         $ErrorActionPreference = $prev
         if ($code -eq 0) { return $true }
-        Write-Host "    Retag $TargetTag attempt $i failed (exit $code); retrying once" -ForegroundColor DarkYellow
-        Start-Sleep -Seconds 2
+        Write-Host "    Retag $TargetTag attempt $i failed (exit $code)" -ForegroundColor DarkYellow
+        foreach ($line in @($tagOutput)) {
+            if ($null -eq $line) { continue }
+            if ($line -is [System.Management.Automation.ErrorRecord]) {
+                Write-Host "      $($line.Exception.Message)" -ForegroundColor DarkYellow
+            } else {
+                Write-Host "      $([string]$line)" -ForegroundColor DarkYellow
+            }
+        }
+        if ($i -lt 2) {
+            Write-Host "    Retrying in 2s" -ForegroundColor DarkYellow
+            Start-Sleep -Seconds 2
+        }
     }
     return $false
 }
@@ -616,6 +651,15 @@ function Invoke-Rollback {
         Write-Host "  Rollback FAILED: recreate step: $($_.Exception.Message)" -ForegroundColor Red
         return 3
     }
+    # Lifespan pause before ANY health probes on the rolled-back stack,
+    # including the race-override check. The non-zero-exit race-override
+    # and the strict re-verification both assume lifespan has completed;
+    # wait once, then run both. Without this, a compose non-zero exit
+    # on --force-recreate races the /api/health probe and triggers a
+    # false rollback-failed (exit 3) on a healthy rolled-back stack.
+    Write-Step "Rollback step 4.5: waiting 20s for rolled-back lifespan startup"
+    Start-Sleep -Seconds 20
+
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  docker-compose up -d --force-recreate exited $LASTEXITCODE; probing stack anyway..." -ForegroundColor DarkYellow
         if (-not (Test-StackHealthy)) {
@@ -623,10 +667,6 @@ function Invoke-Rollback {
             return 3
         }
     }
-
-    # Give lifespan a beat before the strict checks
-    Write-Step "Rollback step 4.5: waiting 20s for rolled-back lifespan startup"
-    Start-Sleep -Seconds 20
 
     # Step 5: re-verify (same as Phase 4)
     Write-Step "Rollback step 5: re-verifying rolled-back stack"
@@ -760,23 +800,61 @@ try {
     }
 
     # -------------------------------------------------------------------------
-    # Phase 1.5: Capture current :latest image IDs (for rollback target)
+    # Phase 1.5: Anchor last-good (tag current :latest BEFORE the build)
+    #
+    # Why this runs BEFORE Phase 2 (spec §11 deviation from the draft):
+    # modern BuildKit garbage-collects the previous :latest image the moment
+    # docker-compose build tags :latest with the new build. If we try to
+    # retag the old sha AFTER the build (as the draft spec assumed), the
+    # image is already gone. Tagging it as :last-good BEFORE the build
+    # gives the image store a second reference, keeping it resident.
+    #
+    # The sidecar is also written here so tag and sidecar are atomic:
+    # if either side of the pair can't be retagged, we throw before any
+    # build happens and the old build keeps serving (exit 1, pre-commit).
     # -------------------------------------------------------------------------
-    Write-PhaseHeader "1.5" "Capture current :latest image IDs"
+    Write-PhaseHeader "1.5" "Anchor last-good (pre-build retag + sidecar)"
     if ($script:DryRun) {
-        Write-Host "    DRY RUN: would capture image IDs for $MarkflowImageName and $McpImageName"
+        Write-Host "    DRY RUN: would capture IDs, retag as :last-good, write sidecar"
     } else {
         $script:PrevMarkflowId = Get-ImageId -Tag "${MarkflowImageName}:latest"
         $script:PrevMcpId      = Get-ImageId -Tag "${McpImageName}:latest"
         if ($null -eq $script:PrevMarkflowId -or $null -eq $script:PrevMcpId) {
             Write-Host "    No previous :latest image(s) found - fresh install or first run." -ForegroundColor DarkYellow
-            Write-Host "    markflow: $(if ($script:PrevMarkflowId) { $script:PrevMarkflowId } else { '(missing)' })"
-            Write-Host "    mcp:      $(if ($script:PrevMcpId) { $script:PrevMcpId } else { '(missing)' })"
+            Write-Host "      markflow: $(if ($script:PrevMarkflowId) { $script:PrevMarkflowId } else { '(missing)' })"
+            Write-Host "      mcp:      $(if ($script:PrevMcpId) { $script:PrevMcpId } else { '(missing)' })"
             Write-Host "    Rollback will be UNAVAILABLE for this cycle. Next cycle will capture this build." -ForegroundColor DarkYellow
             $script:RollbackAvailable = $false
         } else {
             Write-Host "    Captured markflow: $($script:PrevMarkflowId)"
             Write-Host "    Captured mcp:      $($script:PrevMcpId)"
+
+            $markflowTagged = Invoke-RetagImage -PrevId $script:PrevMarkflowId -TargetTag "${MarkflowImageName}:last-good"
+            if (-not $markflowTagged) {
+                throw "Phase 1.5: failed to retag markflow :last-good after retry. Aborting before Phase 2 build (no safety net = no risky action)."
+            }
+            $mcpTagged = Invoke-RetagImage -PrevId $script:PrevMcpId -TargetTag "${McpImageName}:last-good"
+            if (-not $mcpTagged) {
+                # Atomicity: markflow tag succeeded but mcp failed. Abort as
+                # exit 1 rather than proceed - image pair would be out of sync.
+                throw "Phase 1.5: failed to retag markflow-mcp :last-good after retry (markflow retag already succeeded but pair out of sync). Aborting."
+            }
+            Write-Host "    Both images retagged as :last-good" -ForegroundColor Green
+
+            # Write sidecar
+            $sidecarObj = [ordered]@{
+                commit             = $script:PrevHeadCommit
+                tagged_at          = (Get-Date).ToString("o")
+                markflow_image_id  = $script:PrevMarkflowId
+                mcp_image_id       = $script:PrevMcpId
+                host_expects_gpu   = ($script:ExpectGpu -eq "container")
+            }
+            try {
+                $sidecarObj | ConvertTo-Json -Depth 4 | Out-File -FilePath $SidecarFile -Encoding ASCII -Force
+                Write-Host "    Wrote sidecar: $SidecarFile" -ForegroundColor Green
+            } catch {
+                throw "Phase 1.5: failed to write sidecar $SidecarFile : $($_.Exception.Message)"
+            }
             $script:RollbackAvailable = $true
         }
     }
@@ -799,43 +877,6 @@ try {
     } -MaxAttempts 2 -BackoffSeconds 10
 
     # -------------------------------------------------------------------------
-    # Phase 2.5: Retag captured IDs as :last-good + write sidecar
-    # -------------------------------------------------------------------------
-    Write-PhaseHeader "2.5" "Retag last-good"
-    if ($script:DryRun) {
-        Write-Host "    DRY RUN: would retag and write sidecar"
-    } elseif (-not $script:RollbackAvailable) {
-        Write-Host "    Skipped: no previous image to tag (RollbackAvailable=false)" -ForegroundColor DarkYellow
-    } else {
-        $markflowTagged = Invoke-RetagImage -PrevId $script:PrevMarkflowId -TargetTag "${MarkflowImageName}:last-good"
-        if (-not $markflowTagged) {
-            throw "Phase 2.5: failed to retag markflow :last-good after retry. Aborting before Phase 3 (no safety net = no risky action)."
-        }
-        $mcpTagged = Invoke-RetagImage -PrevId $script:PrevMcpId -TargetTag "${McpImageName}:last-good"
-        if (-not $mcpTagged) {
-            # Atomicity: markflow tag succeeded but mcp failed. Abort as
-            # exit 1 rather than proceed - image pair would be out of sync.
-            throw "Phase 2.5: failed to retag markflow-mcp :last-good after retry (markflow retag already succeeded but pair out of sync). Aborting."
-        }
-        Write-Host "    Both images retagged as :last-good" -ForegroundColor Green
-
-        # Write sidecar
-        $sidecarObj = [ordered]@{
-            commit             = $script:PrevHeadCommit
-            tagged_at          = (Get-Date).ToString("o")
-            markflow_image_id  = $script:PrevMarkflowId
-            mcp_image_id       = $script:PrevMcpId
-            host_expects_gpu   = ($script:ExpectGpu -eq "container")
-        }
-        try {
-            $sidecarObj | ConvertTo-Json -Depth 4 | Out-File -FilePath $SidecarFile -Encoding ASCII -Force
-            Write-Host "    Wrote sidecar: $SidecarFile" -ForegroundColor Green
-        } catch {
-            throw "Phase 2.5: failed to write sidecar $SidecarFile : $($_.Exception.Message)"
-        }
-    }
-
-    # -------------------------------------------------------------------------
     # Phase 3: Start (commit point - after this the old stack is gone)
     # -------------------------------------------------------------------------
     Write-PhaseHeader "3" "Start"
@@ -844,6 +885,19 @@ try {
         docker-compose up -d
     } -AllowNonZero
     $composeUpExit = $LASTEXITCODE
+
+    # Lifespan pause applies to BOTH the clean-exit and race-override
+    # branches. Test-StackHealthy's 3x5s=15s retry budget is not enough
+    # for a cold container start, which typically takes ~20s for
+    # FastAPI lifespan startup. Without this pause the race-override
+    # path reports /api/health unreachable on a perfectly fine new
+    # build and triggers a rollback unnecessarily - caught on the
+    # 2026-04-08 15:15:12 staged live run, which rolled back a
+    # functionally-identical build just because the health probe hit
+    # the container before it finished booting.
+    Write-Step "Waiting 20 seconds for FastAPI lifespan startup"
+    if (-not $script:DryRun) { Start-Sleep -Seconds 20 }
+
     if ($composeUpExit -ne 0) {
         Write-Host ""
         Write-Host "[$(Get-Date -Format 'HH:mm:ss')] docker-compose up -d exited $composeUpExit" -ForegroundColor DarkYellow
@@ -859,8 +913,7 @@ try {
     # Phase 4: Verify (containers + health + GPU + MCP)
     # -------------------------------------------------------------------------
     Write-PhaseHeader "4" "Verify"
-    Write-Step "Waiting 20 seconds for FastAPI lifespan startup"
-    if (-not $script:DryRun) { Start-Sleep -Seconds 20 }
+    # No additional lifespan wait - Phase 3 already waited 20s after up -d.
 
     Invoke-Logged "Container status" { docker-compose ps } -AllowNonZero
 
@@ -900,7 +953,7 @@ try {
     } else {
         Write-Host "  Morning checklist:"
         Write-Host "    1. grep RETRY-OK in the log to see what flaked overnight."
-        Write-Host "    2. Confirm execution_path and whisper.cuda_available in the FINAL STATE block."
+        Write-Host "    2. Confirm execution_path='container' and whisper.cuda=true in the FINAL STATE block."
         Write-Host "    3. To tail live logs: docker-compose logs -f markflow"
     }
     Write-Host ""
@@ -949,7 +1002,7 @@ try {
     Write-Host ""
     Write-Host "  Exit code: $($script:ExitCode)" -ForegroundColor Red
     Write-Host "    0  clean success"
-    Write-Host "    1  pre-commit failure (old build still running)"
+    Write-Host "    1  pre-commit failure - phases 0-2 (old build still running)"
     Write-Host "    2  rollback succeeded (old build running, new build needs investigation)"
     Write-Host "    3  rollback attempted but failed (stack DOWN)"
     Write-Host "    4  rollback refused (compose/Dockerfile divergence; stack DOWN)"

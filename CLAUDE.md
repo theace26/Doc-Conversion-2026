@@ -99,15 +99,17 @@ morning diagnostics. Ships against the design spec at
 [`docs/superpowers/specs/2026-04-08-overnight-rebuild-self-healing-design.md`](docs/superpowers/specs/2026-04-08-overnight-rebuild-self-healing-design.md).
 Full context: [`docs/version-history.md`](docs/version-history.md).
 
-**Seven phases:** 0 Preflight (prereqs + `expectGpu` auto-detect via
-`nvidia-smi.exe`) -> 1 Source sync (retry 3x) -> 1.5 Capture current
-`:latest` image IDs -> 2 Image build (retry 2x) -> 2.5 Retag captured
-IDs as `:last-good` + write `Scripts/work/overnight/last-good.json`
-sidecar -> 3 Start (with race override) -> 4 Verify (containers +
-`/api/health` + `Test-GpuExpectation` + `Test-McpHealth` on port 8001)
--> 5 Success. On verification failure after the `up -d` commit point,
-`Invoke-Rollback` retags `:last-good` -> `:latest` and recreates with
-`--force-recreate`, then re-verifies.
+**Six phases (0-5):** 0 Preflight (prereqs + `expectGpu` auto-detect
+via `nvidia-smi.exe`) -> 1 Source sync (retry 3x) -> 1.5 Anchor
+last-good (capture `:latest` IDs, tag as `:last-good`, write
+`Scripts/work/overnight/last-good.json` sidecar — **runs BEFORE
+build** because BuildKit GCs the old image the moment `:latest` is
+reassigned) -> 2 Image build (retry 2x) -> 3 Start + 20s lifespan
+pause + race override -> 4 Verify (`Test-StackHealthy` + `Test-
+GpuExpectation` + `Test-McpHealth` on port 8001) -> 5 Success. On
+verification failure after the `up -d` commit point, `Invoke-Rollback`
+retags `:last-good` -> `:latest` and recreates with `--force-recreate`,
+then re-verifies.
 
 **Five exit codes:** 0 clean / 1 pre-commit failure (old build still
 running) / 2 rollback succeeded (old build running, new build needs
@@ -145,13 +147,26 @@ and the only reliable fix is `SilentlyContinue` + variable capture
 be regex'd across fields because `Publishers` has nested `{}` — parse
 NDJSON line-by-line with `ConvertFrom-Json`.
 
-**Validation performed:** parser clean; dry-run end-to-end across all
-seven phases; `Get-ImageId`, `Test-GpuExpectation`, `Test-McpHealth`
-each validated in isolation against the running stack. **Not yet
-validated:** staged unattended overnight run, forced rollback
-rehearsal, compose-divergence rehearsal (exit 4 path). Recommended to
-run the last two manually before the next unattended cycle so a real
-regression isn't the first time `Invoke-Rollback` executes.
+**Validation performed:** parser clean; dry-run end-to-end; **three
+staged live runs**, the last of which went fully green (exit 0 in
+1:36). The first two caught four real bugs: (A) Phase 2.5
+retag-after-build was structurally impossible because BuildKit GCs
+the old image on tag reassignment — fix was moving retag + sidecar
+into Phase 1.5 before the build; (B) `Test-StackHealthy` leaked
+`NativeCommandError` decoration on every compose-ps call because it
+used `EAP=Continue` instead of `SilentlyContinue` (same class as the
+v0.22.16 follow-up); (C) `Invoke-RetagImage` swallowed stderr with
+`Out-Null`, hiding the Bug A error from the morning log; (D) Phase
+3's race-override path probed health immediately after `up -d`,
+without the 20s lifespan wait, causing a FALSE ROLLBACK of a
+functionally-identical build on the second staged run — fix moved
+the lifespan pause into Phase 3 (both clean-exit and race-override
+branches) and added the same pause to `Invoke-Rollback`'s recreate
+step. **Still deferred:** forced-rollback rehearsal with a
+deliberately-broken runtime build, and compose-divergence rehearsal
+(exit 4 path). Recommended before the next unattended cycle — though
+the Bug D false-rollback did inadvertently exercise the rollback
+path end-to-end.
 
 v0.22.15 known follow-ups (broken Convert-page SSE, uncancellable
 `asyncio.wait_for` on Whisper, corrupt-audio tensor reshape) are still

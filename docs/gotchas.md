@@ -1155,6 +1155,66 @@ the relevant subsystem. Referenced from CLAUDE.md.
   decorated with `NativeCommandError : ... FullyQualifiedErrorId : NativeCommandError`
   until this fix landed.
 
+- **`$ErrorActionPreference = "SilentlyContinue"` is the only EAP that reliably
+  suppresses `NativeCommandError` auto-display — `Continue` is NOT enough, even
+  with `2>$null`**: A tempting "fix" when you want to tolerate a native command's
+  stderr is `$ErrorActionPreference = "Continue"` + `command 2>$null`. It looks
+  right — `Continue` means "don't stop on errors", and `2>$null` discards the
+  error stream. In practice PS 5.1 still auto-displays each native stderr line
+  wrapped as a `NativeCommandError` ErrorRecord to the host, with full
+  `CategoryInfo` / `FullyQualifiedErrorId` decoration, BEFORE the `2>$null`
+  redirection takes effect. The entire transcript fills up with 8-line error
+  blocks per call. The ONLY reliable suppression in PS 5.1 is
+  `$ErrorActionPreference = "SilentlyContinue"`, which disables the auto-display
+  path entirely. This bit `Test-StackHealthy` on the 2026-04-08 15:15:12 staged
+  rebuild — the function set `Continue` locally as a workaround for
+  docker-compose's symlink warning, but every probe attempt still flooded the
+  transcript. Apply this rule to any helper that wraps a native command with
+  known-benign stderr: either set EAP to `SilentlyContinue` inside the helper,
+  or use `Invoke-Logged`'s capture pattern.
+
+- **Post-`docker-compose up -d` health probes need a 20-second lifespan pause,
+  even on the race-override path**: `docker-compose up -d` sometimes exits
+  non-zero due to its post-start container cleanup losing a race with Docker
+  Desktop's reconciler (v0.22.16 compose race). The instinct on seeing exit 1
+  is to immediately probe the stack and override if it's actually healthy —
+  that's what `Test-StackHealthy` is for. BUT: even when the compose race path
+  is the real cause, the new containers are still mid-lifespan. FastAPI lifespan
+  startup is ~20 seconds for MarkFlow; before that window closes, `/api/health`
+  hasn't bound its handlers yet and curl returns connection refused. Without a
+  lifespan pause, `Test-StackHealthy`'s 3x5s retry budget is not enough and the
+  race-override reports false negative on a genuinely-healthy new build,
+  triggering a rollback that's purely the probe's fault. Caught on the
+  2026-04-08 15:15:12 staged rebuild, which rolled back a functionally-identical
+  new build because Phase 3 probed too fast. Fix: `Start-Sleep -Seconds 20`
+  after every `up -d` exit (zero OR non-zero), BEFORE any health probe, on both
+  the initial-start and the --force-recreate rollback paths.
+
+- **`docker-compose build` garbage-collects the previous `:latest` image
+  instantly — capture rollback targets with a TAG, not a sha alone**: A common
+  rollback pattern is "before the build, record the current `:latest` image
+  sha, and after the build, retag that sha as `:last-good`." This assumes the
+  old image stays resident in the image store between Phase 1 and Phase 2,
+  reachable only by sha. On modern BuildKit that's false: the moment the new
+  build tags `:latest`, the old image's only tag reference is dropped, and if
+  nothing else references it, BuildKit's image GC evicts it from the store
+  within milliseconds. By the time you try `docker tag <old-sha> :last-good`
+  you get `Error response from daemon: No such image: sha256:...`. The fix is
+  to tag the old image as `:last-good` BEFORE the build runs. The `:last-good`
+  tag itself becomes the second reference that keeps the image resident across
+  the build. Applies to `Scripts/work/overnight/rebuild.ps1` Phase 1.5.
+
+- **Always surface native-command stderr on failure in retry wrappers — never
+  `Out-Null` the combined stream**: The v0.22.17 overnight `Invoke-RetagImage`
+  helper initially silenced retries with `& docker tag ... 2>&1 | Out-Null` to
+  keep successful runs quiet. When the retag started failing (the BuildKit GC
+  issue above), the morning log said "attempt 1 failed (exit 1)" with no clue
+  why. The diagnostic was "manually re-run the tag command in a fresh shell to
+  see the real error" — which defeats the purpose of overnight diagnostics.
+  Rule: on failure, helpers MUST render the command's combined output to the
+  transcript (with `ErrorRecord -> Exception.Message` projection for stderr
+  lines). Silence is acceptable on the success path only.
+
 - **`docker-compose ps --format json` — do NOT regex across fields, parse NDJSON
   line-by-line with `ConvertFrom-Json`**: The `Publishers` field in each compose-ps entry
   contains nested `{...}` subobjects (one per published port, with `URL`, `TargetPort`,
