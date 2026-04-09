@@ -30,6 +30,54 @@ from core.path_utils import PathSafetyResult, run_path_safety_pass
 
 log = structlog.get_logger(__name__)
 
+# ── Junk file filter (v0.22.19) ──────────────────────────────────────────────
+# Filenames that should NEVER enter the conversion pipeline. These are OS /
+# Office artifacts, not user data. Pre-v0.22.19 they leaked into bulk_files
+# and source_files, polluted the queue (1,327 Thumbs.db rows in one scan),
+# and produced misleading "LibreOffice not found" errors when LibreOffice
+# was correctly invoked on a `~$*` Office lock file and exited non-zero.
+#
+# Two buckets:
+#   1. Prefix patterns — variable names starting with a fixed string
+#      (`~$foo.docx`, `~WRL1234.tmp`)
+#   2. Exact basenames — fixed filenames (`Thumbs.db`, `desktop.ini`)
+#
+# Both are matched case-insensitively because Windows filesystems are
+# case-insensitive and the same artifact can appear as `Thumbs.db` /
+# `THUMBS.DB` / `thumbs.db`. Pure string ops, no regex — this runs
+# millions of times per scan and a regex compile is overkill for ~6 fixed
+# patterns.
+_JUNK_BASENAME_PREFIXES_LOWER = (
+    "~$",        # MS Office lock files (Word/Excel/PowerPoint/Visio)
+    "~wrl",      # Word recovery temp files (e.g. ~WRL1234.tmp)
+)
+_JUNK_BASENAMES_LOWER = frozenset({
+    "thumbs.db",     # Windows Explorer thumbnail cache
+    "desktop.ini",   # Windows folder customization metadata
+    ".ds_store",     # macOS Finder metadata
+    ".appledouble",  # macOS resource fork sidecar
+    "ehthumbs.db",   # Windows Media Player thumbnail cache
+    "ehthumbs_vista.db",
+})
+
+
+def is_junk_filename(name: str) -> bool:
+    """Return True if *name* (basename only, no path) is OS / Office junk
+    that should never enter the conversion pipeline. Case-insensitive.
+
+    See ``_JUNK_BASENAME_PREFIXES_LOWER`` and ``_JUNK_BASENAMES_LOWER`` for
+    the full list. Cheap pure-string check — safe to call from every
+    per-file scanner loop.
+    """
+    n = name.lower()
+    if n in _JUNK_BASENAMES_LOWER:
+        return True
+    for prefix in _JUNK_BASENAME_PREFIXES_LOWER:
+        if n.startswith(prefix):
+            return True
+    return False
+
+
 # All supported extensions — unified scanning (no separate Adobe/convertible split)
 SUPPORTED_EXTENSIONS = {
     # Office documents
@@ -162,8 +210,14 @@ class BulkScanner:
         self._skip_patterns: list[str] = []
 
     def _is_excluded(self, file_path: str) -> bool:
-        """Return True if file_path starts with any exclusion prefix or
-        contains a skip-pattern fragment from user preferences."""
+        """Return True if file_path starts with any exclusion prefix,
+        contains a skip-pattern fragment from user preferences, or has a
+        junk basename (Office lock files, Thumbs.db, etc — see
+        ``is_junk_filename``)."""
+        # Junk-filename check first — cheapest, catches the noisiest leaks
+        # (~$* Office lock files, Thumbs.db, etc).
+        if is_junk_filename(os.path.basename(file_path)):
+            return True
         for ep in self._exclusion_paths:
             if file_path.startswith(ep):
                 return True

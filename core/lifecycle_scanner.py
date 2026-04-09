@@ -32,7 +32,7 @@ from core.scan_coordinator import (
     unregister_lifecycle_scan,
 )
 from core.storage_probe import ErrorRateMonitor, ScanThrottler, probe_storage_latency
-from core.bulk_scanner import ALL_SUPPORTED, CONVERTIBLE_EXTENSIONS, ADOBE_EXTENSIONS, verify_source_mount
+from core.bulk_scanner import ALL_SUPPORTED, CONVERTIBLE_EXTENSIONS, ADOBE_EXTENSIONS, verify_source_mount, is_junk_filename
 from core.metrics_collector import record_activity_event
 from core.database import (
     create_scan_run,
@@ -637,6 +637,10 @@ async def _serial_lifecycle_walk(
     _skip = skip_patterns or []
 
     def _is_excluded(p: str) -> bool:
+        # Junk-filename check first — cheapest, catches the noisiest leaks
+        # (~$* Office lock files, Thumbs.db, etc — see is_junk_filename).
+        if is_junk_filename(os.path.basename(p)):
+            return True
         return (any(p.startswith(ep) for ep in _excl)
                 or any(f in p for f in _skip))
 
@@ -732,6 +736,9 @@ async def _parallel_lifecycle_walk(
     _skip = skip_patterns or []
 
     def _is_excluded(p: str) -> bool:
+        # Junk-filename check first — same rationale as the serial walk above.
+        if is_junk_filename(os.path.basename(p)):
+            return True
         return (any(p.startswith(ep) for ep in _excl)
                 or any(f in p for f in _skip))
 

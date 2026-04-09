@@ -72,6 +72,52 @@ async def lifespan(app: FastAPI):
     from core.database import cleanup_orphaned_jobs
     await cleanup_orphaned_jobs()
 
+    # v0.22.19 one-time junk-row cleanup. Pre-v0.22.19 the scan-time filter
+    # didn't catch ~$* Office lock files / Thumbs.db / desktop.ini, so they
+    # accumulated in bulk_files (1,327 Thumbs.db rows in one observed scan)
+    # and source_files (453 in the same scan), polluting counts and
+    # producing misleading "LibreOffice not found" errors when LibreOffice
+    # was correctly invoked on a 162-byte ~$* lock file. The scanner is now
+    # fixed (see core/bulk_scanner.is_junk_filename) — this migration
+    # purges the historical leak. Idempotent: gated by the
+    # 'junk_cleanup_v0_22_19_done' preference.
+    try:
+        from core.database import get_preference, set_preference, get_db
+        if (await get_preference("junk_cleanup_v0_22_19_done")) != "true":
+            # Mirror the same patterns the scanner now filters. Use SQL LIKE
+            # because we're matching path suffixes here, not basenames in
+            # Python — '%/X' matches any path ending in /X across both
+            # POSIX and Windows-mounted UNC paths.
+            patterns = [
+                "%/~$%", "%\\~$%",            # Office lock files
+                "%/~WRL%.tmp", "%\\~WRL%.tmp",  # Word recovery temp
+                "%/Thumbs.db", "%\\Thumbs.db",
+                "%/thumbs.db", "%\\thumbs.db",
+                "%/desktop.ini", "%\\desktop.ini",
+                "%/.DS_Store", "%\\.DS_Store",
+                "%/ehthumbs.db", "%\\ehthumbs.db",
+            ]
+            where_clause = " OR ".join(["source_path LIKE ?"] * len(patterns))
+            async with get_db() as conn:
+                # bulk_files first (FK to source_files in some schemas)
+                cur = await conn.execute(
+                    f"DELETE FROM bulk_files WHERE {where_clause}", patterns,
+                )
+                bulk_deleted = cur.rowcount
+                cur = await conn.execute(
+                    f"DELETE FROM source_files WHERE {where_clause}", patterns,
+                )
+                source_deleted = cur.rowcount
+                await conn.commit()
+            log.info(
+                "markflow.junk_cleanup_v0_22_19",
+                bulk_files_deleted=bulk_deleted,
+                source_files_deleted=source_deleted,
+            )
+            await set_preference("junk_cleanup_v0_22_19_done", "true")
+    except Exception as exc:
+        log.warning("markflow.junk_cleanup_v0_22_19_failed", error=str(exc))
+
     # Reset in-memory coordinator flags so ghost scan state doesn't persist
     from core.scan_coordinator import reset_coordinator
     reset_coordinator()

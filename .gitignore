@@ -54,3 +54,7 @@ Thumbs.db
 # session writing to the wrong path — ignore it so it can't pollute
 # `git status` or be committed by accident.
 /memory/
+
+# Local backup tarballs (markflow-db, meilisearch, qdrant, whisper-cache).
+# Created by manual + scheduled volume backups. Several GB, never check in.
+/backups/

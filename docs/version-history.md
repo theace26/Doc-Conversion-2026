@@ -4,6 +4,152 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.22.19 — Scan-time junk-file filter + historical cleanup (2026-04-08)
+
+Direct follow-up to the v0.22.18 sweep. Triggered by a UI screenshot of
+a cancelled bulk job (`c0ae5913`) showing 90 failed files, ~43 of which
+displayed `"Cannot convert ~$xxx.doc: LibreOffice not found. Install
+libreoffice-headless."` in the error column. v0.22.18's libreoffice
+helper fix would have shown the *real* error instead, but didn't address
+the deeper issue: **these files should never have been queued in the
+first place**.
+
+### What was wrong
+
+The failing file paths followed an unmistakable pattern:
+
+```
+~$-09-17 MLA Official Redline.doc
+~$.lois.agency fee payer memo.doc
+~$cific Fisherman Inc Wage Report 2008-2009.doc
+~$2017.CEWW.JM.Support.Letter.docx
+~$00789-MG SIH Grant Award.docx
+~WRL2619.tmp
+```
+
+Every one starts with `~$` — Microsoft Office's **lock-file prefix**.
+When you open a document in Word/Excel/PowerPoint/Visio, Office
+creates a hidden ~162-byte sentinel file with the same name prefixed
+by `~$`. It's not a real document, just an "I'm in use" marker that
+gets cleaned up when you close the file. They linger forever if Office
+crashes mid-edit.
+
+When the bulk scanner walked the source share, it picked up these
+sentinel files (since they have valid `.doc` / `.docx` / `.xlsx`
+extensions), queued them into `bulk_files`, and a worker eventually
+shipped them to `libreoffice --headless --convert-to docx`. LibreOffice
+correctly exited non-zero (the file isn't a real document), and the
+*pre-v0.22.18* helper then raised the misleading
+`"LibreOffice not found. Install libreoffice-headless."` error.
+
+The accumulated damage from no scanner-side filtering, observed in
+the live DB at upgrade time:
+
+| Junk type | bulk_files rows | source_files rows |
+|---|---|---|
+| `Thumbs.db` (Windows thumbnail cache) | 1,327 | 453 |
+| `~$*` Office lock files | (subset of failed rows above) | (similar) |
+| `~WRL*.tmp` Word recovery temp | 3 in last cancelled job | similar |
+
+Plus inflated `total_files` counts on every bulk job and inflated
+`source_files` lifecycle scan counts on every cycle.
+
+### The fix
+
+**`core/bulk_scanner.py` — new `is_junk_filename()` helper.** Defines
+two constants and one helper function near the top of the module:
+
+```python
+_JUNK_BASENAME_PREFIXES_LOWER = (
+    "~$",        # MS Office lock files (Word/Excel/PowerPoint/Visio)
+    "~wrl",      # Word recovery temp files
+)
+_JUNK_BASENAMES_LOWER = frozenset({
+    "thumbs.db", "desktop.ini", ".ds_store", ".appledouble",
+    "ehthumbs.db", "ehthumbs_vista.db",
+})
+
+def is_junk_filename(name: str) -> bool: ...
+```
+
+Pure case-insensitive string ops, no regex — runs millions of times
+per scan and a regex compile is overkill for six fixed patterns.
+Case-insensitive because Windows filesystems are case-insensitive
+and the same artifact can appear as `Thumbs.db` / `THUMBS.DB` /
+`thumbs.db`.
+
+**`BulkScanner._is_excluded()`** now calls `is_junk_filename()` first
+(cheapest check, catches the noisiest leaks), before the existing
+exclusion-prefix and skip-pattern checks.
+
+**`core/lifecycle_scanner.py`** — both `_is_excluded` closures (one in
+`_serial_lifecycle_walk`, one in `_parallel_lifecycle_walk`) get the
+same prepended check, importing `is_junk_filename` from
+`core.bulk_scanner`. This means:
+
+- New scans never queue junk files
+- Existing pending junk rows stay until cleaned up (next item)
+
+**`main.py:lifespan` — one-time historical cleanup migration.** A
+DELETE migration runs once on startup, gated by the
+`junk_cleanup_v0_22_19_done` preference flag. Mirrors the same patterns
+the scanner now filters, expressed as SQL `LIKE` over `source_path`
+suffixes (handles both POSIX `/` and Windows `\` separators on
+UNC-mounted paths). Deletes from `bulk_files` first, then `source_files`,
+to handle the FK relationship cleanly. Logs counts via
+`markflow.junk_cleanup_v0_22_19`. Idempotent — runs exactly once per
+database, then the preference flag short-circuits all future startups.
+
+### Why this matters for prod-readiness
+
+The 43 misleading errors per job were the loud visible symptom, but
+the real cost was cumulative:
+
+- Every scan added more junk rows to `source_files`
+- Every bulk job re-processed the same lock files
+- The file count UI badge overstated by ~5%
+- The `lifecycle_scan.file_error` count was inflated
+- Users saw "LibreOffice not found" messages and started chasing a
+  Dockerfile bug that didn't exist (Dockerfile.base correctly installs
+  `libreoffice-writer` + `libreoffice-impress`)
+
+This is the same "noise hides real signal" pattern v0.22.18 set out
+to fix — the difference is v0.22.18 fixed the *symptom layer* (error
+messages, retry logic, timeouts) and v0.22.19 fixes the *data layer*
+(don't queue garbage in the first place). Together they eliminate
+roughly **2,521 noisy log/DB events / 24h** without adding any new
+code paths to maintain.
+
+### Validation performed
+
+- `python -m py_compile` clean on all four edited files
+  (`core/bulk_scanner.py`, `core/lifecycle_scanner.py`, `main.py`,
+  `core/version.py`).
+- Diagnostic SQL confirmed the upgrade-time leak counts (1,327 / 453)
+  via `core/database` queries against the live DB.
+
+### Not yet validated
+
+- **Live deploy verification.** After rebuild + restart, expect:
+  1. Startup log line `markflow.junk_cleanup_v0_22_19` with
+     `bulk_files_deleted` and `source_files_deleted` counts roughly
+     matching the diagnostic's 1,327 / 453.
+  2. Post-startup query `SELECT count(*) FROM bulk_files WHERE
+     source_path LIKE '%Thumbs.db'` returning 0.
+  3. Next bulk scan over the same source share producing zero junk
+     rows in `bulk_files`.
+
+### Known follow-ups still outstanding
+
+- v0.22.15: broken Convert-page SSE, uncancellable `asyncio.wait_for`
+  on Whisper, corrupt-audio tensor reshape.
+- Pre-prod: lifecycle timers at testing values, security audit
+  (62 findings), UX overhaul, DB contention instrumentation cleanup
+  (now safe to remove once v0.22.18 + v0.22.19 burn-in confirms zero
+  contention errors).
+
+---
+
 ## v0.22.18 — Production-readiness sweep: lifecycle/vision/qdrant/libreoffice (2026-04-08)
 
 Four targeted fixes from a runtime-log audit of the live `vector` branch

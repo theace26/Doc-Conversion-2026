@@ -282,6 +282,25 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 ## Bulk & Lifecycle
 
+- **`~$*` Office lock files MUST be filtered at scan time (v0.22.19)**:
+  Microsoft Office (Word/Excel/PowerPoint/Visio) creates a hidden ~162-byte
+  sentinel file with the same name prefixed by `~$` whenever a document is
+  opened, e.g. `~$report.docx`. Office cleans them up on close — but they
+  linger forever if Office crashes or the file is on a network share that
+  briefly disconnects. Pre-v0.22.19 the bulk scanner picked them up
+  (valid `.doc`/`.docx`/`.xlsx` extensions), queued them in `bulk_files`,
+  and a worker shipped them to LibreOffice, which correctly exited
+  non-zero. The pre-v0.22.18 helper then raised a misleading
+  `"LibreOffice not found"` error — sending users on a wild goose chase
+  for a Dockerfile bug that didn't exist (`libreoffice-writer` and
+  `libreoffice-impress` are correctly installed in `Dockerfile.base`).
+  Fix: `core/bulk_scanner.is_junk_filename()` filters them at scan time
+  alongside `Thumbs.db`, `desktop.ini`, `.DS_Store`, `~WRL*.tmp`. Wired
+  into `BulkScanner._is_excluded()` AND both `_is_excluded` closures in
+  `core/lifecycle_scanner.py` (serial walk + parallel walk). Rule of
+  thumb: any file whose basename starts with `~$` is Office bookkeeping,
+  never user data — trust the prefix and skip without inspecting contents.
+
 - **Lifecycle scanner cancel-checks must run between INDIVIDUAL files, not
   just between directories or batches (v0.22.18)**: Pre-v0.22.18, the
   scheduler-level "skip if a bulk job is active" guard fired only at scan
