@@ -4,6 +4,63 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.23.3 — UX responsiveness, bulk restore, extension exclude, migration hardening (2026-04-10)
+
+Focused on user-perceived responsiveness for heavy operations and two new
+features. Also fixes the migration runner bug that silently dropped DDL.
+
+### Migration Hardening
+- **Migration 27:** Re-runs the `bulk_files` table rebuild that migration 26
+  silently failed on. Converts `UNIQUE(job_id, source_path)` to
+  `UNIQUE(source_path)` — fixes the `ON CONFLICT` crash that killed every
+  bulk job since v0.23.0.
+- **`INSERT OR IGNORE` on `schema_migrations`:** Prevents restart crash when
+  a migration version row already exists.
+- **`except: pass` narrowed to ALTER TABLE only:** Non-ALTER DDL failures
+  (CREATE, DROP, INSERT, RENAME) now propagate instead of being silently
+  swallowed. Root cause of the migration 26 failure.
+- **`get_preference()` signature fixes:** `migrations.py` and
+  `preferences_cache.py` were calling `get_preference(key, default)` but
+  the function only takes `key`. Default handling moved to the cache layer.
+
+### UX Responsiveness
+- **Empty Trash:** Batched DB operations (chunks of 200), disk deletions in
+  parallel (batches of 50 via thread pool), `asyncio.sleep(0)` between
+  chunks. Returns immediately, runs in background. Frontend polls
+  `GET /api/trash/empty/status` every 2s showing "Purging X / Y..."
+- **Rebuild Search Index:** Polls `/api/search/index/status` every 3s,
+  shows "Rebuilding (X docs)..." until all sub-indexes finish.
+- **DB Compaction:** Shows "Compacting..." with 10s hold, then confirms
+  via health poll.
+- **Integrity Check:** Button text "Checking... (this may take a minute)".
+- **Stale Data Check:** Button text "Checking... (scanning tables)".
+- **Trash confirm dialog:** Was unstyled native `<dialog>` anchored to
+  top-left. Now centered with backdrop, border-radius, padding.
+
+### New Features
+- **Bulk Restore** (`POST /api/trash/restore-all`): Background task +
+  progress polling. "Restore All" button on trash page with
+  "Restoring X / Y..." feedback. Processes in batches of 50 with
+  event loop yields.
+- **Extension Exclude** (`scan_skip_extensions` preference): JSON list of
+  file extensions to skip during scanning (without dots). Wired into both
+  `core/bulk_scanner.py` and `core/lifecycle_scanner.py`. Configurable
+  via Settings > Conversion. Example: `["tmp", "bak", "log"]`.
+
+### Files
+- Modified: `core/db/schema.py` (migration 27 + runner hardening),
+  `core/db/migrations.py` (get_preference fix), `core/preferences_cache.py`
+  (default handling fix), `core/lifecycle_manager.py` (batch purge +
+  restore_all), `api/routes/trash.py` (4 new endpoints), `static/trash.html`
+  (dialog fix + restore all + progress polling), `static/bulk.html` (index
+  rebuild polling), `static/db-health.html` (compaction/integrity/stale
+  feedback), `core/bulk_scanner.py` (extension exclude), `core/lifecycle_scanner.py`
+  (extension exclude), `core/db/preferences.py` (scan_skip_extensions),
+  `api/routes/preferences.py` (extension exclude schema), `Dockerfile.base`
+  (pysqlcipher3 removed — build failure)
+
+---
+
 ## v0.23.2 — Critical bug fixes: bulk upsert, scheduler coroutine, vision MIME (2026-04-10)
 
 Three bugs fixed, one critical (all bulk conversions stalled since schema/code mismatch).

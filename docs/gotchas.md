@@ -60,6 +60,22 @@ the relevant subsystem. Referenced from CLAUDE.md.
   source_path)` to `UNIQUE(source_path)` via migration 26 to match the upsert SQL.
   Always verify: change the SQL AND the schema in the same commit.
 
+- **Migration runner `except: pass` swallows real DDL failures (v0.23.3)**: The
+  original `_run_migrations()` caught ALL exceptions from every SQL statement,
+  including CREATE TABLE, DROP TABLE, INSERT, and ALTER TABLE RENAME. This was
+  intended for harmless "column already exists" ALTER errors, but it silently
+  swallowed migration 26's table rebuild DDL, then recorded the migration as
+  applied. Fixed in v0.23.3: `except: pass` now only catches ALTER TABLE
+  statements. All other DDL failures propagate. Also: `INSERT OR IGNORE` on
+  `schema_migrations` prevents restart crash if a version row already exists.
+
+- **`get_preference()` takes exactly 1 argument (v0.23.3)**: The function
+  signature is `get_preference(key: str) -> str | None`. It does NOT accept
+  a default parameter. If you need a default, use `get_cached_preference(key,
+  default)` (async, from `core/preferences_cache.py`) which handles the
+  fallback internally. Two call sites in v0.23.0 passed a second arg and
+  caused startup crashes.
+
 - **Conversion is decoupled from scan completion (v0.19.0)**: The backlog poller
   in `_run_deferred_conversions` starts conversion batches independently of the
   lifecycle scanner. Do NOT re-introduce a dependency where conversion requires

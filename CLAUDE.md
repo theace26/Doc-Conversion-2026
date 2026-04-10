@@ -90,43 +90,44 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.23.1
+## Current Version — v0.23.3
 
-**Database file handler: schema + sample data extraction.** New
-`DatabaseHandler` replaces `BinaryHandler` for database extensions,
-extracting full schema, sample data, relationships, and indexes into
-structured Markdown. Full context:
+**UX responsiveness, bulk restore, extension exclude, migration
+hardening.** Heavy user actions now run in background with progress
+polling. Two new features + critical migration fix. Full context:
 [`docs/version-history.md`](docs/version-history.md).
 
-**Supported formats:**
-- SQLite (`.sqlite`, `.db`, `.sqlite3`, `.s3db`) — built-in `sqlite3`
-- MS Access (`.mdb`, `.accdb`) — engine cascade: mdbtools -> pyodbc -> jackcess
-- dBase/FoxPro (`.dbf`) — `dbfread` (pure Python)
-- QuickBooks (`.qbb`, `.qbw`) — best-effort binary header parse
+**Migration hardening:**
+- Migration 27 re-runs `bulk_files` table rebuild (migration 26
+  was silently swallowed by `except: pass`). Fixes the `ON CONFLICT`
+  crash that killed every bulk job since v0.23.0.
+- `INSERT OR IGNORE` on `schema_migrations` (prevents restart crash).
+- `except: pass` narrowed to ALTER TABLE only — real DDL failures
+  now propagate.
 
-**Architecture:** Engine-per-format behind `DatabaseEngine` ABC in
-`formats/database/engine.py`. Five dataclasses (`TableInfo`,
-`ColumnInfo`, `RelationshipInfo`, `IndexInfo`). Access cascade tries
-mdbtools (lightest) -> pyodbc -> jackcess (Java, opt-in). Capability
-detection in `formats/database/capability.py` probes installed
-backends. Password cascade reuses archive handler pattern.
+**UX responsiveness:** All heavy user actions now give immediate
+feedback: Empty Trash batched + background + "Purging X / Y...",
+Rebuild Index polls "Rebuilding (X docs)...", DB Compaction
+"Compacting...", Integrity/Stale checks show progress text. Trash
+confirm dialog centered (was stuck top-left).
 
-**Output:** H1 title, metadata table (format, size, tables, rows,
-SHA-256), schema overview, per-table columns + sample data (default
-25 rows, configurable via `database_sample_rows` pref, max 1000),
-relationships, indexes. QuickBooks: company name extraction + manual
-export instructions for encrypted/newer files.
+**New: Bulk Restore** — "Restore All" button on trash page,
+`POST /api/trash/restore-all` with background task + progress
+polling ("Restoring X / Y...").
 
-**Limits:** 50 tables max full detail, 20 columns max in sample
-tables, 1000 rows max per table.
+**New: Extension Exclude** — `scan_skip_extensions` preference
+(JSON list, e.g. `["tmp","bak","log"]`). Wired into bulk scanner
++ lifecycle scanner. Settings > Conversion.
 
-**New files:** `formats/database/` package (7 modules),
-`formats/database_handler.py`, `docs/help/database-files.md`,
-2 test files.
+---
 
-**Dependencies (Dockerfile.base):** `mdbtools`, `unixodbc-dev`,
-`odbc-mdbtools` (apt); `dbfread`, `pyodbc`, `pysqlcipher3` (pip).
-Optional: Java JRE + jackcess JAR for full `.accdb` support.
+### v0.23.1-v0.23.2 (carried-forward summaries)
+
+**v0.23.2:** Critical bug fixes — bulk upsert ON CONFLICT, scheduler
+coroutine, vision MIME detection.
+**v0.23.1:** Database file handler — SQLite, Access, dBase, QuickBooks
+schema + sample data extraction into Markdown.
+Full context: [`docs/version-history.md`](docs/version-history.md).
 
 ---
 
@@ -236,9 +237,8 @@ log archive system is interim.
 
 ## Pre-production checklist
 
-- **Lifecycle timers** — v0.23.0 startup logs a WARNING if grace < 24h or
-  retention < 30d. Current defaults: grace=36h, retention=60d. Override via
-  Settings UI or `PUT /api/preferences/<key>`.
+- ~~**Lifecycle timers**~~ — **DONE** (v0.23.3). Defaults and DB both at
+  production values: grace=36h, retention=60d. Adjustable via Settings UI.
 - **Security audit** (62 findings in `docs/security-audit.md`) not yet addressed.
 
 **Temporary instrumentation (deactivate when resolved):**
