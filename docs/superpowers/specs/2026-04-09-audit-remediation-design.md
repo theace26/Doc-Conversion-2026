@@ -56,10 +56,16 @@ Live-system log analysis (14 hours, 3.6M log lines) and DB inspection revealed:
 **Replace** per-call `aiosqlite.connect()` with a module-level `ConnectionPool` class.
 
 ```
-Pool composition:
-  - 3 general-purpose connections (read/write)
-  - 2 read-only connections (PRAGMA query_only=ON)
-  - Total: 5 connections
+Pool composition (scales with host hardware):
+  - N general-purpose connections (read/write): max(2, cpu_count // 4), capped at 4
+  - 2 read-only connections (PRAGMA query_only=ON): fixed at 2
+  - Total: 4-6 connections depending on host
+
+  Examples:
+    i7-10750H (12 logical) → 3 rw + 2 ro = 5
+    i5-8250U  (8 logical)  → 2 rw + 2 ro = 4
+    Threadripper (32 logical) → 4 rw + 2 ro = 6 (capped)
+    Dual-core (4 logical) → 2 rw + 2 ro = 4 (floor)
 ```
 
 **Pool lifecycle:**
@@ -277,18 +283,61 @@ Replace all `mimetypes.guess_type()` calls in the image batching path with `dete
 **Phase 2: Batch Planning (post-scan)**
 - Triggered by `scan_coordinator.notify_bulk_completed()` or lifecycle scan completion
 - Query all `pending_catalog` entries
-- Group by MIME type
-- Calculate batch sizes:
-  - Target: as close to 24MB raw data per batch as possible (32MB API limit - 33% base64 overhead)
-  - Max 20 images per batch (API response time degrades beyond this)
-  - Minimum 1 image per batch (for oversized single images, resize first)
+- Resolve the active vision provider via `get_active_provider()`
+- Look up provider-specific limits from `_PROVIDER_LIMITS` (see below)
+- Group images by MIME type, then bin-pack into batches sized per provider limits
 - Update status to `batched`, store `batch_id`
+
+**Provider-Aware Batch Limits:**
+
+The vision adapter already supports anthropic, openai, gemini, and ollama.
+Each provider has different request size limits and per-image caps. A new
+module-level dict centralizes these:
+
+```python
+_PROVIDER_LIMITS = {
+    "anthropic": {
+        "max_request_bytes": 24 * 1024 * 1024,  # 32MB limit - 33% base64 overhead
+        "max_image_raw_bytes": 3_500_000,         # 5MB encoded cap → 3.5MB raw
+        "max_images_per_batch": 20,
+        "max_edge_px": 1568,
+    },
+    "openai": {
+        "max_request_bytes": 18 * 1024 * 1024,   # 20MB limit - overhead
+        "max_image_raw_bytes": 18 * 1024 * 1024,  # no per-image cap, just total
+        "max_images_per_batch": 10,               # GPT-4o handles 10 well
+        "max_edge_px": 2048,
+    },
+    "gemini": {
+        "max_request_bytes": 18 * 1024 * 1024,   # 20MB limit - overhead
+        "max_image_raw_bytes": 18 * 1024 * 1024,  # generous per-image
+        "max_images_per_batch": 16,
+        "max_edge_px": 3072,
+    },
+    "ollama": {
+        "max_request_bytes": 50 * 1024 * 1024,   # local, generous
+        "max_image_raw_bytes": 50 * 1024 * 1024,  # local, no real cap
+        "max_images_per_batch": 5,                # local models are slower
+        "max_edge_px": 1568,                      # model-dependent, safe default
+    },
+}
+_DEFAULT_LIMITS = _PROVIDER_LIMITS["anthropic"]  # fallback for unknown providers
+```
+
+**Batch sizing algorithm:**
+1. Resolve active provider → look up limits (fall back to `_DEFAULT_LIMITS`)
+2. Sort images by file size descending (largest first for better bin-packing)
+3. Start a new batch; for each image:
+   - If adding this image would exceed `max_request_bytes` or `max_images_per_batch`, close batch, start new
+   - If single image exceeds `max_image_raw_bytes`, resize/compress to fit (existing `_compress_image_for_vision` logic)
+4. Each batch records its target provider so that if the provider changes mid-queue, remaining batches are re-planned
 
 **Phase 3: Submit (async, post-scan)**
 - Process batches sequentially (respect rate limits)
 - On success: status → `completed`
 - On failure: increment `retry_count`, status → `pending_catalog` if retries < 3, else `failed`
 - On MIME error (400): log, skip that image (bad file), status → `failed`
+- If active provider changes between batch planning and submission, re-plan remaining batches with new provider limits
 
 **Re-queue existing failures:**
 - One-time migration in `main.py:lifespan`: reset `analysis_queue` entries with status `failed` AND `error LIKE '%media type%'` back to `pending_catalog`
@@ -433,9 +482,32 @@ async def refresh_semaphore():
         _semaphore_limit = limit
 ```
 
-Default raised from 3 to 6 based on i7-10750H (6 cores, 12 threads) with mechanical drive.
-The mechanical drive is the bottleneck for I/O-heavy conversions (OCR, large PDFs), not CPU.
-6 concurrent conversions keep all cores utilized while leaving headroom for I/O wait.
+Default is now **auto-detected from host hardware**, not hardcoded:
+
+```python
+import os
+
+def _detect_default_concurrency() -> int:
+    """Auto-detect optimal concurrent conversions based on host hardware."""
+    cpu_count = os.cpu_count() or 4
+    # Use physical core count (logical / 2 for hyperthreaded CPUs)
+    # Cap at 8 — diminishing returns beyond that due to I/O contention
+    # Floor at 2 — always allow some parallelism
+    physical = max(2, min(cpu_count // 2, 8))
+    return physical
+
+# Example results:
+#   i7-10750H (6c/12t)  → 6
+#   i5-8250U  (4c/8t)   → 4
+#   Ryzen 5600X (6c/12t) → 6
+#   Dual-core NUC (2c/4t) → 2
+#   16-core Threadripper  → 8 (capped)
+```
+
+The auto-detected value is the **startup default**. Users can override via
+`max_concurrent_conversions` in Settings. The dynamic throttling system
+(Section 7.2) adjusts downward from whatever the configured value is
+when conversions are running slow (I/O-bound, mechanical drive, etc.).
 
 ### 7.4 Counter Batching (`core/bulk_worker.py`)
 
