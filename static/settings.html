@@ -77,143 +77,12 @@
 
       <!-- Locations section -->
       <details class="settings-section" open>
-      <summary>Locations</summary>
+      <summary>Files and Locations</summary>
       <div class="card">
         <p style="margin:0 0 0.5rem">Define source and output paths for bulk conversion jobs.</p>
         <div style="display:flex;justify-content:space-between;align-items:center">
           <a href="/locations.html" class="btn btn-ghost">Manage Locations</a>
           <span class="text-sm text-muted" id="location-count">Loading...</span>
-        </div>
-      </div>
-
-      </details>
-
-      <!-- Conversion section -->
-      <details class="settings-section" open>
-      <summary>Conversion</summary>
-      <div class="card">
-        <div class="form-group">
-          <label for="pref-default_direction">Default conversion direction</label>
-          <select id="pref-default_direction" data-key="default_direction">
-            <option value="to_md">Document &rarr; Markdown</option>
-            <option value="from_md">Markdown &rarr; Document</option>
-          </select>
-          <div class="inline-error" id="err-default_direction"></div>
-        </div>
-
-        <div class="form-group">
-          <label for="pref-max_upload_size_mb">Max upload file size (MB)</label>
-          <input type="number" id="pref-max_upload_size_mb" data-key="max_upload_size_mb" min="1" max="500">
-          <div class="inline-error" id="err-max_upload_size_mb"></div>
-        </div>
-
-        <div class="form-group">
-          <label for="pref-retention_days">Output retention (days, 0 = forever)</label>
-          <input type="number" id="pref-retention_days" data-key="retention_days" min="0" max="365">
-          <div class="inline-error" id="err-retention_days"></div>
-        </div>
-
-        <div class="form-group">
-          <label for="pref-max_concurrent_conversions">Max concurrent conversions</label>
-          <input type="number" id="pref-max_concurrent_conversions" data-key="max_concurrent_conversions" min="1" max="10">
-          <div class="inline-error" id="err-max_concurrent_conversions"></div>
-        </div>
-      </div>
-
-      </details>
-
-      <!-- Path Safety section -->
-      <details class="settings-section">
-      <summary id="collision-strategy">Path Safety</summary>
-      <div class="card">
-        <div class="form-group">
-          <label for="pref-max_output_path_length">Max output path length (chars)</label>
-          <input type="number" id="pref-max_output_path_length" data-key="max_output_path_length" min="100" max="400">
-          <p class="hint">Paths longer than this are skipped during bulk jobs. Linux limit: 255 &middot; Windows limit: 260</p>
-          <div class="inline-error" id="err-max_output_path_length"></div>
-        </div>
-
-        <div class="form-group">
-          <label for="pref-collision_strategy">Duplicate filename strategy</label>
-          <select id="pref-collision_strategy" data-key="collision_strategy">
-            <option value="rename">Rename (add extension) &mdash; report.docx.md + report.pdf.md</option>
-            <option value="skip">Skip second file &mdash; keep first, skip duplicates</option>
-            <option value="error">Error (skip all) &mdash; flag all colliding files</option>
-          </select>
-          <div class="inline-error" id="err-collision_strategy"></div>
-        </div>
-
-        <div class="form-group">
-          <label>Show active files during conversion</label>
-          <label class="toggle">
-            <input type="checkbox" id="pref-bulk_active_files_visible" data-key="bulk_active_files_visible">
-            <span class="toggle-track"></span>
-            <span class="toggle-label" id="toggle-label-active-files">OFF</span>
-          </label>
-          <p class="hint">Display which files each worker is currently processing.</p>
-          <div class="inline-error" id="err-bulk_active_files_visible"></div>
-        </div>
-      </div>
-
-      </details>
-
-      <!-- OCR section -->
-      <details class="settings-section">
-      <summary>OCR</summary>
-      <div class="card">
-        <div class="form-group">
-          <label for="pref-ocr_confidence_threshold">Confidence threshold</label>
-          <div class="range-group">
-            <input type="range" id="pref-ocr_confidence_threshold" data-key="ocr_confidence_threshold" min="0" max="100" step="1">
-            <output id="range-output">—</output>
-          </div>
-          <div class="inline-error" id="err-ocr_confidence_threshold"></div>
-        </div>
-
-        <div class="form-group">
-          <label>Unattended mode</label>
-          <label class="toggle">
-            <input type="checkbox" id="pref-unattended_default" data-key="unattended_default">
-            <span class="toggle-track"></span>
-            <span class="toggle-label" id="toggle-label">OFF</span>
-          </label>
-          <p class="hint">Skip review and auto-accept all OCR flags.</p>
-          <div class="inline-error" id="err-unattended_default"></div>
-        </div>
-      </div>
-
-      </details>
-
-      <!-- Logging section -->
-      <details class="settings-section">
-      <summary>Logging</summary>
-      <div class="card">
-        <div class="form-group">
-          <label for="pref-log_level">Log Level</label>
-          <select id="pref-log_level" data-key="log_level">
-            <option value="normal">Normal &mdash; Errors, crashes, warnings only</option>
-            <option value="elevated">Elevated &mdash; + files being processed, job events</option>
-            <option value="developer">Developer &mdash; Everything: DEBUG + frontend action trace</option>
-          </select>
-          <p class="hint" id="log-level-role-hint" hidden>Requires Manager role to change.</p>
-          <div class="inline-error" id="err-log_level"></div>
-        </div>
-
-        <div class="form-group">
-          <label>Log files</label>
-          <ul class="text-sm" style="margin:0;padding-left:1.2rem;line-height:1.8">
-            <li>Operational: <code>/app/logs/markflow.log</code> (always active)</li>
-            <li>Debug trace: <code>/app/logs/markflow-debug.log</code> (developer mode only)</li>
-          </ul>
-        </div>
-
-        <div class="form-group" style="display:flex;gap:0.5rem;flex-wrap:wrap">
-          <a href="/api/logs/download/markflow.log" class="btn btn-ghost btn-sm" id="btn-dl-operational">Download markflow.log</a>
-          <a href="/api/logs/download/markflow-debug.log" class="btn btn-ghost btn-sm" id="btn-dl-debug">Download markflow-debug.log</a>
-        </div>
-
-        <div id="dev-logging-warning" class="alert-warning" style="margin-top:0.5rem" hidden>
-          Developer logging writes every user action to disk. Disable when not actively debugging.
         </div>
       </div>
 
@@ -315,9 +184,281 @@
 
       </details>
 
+      <!-- File Flagging section -->
+      <details class="settings-section">
+      <summary>File Flagging</summary>
+      <div class="card">
+        <div class="form-group">
+          <label for="pref-flag_default_expiry_days">Default flag expiry (days)</label>
+          <input type="number" id="pref-flag_default_expiry_days" data-key="flag_default_expiry_days" min="1" max="365">
+          <span class="hint">How long flagged files stay hidden before auto-expiry.</span>
+          <div class="inline-error" id="err-flag_default_expiry_days"></div>
+        </div>
+        <div class="form-group">
+          <label for="pref-flag_webhook_url">Flag webhook URL</label>
+          <input type="url" id="pref-flag_webhook_url" data-key="flag_webhook_url" placeholder="https://hooks.example.com/markflow-flags">
+          <span class="hint">Receives POST notifications for all flag events. Leave blank to disable.</span>
+          <div class="inline-error" id="err-flag_webhook_url"></div>
+        </div>
+      </div>
+
+      </details>
+
+      <!-- Info section -->
+      <details class="settings-section">
+      <summary>Info</summary>
+      <div class="card">
+        <div class="form-group">
+          <label for="pref-last_save_directory">Last save directory</label>
+          <input type="text" id="pref-last_save_directory" data-key="last_save_directory" readonly>
+        </div>
+        <div class="form-group">
+          <label for="pref-last_source_directory">Last source directory</label>
+          <input type="text" id="pref-last_source_directory" data-key="last_source_directory" readonly>
+        </div>
+      </div>
+
+      </details>
+
+      <!-- Storage Connections section -->
+      <details class="settings-section" id="storage-connections-section">
+      <summary>Storage Connections</summary>
+      <div class="card">
+        <p class="text-sm text-muted" style="margin:0 0 1rem">
+          Configure network shares for source files and conversion output.
+          Changes take effect immediately when you click Apply.
+        </p>
+
+        <!-- Source mount -->
+        <fieldset style="border:1px solid var(--border);border-radius:6px;padding:1rem;margin-bottom:1.5rem">
+          <legend style="font-weight:600;font-size:0.9rem;padding:0 0.5rem">
+            Source Mount
+            <span id="mount-status-source" class="text-sm" style="margin-left:0.5rem"></span>
+          </legend>
+
+          <div class="form-group">
+            <label>Protocol</label>
+            <div style="display:flex;gap:1.5rem;margin:0.25rem 0">
+              <label><input type="radio" name="mount-source-proto" value="smb" checked onchange="toggleMountFields('source')"> SMB/CIFS</label>
+              <label><input type="radio" name="mount-source-proto" value="nfsv3" onchange="toggleMountFields('source')"> NFSv3</label>
+              <label><input type="radio" name="mount-source-proto" value="nfsv4" onchange="toggleMountFields('source')"> NFSv4</label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="mount-source-server">Server (IP or hostname)</label>
+            <input type="text" id="mount-source-server" placeholder="192.168.1.17">
+          </div>
+
+          <div class="form-group">
+            <label for="mount-source-share">Share / Export Path</label>
+            <input type="text" id="mount-source-share" placeholder="storage_folder or /volume1/data">
+          </div>
+
+          <div id="mount-source-smb-fields">
+            <div class="form-group">
+              <label for="mount-source-smb-user">Username</label>
+              <input type="text" id="mount-source-smb-user" placeholder="markflow">
+            </div>
+            <div class="form-group">
+              <label for="mount-source-smb-pass">Password</label>
+              <input type="password" id="mount-source-smb-pass" placeholder="********">
+            </div>
+          </div>
+
+          <div id="mount-source-krb-fields" hidden>
+            <div class="form-group">
+              <label class="toggle" style="gap:0.5rem">
+                <input type="checkbox" id="mount-source-krb-enable" onchange="toggleKerberosFields('source')">
+                <span class="toggle-track"></span>
+                <span>Enable Kerberos authentication</span>
+              </label>
+            </div>
+            <div id="mount-source-krb-details" hidden>
+              <div class="form-group">
+                <label for="mount-source-krb-realm">Realm</label>
+                <input type="text" id="mount-source-krb-realm" placeholder="EXAMPLE.COM">
+              </div>
+              <div class="form-group">
+                <label for="mount-source-krb-keytab">Keytab Path</label>
+                <input type="text" id="mount-source-krb-keytab" value="/etc/krb5.keytab">
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:0.5rem;align-items:center;margin-top:0.75rem">
+            <button type="button" class="btn btn-ghost btn-sm" onclick="testMount('source')">Test Connection</button>
+            <button type="button" class="btn btn-primary btn-sm" onclick="applyMount('source')">Apply &amp; Remount</button>
+            <span id="mount-source-result" class="text-sm" style="margin-left:0.5rem"></span>
+          </div>
+        </fieldset>
+
+        <!-- Output mount -->
+        <fieldset style="border:1px solid var(--border);border-radius:6px;padding:1rem">
+          <legend style="font-weight:600;font-size:0.9rem;padding:0 0.5rem">
+            Output Mount
+            <span id="mount-status-output" class="text-sm" style="margin-left:0.5rem"></span>
+          </legend>
+
+          <div class="form-group">
+            <label>Protocol</label>
+            <div style="display:flex;gap:1.5rem;margin:0.25rem 0">
+              <label><input type="radio" name="mount-output-proto" value="smb" checked onchange="toggleMountFields('output')"> SMB/CIFS</label>
+              <label><input type="radio" name="mount-output-proto" value="nfsv3" onchange="toggleMountFields('output')"> NFSv3</label>
+              <label><input type="radio" name="mount-output-proto" value="nfsv4" onchange="toggleMountFields('output')"> NFSv4</label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="mount-output-server">Server (IP or hostname)</label>
+            <input type="text" id="mount-output-server" placeholder="192.168.1.17">
+          </div>
+
+          <div class="form-group">
+            <label for="mount-output-share">Share / Export Path</label>
+            <input type="text" id="mount-output-share" placeholder="markflow or /volume1/markflow">
+          </div>
+
+          <div id="mount-output-smb-fields">
+            <div class="form-group">
+              <label for="mount-output-smb-user">Username</label>
+              <input type="text" id="mount-output-smb-user" placeholder="markflow">
+            </div>
+            <div class="form-group">
+              <label for="mount-output-smb-pass">Password</label>
+              <input type="password" id="mount-output-smb-pass" placeholder="********">
+            </div>
+          </div>
+
+          <div id="mount-output-krb-fields" hidden>
+            <div class="form-group">
+              <label class="toggle" style="gap:0.5rem">
+                <input type="checkbox" id="mount-output-krb-enable" onchange="toggleKerberosFields('output')">
+                <span class="toggle-track"></span>
+                <span>Enable Kerberos authentication</span>
+              </label>
+            </div>
+            <div id="mount-output-krb-details" hidden>
+              <div class="form-group">
+                <label for="mount-output-krb-realm">Realm</label>
+                <input type="text" id="mount-output-krb-realm" placeholder="EXAMPLE.COM">
+              </div>
+              <div class="form-group">
+                <label for="mount-output-krb-keytab">Keytab Path</label>
+                <input type="text" id="mount-output-krb-keytab" value="/etc/krb5.keytab">
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:0.5rem;align-items:center;margin-top:0.75rem">
+            <button type="button" class="btn btn-ghost btn-sm" onclick="testMount('output')">Test Connection</button>
+            <button type="button" class="btn btn-primary btn-sm" onclick="applyMount('output')">Apply &amp; Remount</button>
+            <span id="mount-output-result" class="text-sm" style="margin-left:0.5rem"></span>
+          </div>
+        </fieldset>
+      </div>
+
+      </details>
+
+      <!-- Conversion section -->
+      <details class="settings-section" open>
+      <summary>Conversion Options</summary>
+      <div class="card">
+        <div class="form-group">
+          <label for="pref-default_direction">Default conversion direction</label>
+          <select id="pref-default_direction" data-key="default_direction">
+            <option value="to_md">Document &rarr; Markdown</option>
+            <option value="from_md">Markdown &rarr; Document</option>
+          </select>
+          <div class="inline-error" id="err-default_direction"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-max_upload_size_mb">Max upload file size (MB)</label>
+          <input type="number" id="pref-max_upload_size_mb" data-key="max_upload_size_mb" min="1" max="500">
+          <div class="inline-error" id="err-max_upload_size_mb"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-retention_days">Output retention (days, 0 = forever)</label>
+          <input type="number" id="pref-retention_days" data-key="retention_days" min="0" max="365">
+          <div class="inline-error" id="err-retention_days"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-max_concurrent_conversions">Max concurrent conversions</label>
+          <input type="number" id="pref-max_concurrent_conversions" data-key="max_concurrent_conversions" min="1" max="10">
+          <div class="inline-error" id="err-max_concurrent_conversions"></div>
+        </div>
+      </div>
+
+      </details>
+
+      <!-- OCR section -->
+      <details class="settings-section">
+      <summary>OCR</summary>
+      <div class="card">
+        <div class="form-group">
+          <label for="pref-ocr_confidence_threshold">Confidence threshold</label>
+          <div class="range-group">
+            <input type="range" id="pref-ocr_confidence_threshold" data-key="ocr_confidence_threshold" min="0" max="100" step="1">
+            <output id="range-output">—</output>
+          </div>
+          <div class="inline-error" id="err-ocr_confidence_threshold"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Unattended mode</label>
+          <label class="toggle">
+            <input type="checkbox" id="pref-unattended_default" data-key="unattended_default">
+            <span class="toggle-track"></span>
+            <span class="toggle-label" id="toggle-label">OFF</span>
+          </label>
+          <p class="hint">Skip review and auto-accept all OCR flags.</p>
+          <div class="inline-error" id="err-unattended_default"></div>
+        </div>
+      </div>
+
+      </details>
+
+      <!-- Path Safety section -->
+      <details class="settings-section">
+      <summary id="collision-strategy">Path Safety</summary>
+      <div class="card">
+        <div class="form-group">
+          <label for="pref-max_output_path_length">Max output path length (chars)</label>
+          <input type="number" id="pref-max_output_path_length" data-key="max_output_path_length" min="100" max="400">
+          <p class="hint">Paths longer than this are skipped during bulk jobs. Linux limit: 255 &middot; Windows limit: 260</p>
+          <div class="inline-error" id="err-max_output_path_length"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-collision_strategy">Duplicate filename strategy</label>
+          <select id="pref-collision_strategy" data-key="collision_strategy">
+            <option value="rename">Rename (add extension) &mdash; report.docx.md + report.pdf.md</option>
+            <option value="skip">Skip second file &mdash; keep first, skip duplicates</option>
+            <option value="error">Error (skip all) &mdash; flag all colliding files</option>
+          </select>
+          <div class="inline-error" id="err-collision_strategy"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Show active files during conversion</label>
+          <label class="toggle">
+            <input type="checkbox" id="pref-bulk_active_files_visible" data-key="bulk_active_files_visible">
+            <span class="toggle-track"></span>
+            <span class="toggle-label" id="toggle-label-active-files">OFF</span>
+          </label>
+          <p class="hint">Display which files each worker is currently processing.</p>
+          <div class="inline-error" id="err-bulk_active_files_visible"></div>
+        </div>
+      </div>
+
+      </details>
+
       <!-- AI Enhancement section -->
       <details class="settings-section">
-      <summary>AI Enhancement</summary>
+      <summary>AI Options</summary>
       <div class="card">
         <p class="text-sm text-muted" style="margin:0 0 1rem">Configure an AI provider to enhance conversion quality. AI is optional — conversions work without it.</p>
 
@@ -487,6 +628,200 @@
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      </details>
+
+      <!-- Transcription section (v0.13.0) -->
+      <details class="settings-section">
+      <summary>Transcription</summary>
+      <div class="card">
+        <p class="text-sm text-muted" style="margin:0 0 1rem">
+          Audio and video transcription settings. Media files are transcribed using local Whisper
+          (GPU-accelerated if available) with cloud provider fallback.
+        </p>
+
+        <div class="form-group">
+          <label for="pref-whisper_model">Whisper model</label>
+          <select id="pref-whisper_model" data-key="whisper_model">
+            <option value="tiny">Tiny &mdash; Fastest, ~1 GB RAM</option>
+            <option value="base">Base &mdash; Good default, ~1.5 GB RAM</option>
+            <option value="small">Small &mdash; Better accuracy, ~2.5 GB RAM</option>
+            <option value="medium">Medium &mdash; High accuracy, ~5 GB RAM</option>
+            <option value="large">Large &mdash; Best accuracy, ~10 GB RAM</option>
+          </select>
+          <p class="hint">Larger models are more accurate but slower and use more memory.</p>
+          <div class="inline-error" id="err-whisper_model"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-whisper_device">Compute device</label>
+          <select id="pref-whisper_device" data-key="whisper_device">
+            <option value="auto">Auto &mdash; GPU if available, otherwise CPU</option>
+            <option value="cpu">CPU only</option>
+            <option value="cuda">CUDA (GPU) &mdash; Requires NVIDIA GPU</option>
+          </select>
+          <div class="inline-error" id="err-whisper_device"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-whisper_language">Language</label>
+          <input type="text" id="pref-whisper_language" data-key="whisper_language" placeholder="auto">
+          <p class="hint">Leave as &lsquo;auto&rsquo; for auto-detection, or enter a language code (en, es, fr, de, ja, etc.).</p>
+          <div class="inline-error" id="err-whisper_language"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Cloud fallback</label>
+          <label class="toggle">
+            <input type="checkbox" id="pref-transcription_cloud_fallback" data-key="transcription_cloud_fallback">
+            <span class="toggle-track"></span>
+            <span class="toggle-label" id="toggle-label-cloud-fallback">OFF</span>
+          </label>
+          <p class="hint">Fall back to cloud provider (OpenAI or Gemini) if local Whisper fails. Note: Anthropic does not support audio transcription.</p>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-transcription_timeout_seconds">Timeout (seconds)</label>
+          <input type="number" id="pref-transcription_timeout_seconds" data-key="transcription_timeout_seconds" min="60" max="86400">
+          <p class="hint">Maximum time for transcribing a single file. Default: 3600 (1 hour).</p>
+          <div class="inline-error" id="err-transcription_timeout_seconds"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="pref-caption_file_extensions">Caption file extensions</label>
+          <input type="text" id="pref-caption_file_extensions" data-key="caption_file_extensions" placeholder=".srt,.vtt,.sbv">
+          <p class="hint">Comma-separated. If a caption file with one of these extensions exists alongside a media file, it will be used instead of running transcription.</p>
+          <div class="inline-error" id="err-caption_file_extensions"></div>
+        </div>
+      </div>
+
+      </details>
+
+      <!-- AI-Assisted Search (admin only, v0.21.0) -->
+      <details class="settings-section" id="ai-assist-settings">
+      <summary>AI-Assisted Search</summary>
+      <div class="card">
+        <!-- "Not configured" notice (shown when no usable provider is set) -->
+        <div id="ai-assist-not-configured" class="notice notice-warn" style="display:none;margin-bottom:1rem">
+          <strong>Not configured.</strong>
+          <p class="text-sm" id="ai-assist-not-configured-msg" style="margin:0.35rem 0 0">
+            AI Assist uses the active LLM provider configured on the
+            <a href="/providers.html">Providers page</a>. Add an Anthropic
+            provider with a valid API key and mark it as Active.
+          </p>
+        </div>
+
+        <!-- Configured controls (shown when a usable provider is set) -->
+        <div id="ai-assist-configured-controls" style="display:none">
+        <p class="text-sm text-muted" style="margin:0 0 1rem">
+          AI Assist uses the same LLM provider system as
+          <strong>Vision &amp; Frame Description</strong> and
+          <strong>AI Enhancement</strong> above. By default it uses the
+          provider marked <em>Active</em> on the
+          <a href="/providers.html">Providers page</a>; you can override
+          this by clicking <em>Use for AI Assist</em> on a specific
+          provider. AI Assist requires an Anthropic provider.
+        </p>
+
+        <!-- Live provider source / model badge -->
+        <div id="ai-assist-provider-info" class="notice" style="display:none;margin-bottom:1rem;padding:0.6rem 0.8rem;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.85rem">
+          <span id="ai-assist-provider-info-text"></span>
+          <a href="/providers.html" style="margin-left:0.5rem">Manage Providers \u2192</a>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem">
+          <label class="toggle" style="margin:0">
+            <input type="checkbox" id="ai-assist-org-toggle">
+            <span class="toggle-track"></span>
+          </label>
+          <div>
+            <strong>Enable AI Assist</strong>
+            <p class="text-sm text-muted" style="margin:0">
+              Allows users to synthesize search results via Claude.
+              Uses the provider shown above &mdash; no environment
+              variable required.
+            </p>
+          </div>
+        </div>
+
+        <div id="ai-usage-section" style="display:none">
+          <h4 style="margin:1rem 0 0.5rem;font-size:0.9rem">Usage by User</h4>
+          <div style="overflow-x:auto">
+          <table class="table" style="font-size:0.82rem;width:100%">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Calls</th>
+                <th>Est. Input Tokens</th>
+                <th>Est. Output Tokens</th>
+                <th>Est. Total</th>
+                <th>Last Used</th>
+              </tr>
+            </thead>
+            <tbody id="ai-usage-by-user-body">
+              <tr><td colspan="6" class="text-muted" style="text-align:center">Loading...</td></tr>
+            </tbody>
+          </table>
+          </div>
+
+          <h4 style="margin:1.25rem 0 0.5rem;font-size:0.9rem">Recent Calls</h4>
+          <div style="overflow-x:auto">
+          <table class="table" style="font-size:0.82rem;width:100%">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>User</th>
+                <th>Mode</th>
+                <th>Query</th>
+                <th>Est. Tokens</th>
+              </tr>
+            </thead>
+            <tbody id="ai-usage-recent-body">
+              <tr><td colspan="5" class="text-muted" style="text-align:center">Loading...</td></tr>
+            </tbody>
+          </table>
+          </div>
+
+          <p class="text-sm text-muted" style="margin-top:0.5rem">
+            Token counts are estimates (chars / 4). See your Anthropic dashboard for exact billing.
+          </p>
+        </div>
+        </div> <!-- /#ai-assist-configured-controls -->
+      </div>
+      </details>
+
+      <!-- Logging section -->
+      <details class="settings-section">
+      <summary>Logging</summary>
+      <div class="card">
+        <div class="form-group">
+          <label for="pref-log_level">Log Level</label>
+          <select id="pref-log_level" data-key="log_level">
+            <option value="normal">Normal &mdash; Errors, crashes, warnings only</option>
+            <option value="elevated">Elevated &mdash; + files being processed, job events</option>
+            <option value="developer">Developer &mdash; Everything: DEBUG + frontend action trace</option>
+          </select>
+          <p class="hint" id="log-level-role-hint" hidden>Requires Manager role to change.</p>
+          <div class="inline-error" id="err-log_level"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Log files</label>
+          <ul class="text-sm" style="margin:0;padding-left:1.2rem;line-height:1.8">
+            <li>Operational: <code>/app/logs/markflow.log</code> (always active)</li>
+            <li>Debug trace: <code>/app/logs/markflow-debug.log</code> (developer mode only)</li>
+          </ul>
+        </div>
+
+        <div class="form-group" style="display:flex;gap:0.5rem;flex-wrap:wrap">
+          <a href="/api/logs/download/markflow.log" class="btn btn-ghost btn-sm" id="btn-dl-operational">Download markflow.log</a>
+          <a href="/api/logs/download/markflow-debug.log" class="btn btn-ghost btn-sm" id="btn-dl-debug">Download markflow-debug.log</a>
+        </div>
+
+        <div id="dev-logging-warning" class="alert-warning" style="margin-top:0.5rem" hidden>
+          Developer logging writes every user action to disk. Disable when not actively debugging.
         </div>
       </div>
 
@@ -682,26 +1017,6 @@
 
       </details>
 
-      <!-- File Flagging section -->
-      <details class="settings-section">
-      <summary>File Flagging</summary>
-      <div class="card">
-        <div class="form-group">
-          <label for="pref-flag_default_expiry_days">Default flag expiry (days)</label>
-          <input type="number" id="pref-flag_default_expiry_days" data-key="flag_default_expiry_days" min="1" max="365">
-          <span class="hint">How long flagged files stay hidden before auto-expiry.</span>
-          <div class="inline-error" id="err-flag_default_expiry_days"></div>
-        </div>
-        <div class="form-group">
-          <label for="pref-flag_webhook_url">Flag webhook URL</label>
-          <input type="url" id="pref-flag_webhook_url" data-key="flag_webhook_url" placeholder="https://hooks.example.com/markflow-flags">
-          <span class="hint">Receives POST notifications for all flag events. Leave blank to disable.</span>
-          <div class="inline-error" id="err-flag_webhook_url"></div>
-        </div>
-      </div>
-
-      </details>
-
       <!-- Auto-Conversion section -->
       <details class="settings-section">
       <summary data-help="auto-conversion">Auto-Conversion</summary>
@@ -824,72 +1139,6 @@
 
       </details>
 
-      <!-- Transcription section (v0.13.0) -->
-      <details class="settings-section">
-      <summary>Transcription</summary>
-      <div class="card">
-        <p class="text-sm text-muted" style="margin:0 0 1rem">
-          Audio and video transcription settings. Media files are transcribed using local Whisper
-          (GPU-accelerated if available) with cloud provider fallback.
-        </p>
-
-        <div class="form-group">
-          <label for="pref-whisper_model">Whisper model</label>
-          <select id="pref-whisper_model" data-key="whisper_model">
-            <option value="tiny">Tiny &mdash; Fastest, ~1 GB RAM</option>
-            <option value="base">Base &mdash; Good default, ~1.5 GB RAM</option>
-            <option value="small">Small &mdash; Better accuracy, ~2.5 GB RAM</option>
-            <option value="medium">Medium &mdash; High accuracy, ~5 GB RAM</option>
-            <option value="large">Large &mdash; Best accuracy, ~10 GB RAM</option>
-          </select>
-          <p class="hint">Larger models are more accurate but slower and use more memory.</p>
-          <div class="inline-error" id="err-whisper_model"></div>
-        </div>
-
-        <div class="form-group">
-          <label for="pref-whisper_device">Compute device</label>
-          <select id="pref-whisper_device" data-key="whisper_device">
-            <option value="auto">Auto &mdash; GPU if available, otherwise CPU</option>
-            <option value="cpu">CPU only</option>
-            <option value="cuda">CUDA (GPU) &mdash; Requires NVIDIA GPU</option>
-          </select>
-          <div class="inline-error" id="err-whisper_device"></div>
-        </div>
-
-        <div class="form-group">
-          <label for="pref-whisper_language">Language</label>
-          <input type="text" id="pref-whisper_language" data-key="whisper_language" placeholder="auto">
-          <p class="hint">Leave as &lsquo;auto&rsquo; for auto-detection, or enter a language code (en, es, fr, de, ja, etc.).</p>
-          <div class="inline-error" id="err-whisper_language"></div>
-        </div>
-
-        <div class="form-group">
-          <label>Cloud fallback</label>
-          <label class="toggle">
-            <input type="checkbox" id="pref-transcription_cloud_fallback" data-key="transcription_cloud_fallback">
-            <span class="toggle-track"></span>
-            <span class="toggle-label" id="toggle-label-cloud-fallback">OFF</span>
-          </label>
-          <p class="hint">Fall back to cloud provider (OpenAI or Gemini) if local Whisper fails. Note: Anthropic does not support audio transcription.</p>
-        </div>
-
-        <div class="form-group">
-          <label for="pref-transcription_timeout_seconds">Timeout (seconds)</label>
-          <input type="number" id="pref-transcription_timeout_seconds" data-key="transcription_timeout_seconds" min="60" max="86400">
-          <p class="hint">Maximum time for transcribing a single file. Default: 3600 (1 hour).</p>
-          <div class="inline-error" id="err-transcription_timeout_seconds"></div>
-        </div>
-
-        <div class="form-group">
-          <label for="pref-caption_file_extensions">Caption file extensions</label>
-          <input type="text" id="pref-caption_file_extensions" data-key="caption_file_extensions" placeholder=".srt,.vtt,.sbv">
-          <p class="hint">Comma-separated. If a caption file with one of these extensions exists alongside a media file, it will be used instead of running transcription.</p>
-          <div class="inline-error" id="err-caption_file_extensions"></div>
-        </div>
-      </div>
-
-      </details>
-
       <!-- Debug: DB Contention Logging section (TEMPORARY — v0.19.6.5) -->
       <details class="settings-section">
       <summary>Debug: DB Contention Logging</summary>
@@ -974,255 +1223,6 @@
         </div>
       </div>
 
-      </details>
-
-      <!-- Info section -->
-      <details class="settings-section">
-      <summary>Info</summary>
-      <div class="card">
-        <div class="form-group">
-          <label for="pref-last_save_directory">Last save directory</label>
-          <input type="text" id="pref-last_save_directory" data-key="last_save_directory" readonly>
-        </div>
-        <div class="form-group">
-          <label for="pref-last_source_directory">Last source directory</label>
-          <input type="text" id="pref-last_source_directory" data-key="last_source_directory" readonly>
-        </div>
-      </div>
-
-      </details>
-
-      <!-- Storage Connections section -->
-      <details class="settings-section" id="storage-connections-section">
-      <summary>Storage Connections</summary>
-      <div class="card">
-        <p class="text-sm text-muted" style="margin:0 0 1rem">
-          Configure network shares for source files and conversion output.
-          Changes take effect immediately when you click Apply.
-        </p>
-
-        <!-- Source mount -->
-        <fieldset style="border:1px solid var(--border);border-radius:6px;padding:1rem;margin-bottom:1.5rem">
-          <legend style="font-weight:600;font-size:0.9rem;padding:0 0.5rem">
-            Source Mount
-            <span id="mount-status-source" class="text-sm" style="margin-left:0.5rem"></span>
-          </legend>
-
-          <div class="form-group">
-            <label>Protocol</label>
-            <div style="display:flex;gap:1.5rem;margin:0.25rem 0">
-              <label><input type="radio" name="mount-source-proto" value="smb" checked onchange="toggleMountFields('source')"> SMB/CIFS</label>
-              <label><input type="radio" name="mount-source-proto" value="nfsv3" onchange="toggleMountFields('source')"> NFSv3</label>
-              <label><input type="radio" name="mount-source-proto" value="nfsv4" onchange="toggleMountFields('source')"> NFSv4</label>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label for="mount-source-server">Server (IP or hostname)</label>
-            <input type="text" id="mount-source-server" placeholder="192.168.1.17">
-          </div>
-
-          <div class="form-group">
-            <label for="mount-source-share">Share / Export Path</label>
-            <input type="text" id="mount-source-share" placeholder="storage_folder or /volume1/data">
-          </div>
-
-          <div id="mount-source-smb-fields">
-            <div class="form-group">
-              <label for="mount-source-smb-user">Username</label>
-              <input type="text" id="mount-source-smb-user" placeholder="markflow">
-            </div>
-            <div class="form-group">
-              <label for="mount-source-smb-pass">Password</label>
-              <input type="password" id="mount-source-smb-pass" placeholder="********">
-            </div>
-          </div>
-
-          <div id="mount-source-krb-fields" hidden>
-            <div class="form-group">
-              <label class="toggle" style="gap:0.5rem">
-                <input type="checkbox" id="mount-source-krb-enable" onchange="toggleKerberosFields('source')">
-                <span class="toggle-track"></span>
-                <span>Enable Kerberos authentication</span>
-              </label>
-            </div>
-            <div id="mount-source-krb-details" hidden>
-              <div class="form-group">
-                <label for="mount-source-krb-realm">Realm</label>
-                <input type="text" id="mount-source-krb-realm" placeholder="EXAMPLE.COM">
-              </div>
-              <div class="form-group">
-                <label for="mount-source-krb-keytab">Keytab Path</label>
-                <input type="text" id="mount-source-krb-keytab" value="/etc/krb5.keytab">
-              </div>
-            </div>
-          </div>
-
-          <div style="display:flex;gap:0.5rem;align-items:center;margin-top:0.75rem">
-            <button type="button" class="btn btn-ghost btn-sm" onclick="testMount('source')">Test Connection</button>
-            <button type="button" class="btn btn-primary btn-sm" onclick="applyMount('source')">Apply &amp; Remount</button>
-            <span id="mount-source-result" class="text-sm" style="margin-left:0.5rem"></span>
-          </div>
-        </fieldset>
-
-        <!-- Output mount -->
-        <fieldset style="border:1px solid var(--border);border-radius:6px;padding:1rem">
-          <legend style="font-weight:600;font-size:0.9rem;padding:0 0.5rem">
-            Output Mount
-            <span id="mount-status-output" class="text-sm" style="margin-left:0.5rem"></span>
-          </legend>
-
-          <div class="form-group">
-            <label>Protocol</label>
-            <div style="display:flex;gap:1.5rem;margin:0.25rem 0">
-              <label><input type="radio" name="mount-output-proto" value="smb" checked onchange="toggleMountFields('output')"> SMB/CIFS</label>
-              <label><input type="radio" name="mount-output-proto" value="nfsv3" onchange="toggleMountFields('output')"> NFSv3</label>
-              <label><input type="radio" name="mount-output-proto" value="nfsv4" onchange="toggleMountFields('output')"> NFSv4</label>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label for="mount-output-server">Server (IP or hostname)</label>
-            <input type="text" id="mount-output-server" placeholder="192.168.1.17">
-          </div>
-
-          <div class="form-group">
-            <label for="mount-output-share">Share / Export Path</label>
-            <input type="text" id="mount-output-share" placeholder="markflow or /volume1/markflow">
-          </div>
-
-          <div id="mount-output-smb-fields">
-            <div class="form-group">
-              <label for="mount-output-smb-user">Username</label>
-              <input type="text" id="mount-output-smb-user" placeholder="markflow">
-            </div>
-            <div class="form-group">
-              <label for="mount-output-smb-pass">Password</label>
-              <input type="password" id="mount-output-smb-pass" placeholder="********">
-            </div>
-          </div>
-
-          <div id="mount-output-krb-fields" hidden>
-            <div class="form-group">
-              <label class="toggle" style="gap:0.5rem">
-                <input type="checkbox" id="mount-output-krb-enable" onchange="toggleKerberosFields('output')">
-                <span class="toggle-track"></span>
-                <span>Enable Kerberos authentication</span>
-              </label>
-            </div>
-            <div id="mount-output-krb-details" hidden>
-              <div class="form-group">
-                <label for="mount-output-krb-realm">Realm</label>
-                <input type="text" id="mount-output-krb-realm" placeholder="EXAMPLE.COM">
-              </div>
-              <div class="form-group">
-                <label for="mount-output-krb-keytab">Keytab Path</label>
-                <input type="text" id="mount-output-krb-keytab" value="/etc/krb5.keytab">
-              </div>
-            </div>
-          </div>
-
-          <div style="display:flex;gap:0.5rem;align-items:center;margin-top:0.75rem">
-            <button type="button" class="btn btn-ghost btn-sm" onclick="testMount('output')">Test Connection</button>
-            <button type="button" class="btn btn-primary btn-sm" onclick="applyMount('output')">Apply &amp; Remount</button>
-            <span id="mount-output-result" class="text-sm" style="margin-left:0.5rem"></span>
-          </div>
-        </fieldset>
-      </div>
-
-      </details>
-
-      <!-- AI-Assisted Search (admin only, v0.21.0) -->
-      <details class="settings-section" id="ai-assist-settings">
-      <summary>AI-Assisted Search</summary>
-      <div class="card">
-        <!-- "Not configured" notice (shown when no usable provider is set) -->
-        <div id="ai-assist-not-configured" class="notice notice-warn" style="display:none;margin-bottom:1rem">
-          <strong>Not configured.</strong>
-          <p class="text-sm" id="ai-assist-not-configured-msg" style="margin:0.35rem 0 0">
-            AI Assist uses the active LLM provider configured on the
-            <a href="/providers.html">Providers page</a>. Add an Anthropic
-            provider with a valid API key and mark it as Active.
-          </p>
-        </div>
-
-        <!-- Configured controls (shown when a usable provider is set) -->
-        <div id="ai-assist-configured-controls" style="display:none">
-        <p class="text-sm text-muted" style="margin:0 0 1rem">
-          AI Assist uses the same LLM provider system as
-          <strong>Vision &amp; Frame Description</strong> and
-          <strong>AI Enhancement</strong> above. By default it uses the
-          provider marked <em>Active</em> on the
-          <a href="/providers.html">Providers page</a>; you can override
-          this by clicking <em>Use for AI Assist</em> on a specific
-          provider. AI Assist requires an Anthropic provider.
-        </p>
-
-        <!-- Live provider source / model badge -->
-        <div id="ai-assist-provider-info" class="notice" style="display:none;margin-bottom:1rem;padding:0.6rem 0.8rem;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.85rem">
-          <span id="ai-assist-provider-info-text"></span>
-          <a href="/providers.html" style="margin-left:0.5rem">Manage Providers \u2192</a>
-        </div>
-
-        <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem">
-          <label class="toggle" style="margin:0">
-            <input type="checkbox" id="ai-assist-org-toggle">
-            <span class="toggle-track"></span>
-          </label>
-          <div>
-            <strong>Enable AI Assist</strong>
-            <p class="text-sm text-muted" style="margin:0">
-              Allows users to synthesize search results via Claude.
-              Uses the provider shown above &mdash; no environment
-              variable required.
-            </p>
-          </div>
-        </div>
-
-        <div id="ai-usage-section" style="display:none">
-          <h4 style="margin:1rem 0 0.5rem;font-size:0.9rem">Usage by User</h4>
-          <div style="overflow-x:auto">
-          <table class="table" style="font-size:0.82rem;width:100%">
-            <thead>
-              <tr>
-                <th>User</th>
-                <th>Calls</th>
-                <th>Est. Input Tokens</th>
-                <th>Est. Output Tokens</th>
-                <th>Est. Total</th>
-                <th>Last Used</th>
-              </tr>
-            </thead>
-            <tbody id="ai-usage-by-user-body">
-              <tr><td colspan="6" class="text-muted" style="text-align:center">Loading...</td></tr>
-            </tbody>
-          </table>
-          </div>
-
-          <h4 style="margin:1.25rem 0 0.5rem;font-size:0.9rem">Recent Calls</h4>
-          <div style="overflow-x:auto">
-          <table class="table" style="font-size:0.82rem;width:100%">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>User</th>
-                <th>Mode</th>
-                <th>Query</th>
-                <th>Est. Tokens</th>
-              </tr>
-            </thead>
-            <tbody id="ai-usage-recent-body">
-              <tr><td colspan="5" class="text-muted" style="text-align:center">Loading...</td></tr>
-            </tbody>
-          </table>
-          </div>
-
-          <p class="text-sm text-muted" style="margin-top:0.5rem">
-            Token counts are estimates (chars / 4). See your Anthropic dashboard for exact billing.
-          </p>
-        </div>
-        </div> <!-- /#ai-assist-configured-controls -->
-      </div>
       </details>
 
       <!-- Actions -->
