@@ -37,6 +37,7 @@ _SYSTEM_PREF_KEYS: set[str] = {
     "auto_metrics_retention_days", "auto_convert_business_hours_start",
     "auto_convert_business_hours_end", "auto_convert_conservative_factor",
     "scan_max_threads",
+    "scan_skip_extensions",
     "whisper_model", "whisper_language", "whisper_device",
     "transcription_cloud_fallback", "caption_file_extensions",
     "transcription_timeout_seconds",
@@ -355,6 +356,11 @@ _PREFERENCE_SCHEMA: dict[str, dict] = {
         "label": "Preview Delay (ms)",
         "description": "How long to hover before the preview appears. Lower = faster, higher = less accidental popups.",
         "section": "search_preview",
+    },
+    "scan_skip_extensions": {
+        "type": "text",
+        "label": "Excluded file extensions",
+        "description": "JSON list of extensions to skip during scanning (without dots). Example: [\"tmp\", \"bak\", \"log\"]",
     },
     # ── Scan Performance ──
     "scan_max_threads": {

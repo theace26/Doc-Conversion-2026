@@ -36,6 +36,7 @@
     <div id="trash-stats" class="trash-stats mt-1"></div>
 
     <div class="bulk-actions" id="bulk-actions" hidden>
+      <button class="btn btn-ghost btn-sm" id="btn-restore-all">Restore All</button>
       <button class="btn btn-ghost btn-sm" id="btn-empty-trash">Empty Trash</button>
     </div>
 
@@ -163,6 +164,52 @@
         showError(err.message);
       }
     });
+  }
+
+  document.getElementById('btn-restore-all').addEventListener('click', () => {
+    showConfirm('Restore All?', `This will restore all ${trashFiles.length} files from trash back to active.`, async () => {
+      const btn = document.getElementById('btn-restore-all');
+      btn.disabled = true;
+      btn.textContent = 'Starting...';
+      try {
+        const result = await API.post('/api/trash/restore-all');
+        if (result.status === 'already_running') {
+          showToast('Restore is already running', 'info');
+        } else if (result.status === 'done') {
+          showToast('No files to restore');
+          loadTrash();
+        } else if (result.status === 'started') {
+          btn.textContent = `Restoring 0 / ${result.total}...`;
+          pollRestoreProgress(result.total);
+        }
+      } catch (err) {
+        showError(err.message);
+        btn.disabled = false;
+        btn.textContent = 'Restore All';
+      }
+    });
+  });
+
+  async function pollRestoreProgress(total) {
+    const btn = document.getElementById('btn-restore-all');
+    const poll = setInterval(async () => {
+      try {
+        const s = await API.get('/api/trash/restore-all/status');
+        btn.textContent = `Restoring ${s.done} / ${total}...`;
+        if (!s.running) {
+          clearInterval(poll);
+          btn.disabled = false;
+          btn.textContent = 'Restore All';
+          showToast(`Restored ${s.done} files`);
+          loadTrash();
+        }
+      } catch {
+        clearInterval(poll);
+        btn.disabled = false;
+        btn.textContent = 'Restore All';
+        loadTrash();
+      }
+    }, 2000);
   }
 
   document.getElementById('btn-empty-trash').addEventListener('click', () => {

@@ -241,6 +241,13 @@ async def run_lifecycle_scan(
         skip_patterns = []
     if skip_patterns:
         log.info("lifecycle_scan.skip_patterns_loaded", count=len(skip_patterns), patterns=skip_patterns)
+    _raw_skip_ext = await _get_pref("scan_skip_extensions") or "[]"
+    try:
+        skip_extensions: set[str] = set(_json.loads(_raw_skip_ext))
+    except (_json.JSONDecodeError, TypeError):
+        skip_extensions = set()
+    if skip_extensions:
+        log.info("lifecycle_scan.skip_extensions_loaded", count=len(skip_extensions), extensions=sorted(skip_extensions))
 
     # ── Incremental scan decision ──────────────────────────────────
     from core.db.bulk import (
@@ -335,6 +342,7 @@ async def run_lifecycle_scan(
                     current_dir_mtimes=current_dir_mtimes,
                     incremental_mode=incremental_mode,
                     skip_patterns=skip_patterns,
+                    skip_extensions=skip_extensions,
                 )
             else:
                 await _serial_lifecycle_walk(
@@ -345,6 +353,7 @@ async def run_lifecycle_scan(
                     current_dir_mtimes=current_dir_mtimes,
                     incremental_mode=incremental_mode,
                     skip_patterns=skip_patterns,
+                    skip_extensions=skip_extensions,
                 )
         except Exception as exc:
             # Log error for this root but continue to next root
@@ -628,6 +637,7 @@ async def _serial_lifecycle_walk(
     current_dir_mtimes: dict[str, float] | None = None,
     incremental_mode: bool = False,
     skip_patterns: list[str] | None = None,
+    skip_extensions: set[str] | None = None,
 ) -> None:
     """Serial walk for local SSD/HDD sources with error-rate abort."""
     error_monitor = ErrorRateMonitor()
@@ -635,12 +645,17 @@ async def _serial_lifecycle_walk(
     _dir_mtime_cache = dir_mtime_cache or {}
     _current_dir_mtimes = current_dir_mtimes if current_dir_mtimes is not None else {}
     _skip = skip_patterns or []
+    _skip_ext = skip_extensions or set()
 
     def _is_excluded(p: str) -> bool:
         # Junk-filename check first — cheapest, catches the noisiest leaks
         # (~$* Office lock files, Thumbs.db, etc — see is_junk_filename).
         if is_junk_filename(os.path.basename(p)):
             return True
+        if _skip_ext:
+            ext = os.path.splitext(p)[1].lstrip(".").lower()
+            if ext in _skip_ext:
+                return True
         return (any(p.startswith(ep) for ep in _excl)
                 or any(f in p for f in _skip))
 
@@ -726,6 +741,7 @@ async def _parallel_lifecycle_walk(
     current_dir_mtimes: dict[str, float] | None = None,
     incremental_mode: bool = False,
     skip_patterns: list[str] | None = None,
+    skip_extensions: set[str] | None = None,
 ) -> None:
     """Parallel walk with feedback-loop throttling for NAS/SMB sources."""
     import time as _time
@@ -734,11 +750,16 @@ async def _parallel_lifecycle_walk(
     _dir_mtime_cache = dir_mtime_cache or {}
     _current_dir_mtimes = current_dir_mtimes if current_dir_mtimes is not None else {}
     _skip = skip_patterns or []
+    _skip_ext = skip_extensions or set()
 
     def _is_excluded(p: str) -> bool:
         # Junk-filename check first — same rationale as the serial walk above.
         if is_junk_filename(os.path.basename(p)):
             return True
+        if _skip_ext:
+            ext = os.path.splitext(p)[1].lstrip(".").lower()
+            if ext in _skip_ext:
+                return True
         return (any(p.startswith(ep) for ep in _excl)
                 or any(f in p for f in _skip))
 

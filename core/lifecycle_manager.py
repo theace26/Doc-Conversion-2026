@@ -346,6 +346,49 @@ async def purge_all_trash() -> int:
         _empty_trash_status["running"] = False
 
 
+# ── In-memory progress for restore-all background task ─────────────────────
+_restore_all_status: dict = {"running": False, "total": 0, "done": 0, "errors": 0}
+
+
+def get_restore_all_status() -> dict:
+    return dict(_restore_all_status)
+
+
+async def restore_all_trash() -> int:
+    """Restore all trashed files back to active. Runs as background task."""
+    global _restore_all_status
+    if _restore_all_status["running"]:
+        return 0
+    _restore_all_status = {"running": True, "total": 0, "done": 0, "errors": 0}
+    try:
+        from core.database import get_source_files_by_lifecycle_status
+        source_files = await get_source_files_by_lifecycle_status("in_trash")
+        bf_ids = []
+        for sf in source_files:
+            rows = await db_fetch_all(
+                "SELECT id FROM bulk_files WHERE source_file_id = ?", (sf["id"],),
+            )
+            bf_ids.extend(r["id"] for r in rows)
+        _restore_all_status["total"] = len(bf_ids)
+        log.info("restore_all.starting", total=len(bf_ids))
+        for i, bf_id in enumerate(bf_ids):
+            try:
+                await restore_file(bf_id, scan_run_id="bulk_restore")
+                _restore_all_status["done"] += 1
+            except Exception:
+                _restore_all_status["errors"] += 1
+            if (i + 1) % 50 == 0:
+                await asyncio.sleep(0)
+        log.info("restore_all.complete", restored=_restore_all_status["done"],
+                 errors=_restore_all_status["errors"])
+        return _restore_all_status["done"]
+    except Exception as exc:
+        log.error("restore_all.failed", error=str(exc))
+        return _restore_all_status["done"]
+    finally:
+        _restore_all_status["running"] = False
+
+
 async def record_file_move(
     bulk_file_id: str, old_path: str, new_path: str, scan_run_id: str
 ) -> None:

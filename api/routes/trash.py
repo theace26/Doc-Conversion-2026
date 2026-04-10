@@ -5,6 +5,7 @@ GET    /api/trash                      — list trashed files
 POST   /api/trash/{id}/restore         — restore a file from trash
 DELETE /api/trash/{id}                 — purge immediately
 POST   /api/trash/empty                — purge all trashed files
+POST   /api/trash/restore-all          — restore all trashed files
 """
 
 from datetime import datetime, timedelta, timezone
@@ -86,6 +87,35 @@ async def empty_trash_status(
     """Poll progress of a running empty-trash operation."""
     from core.lifecycle_manager import get_empty_trash_status
     return get_empty_trash_status()
+
+
+@router.post("/restore-all")
+async def restore_all_trash(
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+) -> dict:
+    """Restore all trashed files. Runs in background."""
+    from core.lifecycle_manager import restore_all_trash, get_restore_all_status
+
+    status = get_restore_all_status()
+    if status["running"]:
+        return {"status": "already_running", "progress": status}
+
+    source_files = await get_source_files_by_lifecycle_status("in_trash")
+    total = len(source_files)
+    if total == 0:
+        return {"status": "done", "restored_count": 0}
+
+    asyncio.create_task(restore_all_trash())
+    return {"status": "started", "total": total}
+
+
+@router.get("/restore-all/status")
+async def restore_all_status(
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+) -> dict:
+    """Poll progress of restore-all operation."""
+    from core.lifecycle_manager import get_restore_all_status
+    return get_restore_all_status()
 
 
 @router.get("")

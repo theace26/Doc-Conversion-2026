@@ -224,6 +224,10 @@ class BulkScanner:
         for frag in self._skip_patterns:
             if frag in file_path:
                 return True
+        if self._skip_extensions:
+            ext = os.path.splitext(file_path)[1].lstrip(".").lower()
+            if ext in self._skip_extensions:
+                return True
         return False
 
     async def scan(
@@ -274,6 +278,13 @@ class BulkScanner:
             self._skip_patterns = []
         if self._skip_patterns:
             log.info("scan_skip_patterns_loaded", count=len(self._skip_patterns), patterns=self._skip_patterns)
+        raw_ext = await get_preference("scan_skip_extensions") or "[]"
+        try:
+            self._skip_extensions = set(json.loads(raw_ext))
+        except (json.JSONDecodeError, TypeError):
+            self._skip_extensions = set()
+        if self._skip_extensions:
+            log.info("scan_skip_extensions_loaded", count=len(self._skip_extensions), extensions=sorted(self._skip_extensions))
 
         # ── Incremental scan decision ──────────────────────────────────
         from core.db.bulk import (
