@@ -55,36 +55,92 @@ Live-system log analysis (14 hours, 3.6M log lines) and DB inspection revealed:
 
 **Replace** per-call `aiosqlite.connect()` with a module-level `ConnectionPool` class.
 
-```
-Pool composition (scales with host hardware):
-  - N general-purpose connections (read/write): max(2, cpu_count // 4), capped at 4
-  - 2 read-only connections (PRAGMA query_only=ON): fixed at 2
-  - Total: 4-6 connections depending on host
+**Why fixed sizing, not dynamic:** SQLite allows exactly ONE writer at a time
+(WAL mode). Adding more write connections doesn't increase throughput — it
+increases lock contention. The optimal architecture is a single dedicated
+writer (zero contention with itself) plus N readers that never block it.
+Dynamic scaling is best practice for connection pools against server databases
+(PostgreSQL, MySQL) where the server can handle many concurrent writers, but
+for SQLite it is counterproductive.
 
-  Examples:
-    i7-10750H (12 logical) → 3 rw + 2 ro = 5
-    i5-8250U  (8 logical)  → 2 rw + 2 ro = 4
-    Threadripper (32 logical) → 4 rw + 2 ro = 6 (capped)
-    Dual-core (4 logical) → 2 rw + 2 ro = 4 (floor)
 ```
+Pool composition (fixed — optimized for SQLite's single-writer model):
+  - 1 dedicated WRITER connection (serialized via asyncio.Queue)
+  - 3 READ-ONLY connections (PRAGMA query_only=ON)
+  - Total: 4 connections
+
+  The writer connection is shared via an async write queue. All write
+  operations (INSERT, UPDATE, DELETE, UPSERT) are funneled through this
+  single connection, eliminating lock contention entirely. Callers await
+  their turn — no busy_timeout waits, no retries, no "database is locked".
+
+  Read connections are pooled normally (asyncio.Queue FIFO). 3 readers
+  is sufficient because SQLite WAL reads are sub-millisecond for indexed
+  queries — the bottleneck is never read concurrency.
+```
+
+**Write queue architecture:**
+```python
+class WriteQueue:
+    """Serializes all DB writes through a single connection."""
+
+    def __init__(self, conn: aiosqlite.Connection):
+        self._conn = conn
+        self._queue: asyncio.Queue[_WriteRequest] = asyncio.Queue()
+        self._task: asyncio.Task | None = None
+
+    async def start(self):
+        self._task = asyncio.create_task(self._process_loop())
+
+    async def _process_loop(self):
+        while True:
+            req = await self._queue.get()
+            try:
+                result = await req.execute(self._conn)
+                req.future.set_result(result)
+            except Exception as e:
+                req.future.set_exception(e)
+
+    async def execute(self, sql, params=None) -> Any:
+        """Submit a write operation and await its result."""
+        future = asyncio.get_event_loop().create_future()
+        await self._queue.put(_WriteRequest(sql, params, future))
+        return await future
+
+    async def execute_many(self, operations: list[tuple[str, tuple]]) -> list:
+        """Submit multiple writes as a single transaction."""
+        future = asyncio.get_event_loop().create_future()
+        await self._queue.put(_BatchWriteRequest(operations, future))
+        return await future
+```
+
+**Benefits of this approach:**
+- Zero "database is locked" errors — writes never compete for the lock
+- No busy_timeout needed for writes (still set to 30s as safety net)
+- Natural backpressure — if writes are slow, callers queue up and await
+- Batch writes (`execute_many`) run as single transactions automatically
+- Read connections are completely independent — never blocked by writes
 
 **Pool lifecycle:**
 - Initialized once during `main.py:lifespan` startup
-- Each connection runs PRAGMAs once at creation:
+- Writer connection + WriteQueue started first
+- 3 read connections initialized with PRAGMAs:
   - `PRAGMA journal_mode=WAL`
-  - `PRAGMA busy_timeout=30000` (raised from 5000)
+  - `PRAGMA busy_timeout=30000` (safety net, rarely triggered)
   - `PRAGMA foreign_keys=ON`
-  - Read-only connections additionally: `PRAGMA query_only=ON`
+  - `PRAGMA query_only=ON` (read-only enforcement)
 - Pool exposes:
-  - `async get_connection() -> AsyncContextManager` — returns a general-purpose connection
+  - `async write(sql, params)` — submits to write queue, awaits result
+  - `async write_many(operations)` — batch write as single transaction
   - `async get_read_connection() -> AsyncContextManager` — returns a read-only connection
-- Connections are reused via asyncio.Queue (FIFO)
-- On pool shutdown: close all connections
+- On pool shutdown: drain write queue, close all connections
 
 **Backward compatibility:**
-- Existing `db_fetch_one()`, `db_fetch_all()`, `db_execute()` functions updated to use pool internally
+- Existing `db_execute()` → routes through `write()` (transparent)
+- Existing `db_fetch_one()`, `db_fetch_all()` → use `get_read_connection()` (transparent)
 - Analytics endpoints (`/pipeline/stats`, `/pipeline/status`, `/scanner/progress`) use `get_read_connection()`
-- All other code continues using existing helper functions (transparent migration)
+- All other code continues using existing helper functions — no call-site changes needed
+- `db_write_with_retry()` simplified: retries are no longer needed (writes are serialized), but kept as a thin wrapper for backward compat
 
 ### 2.2 busy_timeout Increase
 
