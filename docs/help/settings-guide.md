@@ -2,7 +2,7 @@
 
 The Settings page lets you configure how MarkFlow behaves. Changes are saved when you click Save. Some settings require the Manager role to change.
 
-## Conversion Settings
+## Conversion Options
 
 Controls how documents are converted between formats.
 
@@ -52,7 +52,7 @@ Configure how MarkFlow handles password-protected documents.
 | Use hashcat | On | Enable GPU-accelerated cracking when available |
 | Hashcat workload | 3 (High) | GPU intensity: 1=Low, 2=Default, 3=High, 4=Maximum |
 
-## LLM / AI Enhancement
+## AI Options
 
 AI-powered features that improve conversion quality. Requires an active provider.
 

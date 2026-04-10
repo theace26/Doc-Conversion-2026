@@ -90,34 +90,29 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.23.3
+## Current Version — v0.23.4
 
-**UX responsiveness, bulk restore, extension exclude, migration
-hardening.** Heavy user actions now run in background with progress
-polling. Two new features + critical migration fix. Full context:
+**Settings page reorganization.** Renamed and regrouped 21 sections
+into logical clusters. Full context:
 [`docs/version-history.md`](docs/version-history.md).
 
-**Migration hardening:**
-- Migration 27 re-runs `bulk_files` table rebuild (migration 26
-  was silently swallowed by `except: pass`). Fixes the `ON CONFLICT`
-  crash that killed every bulk job since v0.23.0.
-- `INSERT OR IGNORE` on `schema_migrations` (prevents restart crash).
-- `except: pass` narrowed to ALTER TABLE only — real DDL failures
-  now propagate.
+- **Files and Locations** (was "Locations") — now groups: Password
+  Recovery, File Flagging, Info, Storage Connections
+- **Conversion Options** (was "Conversion") — now groups: OCR,
+  Path Safety
+- **AI Options** (was "AI Enhancement") — now groups: Vision & Frame
+  Description, Claude Integration (MCP), Transcription, AI-Assisted
+  Search
 
-**UX responsiveness:** All heavy user actions now give immediate
-feedback: Empty Trash batched + background + "Purging X / Y...",
-Rebuild Index polls "Rebuilding (X docs)...", DB Compaction
-"Compacting...", Integrity/Stale checks show progress text. Trash
-confirm dialog centered (was stuck top-left).
+---
 
-**New: Bulk Restore** — "Restore All" button on trash page,
-`POST /api/trash/restore-all` with background task + progress
-polling ("Restoring X / Y...").
+### v0.23.3 (carried-forward summary) — UX responsiveness + features
 
-**New: Extension Exclude** — `scan_skip_extensions` preference
-(JSON list, e.g. `["tmp","bak","log"]`). Wired into bulk scanner
-+ lifecycle scanner. Settings > Conversion.
+Migration hardening (migration 27 re-runs bulk_files rebuild, narrowed
+except:pass to ALTER only), batch empty-trash with progress polling,
+bulk restore, extension exclude (`scan_skip_extensions`), progress
+feedback on all heavy UI actions.
+Full context: [`docs/version-history.md`](docs/version-history.md).
 
 ---
 

@@ -4,6 +4,41 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.23.4 — Settings page reorganization (2026-04-10)
+
+UX pass on the Settings page. Reorganized 21 sections into logical
+groups with clearer naming.
+
+### Section Renames
+- **Locations** → **Files and Locations**
+- **Conversion** → **Conversion Options**
+- **AI Enhancement** → **AI Options**
+
+### Section Regrouping
+- **Files and Locations** group: Password Recovery, File Flagging,
+  Info, Storage Connections now follow immediately after the renamed
+  "Files and Locations" section.
+- **Conversion Options** group: OCR, Path Safety now follow
+  immediately after "Conversion Options".
+- **AI Options** group: Vision & Frame Description, Claude Integration
+  (MCP), Transcription, AI-Assisted Search now follow immediately
+  after "AI Options".
+
+### New Section Order
+1. Files and Locations, 2. Password Recovery, 3. File Flagging,
+4. Info, 5. Storage Connections, 6. Conversion Options, 7. OCR,
+8. Path Safety, 9. AI Options, 10. Vision & Frame Description,
+11. Claude Integration (MCP), 12. Transcription, 13. AI-Assisted Search,
+14. Logging, 15. File Lifecycle, 16. Pipeline, 17. Cloud Prefetch,
+18. Search Preview, 19. Auto-Conversion, 20. Debug: DB Contention
+Logging, 21. Advanced
+
+### Files
+- Modified: `static/settings.html` (section moves + renames only,
+  no content changes)
+
+---
+
 ## v0.23.3 — UX responsiveness, bulk restore, extension exclude, migration hardening (2026-04-10)
 
 Focused on user-perceived responsiveness for heavy operations and two new
