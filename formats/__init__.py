@@ -36,3 +36,4 @@ from formats.vcf_handler import VcfHandler  # noqa: F401
 from formats.svg_handler import SvgHandler  # noqa: F401
 from formats.sniff_handler import SniffHandler  # noqa: F401
 from formats.binary_handler import BinaryHandler  # noqa: F401
+from formats.database_handler import DatabaseHandler  # noqa: F401

@@ -34,7 +34,8 @@ bytes) for searchability.
 | Captions | `.srt` `.vtt` `.sbv` | CaptionIngestor (via AudioHandler) |
 | Shortcuts | `.lnk` `.url` | BinaryHandler |
 | Temporary | `.tmp` (MIME-detected and routed to the correct handler) | BinaryHandler + MIME detection |
-| Binary (metadata) | `.bin` `.cl4` `.exe` `.dll` `.so` `.msi` `.sys` `.drv` `.ocx` `.cpl` `.scr` `.com` `.dylib` `.app` `.dmg` `.img` `.vhd` `.vhdx` `.vmdk` `.vdi` `.qcow2` `.sqlite` `.db` `.mdb` `.accdb` `.rom` `.fw` `.efi` `.class` `.pyc` `.pyo` `.o` `.obj` `.lib` `.a` `.dat` `.dmp` | BinaryHandler |
+| Database | `.sqlite` `.db` `.sqlite3` `.s3db` `.mdb` `.accdb` `.dbf` `.qbb` `.qbw` | DatabaseHandler |
+| Binary (metadata) | `.bin` `.cl4` `.exe` `.dll` `.so` `.msi` `.sys` `.drv` `.ocx` `.cpl` `.scr` `.com` `.dylib` `.app` `.dmg` `.img` `.vhd` `.vhdx` `.vmdk` `.vdi` `.qcow2` `.rom` `.fw` `.efi` `.class` `.pyc` `.pyo` `.o` `.obj` `.lib` `.a` `.dat` `.dmp` | BinaryHandler |
 
 ---
 

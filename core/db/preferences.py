@@ -102,6 +102,8 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     "transcription_timeout_seconds": "3600",
     # DB contention logging (v0.19.6.5) — TEMPORARY, remove when lock issue resolved
     "db_contention_logging": "true",
+    # Database handler (v0.23.1)
+    "database_sample_rows": "25",
 }
 
 

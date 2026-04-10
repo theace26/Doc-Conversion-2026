@@ -40,6 +40,7 @@ _SYSTEM_PREF_KEYS: set[str] = {
     "whisper_model", "whisper_language", "whisper_device",
     "transcription_cloud_fallback", "caption_file_extensions",
     "transcription_timeout_seconds",
+    "database_sample_rows",
 }
 
 # Valid preference keys (whitelist from defaults)
@@ -85,6 +86,13 @@ _PREFERENCE_SCHEMA: dict[str, dict] = {
         "min": 1,
         "max": 10,
         "label": "Max concurrent conversions",
+    },
+    "database_sample_rows": {
+        "type": "number",
+        "min": 1,
+        "max": 1000,
+        "label": "Database sample rows per table",
+        "description": "Number of rows to include in database file Markdown output (per table)",
     },
     "pdf_engine": {
         "type": "select",

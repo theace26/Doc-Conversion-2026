@@ -49,6 +49,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cabextract \
     unrar-free \
     p7zip-full \
+    # Database file support (Access .mdb/.accdb)
+    mdbtools \
+    unixodbc-dev \
+    odbc-mdbtools \
     # NFS client tools (for NFS mount support)
     nfs-common \
     # curl for healthchecks
@@ -68,5 +72,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # driver >= 525 and NVIDIA Container Toolkit installed to use the GPU.
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu121 \
     && pip install --no-cache-dir openai-whisper
+
+# Database handler Python dependencies
+RUN pip install --no-cache-dir dbfread pyodbc pysqlcipher3
 
 WORKDIR /app

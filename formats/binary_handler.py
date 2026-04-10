@@ -40,8 +40,6 @@ class BinaryHandler(FormatHandler):
         "dylib", "app", "dmg",
         # Disk images & virtual disks
         "img", "vhd", "vhdx", "vmdk", "vdi", "qcow2",
-        # Databases
-        "sqlite", "db", "mdb", "accdb",
         # Firmware & ROM
         "rom", "fw", "efi",
         # Java / .NET bytecode
