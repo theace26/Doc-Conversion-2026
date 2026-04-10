@@ -9,7 +9,9 @@ POST   /api/trash/empty                — purge all trashed files
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+import asyncio
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from core.auth import AuthenticatedUser, UserRole, require_role
 
@@ -59,23 +61,31 @@ def _to_trash_record(row: dict, retention_days: int = 60) -> TrashRecord:
 async def empty_trash(
     user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
 ) -> dict:
-    """Purge all files currently in trash."""
-    from core.lifecycle_manager import purge_file
+    """Purge all trashed files. Batched DB operations, runs in background."""
+    from core.lifecycle_manager import purge_all_trash, get_empty_trash_status
+
+    status = get_empty_trash_status()
+    if status["running"]:
+        return {"status": "already_running", "progress": status}
 
     source_files = await get_source_files_by_lifecycle_status("in_trash")
-    count = 0
-    for sf in source_files:
-        # Look up linked bulk_files and purge each
-        bf_rows = await db_fetch_all(
-            "SELECT id FROM bulk_files WHERE source_file_id = ?", (sf["id"],),
-        )
-        for bf in bf_rows:
-            try:
-                await purge_file(bf["id"])
-                count += 1
-            except Exception:
-                pass
-    return {"purged_count": count}
+    total = len(source_files)
+
+    if total == 0:
+        return {"status": "done", "purged_count": 0}
+
+    # Fire and forget — returns immediately, purge runs in background
+    asyncio.create_task(purge_all_trash())
+    return {"status": "started", "total": total}
+
+
+@router.get("/empty/status")
+async def empty_trash_status(
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+) -> dict:
+    """Poll progress of a running empty-trash operation."""
+    from core.lifecycle_manager import get_empty_trash_status
+    return get_empty_trash_status()
 
 
 @router.get("")

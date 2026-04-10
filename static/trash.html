@@ -166,22 +166,50 @@
   }
 
   document.getElementById('btn-empty-trash').addEventListener('click', () => {
-    showConfirm('Empty Trash?', `This will permanently delete all ${trashFiles.length} files in trash. This may take a few minutes for large trash bins.`, async () => {
+    showConfirm('Empty Trash?', `This will permanently delete all ${trashFiles.length} files in trash.`, async () => {
       const btn = document.getElementById('btn-empty-trash');
       btn.disabled = true;
-      btn.textContent = 'Purging...';
+      btn.textContent = 'Starting...';
       try {
         const result = await API.post('/api/trash/empty');
-        showToast(`Purged ${result.purged_count} files`);
-        loadTrash();
+        if (result.status === 'already_running') {
+          showToast('Empty trash is already running', 'info');
+        } else if (result.status === 'done') {
+          showToast('Trash is already empty');
+          loadTrash();
+        } else if (result.status === 'started') {
+          btn.textContent = `Purging 0 / ${result.total}...`;
+          pollEmptyProgress(result.total);
+        }
       } catch (err) {
         showError(err.message);
-      } finally {
         btn.disabled = false;
         btn.textContent = 'Empty Trash';
       }
     });
   });
+
+  async function pollEmptyProgress(total) {
+    const btn = document.getElementById('btn-empty-trash');
+    const poll = setInterval(async () => {
+      try {
+        const s = await API.get('/api/trash/empty/status');
+        btn.textContent = `Purging ${s.done} / ${total}...`;
+        if (!s.running) {
+          clearInterval(poll);
+          btn.disabled = false;
+          btn.textContent = 'Empty Trash';
+          showToast(`Purged ${s.done} files`);
+          loadTrash();
+        }
+      } catch {
+        clearInterval(poll);
+        btn.disabled = false;
+        btn.textContent = 'Empty Trash';
+        loadTrash();
+      }
+    }, 2000);
+  }
 
   function showConfirm(title, message, onOk) {
     document.getElementById('confirm-title').textContent = title;

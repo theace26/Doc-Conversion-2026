@@ -22,7 +22,9 @@ from core.database import (
     update_bulk_file,
     update_source_file,
     db_fetch_one,
+    db_fetch_all,
 )
+from core.db.connection import db_execute
 
 log = structlog.get_logger(__name__)
 
@@ -240,6 +242,108 @@ async def purge_file(bulk_file_id: str) -> None:
     })
 
     log.info("lifecycle.purged", bulk_file_id=bulk_file_id)
+
+
+# ── In-memory progress for empty-trash background task ───────────────────────
+_empty_trash_status: dict = {"running": False, "total": 0, "done": 0, "errors": 0}
+
+
+def get_empty_trash_status() -> dict:
+    return dict(_empty_trash_status)
+
+
+async def purge_all_trash() -> int:
+    """Batch-purge all trashed files. Runs as a background task.
+
+    Strategy: batch DB updates in chunks of 200 to keep the write-queue
+    responsive, interleaving with asyncio.sleep(0) to yield to the event
+    loop between batches. Disk deletions run in a thread pool.
+    """
+    global _empty_trash_status
+
+    if _empty_trash_status["running"]:
+        log.warning("empty_trash.already_running")
+        return 0
+
+    _empty_trash_status = {"running": True, "total": 0, "done": 0, "errors": 0}
+
+    try:
+        from core.database import get_source_files_by_lifecycle_status
+
+        source_files = await get_source_files_by_lifecycle_status("in_trash")
+        if not source_files:
+            return 0
+
+        # Collect all bulk_file IDs and their trash paths
+        bf_ids: list[str] = []
+        sf_ids: list[str] = []
+        trash_paths: list[Path] = []
+
+        for sf in source_files:
+            sf_ids.append(sf["id"])
+            bf_rows = await db_fetch_all(
+                "SELECT id, output_path FROM bulk_files WHERE source_file_id = ?",
+                (sf["id"],),
+            )
+            for bf in bf_rows:
+                bf_ids.append(bf["id"])
+                output_path = bf.get("output_path")
+                if output_path:
+                    tp = get_trash_path(OUTPUT_REPO_ROOT, Path(output_path))
+                    if tp.exists():
+                        trash_paths.append(tp)
+
+        _empty_trash_status["total"] = len(bf_ids)
+        log.info("empty_trash.starting", total_bf=len(bf_ids), total_sf=len(sf_ids),
+                 trash_files=len(trash_paths))
+
+        # Phase 1: Delete disk files in thread pool (non-blocking)
+        async def _delete_file(p: Path) -> None:
+            try:
+                await asyncio.to_thread(p.unlink)
+            except OSError:
+                pass
+
+        # Delete in parallel batches of 50
+        for i in range(0, len(trash_paths), 50):
+            batch = trash_paths[i:i + 50]
+            await asyncio.gather(*[_delete_file(p) for p in batch])
+            await asyncio.sleep(0)
+
+        # Phase 2: Batch UPDATE bulk_files in chunks of 200
+        now = datetime.now(timezone.utc).isoformat()
+        chunk_size = 200
+        for i in range(0, len(bf_ids), chunk_size):
+            chunk = bf_ids[i:i + chunk_size]
+            placeholders = ",".join("?" for _ in chunk)
+            await db_execute(
+                f"UPDATE bulk_files SET lifecycle_status='purged', purged_at=? "
+                f"WHERE id IN ({placeholders})",
+                (now, *chunk),
+            )
+            _empty_trash_status["done"] += len(chunk)
+            await asyncio.sleep(0)  # yield to event loop
+
+        # Phase 3: Batch UPDATE source_files in chunks of 200
+        for i in range(0, len(sf_ids), chunk_size):
+            chunk = sf_ids[i:i + chunk_size]
+            placeholders = ",".join("?" for _ in chunk)
+            await db_execute(
+                f"UPDATE source_files SET lifecycle_status='purged', purged_at=? "
+                f"WHERE id IN ({placeholders})",
+                (now, *chunk),
+            )
+            await asyncio.sleep(0)
+
+        log.info("empty_trash.complete", purged=len(bf_ids))
+        return len(bf_ids)
+
+    except Exception as exc:
+        log.error("empty_trash.failed", error=str(exc))
+        _empty_trash_status["errors"] += 1
+        return _empty_trash_status["done"]
+    finally:
+        _empty_trash_status["running"] = False
 
 
 async def record_file_move(
