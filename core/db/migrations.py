@@ -22,12 +22,19 @@ async def run_bulk_files_dedup():
     row = await db_fetch_one("SELECT COUNT(*) as cnt FROM bulk_files")
     before = row["cnt"] if row else 0
 
-    await db_execute("""
-        DELETE FROM bulk_files
-        WHERE rowid NOT IN (
-            SELECT MAX(rowid) FROM bulk_files GROUP BY source_path
-        )
-    """)
+    # Disable FK enforcement during dedup — deleted rows may be referenced
+    # by other tables (e.g. bulk_job_files). The duplicates are stale data
+    # that should never have existed; the FK references are also stale.
+    await db_execute("PRAGMA foreign_keys = OFF")
+    try:
+        await db_execute("""
+            DELETE FROM bulk_files
+            WHERE rowid NOT IN (
+                SELECT MAX(rowid) FROM bulk_files GROUP BY source_path
+            )
+        """)
+    finally:
+        await db_execute("PRAGMA foreign_keys = ON")
 
     row = await db_fetch_one("SELECT COUNT(*) as cnt FROM bulk_files")
     after = row["cnt"] if row else 0
