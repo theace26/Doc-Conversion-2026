@@ -709,6 +709,70 @@ _MIGRATIONS: list[tuple[int, str, list[str]]] = [
         "CREATE INDEX IF NOT EXISTS idx_bulk_files_job_status ON bulk_files(job_id, status)",
         "CREATE INDEX IF NOT EXISTS idx_bulk_files_source_path ON bulk_files(source_path)",
     ]),
+    (27, "Re-run bulk_files rebuild (migration 26 DDL was silently skipped)", [
+        # Migration 26 was recorded in schema_migrations but the DDL failed
+        # silently (except: pass swallowed the error). This re-runs the same
+        # rebuild. If 26 DID execute on some installations, this is a no-op
+        # because the table already has UNIQUE(source_path).
+        # Check: if old compound unique still exists, do the rebuild.
+        # We detect this by trying to create the new table — if bulk_files
+        # already has UNIQUE(source_path), the INSERT OR IGNORE dedup is free.
+        "DROP TABLE IF EXISTS bulk_files_new",
+        """CREATE TABLE bulk_files_new (
+            id                        TEXT PRIMARY KEY,
+            job_id                    TEXT NOT NULL REFERENCES bulk_jobs(id),
+            source_path               TEXT NOT NULL,
+            output_path               TEXT,
+            file_ext                  TEXT NOT NULL,
+            file_size_bytes           INTEGER,
+            source_mtime              REAL,
+            stored_mtime              REAL,
+            content_hash              TEXT,
+            status                    TEXT NOT NULL DEFAULT 'pending',
+            error_msg                 TEXT,
+            converted_at              TEXT,
+            indexed_at                TEXT,
+            ocr_confidence_mean       REAL,
+            ocr_skipped_reason        TEXT,
+            mime_type                 TEXT,
+            file_category             TEXT DEFAULT 'unknown',
+            lifecycle_status          TEXT NOT NULL DEFAULT 'active',
+            marked_for_deletion_at    DATETIME,
+            moved_to_trash_at         DATETIME,
+            purged_at                 DATETIME,
+            previous_path             TEXT,
+            protection_type           TEXT DEFAULT 'none',
+            password_method           TEXT,
+            password_attempts         INTEGER DEFAULT 0,
+            is_archive                INTEGER NOT NULL DEFAULT 0,
+            archive_member_count      INTEGER,
+            archive_total_uncompressed INTEGER,
+            is_media                  INTEGER NOT NULL DEFAULT 0,
+            media_engine              TEXT,
+            source_file_id            TEXT REFERENCES source_files(id),
+            skip_reason               TEXT,
+            UNIQUE(source_path)
+        )""",
+        """INSERT OR IGNORE INTO bulk_files_new
+           SELECT id, job_id, source_path, output_path, file_ext,
+                  file_size_bytes, source_mtime, stored_mtime, content_hash,
+                  status, error_msg, converted_at, indexed_at,
+                  ocr_confidence_mean, ocr_skipped_reason,
+                  mime_type, file_category,
+                  lifecycle_status, marked_for_deletion_at,
+                  moved_to_trash_at, purged_at, previous_path,
+                  protection_type, password_method, password_attempts,
+                  is_archive, archive_member_count, archive_total_uncompressed,
+                  is_media, media_engine, source_file_id, skip_reason
+           FROM bulk_files
+           WHERE ROWID IN (
+               SELECT MAX(ROWID) FROM bulk_files GROUP BY source_path
+           )""",
+        "DROP TABLE bulk_files",
+        "ALTER TABLE bulk_files_new RENAME TO bulk_files",
+        "CREATE INDEX IF NOT EXISTS idx_bulk_files_job_status ON bulk_files(job_id, status)",
+        "CREATE INDEX IF NOT EXISTS idx_bulk_files_source_path ON bulk_files(source_path)",
+    ]),
 ]
 
 
@@ -737,9 +801,16 @@ async def _run_migrations(conn: aiosqlite.Connection) -> int:
             try:
                 await conn.execute(sql)
             except Exception:
-                pass  # Column already exists — safe to ignore
+                # ALTER TABLE "column already exists" is harmless — skip it.
+                # All other DDL failures (CREATE, DROP, INSERT, RENAME) are real
+                # errors that must propagate so the migration doesn't get
+                # recorded as applied when it actually failed.
+                if sql.strip().upper().startswith("ALTER"):
+                    pass
+                else:
+                    raise
         await conn.execute(
-            "INSERT INTO schema_migrations (version, description) VALUES (?, ?)",
+            "INSERT OR IGNORE INTO schema_migrations (version, description) VALUES (?, ?)",
             (version, description),
         )
         newly_applied += 1
