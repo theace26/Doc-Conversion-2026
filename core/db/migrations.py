@@ -13,7 +13,7 @@ async def run_bulk_files_dedup():
     Gated by preference 'bulk_dedup_v0_23_done'. Expected to delete
     ~187,784 duplicate rows on first run.
     """
-    done = await get_preference("bulk_dedup_v0_23_done", "false")
+    done = await get_preference("bulk_dedup_v0_23_done")
     if done == "true":
         return
 
