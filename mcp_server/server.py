@@ -298,10 +298,34 @@ def main():
     """Run the MCP server."""
     port = int(os.getenv("MCP_PORT", "8001"))
 
-    # Initialize database before starting server
+    # MCP is a READER. The main container (markflow) owns schema setup and
+    # migrations. Running init_db() here causes two processes to race on
+    # migrations — the loser gets `database is locked` and crashes. Instead,
+    # wait until the main container has populated schema_migrations, then
+    # proceed. docker-compose `depends_on` only guarantees start order, not
+    # readiness, so we poll.
     import asyncio
-    from core.database import init_db
-    asyncio.run(init_db())
+    import sqlite3
+    import time
+
+    db_path = os.getenv("DB_PATH", "/app/data/markflow.db")
+    deadline = time.monotonic() + 120  # 2 minute wait cap
+    while time.monotonic() < deadline:
+        try:
+            c = sqlite3.connect(db_path, timeout=1.0)
+            row = c.execute(
+                "SELECT COUNT(*) FROM sqlite_master "
+                "WHERE type='table' AND name='schema_migrations'"
+            ).fetchone()
+            c.close()
+            if row and row[0] == 1:
+                log.info("mcp_server.db_ready", db_path=db_path)
+                break
+        except sqlite3.Error as exc:
+            log.debug("mcp_server.db_wait", error=str(exc))
+        time.sleep(2)
+    else:
+        log.warning("mcp_server.db_wait_timeout", db_path=db_path)
 
     log.info("mcp_server_start", port=port, tools=12)
 

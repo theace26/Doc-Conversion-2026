@@ -1,261 +1,460 @@
 # Search
 
-MarkFlow indexes the content of every converted document so you can find it later by keyword. The search feature works across all file types — Word, PDF, PowerPoint, Excel, CSV — and even includes metadata from Adobe creative files. This article explains how indexing works, how to use the search page, and what is searchable.
+MarkFlow indexes the content of every converted document so you can
+find it later — across Word, PDF, PowerPoint, Excel, CSV, Adobe
+creative files, databases, video transcripts, and more. This article
+covers the three layers of search MarkFlow uses (keyword, vector, and
+AI Assist), how to write effective queries, and worked examples for
+each.
 
+## The Three Layers of MarkFlow Search
 
-## How Indexing Works
+MarkFlow combines three searches in one search bar. You do not pick
+between them — they run together automatically.
 
-Every time a file is converted, MarkFlow sends the text content to a search engine called Meilisearch. This engine builds an index — think of it as a very fast table of contents for every word in every document you have ever converted.
+| Layer | What it does | When it wins |
+|-------|--------------|--------------|
+| **Keyword** (Meilisearch) | Finds documents by literal words and phrases, with typo tolerance | Filenames, proper nouns, exact quotes, codes, part numbers |
+| **Vector / Semantic** (Qdrant) | Finds documents by *meaning*, even if they use different words than your query | Concepts, natural-language questions, "documents about X" |
+| **AI Assist** (Claude) | Reads the top results and synthesizes a direct answer with citations | When you want an *answer*, not just a list |
 
-### What Gets Indexed
+Behind the scenes, the keyword and vector results are merged with
+**Reciprocal Rank Fusion** so documents strong in either layer float
+to the top. If vector search is offline, the bar silently falls back
+to keyword-only — you will not see an error.
 
-| Content type                | Example                                           |
-|-----------------------------|---------------------------------------------------|
-| Full document text          | Every paragraph, heading, and list item            |
-| Table contents              | Text inside table cells                            |
-| Image descriptions          | AI-generated descriptions of video keyframes       |
-| Document metadata           | Title, author, creation date, format               |
-| File path and name          | Where the file lives in the source directory       |
-| Adobe file metadata         | Embedded text and properties from creative files   |
+---
 
-Indexing happens automatically after conversion. You do not need to trigger it or wait for it — by the time you see a file in History, it is already searchable.
+## Basic Search
 
-> **Tip:** Indexing also happens during bulk conversion. As each file finishes converting, it immediately becomes searchable. You do not have to wait for the entire bulk job to complete.
-
-### Two Search Indexes
-
-MarkFlow maintains two separate indexes:
-
-| Index              | What it contains                                             |
-|--------------------|--------------------------------------------------------------|
-| **Documents**      | All converted documents (Word, PDF, PowerPoint, Excel, CSV)  |
-| **Adobe Files**    | Adobe creative files (.ai, .psd, .indd, .aep, .prproj, .xd) |
-
-Both indexes are searched at the same time when you type a query. Results from both appear together, clearly labeled by their source.
-
-
-## The Search Page
-
-The Search page is the default landing page when you open MarkFlow. It has a single search bar at the top and shows results below.
-
-### Basic Search
-
-1. Click into the search bar (or just start typing — it is focused automatically).
+1. Click the search bar at the top of the Search page (it is focused
+   automatically when you land on the page).
 2. Type one or more keywords.
-3. Results appear as you type, updating live after a brief pause.
+3. Press Enter or wait ~200 ms — results appear below the bar.
 
-You do not need to press Enter. Results update automatically after you stop typing for about 200 milliseconds.
+Autocomplete suggestions appear as you type, sourced from real
+document titles in your index. Use arrow keys to move through
+suggestions, Enter to select.
 
-### Autocomplete
+> **Tip:** Click **Browse All** next to the search button to see
+> every indexed document sorted by most recently converted. Useful
+> when you just want to poke around.
 
-As you type, a dropdown appears below the search bar with suggested completions. These suggestions come from actual document content and filenames in the index.
+### Keyboard shortcuts on the Search page
 
-| Autocomplete feature | How it works                                           |
-|----------------------|--------------------------------------------------------|
-| **Live suggestions** | Updates with every keystroke after a short delay       |
-| **Keyboard navigation** | Use arrow keys to move through suggestions, Enter to select |
-| **Deduplication**    | The same suggestion does not appear twice even if it matches in both indexes |
+A handful of single-keystroke shortcuts speed up common tasks:
 
-> **Tip:** Autocomplete is great for remembering exact filenames or finding the right spelling of a term. If you know part of a filename, start typing it and the suggestion list will narrow down quickly.
+| Key | What it does |
+|-----|--------------|
+| `/` | Jump to the search box from anywhere on the page |
+| `Alt + Shift + A` | Toggle **AI Assist** on/off |
+| `Alt + A` | Select every result on the current page |
+| `Alt + C` | Clear the batch selection |
+| `Alt + Shift + D` | Download the current batch as a ZIP |
+| `Alt + B` | Trigger **Browse All** |
+| `Alt + R` | Re-run the current search |
+| `Esc` | Close the preview popup / AI drawer / flag modal (in that order), then clear selection, then blur the search box |
+| `Alt + Click` a result | Download the original source file directly, skipping the viewer |
+| `Shift + Click` a checkbox | Range-select every row between the last click and this one |
 
-### Search Results
+For the complete list including Esc priority order and other pages,
+see [Keyboard Shortcuts](/help#keyboard-shortcuts).
 
-Each result shows:
+---
 
-| Element            | What it displays                                          |
-|--------------------|-----------------------------------------------------------|
-| **Title**          | The document title or filename                            |
-| **File type badge**| A colored badge showing the format (DOCX, PDF, etc.)     |
-| **Path**           | Where the source file lives                               |
-| **Snippet**        | A highlighted excerpt showing where your keywords appear  |
-| **Date**           | When the file was converted                               |
-| **Hover preview**  | A popup showing file content when you hover (configurable) |
+## Keyword Search — Syntax Cheatsheet
 
-Keywords in the snippet are highlighted so you can quickly see why each result matched.
+Keyword search uses Meilisearch under the hood. It is typo-tolerant,
+case-insensitive, and supports prefix matching. Here are the operators
+you can use **inside the search bar**:
 
+| Syntax | Example | What it does |
+|--------|---------|--------------|
+| Single word | `budget` | Finds documents with "budget" anywhere; prefix-matches "budgetary", "budgeted", etc. |
+| Multiple words | `Q3 revenue forecast` | Finds documents that contain *all three* words, ranking ones where they appear near each other higher |
+| **Exact phrase** | `"quarterly revenue"` | Only matches the phrase exactly — "quarterly" followed by "revenue" |
+| **Negative term** | `contract -draft` | Matches "contract" but excludes documents containing "draft" |
+| Prefix match | `fin` | Matches "finance", "financial", "financing" — you do not need a wildcard |
+| Typo tolerance | `finacial` | Still matches "financial" (Meilisearch auto-corrects short typos) |
 
-## Filtering Results
+### What keyword search does **not** support
 
-Below the search bar, you will find filter controls that let you narrow down results:
+MarkFlow does **not** support traditional Boolean operators like
+`AND`, `OR`, or `NOT` as typed words — Meilisearch ignores them.
+Instead:
 
-### Format Filter
+- To require **both** of two terms: just type both words. All terms
+  are treated as a soft "must-match" in ranking. `budget forecast`
+  ranks documents with both words higher than documents with only
+  one.
+- To exclude a term: use the minus sign, e.g. `budget -draft`. There
+  is no `NOT` keyword.
+- To search for an exact phrase: wrap it in double quotes, e.g.
+  `"final approved"`.
+- To **filter** results (instead of changing the query), use the
+  **format chips** or the **sort dropdown** above the results list.
 
-Click format badges to show only results of a specific type:
+### Keyword Search Examples
 
-- DOCX
-- PDF
-- PPTX
-- XLSX
-- CSV
-- Adobe
+```
+"safety policy"                ← exact-phrase search
+wage sheet -draft              ← documents about wage sheets, excluding drafts
+PENINSULA SMALL WORKS          ← case-insensitive; matches PENINSULA_SMALL_WORKS.pdf
+IBEW Local 46                  ← word splitter also handles IBEWLocal46 filenames
+q3 2026 forecast               ← multi-token, ranked by proximity
+```
 
-You can select multiple formats at once. Click a selected format again to deselect it. With no formats selected, all types are shown.
+> **Tip:** Filenames are normalized at index time — underscores,
+> dashes, dots, and camelCase boundaries are split into separate
+> tokens. That is why `IBEW Local 46` matches `IBEWLocal46.pdf` and
+> `wage sheet` matches `wage.sheet.pdf`.
 
-### Index Filter
+---
 
-Choose which index to search:
+## Vector / Semantic Search
 
-| Filter        | What it searches                       |
-|---------------|----------------------------------------|
-| **All**       | Both documents and Adobe files         |
-| **Documents** | Only converted documents               |
-| **Adobe**     | Only Adobe creative file metadata      |
+Vector search finds documents by **meaning**, not by literal words.
+This is automatic — there is no toggle. Every query runs through both
+keyword and vector search in parallel, then the results are merged.
 
+### When vector search helps
 
-## What Is Searchable
+- When you know the **concept** but not the exact wording used in
+  the document.
+- When asking **natural-language questions** — the question prefix
+  is automatically stripped (`what is`, `where are`, `tell me
+  about`, etc.).
+- When you want to find "documents about" a topic — rephrasings,
+  paraphrases, and synonyms all surface.
+- When words in your query have **temporal intent** ("latest",
+  "recent", "current", "new"), MarkFlow detects this and boosts
+  recent documents in the ranking.
 
-Here is a detailed breakdown of what you can search for and where it comes from:
+### Vector Search Examples
 
-### Document Content
+```
+budget overrun
+  → finds documents that say "cost exceeded plan",
+    "went over estimate", or "project ran over budget"
 
-When you convert a Word document that says "The quarterly revenue exceeded expectations," you can search for "quarterly revenue" or "expectations" and that document will appear.
+how do I request PTO?
+  → normalized to "request PTO" — finds the PTO request form,
+    employee handbook PTO section, HR policies
 
-The full text of every converted document is searchable, including:
+latest safety bulletin
+  → "latest" boosts recent docs; finds the most recent safety
+    communications even if they don't contain the word "bulletin"
 
-- Headings and body paragraphs
-- Text inside tables
-- List items
-- Footnotes and endnotes
-- Speaker notes (from PowerPoint)
-- Sheet content (from Excel)
+what is the procedure for onboarding a new electrician?
+  → question prefix stripped; semantic match against training
+    docs, new-hire checklists, apprentice materials
+```
 
-### Metadata
+> **Tip:** If a purely semantic query gives vague results, fall back
+> to keyword search with quotes: `"new hire checklist"`. Exact
+> phrases always beat paraphrase matching when you know the phrase.
 
-Each document carries metadata that is also searchable:
+### When vector search is less helpful
 
-| Metadata field   | Example                                    |
-|------------------|--------------------------------------------|
-| Title            | "Q3 Financial Report"                      |
-| Author           | "Jane Smith"                               |
-| Format           | "docx", "pdf"                              |
-| Source path      | "finance/reports/q3-report.docx"           |
-| Conversion date  | Stored but typically filtered, not searched |
+- Looking up a **specific filename** or exact quote → use quotes
+  instead.
+- Searching for **codes, part numbers, or identifiers** like
+  `SP-4421-B` → keyword is better.
+- When your repository has fewer than a few hundred documents —
+  there is not enough corpus for semantic matching to find useful
+  paraphrases. Keyword will dominate anyway.
 
-### AI-Generated Descriptions
+---
 
-If your team uses the visual enrichment feature, MarkFlow extracts keyframes from video files and generates text descriptions of what appears in each frame. These descriptions are indexed and searchable.
+## AI Assist — Ask Questions, Get Answers
 
-For example, if a video contains a frame described as "presenter standing in front of whiteboard with workflow diagram," you could search for "workflow diagram" and find that video.
+AI Assist reads the top 8 search results and streams a direct,
+grounded answer from Claude with inline citations.
 
-> **Tip:** Visual enrichment and frame descriptions require an active AI provider to be configured. Ask your administrator if this feature is available.
+### Turning It On
 
+Click the **AI Assist** button next to the search bar (the sparkle
+icon). The button toggles on/off and the state is remembered between
+sessions. When on:
 
-## Adobe Files in Search
+1. Run any search as normal.
+2. A side drawer opens on the right.
+3. Claude streams an answer, word by word, as it reads the top results.
+4. Each citation (`[1]`, `[2]`, etc.) is a link — click to jump to
+   the source document.
+5. At the end, the drawer shows the list of source documents Claude
+   used.
 
-MarkFlow has special handling for Adobe creative files. While these files cannot be converted to Markdown (their formats are too specialized), MarkFlow extracts what text and metadata it can and indexes it for search.
+### Requirements
 
-### Supported Adobe Formats
+AI Assist currently requires an **Anthropic** provider:
 
-| Format                  | Extension | What is extracted                            |
-|-------------------------|-----------|----------------------------------------------|
-| Adobe Illustrator       | `.ai`     | Embedded text layers, document metadata       |
-| Adobe Photoshop         | `.psd`    | Text layers from the PSD, metadata            |
-| Adobe InDesign          | `.indd`   | Document metadata (title, author, keywords)   |
-| Adobe After Effects     | `.aep`    | Project metadata                              |
-| Adobe Premiere Pro      | `.prproj` | Project metadata                              |
-| Adobe XD                | `.xd`     | Project metadata                              |
+1. Go to **Settings → Providers**
+2. Add (or select) an Anthropic provider with a valid API key
+3. Tick the **Use for AI Assist** checkbox on that provider
+4. Save
 
-### How Adobe Indexing Works
+If you have an active OpenAI / Gemini / Ollama provider but no
+Anthropic provider opted in, the AI Assist drawer will show a clear
+error explaining how to opt in an Anthropic provider.
 
-During a bulk scan, MarkFlow identifies Adobe files and runs a metadata extraction tool (exiftool) against them. For Illustrator and Photoshop files, it also reads embedded text layers directly from the file.
+### What to Ask
 
-The extracted information is sent to the Adobe Files search index. When you search, results from this index are labeled with an "Adobe" badge so you can distinguish them from regular document results.
+AI Assist is not just a search — it is a *question-answering*
+interface. Instead of thinking in keywords, think in questions.
 
-> **Tip:** Adobe files often have useful metadata that was set by the creator — things like document title, description, keywords, and copyright info. Even if the file itself cannot be converted, you can find it through this metadata.
+### AI Assist Examples
 
+**Fact lookup:**
+```
+What is the current vacation accrual rate for apprentices?
+```
+→ Claude reads the top HR / onboarding documents and returns a
+direct answer citing `[1] Apprentice Handbook`, `[2] Benefits
+Overview`.
 
-## Rebuilding the Search Index
+**Cross-document synthesis:**
+```
+Summarize the main safety requirements for working at height
+```
+→ Claude pulls together bullet points from multiple safety
+bulletins, OSHA guides, and internal procedures, citing each
+source.
 
-If the search index ever gets out of sync (for example, after a server migration or database restore), an administrator can rebuild it.
+**Comparisons:**
+```
+What changed between the 2024 and 2026 wage agreements?
+```
+→ Claude identifies the relevant documents and calls out
+differences, citing each version.
 
-This is done from the Search page or the Admin panel. Rebuilding walks through all converted documents in the database and re-sends them to Meilisearch. Depending on how many documents you have, this can take anywhere from seconds to several minutes.
+**Decision support:**
+```
+Which documents cover drug testing policy for journeymen?
+```
+→ Claude lists the relevant documents with a one-line summary
+of what each covers.
 
-> **Warning:** During a rebuild, search results may be incomplete until the process finishes. The search page will still work — it just may not show all results until rebuilding is done.
+**Timeline questions:**
+```
+When was the last time we updated the grievance procedure?
+```
+→ The word "last" triggers temporal boosting; Claude finds the
+most recent revision and cites it.
 
+> **Tip:** AI Assist is grounded in your documents only — it will
+> never make up information. If the top 8 results do not contain an
+> answer, Claude will say so explicitly rather than guess. If you
+> suspect the answer is in your repository but AI Assist cannot find
+> it, **turn AI Assist off** and use keyword search to locate the
+> document directly, then turn AI Assist back on.
 
-## Search and Deleted Files
+### Document Expand
 
-If a file has been deleted or moved to trash (see [File Lifecycle](/help#file-lifecycle)), it may still appear in search results briefly until the index catches up. Deleted files in search results show a visual indicator so you know they are no longer active.
+For a deeper dive into a single document, click **Expand** on any
+search result (or in the AI Assist sources list). Claude re-reads
+the full document (up to ~12,000 characters) and provides a focused
+analysis in the context of your original query.
 
-If you see a search result for a file that has been deleted:
+Useful for:
 
-- The result will have a lifecycle badge showing its status (marked for deletion, in trash, etc.)
-- You can still see the document content that was indexed
-- The original file may no longer be available for download
+- Getting the "executive summary" of a long document without
+  opening it
+- Extracting key dates, decisions, or entities from a single contract
+- Understanding *how* a document answers your original question
 
-The index is updated during lifecycle scans, so deleted files are eventually removed from search results.
+### Token Usage
 
+AI Assist uses tokens on your Anthropic account. Every search +
+assist runs ~1.5k–4k input tokens and up to ~700 output tokens.
+Document Expand uses more (up to ~900 output tokens and much more
+input). You can monitor usage on the Resources page.
+
+---
+
+## Filtering, Sorting, and Browsing
+
+Above the results list you will find:
+
+### Format chips
+
+Click format badges (DOCX, PDF, PPTX, XLSX, CSV, etc.) to filter
+results. Clicking a second time deselects. With no chips selected,
+all formats are shown. The chip labels show live facet counts —
+you know how many results exist for each format before filtering.
+
+### Sort dropdown
+
+| Option | What it sorts by |
+|--------|------------------|
+| **Relevance** | Default — the hybrid keyword+vector ranking |
+| **Date (newest)** | Most recently converted first |
+| **File size** | Largest first |
+| **Format** | Grouped by file type |
+
+If your query contains temporal words ("latest", "recent"), sort
+automatically falls back to **Date** regardless of the dropdown,
+since that is almost certainly what you meant.
+
+### Per-page buttons
+
+Choose 10, 30, 50, or 100 results per page. The default is 10.
+
+### Browse All
+
+With no query at all, click **Browse All** to see every indexed
+document sorted by date. Useful for poking around a new repository.
+
+---
+
+## Batch Download
+
+After searching, select multiple result checkboxes and click
+**Download ZIP** in the toolbar that appears. MarkFlow builds a ZIP
+of all selected source files (not the converted Markdown) and
+streams it to your browser. Up to 500 files per ZIP.
+
+Flagged files are silently excluded for non-admins — the batch
+download response includes an `X-Skipped-Flagged` header with the
+count.
+
+---
 
 ## Hover Preview
 
-When you hover over a search result, a preview popup appears showing the file content. This saves you from opening every result in a new tab just to check if it is the right file.
-
-### What the Preview Shows
+Hover over any search result for ~400 ms to see a preview popup:
 
 | File type | Preview content |
 |-----------|----------------|
-| PDF, images, text, HTML, CSV | The original source file rendered inline |
-| Word, PowerPoint, Excel, and other converted files | The first portion of the converted Markdown text |
-| Files without a preview | A "Cannot render preview" message |
+| PDF, images, text, HTML, CSV | Original source file rendered inline |
+| Word, PowerPoint, Excel, databases, Adobe | First portion of the converted Markdown text |
+| Files with no preview | "Cannot render preview" message |
 
-The preview appears after a short delay (default 400ms) so it does not pop up when you are simply scrolling past results. Move your mouse away from the result to dismiss it.
+The popup is **interactive** — you can scroll its content and click
+the **Open** link inside it. If you move your mouse onto the popup,
+it stays. After 2 seconds of inactivity on the popup, it slides
+offscreen to get out of your way; move back into it to bring it
+back.
 
-### Preview Settings
+Configure hover delay, popup size, and enable/disable from
+**Settings → Search Preview**.
 
-You can configure the preview from the Settings page under **Search Preview**:
+---
 
-| Setting | Default | What It Does |
-|---------|---------|-------------|
-| Hover Preview | On | Enable or disable the preview popup entirely |
-| Preview size | Medium | Popup dimensions: Small, Medium, or Large |
-| Hover delay | 400ms | How long to hover before the preview appears |
+## Three Search Indexes, One Search Bar
 
-> **Tip:** If previews feel intrusive, increase the hover delay to 800ms or higher. If you want them faster, drop it to 200ms. You can also turn them off entirely.
+MarkFlow maintains three separate Meilisearch indexes. A single
+query hits all three in parallel and merges the results:
 
+| Index | What it contains |
+|-------|------------------|
+| **Documents** | Every converted file (Word, PDF, PPTX, XLSX, CSV, RTF, ODT, HTML, EPUB, databases, etc.) |
+| **Adobe Files** | Metadata + embedded text layers from `.ai`, `.psd`, `.indd`, `.aep`, `.prproj`, `.xd` |
+| **Transcripts** | Full transcripts of audio and video files (with timestamps) |
 
-## Search Settings
+Every result is tagged with its source index in the UI so you can
+tell at a glance where each match came from.
 
-Search works automatically once documents are converted. The following are managed by administrators:
+---
 
-| Setting                  | What it controls                                  | Managed by    |
-|--------------------------|---------------------------------------------------|---------------|
-| **Meilisearch connection** | The search engine URL and API key               | Administrator |
-| **Index rebuild**        | Triggering a full re-index of all documents       | Administrator |
-| **Searchable attributes** | Which fields are searched (all by default)       | System default |
+## What Is Searchable
 
+| Content | Source |
+|---------|--------|
+| Document body text | Paragraphs, headings, lists, tables, footnotes |
+| Table cells | Excel sheets, Word tables, CSV rows |
+| Speaker notes | PowerPoint |
+| Captions & transcripts | Audio/video files — full text with timestamps |
+| Database schema & samples | Table names, column names, first N sample rows |
+| Adobe file metadata | Title, author, keywords, embedded text layers |
+| Image descriptions | AI-generated frame descriptions from video keyframes |
+| OCR text | Scanned PDFs and image files — including LLM handwriting transcription |
+| Filenames (normalized) | Split on underscores, dashes, dots, and camelCase |
+| Source file paths | Where the file lives in the source directory |
 
-## Tips for Effective Searching
+---
 
-**Use specific terms.** Searching for "report" will return thousands of results. Searching for "Q3 revenue forecast" will return exactly what you need.
+## Rebuilding the Search Index
 
-**Search for phrases.** Type multiple words and Meilisearch will find documents containing all of them, with priority given to documents where the words appear near each other.
+If the index ever gets out of sync (after a restore or migration),
+an administrator can rebuild it from the Bulk page **Pipeline
+Controls → Rebuild Search Index** button.
 
-**Try partial words.** Meilisearch supports prefix search. Typing "finan" will match "finance," "financial," and "financing."
+Rebuilding walks every converted document in the database and
+re-sends it to Meilisearch. Depending on repo size this takes
+seconds to several minutes. A live progress indicator shows
+"Rebuilding (X docs)..." until all sub-indexes finish.
 
-**Use the format filter.** If you know you are looking for a spreadsheet, click the XLSX badge to eliminate all other formats from the results.
+> **Warning:** During a rebuild, results may be incomplete until
+> the process finishes. The search page still works — it just may
+> not show every result until rebuilding is done.
 
-**Check autocomplete.** The suggestions often reveal the exact phrasing used in a document, which can help you refine your search.
+---
 
+## Search and Deleted Files
+
+Deleted or trashed files may appear briefly in search until the
+index catches up. Lifecycle-affected results show a badge ("marked
+for deletion", "in trash") so you know they are no longer active.
+The index is updated at every lifecycle scan, so deleted files
+eventually drop out.
+
+Flagged files are hidden from non-admin users entirely — they do
+not appear in search results, cannot be opened, and cannot be
+batch-downloaded. Admins still see them with a warning banner.
+
+---
 
 ## Common Questions
 
-**Why is my recently converted file not showing up in search?**
-There is a brief delay (usually under a second) between conversion completing and the file appearing in search. If it has been more than a minute, the search engine may be temporarily unavailable. Try again shortly.
+**Why does a natural-language question work better for some
+searches than keywords?**
+When you ask a question, vector search turns the question into a
+semantic "meaning vector" and finds documents whose content is
+close in meaning — even if they use totally different words.
+Keyword search only matches literal tokens. Both run together, so
+you get the best of both automatically.
 
 **Can I search inside images?**
-Not directly. However, if a PDF's text was extracted via OCR, that text is indexed and searchable. And if visual enrichment is enabled, AI-generated descriptions of video keyframes are searchable.
+Yes, via two paths: (1) OCR extracts text from scanned PDFs and
+image files, and that text is indexed; (2) if LLM vision is
+enabled, handwritten pages are transcribed and indexed; (3)
+visual enrichment generates descriptions of video keyframes which
+are also indexed.
 
 **Is search case-sensitive?**
-No. Searching for "Budget," "budget," or "BUDGET" all return the same results.
+No. `Budget`, `budget`, `BUDGET` all return the same results.
 
 **Can I search by date?**
-Not directly in the search bar, but you can use the History page to filter conversions by date range.
+Not directly in the search bar, but the **Sort → Date (newest)**
+option orders results chronologically, and temporal words in the
+query ("latest", "recent") automatically boost recent documents.
+For exact date filtering, use the History page.
 
+**Why isn't my just-converted file showing up yet?**
+There is a brief delay (usually under a second) between conversion
+completing and the file appearing in search. If it has been more
+than a minute, Meilisearch may be temporarily unavailable — check
+the Status page.
+
+**Can I use Google-style `site:` or `filetype:` operators?**
+Not as typed operators. Use the **format chips** above the results
+to filter by file type, and the **index** tag on each result to see
+where it came from.
+
+**Why does AI Assist show "provider not compatible"?**
+AI Assist requires an Anthropic provider with a valid API key.
+Go to **Settings → Providers**, add one, and tick **Use for AI
+Assist** on that provider.
+
+---
 
 ## Related
 
+- [What's New](/help#whats-new)
 - [Getting Started](/help#getting-started)
-- [Document Conversion](/help#document-conversion)
-- [Bulk Conversion](/help#bulk-conversion)
-- [File Lifecycle](/help#file-lifecycle)
+- [LLM Provider Setup](/help#llm-providers)
+- [Database Files](/help#database-files)
 - [OCR Pipeline](/help#ocr-pipeline)
+- [File Lifecycle](/help#file-lifecycle)
+- [Settings Reference](/help#settings-guide)

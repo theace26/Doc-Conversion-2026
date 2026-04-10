@@ -790,6 +790,16 @@ async def _add_column_if_missing(
 
 async def _run_migrations(conn: aiosqlite.Connection) -> int:
     """Apply any pending schema migrations. Returns count of newly applied."""
+    # Schema rebuilds (CREATE TABLE new / INSERT FROM old / DROP / RENAME)
+    # can carry historical orphan rows that would violate FK constraints at
+    # INSERT time. The connection pragma sets foreign_keys=ON on every open,
+    # so we must explicitly disable enforcement for the migration batch.
+    # PRAGMA foreign_keys is a no-op inside a transaction, so commit first to
+    # flush any pending implicit txn. init_db() re-enables FKs immediately
+    # after this function returns.
+    await conn.commit()
+    await conn.execute("PRAGMA foreign_keys = OFF")
+
     async with conn.execute("SELECT version FROM schema_migrations") as cur:
         applied = {row[0] for row in await cur.fetchall()}
 

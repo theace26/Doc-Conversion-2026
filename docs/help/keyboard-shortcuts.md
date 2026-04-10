@@ -12,6 +12,8 @@ more that work well with MarkFlow's pages.
 The search input field has `autofocus`, which means your cursor is already
 in the search box when the page loads. Just start typing.
 
+### Search box + autocomplete
+
 | Key | Action |
 |-----|--------|
 | Any character | Starts typing in the focused search box |
@@ -19,7 +21,7 @@ in the search box when the page loads. Just start typing.
 | Arrow Down | Moves down through autocomplete suggestions |
 | Arrow Up | Moves up through autocomplete suggestions |
 | Enter (with suggestion highlighted) | Selects the highlighted suggestion and runs the search |
-| Escape | Closes the autocomplete dropdown |
+| Escape | Closes the autocomplete dropdown (or closes the most-foreground overlay — see below) |
 
 The autocomplete dropdown appears after you type at least two characters.
 It is debounced (200 milliseconds), so you can type continuously without
@@ -29,6 +31,56 @@ the arrow keys let you pick a suggestion without reaching for the mouse.
 > **Tip:** If you already know the exact title, type the first few letters,
 > wait for the dropdown, then press Arrow Down and Enter. This is often
 > faster than typing the full title and clicking Search.
+
+### Page-level shortcuts
+
+These work from anywhere on the Search page, even when the search box is
+focused (the `Alt` modifier prevents conflict with typing letters).
+
+| Key | Action |
+|-----|--------|
+| `/` | Jump focus to the search box from anywhere on the page (does nothing when already typing in a field) |
+| **`Alt + Shift + A`** | Toggle the **AI Assist** drawer on or off |
+| **`Alt + A`** | Select every visible result on the current page for batch download |
+| **`Alt + C`** | Clear the current batch selection |
+| **`Alt + Shift + D`** | Start the batch **Download ZIP** of the current selection (uses `Shift+Alt+D` to avoid Chrome's `Alt+D` address-bar shortcut) |
+| **`Alt + B`** | Click **Browse All** — clears the query and shows everything by date |
+| **`Alt + R`** | Re-run the current search (useful after content has been re-indexed) |
+| `Esc` | Contextual close: first the preview popup, then the AI Assist drawer, then the Flag modal, then the autocomplete list, then the batch selection, finally blurs the search input |
+
+### Result-row shortcuts
+
+These apply when hovering over or clicking a result card.
+
+| Key / click | Action |
+|-------------|--------|
+| Click a result | Open the document in the viewer (new tab) |
+| **`Alt + Click`** a result | Download the **original source file** directly instead of opening the viewer |
+| Middle-click or `Ctrl + Click` | Open the viewer in a background tab (standard browser behavior) |
+| Click a checkbox | Add that result to the batch selection |
+| **`Shift + Click`** a checkbox | Range-select every result between the last-clicked checkbox and this one (like file explorers) |
+| Hover a result | Shows the hover preview after the configured delay (default 400ms) |
+
+> **Tip:** `Alt + A` followed by `Alt + Shift + D` is the fastest way to
+> grab every result on a page as a ZIP — three key presses total.
+
+> **Tip:** `Alt + Click` on a result skips the viewer page entirely and
+> sends the original file straight to your Downloads folder. Great for
+> "I know this is the one I want" moments.
+
+### AI Assist on the Search page
+
+When the AI Assist drawer is open, every running search starts streaming a
+synthesized answer. You can still keep typing and refining the query — the
+drawer cancels the previous stream and starts a new one on each search.
+
+| Key | Action |
+|-----|--------|
+| `Alt + Shift + A` | Toggle AI Assist on/off |
+| `Esc` | Close the AI Assist drawer (cancels in-flight streaming) |
+
+If you click an `[1]`, `[2]`, etc. citation link inside the drawer, it
+opens the cited document in a new tab.
 
 ---
 

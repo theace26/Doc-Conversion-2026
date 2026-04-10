@@ -4,6 +4,129 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.23.5 — Search shortcuts, migration FK fix, MCP race fix (2026-04-10)
+
+Two-track release: a set of new keyboard shortcuts on the Search
+page, plus a pair of critical startup crash fixes discovered during
+the v0.23.4 → v0.23.5 upgrade on the dev instance.
+
+### Search Page Keyboard Shortcuts
+
+Added ten shortcuts to `static/search.html` via a single global
+`keydown` handler appended to the main IIFE. All `Alt`-based combos
+to avoid conflicts with typing into the search input.
+
+| Key | Action |
+|-----|--------|
+| `/` | Focus the search input from anywhere on the page |
+| `Esc` | Contextual close: preview popup → AI drawer → flag modal → autocomplete → batch selection → blur search |
+| `Alt + Shift + A` | Toggle AI Assist |
+| `Alt + A` | Select every visible result on the current page |
+| `Alt + C` | Clear batch selection |
+| `Alt + Shift + D` | Download the current batch as ZIP (uses Shift to avoid Chrome's `Alt+D` address bar shortcut) |
+| `Alt + B` | Trigger Browse All |
+| `Alt + R` | Re-run the current search |
+| `Alt + Click` on a result | Download the original source file directly instead of opening the viewer |
+| `Shift + Click` on a checkbox | Range-select from the last-checked row to this one |
+
+Implementation notes:
+- `Alt+Click` on the hit-link diverts navigation to
+  `/api/search/download/{index}/{doc_id}` via `e.preventDefault()` +
+  `window.location.href`.
+- `Shift+Click` range-select tracks `window._lastCheckedIdx` and
+  dispatches synthetic `change` events on the in-range checkboxes so
+  the existing batch-bar update logic fires.
+- Global keydown listener checks `isEditable(e.target)` before
+  handling `/` so it doesn't steal the key mid-input.
+- `handleEscape()` returns `true` if it handled the key so we can
+  `preventDefault()` conditionally.
+- Discoverability: the search input gets a `title` tooltip on init.
+
+### Help Documentation Updates
+
+- **New:** `docs/help/whats-new.md` — user-facing version page
+  listing changes v0.20.0 → v0.23.5, most recent on top. Registered
+  as the first entry under **Basics** in `docs/help/_index.json`.
+- **Rewritten:** `docs/help/search.md` — now covers the three search
+  layers (keyword Meilisearch / vector Qdrant / AI Assist Claude)
+  with worked examples per layer. Keyword syntax cheatsheet
+  documents phrase `"quotes"`, negative `-term`, typo tolerance, and
+  prefix match — with the honest note that AND/OR/NOT don't exist.
+  AI Assist section has five example question categories.
+- **Rewritten:** `docs/help/settings-guide.md` — matches the v0.23.4
+  section layout (Files and Locations / Conversion Options / AI
+  Options groups). Adds docs for `scan_skip_extensions`,
+  `handwriting_confidence_threshold`, Database sample rows per table,
+  Pipeline master switch, Cloud Prefetch, Auto-Conversion, Debug
+  DB contention, Advanced.
+- **Expanded:** `docs/help/keyboard-shortcuts.md` — three new
+  subsections for the Search page: search box + autocomplete,
+  page-level shortcuts, and result-row shortcuts. Full Esc priority
+  order documented.
+- **Unchanged:** `docs/help/ocr-pipeline.md` (already had v0.20.3
+  handwriting fallback section), `docs/help/database-files.md`
+  (already matched v0.23.1 handler reality).
+
+### Crash Fix A — Migration FK Enforcement
+
+**Symptom:** On startup after pulling v0.23.4 onto a long-running
+dev instance, both containers crash-looped. MCP logs showed
+`sqlite3.IntegrityError: FOREIGN KEY constraint failed` during
+`_run_migrations`. Main container logs showed `database is locked`
+because the two containers were racing on migration.
+
+**Root cause:** `core/db/connection.py` sets `PRAGMA foreign_keys=ON`
+on every connection open. Migration 27 (v0.23.3 re-run of the
+`bulk_files` rebuild) does the standard SQLite "new table / insert
+from old / drop / rename" pattern. With FK enforcement on,
+`INSERT INTO bulk_files_new SELECT ... FROM bulk_files` rejects any
+row whose `job_id` no longer exists in `bulk_jobs` or whose
+`source_file_id` no longer exists in `source_files`. The dev
+instance had accumulated orphans over 20+ releases.
+
+**Fix (`core/db/schema.py`):** At the start of `_run_migrations`,
+`await conn.commit()` to flush any implicit transaction, then
+`await conn.execute("PRAGMA foreign_keys = OFF")`. This is the
+standard SQLite recommendation for schema rebuilds (see
+<https://sqlite.org/lang_altertable.html#otheralter>). `init_db()`
+already calls `PRAGMA foreign_keys = ON` at line 916 immediately
+after `_run_migrations` returns, so enforcement is restored for
+normal operation. Historical orphans get copied through to the new
+table; going-forward inserts with bad FKs continue to be rejected.
+
+### Crash Fix B — MCP Migration Race
+
+**Symptom:** `mcp_server/server.py:304` called
+`asyncio.run(init_db())` on startup, and so did the main container.
+With `docker-compose depends_on` providing only start-order
+guarantees (not readiness), both processes hit the migration
+runner concurrently. The loser got `database is locked` because the
+winner held an exclusive lock.
+
+**Fix (`mcp_server/server.py`):** MCP is a reader. The main
+container owns schema setup and migrations. Removed the `init_db()`
+call. Replaced with a 2-minute polling loop that waits for the
+`schema_migrations` table to exist (via
+`SELECT COUNT(*) FROM sqlite_master WHERE ... name='schema_migrations'`)
+before proceeding. If the wait times out, MCP logs a warning and
+starts anyway — the first query will surface any real problem.
+
+### Files
+
+- Modified: `core/version.py` (0.23.4 → 0.23.5)
+- Modified: `CLAUDE.md` (current version section)
+- Modified: `core/db/schema.py` (`_run_migrations` FK-off prologue)
+- Modified: `mcp_server/server.py` (init_db removed, DB-ready poll added)
+- Modified: `static/search.html` (keyboard shortcut handler, Alt-click download, shift-click range select)
+- Modified: `docs/help/search.md` (rewrite)
+- Modified: `docs/help/settings-guide.md` (rewrite for v0.23.4 layout)
+- Modified: `docs/help/keyboard-shortcuts.md` (Search page expansion)
+- Modified: `docs/help/_index.json` (registered whats-new under Basics)
+- Created: `docs/help/whats-new.md`
+- Modified: `docs/version-history.md` (this entry)
+
+---
+
 ## v0.23.4 — Settings page reorganization (2026-04-10)
 
 UX pass on the Settings page. Reorganized 21 sections into logical

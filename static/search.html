@@ -596,6 +596,31 @@
       cb.type = 'checkbox';
       cb.className = 'hit-checkbox';
       cb.checked = !!selectedItems[selKey];
+      // Shift+click support — intercept on click (not change) so we can read shiftKey.
+      cb.addEventListener('click', function(e) {
+        if (e.shiftKey && window._lastCheckedIdx !== undefined) {
+          var boxes = Array.prototype.slice.call(
+            document.querySelectorAll('.hit-checkbox')
+          );
+          var myIdx = boxes.indexOf(cb);
+          if (myIdx !== -1) {
+            var start = Math.min(window._lastCheckedIdx, myIdx);
+            var end = Math.max(window._lastCheckedIdx, myIdx);
+            var wantChecked = cb.checked; // state after this click
+            for (var i = start; i <= end; i++) {
+              var box = boxes[i];
+              if (box.checked !== wantChecked) {
+                box.checked = wantChecked;
+                box.dispatchEvent(new Event('change', { bubbles: true }));
+              }
+            }
+          }
+        }
+        var idx = Array.prototype.indexOf.call(
+          document.querySelectorAll('.hit-checkbox'), cb
+        );
+        if (idx !== -1) window._lastCheckedIdx = idx;
+      });
       cb.addEventListener('change', function(e) {
         e.stopPropagation();
         if (cb.checked) {
@@ -635,6 +660,15 @@
       link.addEventListener('click', function(e) {
         // Don't navigate if clicking on checkbox
         if (e.target === cb) { e.preventDefault(); return; }
+        // Alt+click: download the original source file directly instead of
+        // opening the viewer. Works with any mouse button — same-tab nav.
+        if (e.altKey) {
+          e.preventDefault();
+          e.stopPropagation();
+          window.location.href = '/api/search/download/' +
+            encodeURIComponent(indexTag) + '/' +
+            encodeURIComponent(hit.id);
+        }
       });
 
       // Header row
@@ -1007,6 +1041,162 @@
         btn.textContent = 'Flag File';
       });
   }
+
+  // ── Keyboard shortcuts ─────────────────────────────────────────────────────
+  // See docs/help/keyboard-shortcuts.md for the full list.
+  (function() {
+    var searchInput = document.getElementById('search-input');
+
+    function isEditable(el) {
+      if (!el) return false;
+      var tag = el.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' ||
+             el.isContentEditable === true;
+    }
+
+    function selectAllVisible() {
+      var boxes = document.querySelectorAll('.hit-checkbox');
+      if (!boxes.length) {
+        showToast('No results to select.', 'info');
+        return;
+      }
+      var changed = 0;
+      boxes.forEach(function(cb) {
+        if (!cb.checked) {
+          cb.checked = true;
+          cb.dispatchEvent(new Event('change', { bubbles: true }));
+          changed++;
+        }
+      });
+      if (changed) showToast(changed + ' result' + (changed !== 1 ? 's' : '') + ' selected.', 'success');
+    }
+
+    function clearAllSelection() {
+      var btn = document.getElementById('batch-clear-btn');
+      if (btn) btn.click();
+    }
+
+    function triggerDownloadZip() {
+      var bar = document.getElementById('batch-bar');
+      var btn = document.getElementById('batch-download-btn');
+      if (!bar || bar.hidden || !btn) {
+        showToast('Select some results first (Alt+A to select all).', 'info');
+        return;
+      }
+      btn.click();
+    }
+
+    function triggerBrowseAll() {
+      var btn = document.getElementById('browse-btn');
+      if (btn) btn.click();
+    }
+
+    function rerunSearch() {
+      var btn = document.getElementById('search-btn');
+      if (btn) btn.click();
+    }
+
+    function toggleAIAssist() {
+      var btn = document.getElementById('ai-assist-toggle');
+      if (btn) btn.click();
+    }
+
+    // Contextual Esc: close the most-foreground thing.
+    function handleEscape() {
+      // 1. Preview popup
+      var popup = document.getElementById('preview-popup');
+      if (popup && popup.classList.contains('visible')) {
+        popup.classList.remove('visible');
+        return true;
+      }
+      // 2. AI Assist drawer
+      var drawer = document.getElementById('ai-assist-drawer');
+      if (drawer && drawer.classList.contains('open')) {
+        var closeBtn = document.getElementById('ai-drawer-close');
+        if (closeBtn) closeBtn.click();
+        return true;
+      }
+      // 3. Flag modal
+      var flagBackdrop = document.getElementById('flag-modal-backdrop');
+      if (flagBackdrop && flagBackdrop.classList.contains('open')) {
+        closeFlagModal();
+        return true;
+      }
+      // 4. Autocomplete list
+      var acList = document.getElementById('autocomplete-list');
+      if (acList && !acList.hidden) {
+        acList.hidden = true;
+        return true;
+      }
+      // 5. Clear batch selection
+      var bar = document.getElementById('batch-bar');
+      if (bar && !bar.hidden) {
+        clearAllSelection();
+        return true;
+      }
+      // 6. Blur search input so typing doesn't go into it
+      if (document.activeElement === searchInput) {
+        searchInput.blur();
+        return true;
+      }
+      return false;
+    }
+
+    document.addEventListener('keydown', function(e) {
+      // `/` — focus search input (unless already typing in a field)
+      if (e.key === '/' && !isEditable(e.target)) {
+        e.preventDefault();
+        searchInput.focus();
+        searchInput.select();
+        return;
+      }
+
+      // Esc — contextual close. Allow even when in search input.
+      if (e.key === 'Escape') {
+        if (handleEscape()) e.preventDefault();
+        return;
+      }
+
+      // Alt combos — work regardless of focus target because Alt is a modifier.
+      if (!e.altKey) return;
+
+      // Ignore when other modifiers we don't use are present.
+      if (e.ctrlKey || e.metaKey) return;
+
+      var k = e.key.toLowerCase();
+
+      // Alt+Shift+A — toggle AI Assist
+      if (e.shiftKey && k === 'a') {
+        e.preventDefault();
+        toggleAIAssist();
+        return;
+      }
+
+      // Alt+Shift+D — download ZIP (avoids Chrome's Alt+D address-bar shortcut)
+      if (e.shiftKey && k === 'd') {
+        e.preventDefault();
+        triggerDownloadZip();
+        return;
+      }
+
+      // The rest are plain Alt+<key> — reject if Shift is held.
+      if (e.shiftKey) return;
+
+      if (k === 'a') { e.preventDefault(); selectAllVisible(); return; }
+      if (k === 'c') { e.preventDefault(); clearAllSelection(); return; }
+      if (k === 'b') { e.preventDefault(); triggerBrowseAll(); return; }
+      if (k === 'r') { e.preventDefault(); rerunSearch(); return; }
+    });
+
+    // Hint in the search placeholder so users discover the / shortcut.
+    if (searchInput && !searchInput.dataset.kbHinted) {
+      searchInput.setAttribute(
+        'title',
+        'Press / to focus this box  \u2022  Alt+Shift+A toggles AI Assist  \u2022  Alt+A selects all results'
+      );
+      searchInput.dataset.kbHinted = '1';
+    }
+  })();
   </script>
 
 <!-- AI Assist Drawer -->

@@ -1,114 +1,296 @@
 # Settings Reference
 
-The Settings page lets you configure how MarkFlow behaves. Changes are saved when you click Save. Some settings require the Manager role to change.
+The Settings page lets you configure how MarkFlow behaves. Click
+**Save** at the top of each section to commit changes. Some settings
+require the **Manager** role.
+
+As of v0.23.4 the 21 sections are grouped into logical clusters. The
+three top-level groups are:
+
+- **Files and Locations** — where MarkFlow reads files from and how
+  it handles per-file concerns
+- **Conversion Options** — how files get turned into Markdown
+- **AI Options** — everything that touches an LLM provider
+
+Use **Expand All / Collapse All** in the page header to open or
+close every section at once. Only **Files and Locations** and
+**Conversion Options** are open by default.
+
+---
+
+## Files and Locations
+
+The starting point for every pipeline action.
+
+| Setting | What It Does |
+|---------|--------------|
+| Source locations | Paths MarkFlow scans for files (add / edit / delete) |
+| Output directory | Where converted Markdown is written |
+| Excluded paths | Prefix-match directories to skip during scanning |
+| Check access | Verify MarkFlow can read each configured source |
+
+### Password Recovery
+
+How MarkFlow handles password-protected documents and archives.
+
+| Setting | Default | What It Does |
+|---------|---------|--------------|
+| Dictionary attack | On | Try common passwords from the bundled wordlist |
+| Brute-force | Off | Try all character combinations (can be slow) |
+| Brute-force max length | 6 | Longest password to try |
+| Brute-force charset | Alphanumeric | Numeric, alpha, alphanumeric, or all |
+| Recovery timeout | 300s | Max seconds per file |
+| Reuse found passwords | On | Try passwords that worked on other files in the batch |
+| Use hashcat | On | GPU-accelerated cracking when available |
+| Hashcat workload | 3 (High) | GPU intensity: 1=Low, 2=Default, 3=High, 4=Maximum |
+
+### File Flagging
+
+Self-service + admin content moderation.
+
+| Setting | Default | What It Does |
+|---------|---------|--------------|
+| Flag webhook URL | (empty) | Optional webhook fired on every flag event |
+| Default expiry days | 30 | How long a flag stays active before auto-expiring |
+
+### Info
+
+Read-only view of system metadata: version, database path, build
+info, container health. Useful for support tickets.
+
+### Storage Connections
+
+Mount remote filesystems (NFS, SMB, tiered NAS) without editing
+`docker-compose.yml`. Add a mount with server address, export path,
+and local mount point. MarkFlow handles `mount` and re-mounts on
+container restart.
+
+---
 
 ## Conversion Options
 
-Controls how documents are converted between formats.
+How files get turned into Markdown.
 
 | Setting | Default | What It Does |
-|---------|---------|-------------|
-| Default direction | To Markdown | Whether uploads default to converting to or from Markdown |
+|---------|---------|--------------|
+| Default direction | To Markdown | Whether uploads default to → MD or ← MD |
 | Max upload size | 100 MB | Largest single file you can upload |
 | Max batch size | 500 MB | Total size limit for a multi-file upload |
 | Retention days | 30 | How long conversion results are kept (0 = forever) |
 | Max concurrent | 3 | How many files convert at the same time |
 | PDF engine | pdfplumber | Which library reads PDF files |
-| Collision strategy | rename | What to do when two files would produce the same output name |
+| Database sample rows per table | 25 | First N rows extracted per table in database files (max 1000) |
+| **Skip file extensions** *(v0.23.3)* | `[]` | JSON list of extensions (no dots) to exclude from scanning. Example: `["tmp", "bak", "log"]` |
 
-## OCR Settings
+### OCR
 
-Configure automatic text extraction from scanned documents.
+Automatic text extraction from scanned documents.
 
-| Setting | Default | What It Does |
-|---------|---------|-------------|
-| Confidence threshold | 80% | Pages below this score are flagged for review |
-| Unattended mode | Off | When on, accepts all OCR results without review |
+| Setting | Default | Range | What It Does |
+|---------|---------|-------|--------------|
+| Confidence threshold | 60 | 0–100 | Pages below this score are flagged for review |
+| Unattended mode | Off | On/Off | Auto-accepts all OCR text without flagging |
+| OCR preprocessing | On | On/Off | Deskew, contrast, noise reduction |
+| **Handwriting confidence threshold** *(v0.20.3)* | 40 | 0–100 | Below this, MarkFlow sends the page image to the active LLM vision provider for handwriting transcription |
 
-> **Tip:** A threshold of 80% is a good balance. Lower it if too many pages are flagged. Raise it if you need higher accuracy.
+> **Tip:** 60-80% is a good balance for the main confidence threshold.
+> Lower it if too many pages are flagged, raise it if accuracy is
+> critical. For handwriting, 40% is aggressive; raise to 30% if too
+> many clean-print pages are being sent to the LLM.
 
-## Bulk Conversion
+### Path Safety
 
-Settings for large repository conversion jobs.
-
-| Setting | Default | What It Does |
-|---------|---------|-------------|
-| Worker count | 4 | How many files process in parallel. More = faster but more CPU |
-| Show active files | On | Display which file each worker is currently processing |
-| Max path length | 240 | Maximum output file path length (some systems have limits) |
-
-## Password Recovery
-
-Configure how MarkFlow handles password-protected documents.
+How MarkFlow names output files and handles collisions.
 
 | Setting | Default | What It Does |
-|---------|---------|-------------|
-| Dictionary attack | On | Try common passwords from the bundled dictionary |
-| Brute-force | Off | Try all character combinations (can be slow) |
-| Brute-force max length | 6 | Longest password to try via brute-force |
-| Brute-force charset | Alphanumeric | Which characters to try: numeric, alpha, alphanumeric, all |
-| Recovery timeout | 300s | Max time to spend cracking a single file |
-| Reuse found passwords | On | Try passwords that worked on other files in the same batch |
-| Use hashcat | On | Enable GPU-accelerated cracking when available |
-| Hashcat workload | 3 (High) | GPU intensity: 1=Low, 2=Default, 3=High, 4=Maximum |
+|---------|---------|--------------|
+| Max path length | 240 | Max output path length — files longer are skipped with `skip_reason` |
+| Collision strategy | rename | What to do when two files would produce the same output name: `rename`, `overwrite`, or `skip` |
+
+---
 
 ## AI Options
 
-AI-powered features that improve conversion quality. Requires an active provider.
+Features that call out to an LLM provider. All require an active
+provider configured on the **Providers** page.
 
 | Setting | Default | What It Does |
-|---------|---------|-------------|
-| OCR correction | Off | Use AI to fix OCR errors |
-| Summarize | Off | Generate a summary for each document |
-| Heading inference | Off | Use AI to detect headings in PDFs that lack them |
+|---------|---------|--------------|
+| OCR correction | Off | Use AI to fix garbled OCR output |
+| Summarize | Off | Generate a one-paragraph summary in every document's frontmatter |
+| Heading inference | Off | Detect headings in PDFs that lack structure |
 
-## Vision & Enrichment
+### Vision & Frame Description
 
-Configure visual content analysis for videos and image-heavy documents.
+Visual content analysis for videos and image-heavy documents.
 
 | Setting | Default | What It Does |
-|---------|---------|-------------|
-| Enrichment level | 2 | How thorough: 1=basic, 2=standard, 3=comprehensive |
-| Frame limit | 50 | Maximum keyframes to extract per video |
+|---------|---------|--------------|
+| Enrichment level | 2 | 1=basic, 2=standard, 3=comprehensive |
+| Frame limit | 50 | Max keyframes extracted per video |
 | Save keyframes | Off | Keep extracted frame images on disk |
+| Vision provider | (uses active provider) | Provider used for image analysis |
+
+### Claude Integration (MCP)
+
+The Model Context Protocol server lets Claude (or any MCP client)
+query your MarkFlow index directly. Runs on port 8001.
+
+| Setting | What It Does |
+|---------|--------------|
+| Enable MCP server | Start/stop the MCP server |
+| MCP auth token | Bearer token clients must supply |
+| Setup Instructions | Expandable — copy-paste config for Claude Desktop |
+
+### Transcription
+
+Audio/video transcription pipeline.
+
+| Setting | Default | What It Does |
+|---------|---------|--------------|
+| Whisper model | base | Local Whisper model size: `tiny`, `base`, `small`, `medium`, `large` |
+| Caption file extensions | `srt,vtt,sbv` | Caption files auto-ingested alongside media |
+| Cloud fallback priority | (empty) | Fallback order if local Whisper unavailable: `openai,gemini`, etc. |
+
+### AI-Assisted Search
+
+The Claude-powered answer drawer on the Search page.
+
+| Setting | Default | What It Does |
+|---------|---------|--------------|
+| Enable AI Assist org-wide | On | Master switch; users can still toggle per-browser |
+| Max output tokens | 700 | Response length cap (about 380 words) |
+| Max snippets fed to Claude | 8 | How many top search results Claude sees |
+
+> **Per-provider opt-in:** On the **Providers** page, tick **Use for
+> AI Assist** on any Anthropic provider to route AI Assist to it
+> independently of the image-scanner provider. See [What's
+> New → v0.22.11](/help#whats-new) for details.
+
+---
 
 ## Logging
 
-Control how much detail MarkFlow writes to its logs.
-
 | Setting | Default | What It Does |
-|---------|---------|-------------|
+|---------|---------|--------------|
 | Log level | Normal | Normal = warnings only. Elevated = operational info. Developer = everything |
 
-> **Note:** Developer mode also enables frontend action tracking, which logs every button click and page navigation. Disable when not actively debugging.
+> **Note:** Developer mode also enables frontend action tracking
+> (every button click). Turn it off when not actively debugging.
 
-## Search Preview
-
-Configure the hover preview that appears when you hover over search results.
-
-| Setting | Default | What It Does |
-|---------|---------|-------------|
-| Hover Preview | On | Show or hide the preview popup on hover |
-| Preview size | Medium | Popup dimensions: Small (320x240), Medium (480x360), Large (640x480) |
-| Hover delay | 400ms | How long to hover before the preview appears (100-2000ms) |
-
-> **Tip:** If you find previews distracting, turn them off or increase the delay. If you want instant previews, set the delay to 100ms.
+---
 
 ## File Lifecycle
 
-Configure automatic change detection and file management.
+Automatic change detection and file management.
 
 | Setting | Default | What It Does |
-|---------|---------|-------------|
-| Scanner enabled | On | Periodic scanning of the source share |
+|---------|---------|--------------|
+| Scanner enabled | On | Periodic scanning of source locations |
 | Scan interval | 15 min | How often to check for changes |
 | Business hours | 06:00–18:00 | Scanner only runs during these hours (weekdays) |
+| Incremental scan | On | Skip directories whose mtime has not changed |
+| Full walk every N scans | 5 | Force a full walk every Nth scan |
 | Grace period | 36 hours | Wait time before a missing file moves to trash |
-| Trash retention | 60 days | How long trashed files are kept before permanent deletion |
+| Trash retention | 60 days | How long trashed files are kept before purge |
+
+> **Pre-production warning:** These timers are currently set to
+> testing values in this deployment. Grace period should be raised
+> to 36+ hours and trash retention to 60+ days before going live.
+
+---
+
+## Pipeline
+
+Master switch for the automated conversion pipeline.
+
+| Setting | Default | What It Does |
+|---------|---------|--------------|
+| Pipeline enabled | On | Master switch — when off, no auto-conversion |
+| Max files per run | 0 | Cap files per auto-conversion batch (0 = no cap) |
+| Startup delay | 5 min | Wait this long before the first post-startup scan |
+| Auto-reset days | 3 | If pipeline is disabled, auto re-enable after N days |
+
+---
+
+## Cloud Prefetch
+
+Background prefetch for cloud-synced source directories (OneDrive,
+Google Drive, Dropbox, iCloud, tiered NAS).
+
+| Setting | Default | What It Does |
+|---------|---------|--------------|
+| Cloud prefetch enabled | Off | Enable background prefetch for cloud placeholders |
+| Concurrency | 4 | How many prefetch workers run in parallel |
+| Rate limit | 10/sec | Max files prefetched per second |
+| Timeout | 120s | Max seconds to wait for a single file |
+| Min size bytes | 0 | Skip files smaller than this |
+
+---
+
+## Search Preview
+
+The hover popup on search results.
+
+| Setting | Default | What It Does |
+|---------|---------|--------------|
+| Hover Preview | On | Show or hide the preview popup on hover |
+| Preview size | Medium | Small (320x240), Medium (480x360), Large (640x480) |
+| Hover delay | 400ms | How long to hover before the preview appears (100–2000ms) |
+
+> **Tip:** If you find previews distracting, turn them off or raise
+> the delay. If you want instant previews, drop to 100 ms.
+
+---
+
+## Auto-Conversion
+
+Decision engine for auto-converting newly scanned files. Works in
+tandem with the Pipeline section above.
+
+| Setting | Default | What It Does |
+|---------|---------|--------------|
+| Mode | Batch | `batch`, `immediate`, or `off` |
+| Batch size | 500 | Files per auto-batch |
+| Workers | 4 | Parallel conversion workers |
+| OCR threshold for auto-skip | 50 | Files below this OCR confidence are skipped |
+
+See the [Auto-Conversion](/help#auto-conversion) article for mode
+details.
+
+---
+
+## Debug: DB Contention Logging
+
+**Temporary diagnostic section** introduced in v0.19.6.5 to diagnose
+"database is locked" errors. Produces three extra log files in
+`logs/`. Turn off when contention issues are resolved — the logs
+are high-volume.
+
+| Setting | Default | What It Does |
+|---------|---------|--------------|
+| DB contention logging | Off | Enable the three diagnostic log files |
+
+---
+
+## Advanced
+
+Seldom-needed options for experienced operators.
+
+| Setting | What It Does |
+|---------|--------------|
+| Reset to defaults | Restore every setting on this page to its default value (irreversible) |
+| Export settings | Download a JSON snapshot of the current configuration |
+| Import settings | Upload a previously exported JSON snapshot |
+
+---
 
 ## Related
 
+- [What's New](/help#whats-new)
 - [Getting Started](/help#getting-started)
 - [Bulk Repository Conversion](/help#bulk-conversion)
+- [Auto-Conversion](/help#auto-conversion)
 - [LLM Provider Setup](/help#llm-providers)
 - [Password-Protected Documents](/help#password-recovery)
+- [Search](/help#search)

@@ -90,19 +90,42 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.23.4
+## Current Version — v0.23.5
 
-**Settings page reorganization.** Renamed and regrouped 21 sections
-into logical clusters. Full context:
+**Search page keyboard shortcuts + migration FK fix.** Ten new
+keyboard shortcuts on the Search page (`/`, `Esc`, `Alt+Shift+A` for
+AI Assist, `Alt+A` select-all, `Alt+Shift+D` download zip,
+`Alt+Click` direct download, `Shift+Click` range-select, and more)
+plus a critical startup crash fix. Full context:
 [`docs/version-history.md`](docs/version-history.md).
 
-- **Files and Locations** (was "Locations") — now groups: Password
-  Recovery, File Flagging, Info, Storage Connections
-- **Conversion Options** (was "Conversion") — now groups: OCR,
-  Path Safety
-- **AI Options** (was "AI Enhancement") — now groups: Vision & Frame
-  Description, Claude Integration (MCP), Transcription, AI-Assisted
-  Search
+- **Search shortcuts** — `static/search.html` global keydown handler
+  + per-row Alt-click diversion to the download endpoint + shift-click
+  range selection. Discoverable via the search input `title` tooltip.
+- **Help docs** — new `docs/help/whats-new.md` version page,
+  rewritten `search.md` with vector + AI Assist worked examples,
+  rewritten `settings-guide.md` for v0.23.4 layout, expanded
+  `keyboard-shortcuts.md`, registered in `_index.json`.
+- **Crash fix: migration FK** — `_run_migrations` in `core/db/schema.py`
+  now commits and `PRAGMA foreign_keys=OFF` before running migrations,
+  so schema rebuilds (migration 27 bulk_files) carry historical
+  orphan rows through instead of aborting on FK violation. init_db
+  re-enables FKs after the batch.
+- **Crash fix: MCP migration race** — `mcp_server/server.py` no
+  longer calls `init_db()`. MCP is a reader; the main container owns
+  schema. MCP now polls for `schema_migrations` existence (2-minute
+  cap) before starting.
+
+---
+
+### v0.23.4 (carried-forward summary) — Settings page reorganization
+
+Renamed and regrouped 21 Settings sections into logical clusters:
+Files and Locations (with Password Recovery, File Flagging, Info,
+Storage Connections), Conversion Options (with OCR, Path Safety),
+AI Options (with Vision, Claude MCP, Transcription, AI-Assisted
+Search). Full context:
+[`docs/version-history.md`](docs/version-history.md).
 
 ---
 

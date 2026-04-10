@@ -3,6 +3,7 @@
     {
       "name": "Basics",
       "articles": [
+        {"slug": "whats-new", "title": "What's New", "description": "Recent changes and new features, grouped by version"},
         {"slug": "getting-started", "title": "Getting Started", "description": "First-time setup and your first conversion"},
         {"slug": "document-conversion", "title": "Document Conversion", "description": "Upload, convert, and download documents"},
         {"slug": "fidelity-tiers", "title": "Fidelity Tiers Explained", "description": "How MarkFlow preserves formatting quality"}
