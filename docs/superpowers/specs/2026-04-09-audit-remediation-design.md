@@ -114,12 +114,32 @@ class WriteQueue:
         return await future
 ```
 
+**Write batching strategy (three levels):**
+
+Level 1 — Serialization: All writes funneled through 1 connection. Eliminates
+lock contention. Every write in the spec gets this for free.
+
+Level 2 — Transaction batching: `execute_many()` groups N writes into a single
+`BEGIN/COMMIT` pair. SQLite commits involve an fsync (~10ms). Batching 50 writes
+into 1 transaction: ~15ms total vs ~500ms individually (50 × 10ms). Used by:
+  - `CounterAccumulator` (Section 7.4): 50 counter updates per flush
+  - Bulk scanner upserts: batch 100-200 file rows per transaction
+  - Lifecycle trash transitions: batch all pending files per cycle
+  - Vision queue status updates: batch per-image results after each API call
+
+Level 3 — Write coalescing (future, not implemented now): merge redundant writes
+in the queue before executing (e.g., 3 progress updates to the same row → keep
+only the latest). Adds complexity and risk. Monitor queue depth first — if the
+queue backs up during bulk operations, revisit. A `write_queue_depth` gauge
+metric is logged every 60s to detect this.
+
 **Benefits of this approach:**
 - Zero "database is locked" errors — writes never compete for the lock
 - No busy_timeout needed for writes (still set to 30s as safety net)
 - Natural backpressure — if writes are slow, callers queue up and await
 - Batch writes (`execute_many`) run as single transactions automatically
 - Read connections are completely independent — never blocked by writes
+- Queue depth metric enables data-driven decision on Level 3 coalescing
 
 **Pool lifecycle:**
 - Initialized once during `main.py:lifespan` startup
