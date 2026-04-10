@@ -28,7 +28,9 @@ async def get_cached_preference(key: str, default: Any = None) -> Any:
 
     # Cache miss — read from DB
     from core.db.preferences import get_preference
-    value = await get_preference(key, default)
+    value = await get_preference(key)
+    if value is None:
+        value = default
     _cache[key] = (value, now + _TTL)
     return value
 
