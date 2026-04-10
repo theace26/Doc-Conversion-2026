@@ -420,13 +420,39 @@
   async function rebuildSearchIndex() {
     const btn = document.getElementById('pl-rebuild-btn');
     btn.disabled = true;
-    btn.textContent = 'Rebuilding…';
+    btn.textContent = 'Rebuilding\u2026';
     try {
       await API.post('/api/search/index/rebuild');
       showToast('Search index rebuild started', 'success');
-    } catch (e) { showToast('Rebuild failed: ' + e.message, 'error'); }
-    finally {
-      setTimeout(() => { btn.disabled = false; btn.textContent = 'Rebuild Index'; }, 5000);
+      // Poll until all three sub-indexes finish
+      const poll = setInterval(async () => {
+        try {
+          const st = await API.get('/api/search/index/status');
+          const docs = st.documents || {};
+          const adobe = st.adobe_files || {};
+          const trans = st.transcripts || {};
+          const anyIndexing = docs.is_indexing || adobe.is_indexing || trans.is_indexing;
+          if (anyIndexing) {
+            const total = (docs.number_of_documents || 0)
+              + (adobe.number_of_documents || 0)
+              + (trans.number_of_documents || 0);
+            btn.textContent = 'Rebuilding (' + total.toLocaleString() + ' docs)\u2026';
+          } else {
+            clearInterval(poll);
+            btn.disabled = false;
+            btn.textContent = 'Rebuild Index';
+            showToast('Search index rebuild complete', 'success');
+          }
+        } catch {
+          clearInterval(poll);
+          btn.disabled = false;
+          btn.textContent = 'Rebuild Index';
+        }
+      }, 3000);
+    } catch (e) {
+      showToast('Rebuild failed: ' + e.message, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Rebuild Index';
     }
   }
 

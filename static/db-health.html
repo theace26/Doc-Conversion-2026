@@ -113,18 +113,27 @@
 
   async function runCompact() {
     const btn = document.getElementById('btn-compact');
-    btn.disabled = true; btn.textContent = 'Running...';
+    btn.disabled = true; btn.textContent = 'Compacting\u2026';
     try {
       const result = await API.post('/api/db/compact');
-      showToast(result.message);
-    } catch (err) { showError(err.message); }
-    btn.disabled = false; btn.textContent = 'Run Compaction';
-    setTimeout(() => { loadHealth(); loadLog(); }, 2000);
+      // Keep button disabled for 10s (compaction is fast, ~2-5s) then verify
+      setTimeout(async () => {
+        try {
+          const health = await API.get('/api/db/health');
+          showToast(result.message || 'Compaction complete', 'success');
+        } catch { showToast(result.message || 'Compaction complete', 'success'); }
+        btn.disabled = false; btn.textContent = 'Run Compaction';
+        loadHealth(); loadLog();
+      }, 10000);
+    } catch (err) {
+      showError(err.message);
+      btn.disabled = false; btn.textContent = 'Run Compaction';
+    }
   }
 
   async function runIntegrity() {
     const btn = document.getElementById('btn-integrity');
-    btn.disabled = true; btn.textContent = 'Running...';
+    btn.disabled = true; btn.textContent = 'Checking\u2026 (this may take a minute)';
     try {
       const result = await API.post('/api/db/integrity-check');
       showToast(`Integrity: ${result.result}`);
@@ -135,7 +144,7 @@
 
   async function runStaleCheck() {
     const btn = document.getElementById('btn-stale');
-    btn.disabled = true; btn.textContent = 'Running...';
+    btn.disabled = true; btn.textContent = 'Checking\u2026 (scanning tables)';
     try {
       const result = await API.post('/api/db/stale-check');
       const checks = result.checks || {};
