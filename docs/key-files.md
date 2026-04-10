@@ -115,6 +115,13 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `formats/svg_handler.py` | SVG vector graphics handler — XML parsing, text/element extraction |
 | `formats/sniff_handler.py` | Sniff-based handler (.tmp) — MIME-detects then delegates |
 | `formats/binary_handler.py` | Binary metadata-only handler (.bin, .cl4) |
+| `formats/database_handler.py` | Database file handler — schema + sample data extraction (.sqlite, .mdb, .accdb, .dbf, .qbb, .qbw) |
+| `formats/database/engine.py` | DatabaseEngine ABC + dataclasses (TableInfo, ColumnInfo, RelationshipInfo, IndexInfo) |
+| `formats/database/sqlite_engine.py` | SQLite engine — built-in sqlite3 module |
+| `formats/database/access_engine.py` | Access engine — mdbtools/pyodbc/jackcess cascade |
+| `formats/database/dbase_engine.py` | dBase/FoxPro engine — dbfread |
+| `formats/database/quickbooks_engine.py` | QuickBooks engine — best-effort binary header parse |
+| `formats/database/capability.py` | Database engine availability detection |
 
 ## API Routes
 

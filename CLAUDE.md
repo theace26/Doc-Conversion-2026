@@ -57,6 +57,7 @@ user-visible features or changing UX. Article inventory:
 | [`ocr-pipeline.md`](docs/help/ocr-pipeline.md) | OCR detection, confidence, review queue |
 | [`file-lifecycle.md`](docs/help/file-lifecycle.md) | Active → marked → trashed → purged states + timers |
 | [`adobe-files.md`](docs/help/adobe-files.md) | Adobe Level-2 indexing (.psd/.ai/.indd) |
+| [`database-files.md`](docs/help/database-files.md) | Database extraction (.sqlite/.mdb/.accdb/.dbf/.qbb/.qbw) |
 | [`unrecognized-files.md`](docs/help/unrecognized-files.md) | Catalog page, MIME detection |
 | [`llm-providers.md`](docs/help/llm-providers.md) | Provider setup, AI Assist, image analysis |
 | [`gpu-setup.md`](docs/help/gpu-setup.md) | NVIDIA Container Toolkit, host worker, hashcat |
@@ -89,59 +90,56 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.23.0
+## Current Version — v0.23.1
 
-**Audit remediation: 20-task overhaul across DB, pipeline, and
-frontend.** Addresses all 17 items from the Health Audit +
-Specification Review. Full context:
+**Database file handler: schema + sample data extraction.** New
+`DatabaseHandler` replaces `BinaryHandler` for database extensions,
+extracting full schema, sample data, relationships, and indexes into
+structured Markdown. Full context:
 [`docs/version-history.md`](docs/version-history.md).
 
-**DB layer:**
-- Single-writer connection pool (`core/db/pool.py`) with async write
-  queue — eliminates "database is locked" errors. 1 writer + 3
-  read-only connections, WAL mode, 30s busy timeout.
-- Preferences TTL cache (`core/preferences_cache.py`) — 5-minute
-  in-memory cache, invalidated on PUT. Eliminates per-call DB reads
-  for scheduler ticks, worker files, and scan iterations.
-- `bulk_files` dedup migration — one-time cleanup of ~187K duplicate
-  rows. Schema migrated from `unique(job_id, source_path)` to
-  `unique(source_path)` so rescans update in place.
-- Stale job detection — 60s heartbeat + startup cleanup for jobs
-  stuck in 'running' > 30 min.
-- `core/db/migrations.py` — new module for one-time gated migrations.
+**Supported formats:**
+- SQLite (`.sqlite`, `.db`, `.sqlite3`, `.s3db`) — built-in `sqlite3`
+- MS Access (`.mdb`, `.accdb`) — engine cascade: mdbtools -> pyodbc -> jackcess
+- dBase/FoxPro (`.dbf`) — `dbfread` (pure Python)
+- QuickBooks (`.qbb`, `.qbw`) — best-effort binary header parse
 
-**Pipeline:**
-- Incremental scanning — files already converted with same mtime are
-  skipped. Post-scan cross-job dedup as safety net.
-- Counter batching (`CounterAccumulator`) — reduces per-file DB
-  writes from ~800K to ~16K per full scan (flush every 50 files or 5s).
-- Pipeline stats 20s TTL cache — eliminates 95%+ of heavy COUNT/NOT
-  EXISTS queries. Invalidated on bulk job start/complete.
-- Lifecycle I/O moved outside DB transactions via `asyncio.to_thread()`.
-- Forced trash expiry every 4th run regardless of active bulk jobs.
-- 2-hour housekeeping job (dedup + PRAGMA optimize + conditional VACUUM).
-- Vector indexing backpressure — bounded semaphore (20) prevents
-  unbounded asyncio task accumulation when Qdrant is slow.
+**Architecture:** Engine-per-format behind `DatabaseEngine` ABC in
+`formats/database/engine.py`. Five dataclasses (`TableInfo`,
+`ColumnInfo`, `RelationshipInfo`, `IndexInfo`). Access cascade tries
+mdbtools (lightest) -> pyodbc -> jackcess (Java, opt-in). Capability
+detection in `formats/database/capability.py` probes installed
+backends. Password cascade reuses archive handler pattern.
 
-**PDF engine:** PyMuPDF as default with auto-switch to pdfplumber for
-table pages only. Controlled by `pdf_engine` preference.
+**Output:** H1 title, metadata table (format, size, tables, rows,
+SHA-256), schema overview, per-table columns + sample data (default
+25 rows, configurable via `database_sample_rows` pref, max 1000),
+relationships, indexes. QuickBooks: company name extraction + manual
+export instructions for encrypted/newer files.
 
-**Vision adapter:** Magic-byte MIME detection (fixes 115 batch failures
-from .jpg files that are GIFs). Provider-aware batch limits (anthropic,
-openai, gemini, ollama).
+**Limits:** 50 tables max full detail, 20 columns max in sample
+tables, 1000 rows max per table.
 
-**Frontend:** Polling reduced from 5s to 20s visible, 30s hidden.
-Stops after 30 min hidden. Tab re-activation reloads page.
+**New files:** `formats/database/` package (7 modules),
+`formats/database_handler.py`, `docs/help/database-files.md`,
+2 test files.
 
-**Other:** Conversion semaphore auto-detected from CPU count
-(`cpu_count // 2`, capped 2–8). Unused `mammoth` + `markdownify`
-deps removed. httpx/httpcore debug logging suppressed (~40K lines/day).
-`structural_hash()` on DocumentModel for round-trip testing.
-`markitdown` validation comparison utility.
+**Dependencies (Dockerfile.base):** `mdbtools`, `unixodbc-dev`,
+`odbc-mdbtools` (apt); `dbfread`, `pyodbc`, `pysqlcipher3` (pip).
+Optional: Java JRE + jackcess JAR for full `.accdb` support.
 
 ---
 
-### v0.22.18–v0.22.19 (carried-forward summaries)
+### v0.23.0 (carried-forward summary) — audit remediation
+
+20-task overhaul: DB connection pool, preferences cache, bulk_files
+dedup, incremental scanning, counter batching, PyMuPDF default,
+vision MIME fix, frontend polling reduction.
+Full context: [`docs/version-history.md`](docs/version-history.md).
+
+---
+
+### v0.22.18-v0.22.19 (carried-forward summaries)
 
 **v0.22.19:** Scan-time junk-file filter + one-time historical cleanup
 (~$* Office lock files, Thumbs.db, desktop.ini, .DS_Store).

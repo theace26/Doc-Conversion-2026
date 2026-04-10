@@ -4,6 +4,55 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.23.1 — Database file handler: schema + sample data extraction (2026-04-09)
+
+New `DatabaseHandler` replaces `BinaryHandler` for database file extensions,
+extracting full schema, sample data, relationships, and indexes into structured
+Markdown summaries.
+
+### Supported Formats
+- **SQLite** (`.sqlite`, `.db`, `.sqlite3`, `.s3db`) — Python built-in `sqlite3`
+- **Microsoft Access** (`.mdb`, `.accdb`) — engine cascade: mdbtools -> pyodbc -> jackcess
+- **dBase / FoxPro** (`.dbf`) — `dbfread` (pure Python)
+- **QuickBooks** (`.qbb`, `.qbw`) — best-effort binary header parse; metadata-only
+  for encrypted/newer files with QuickBooks Desktop export instructions
+
+### Architecture
+- Engine-per-format behind a common ABC (`DatabaseEngine` in `formats/database/engine.py`)
+- Five dataclasses: `TableInfo`, `ColumnInfo`, `RelationshipInfo`, `IndexInfo`
+- Engine cascade for Access: `MdbtoolsBackend` (CLI) -> `pyodbc` (ODBC) -> `jackcess` (Java)
+- Capability detection (`formats/database/capability.py`) probes installed backends at startup
+- Password cascade reuses existing archive handler pattern (empty -> static list -> dictionary)
+
+### Markdown Output
+Each database produces: H1 title, metadata property table, schema overview table,
+per-table column definitions + sample data (default 25 rows, configurable via
+`database_sample_rows` preference, max 1000), relationships table, indexes table.
+QuickBooks files include company name extraction and manual export instructions.
+
+### Limits
+- Max 50 tables with full detail sections (remaining counted in summary)
+- Max 20 columns in sample data tables (remaining noted)
+- Max 1000 sample rows per table (hard cap)
+
+### Dependencies Added (Dockerfile.base)
+- `mdbtools`, `unixodbc-dev`, `odbc-mdbtools` (apt)
+- `dbfread`, `pyodbc`, `pysqlcipher3` (pip)
+- Optional: Java JRE + jackcess JAR for full .accdb support
+
+### Files
+- Created: `formats/database/` package (7 files: `__init__.py`, `engine.py`,
+  `sqlite_engine.py`, `access_engine.py`, `dbase_engine.py`, `quickbooks_engine.py`,
+  `capability.py`)
+- Created: `formats/database_handler.py`
+- Created: `tests/test_database_engines.py`, `tests/test_database_handler.py`
+- Created: `docs/help/database-files.md`
+- Modified: `formats/__init__.py`, `formats/binary_handler.py`,
+  `core/db/preferences.py`, `api/routes/preferences.py`, `Dockerfile.base`,
+  `docs/formats.md`
+
+---
+
 ## v0.23.0 — Audit remediation: DB pool, pipeline hardening, vision MIME fix (2026-04-09)
 
 20-task overhaul addressing all 17 items from the Health Audit + Specification
