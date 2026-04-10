@@ -5,7 +5,7 @@ Drop in files — or point it at an entire repository — and MarkFlow handles t
 format detection, OCR, password recovery, media transcription, full-text search,
 and version tracking. Everything runs inside Docker with a browser-based UI.
 
-**Current version:** v0.20.3
+**Current version:** v0.23.1
 
 ---
 
@@ -45,7 +45,8 @@ and version tracking. Everything runs inside Docker with a browser-based UI.
 | Captions | .srt, .vtt, .sbv |
 | Shortcuts | .lnk, .url |
 | Temporary | .tmp (MIME-detected and routed to correct handler) |
-| Binary (metadata) | .bin, .cl4, .exe, .dll, .so, .msi, .sys, .drv, .ocx, .cpl, .scr, .com, .dylib, .app, .dmg, .img, .vhd, .vhdx, .vmdk, .vdi, .qcow2, .sqlite, .db, .mdb, .accdb, .rom, .fw, .efi, .class, .pyc, .pyo, .o, .obj, .lib, .a, .dat, .dmp |
+| Database | .sqlite, .db, .sqlite3, .s3db, .mdb, .accdb, .dbf, .qbb, .qbw |
+| Binary (metadata) | .bin, .cl4, .exe, .dll, .so, .msi, .sys, .drv, .ocx, .cpl, .scr, .com, .dylib, .app, .dmg, .img, .vhd, .vhdx, .vmdk, .vdi, .qcow2, .rom, .fw, .efi, .class, .pyc, .pyo, .o, .obj, .lib, .a, .dat, .dmp |
 
 All document formats support bidirectional conversion (original → Markdown → original).
 Media files produce timestamped transcripts. Archives are recursively extracted and each inner file is converted. Binary files are cataloged with metadata (size, MIME type, magic bytes) for searchability.
@@ -107,7 +108,7 @@ Media files produce timestamped transcripts. Archives are recursively extracted 
 - Admin panel: disk usage, DB health, integrity checks, resource controls
 - Configurable structured logging (three levels: Normal, Elevated, Developer)
 - Log rotation with automatic gzip archiving (90-day retention)
-- In-app help wiki with 19 searchable articles and contextual help links
+- In-app help wiki with 20 searchable articles and contextual help links
 
 ### Content Moderation
 - Self-service file flagging — any authenticated user can suppress a file from search and download
@@ -115,6 +116,12 @@ Media files produce timestamped transcripts. Archives are recursively extracted 
 - Webhook notifications for all flag events
 - Hourly auto-expiry with configurable default expiry period
 - Blocklist enforcement during scanning — prevents re-indexing of removed files
+
+### Database Extraction
+- Schema, sample data, relationships, and indexes extracted into structured Markdown
+- SQLite, Microsoft Access, dBase/FoxPro, and QuickBooks files
+- Engine cascade for Access: mdbtools → pyodbc → jackcess (Java, optional)
+- Configurable sample row limits (default 25, max 1000)
 
 ### File Lifecycle
 - Scheduled scans detect new, modified, moved, and deleted source files
