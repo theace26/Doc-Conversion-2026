@@ -49,10 +49,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cabextract \
     unrar-free \
     p7zip-full \
-    # Database file support (Access .mdb/.accdb)
+    # Database file support (Access .mdb/.accdb + encrypted SQLite)
     mdbtools \
     unixodbc-dev \
     odbc-mdbtools \
+    libsqlcipher-dev \
     # NFS client tools (for NFS mount support)
     nfs-common \
     # curl for healthchecks
@@ -74,6 +75,9 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
     && pip install --no-cache-dir openai-whisper
 
 # Database handler Python dependencies
-RUN pip install --no-cache-dir dbfread pyodbc pysqlcipher3
+# pysqlcipher3 requires libsqlcipher-dev; install separately so dbfread/pyodbc
+# succeed even if sqlcipher build fails on some platforms.
+RUN pip install --no-cache-dir dbfread pyodbc \
+    && pip install --no-cache-dir pysqlcipher3 || echo "pysqlcipher3 build failed (optional — encrypted SQLite support unavailable)"
 
 WORKDIR /app
