@@ -123,6 +123,9 @@ services:
   # ── Qdrant vector search (v0.22.0) ────────────────────────────────────────
   qdrant:
     image: qdrant/qdrant:latest
+    environment:
+      # Silence hourly "Failed to report telemetry" errors to telemetry.qdrant.io
+      - QDRANT__TELEMETRY_DISABLED=true
     volumes:
       - qdrant-data:/qdrant/storage
     deploy:

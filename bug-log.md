@@ -443,3 +443,57 @@ with `utf-8-sig` encoding as defensive fallback.
 
 **Files changed (all 3 bugs):** `Scripts/work/refresh-markflow.ps1`,
 `Scripts/work/reset-markflow.ps1`, `core/gpu_detector.py`
+
+---
+
+## 2026-04-10 — Bulk Conversion Pipeline Stalled (v0.23.2)
+
+### Bug 21: ON CONFLICT(source_path) vs UNIQUE(job_id, source_path) mismatch
+
+**Symptom:** Every scheduled bulk conversion job failed immediately with
+`ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint`.
+1,654 files stuck in pending state, zero conversions processing. Error repeated
+every 15 minutes (13 occurrences logged before detection).
+
+**Root cause:** The audit remediation work (v0.23.0, 2026-04-09) changed the
+upsert SQL in `core/db/bulk.py` from `ON CONFLICT(job_id, source_path)` to
+`ON CONFLICT(source_path)` to support cross-job deduplication. However, the
+`bulk_files` table schema still had `UNIQUE(job_id, source_path)` — SQLite
+requires the ON CONFLICT target to exactly match a declared constraint.
+
+**Fix:** Migration 26 rebuilds `bulk_files` with `UNIQUE(source_path)` instead
+of `UNIQUE(job_id, source_path)`. Data is preserved by deduplicating on
+`MAX(ROWID)` per source_path. Base DDL updated to match.
+
+**Files changed:** `core/db/schema.py`
+
+### Bug 22: Unawaited async coroutine in scheduler and admin endpoint
+
+**Symptom:** `RuntimeWarning: coroutine 'get_all_active_jobs' was never awaited`
+at `core/scheduler.py:481`. The `_bulk_files_self_correction` job always skipped
+(coroutine object is truthy), and the admin cleanup endpoint always returned 409.
+
+**Root cause:** `get_all_active_jobs()` is `async def` but was called without
+`await` in two locations: `scheduler.py:481` and `admin.py:421`.
+
+**Fix:** Added `await` to both call sites.
+
+**Files changed:** `core/scheduler.py`, `api/routes/admin.py`
+
+### Bug 23: Vision adapter sends wrong MIME type for mislabeled images
+
+**Symptom:** Anthropic API returned HTTP 400: "image was specified using
+image/jpeg media type, but the image appears to be a image/gif image". Entire
+10-image batches failed (completed=0, failed=10).
+
+**Root cause:** All four vision provider paths used `path.suffix` (file
+extension) to determine MIME type via `mimetypes.guess_type()`. Files with
+mismatched extensions (e.g. a GIF saved as `.png` or `.jpg`) got the wrong
+`media_type`. The correct `detect_mime()` function (magic-byte header detection)
+was already defined in the same file but unused in these code paths.
+
+**Fix:** Replaced `path.suffix` / `image_path.suffix` with `detect_mime(path)`
+in all four locations: `_batch_anthropic`, `_batch_openai`, `_batch_gemini`,
+and the single-image describe path.
+
+**Files changed:** `core/vision_adapter.py`

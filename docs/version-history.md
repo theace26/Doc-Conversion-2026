@@ -4,6 +4,42 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.23.2 — Critical bug fixes: bulk upsert, scheduler coroutine, vision MIME (2026-04-10)
+
+Three bugs fixed, one critical (all bulk conversions stalled since schema/code mismatch).
+
+### Bug fixes
+
+- **`bulk_job_fatal` ON CONFLICT mismatch (critical)** — The audit remediation plan
+  (v0.23.0) changed all upsert SQL from `ON CONFLICT(job_id, source_path)` to
+  `ON CONFLICT(source_path)`, but the `bulk_files` table schema still had
+  `UNIQUE(job_id, source_path)`. Every bulk conversion job failed immediately,
+  leaving 1,654 files permanently stuck in pending. Migration 26 rebuilds the table
+  with `UNIQUE(source_path)`, deduplicating on `MAX(ROWID)` per `source_path`.
+
+- **Unawaited `get_all_active_jobs()` coroutine** — `_bulk_files_self_correction`
+  in `core/scheduler.py:481` and the admin cleanup endpoint in
+  `api/routes/admin.py:421` called `get_all_active_jobs()` without `await`.
+  The coroutine was truthy (always non-empty object), so the scheduler always
+  skipped self-correction and the admin endpoint always returned 409. Added `await`.
+
+- **Vision adapter MIME mislabeling** — All four provider batch methods
+  (`_batch_anthropic`, `_batch_openai`, `_batch_gemini`, single-image path) used
+  `path.suffix` to guess MIME type via `mimetypes.guess_type()`. Files with
+  mismatched extensions (e.g. GIF saved as `.png`) sent the wrong `media_type` to
+  the API, causing HTTP 400 and failing entire 10-image batches. Now uses
+  `detect_mime()` (magic-byte header detection) which was already defined but unused
+  in these code paths.
+
+### Files changed
+- `core/db/schema.py` — base DDL: `UNIQUE(source_path)`, migration 26 (table rebuild)
+- `core/scheduler.py` — `await get_all_active_jobs()` in self-correction job
+- `api/routes/admin.py` — `await get_all_active_jobs()` in cleanup endpoint
+- `core/vision_adapter.py` — `detect_mime(path)` replaces `path.suffix` in 4 locations
+- `core/version.py` — bump to 0.23.2
+
+---
+
 ## v0.23.1 — Database file handler: schema + sample data extraction (2026-04-09)
 
 New `DatabaseHandler` replaces `BinaryHandler` for database file extensions,

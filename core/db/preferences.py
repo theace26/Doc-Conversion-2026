@@ -117,12 +117,12 @@ async def _init_preferences(conn: aiosqlite.Connection) -> None:
     await conn.commit()
 
 
-async def get_preference(key: str) -> str | None:
-    """Return a single preference value by key."""
+async def get_preference(key: str, default: str | None = None) -> str | None:
+    """Return a single preference value by key, or *default* if not found."""
     row = await db_fetch_one(
         "SELECT value FROM user_preferences WHERE key = ?", (key,)
     )
-    return row["value"] if row else None
+    return row["value"] if row else default
 
 
 async def set_preference(key: str, value: str) -> None:

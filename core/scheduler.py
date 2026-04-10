@@ -478,7 +478,7 @@ async def _bulk_files_self_correction() -> None:
     try:
         # Skip if any bulk job is currently scanning/running/paused.
         from core.bulk_worker import get_all_active_jobs
-        if get_all_active_jobs():
+        if await get_all_active_jobs():
             log.info("bulk_files_self_correction_skipped",
                      reason="active_bulk_job")
             return

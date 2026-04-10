@@ -53,6 +53,13 @@ the relevant subsystem. Referenced from CLAUDE.md.
   This blocked lifecycle scans from completing and prevented auto-conversion from
   ever triggering. Do NOT revert to the SELECT-then-INSERT pattern.
 
+- **ON CONFLICT target must match a declared UNIQUE constraint (v0.23.2)**: When
+  changing an ON CONFLICT clause, the table schema must be updated to match. SQLite
+  silently accepts `ON CONFLICT(col)` in code, but fails at runtime if `col` doesn't
+  have a UNIQUE constraint. The bulk_files table was rebuilt from `UNIQUE(job_id,
+  source_path)` to `UNIQUE(source_path)` via migration 26 to match the upsert SQL.
+  Always verify: change the SQL AND the schema in the same commit.
+
 - **Conversion is decoupled from scan completion (v0.19.0)**: The backlog poller
   in `_run_deferred_conversions` starts conversion batches independently of the
   lifecycle scanner. Do NOT re-introduce a dependency where conversion requires

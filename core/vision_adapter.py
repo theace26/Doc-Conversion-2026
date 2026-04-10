@@ -256,7 +256,7 @@ class VisionAdapter:
             # Apply per-image budget for ALL providers — the heaviest cap
             # (Anthropic's 5 MB) is also a sensible default elsewhere and
             # keeps token usage / latency in check.
-            raw, mime = _compress_image_for_vision(raw, image_path.suffix)
+            raw, mime = _compress_image_for_vision(raw, detect_mime(image_path))
             image_b64 = base64.b64encode(raw).decode()
 
             if self._provider == "anthropic":
@@ -415,7 +415,9 @@ class VisionAdapter:
                 continue
             # Per-image cap enforcement (Anthropic 5 MB hard limit). Compresses
             # only oversized images; small images pass through untouched.
-            raw, mime = _compress_image_for_vision(raw, path.suffix)
+            # Use magic-byte detection (not extension) so mislabeled files
+            # (e.g. a GIF saved as .png) get the correct MIME type.
+            raw, mime = _compress_image_for_vision(raw, detect_mime(path))
             b64 = base64.b64encode(raw).decode()
             encoded.append((path, b64, mime, len(b64)))
 
@@ -510,7 +512,7 @@ class VisionAdapter:
         content: list[dict] = [{"type": "text", "text": prompt}]
         for path in image_paths:
             raw = path.read_bytes()
-            raw, mime = _compress_image_for_vision(raw, path.suffix)
+            raw, mime = _compress_image_for_vision(raw, detect_mime(path))
             image_b64 = base64.b64encode(raw).decode()
             content.append({
                 "type": "image_url",
@@ -552,7 +554,7 @@ class VisionAdapter:
         parts: list[dict] = [{"text": prompt}]
         for path in image_paths:
             raw = path.read_bytes()
-            raw, mime = _compress_image_for_vision(raw, path.suffix)
+            raw, mime = _compress_image_for_vision(raw, detect_mime(path))
             image_b64 = base64.b64encode(raw).decode()
             parts.append({"inline_data": {"mime_type": mime, "data": image_b64}})
 

@@ -418,7 +418,7 @@ async def cleanup_bulk_files_now(
     scheduler. Skips if any bulk job is currently active.
     """
     from core.bulk_worker import get_all_active_jobs
-    if get_all_active_jobs():
+    if await get_all_active_jobs():
         raise HTTPException(
             status_code=409,
             detail="Cannot run cleanup while a bulk job is active",

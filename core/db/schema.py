@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS bulk_files (
     error_msg       TEXT,
     converted_at    TEXT,
     indexed_at      TEXT,
-    UNIQUE(job_id, source_path)
+    UNIQUE(source_path)
 );
 CREATE INDEX IF NOT EXISTS idx_bulk_files_job_status ON bulk_files(job_id, status);
 CREATE INDEX IF NOT EXISTS idx_bulk_files_source_path ON bulk_files(source_path);
@@ -647,6 +647,44 @@ _MIGRATIONS: list[tuple[int, str, list[str]]] = [
     ]),
     (25, "Per-provider AI Assist opt-in flag (v0.22.11)", [
         "ALTER TABLE llm_providers ADD COLUMN use_for_ai_assist INTEGER NOT NULL DEFAULT 0",
+    ]),
+    (26, "Rebuild bulk_files: UNIQUE(source_path) replaces UNIQUE(job_id, source_path)", [
+        # SQLite cannot ALTER constraints, so we rebuild: create new table,
+        # copy data (deduplicate on source_path keeping newest row), swap.
+        """CREATE TABLE IF NOT EXISTS bulk_files_new (
+            id              TEXT PRIMARY KEY,
+            job_id          TEXT NOT NULL REFERENCES bulk_jobs(id),
+            source_path     TEXT NOT NULL,
+            output_path     TEXT,
+            file_ext        TEXT NOT NULL,
+            file_size_bytes INTEGER,
+            source_mtime    REAL,
+            stored_mtime    REAL,
+            content_hash    TEXT,
+            status          TEXT NOT NULL DEFAULT 'pending',
+            error_msg       TEXT,
+            converted_at    TEXT,
+            indexed_at      TEXT,
+            is_media        INTEGER NOT NULL DEFAULT 0,
+            media_engine    TEXT,
+            source_file_id  TEXT REFERENCES source_files(id),
+            skip_reason     TEXT,
+            UNIQUE(source_path)
+        )""",
+        # Keep the most recent row per source_path (highest ROWID)
+        """INSERT OR IGNORE INTO bulk_files_new
+           SELECT id, job_id, source_path, output_path, file_ext,
+                  file_size_bytes, source_mtime, stored_mtime, content_hash,
+                  status, error_msg, converted_at, indexed_at,
+                  is_media, media_engine, source_file_id, skip_reason
+           FROM bulk_files
+           WHERE ROWID IN (
+               SELECT MAX(ROWID) FROM bulk_files GROUP BY source_path
+           )""",
+        "DROP TABLE bulk_files",
+        "ALTER TABLE bulk_files_new RENAME TO bulk_files",
+        "CREATE INDEX IF NOT EXISTS idx_bulk_files_job_status ON bulk_files(job_id, status)",
+        "CREATE INDEX IF NOT EXISTS idx_bulk_files_source_path ON bulk_files(source_path)",
     ]),
 ]
 
