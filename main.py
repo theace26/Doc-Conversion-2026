@@ -118,6 +118,54 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         log.warning("markflow.junk_cleanup_v0_22_19_failed", error=str(exc))
 
+    # --- v0.23.0 startup migrations ---
+    # Initialize connection pool (must be after init_db, before pool-dependent code)
+    from core.db.connection import get_db_path
+    from core.db.pool import init_pool, shutdown_pool
+    await init_pool(get_db_path())
+    log.info("markflow.pool_ready")
+
+    # Stale job cleanup (idempotent, no gate needed)
+    from core.db.migrations import add_heartbeat_column, cleanup_stale_jobs
+    await add_heartbeat_column()
+    await cleanup_stale_jobs()
+
+    # bulk_files dedup (one-time, gated by preference flag)
+    from core.db.migrations import run_bulk_files_dedup
+    await run_bulk_files_dedup()
+
+    # Vision re-queue MIME failures (one-time, best-effort)
+    try:
+        from core.database import db_execute
+        await db_execute("""
+            UPDATE analysis_queue
+            SET status = 'pending', retry_count = 0
+            WHERE status = 'failed'
+              AND error LIKE '%media type%'
+        """)
+    except Exception:
+        pass
+
+    # Lifecycle timer warnings
+    from core.preferences_cache import get_cached_preference
+    grace = await get_cached_preference("lifecycle_grace_period_hours", 36)
+    retention = await get_cached_preference("lifecycle_trash_retention_days", 60)
+    try:
+        grace_val = int(grace) if grace else 36
+        retention_val = int(retention) if retention else 60
+    except (ValueError, TypeError):
+        grace_val, retention_val = 36, 60
+    if grace_val < 24:
+        log.warning("lifecycle_timer_below_production",
+                    setting="grace_period", current=grace_val, recommended=36)
+    if retention_val < 30:
+        log.warning("lifecycle_timer_below_production",
+                    setting="trash_retention", current=retention_val, recommended=60)
+
+    # Recover files stuck in 'moving' status (crash recovery)
+    from core.lifecycle_manager import recover_moving_files
+    await recover_moving_files()
+
     # Reset in-memory coordinator flags so ghost scan state doesn't persist
     from core.scan_coordinator import reset_coordinator
     reset_coordinator()
@@ -249,6 +297,11 @@ async def lifespan(app: FastAPI):
         await shutdown_prefetch_manager()
     except Exception as exc:
         log.warning("markflow.prefetch_shutdown_error", error=str(exc))
+    try:
+        from core.db.pool import shutdown_pool
+        await shutdown_pool()
+    except Exception as exc:
+        log.warning("markflow.pool_shutdown_error", error=str(exc))
     log.info("markflow.shutdown")
 
 

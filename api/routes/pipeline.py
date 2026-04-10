@@ -43,6 +43,17 @@ from core.scheduler import (
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/pipeline", tags=["pipeline"])
 
+import time as _time
+
+_stats_lock = asyncio.Lock()
+_stats_cache: dict = {"result": None, "time": 0.0}
+_CACHE_TTL = 20  # seconds
+
+
+def invalidate_stats_cache():
+    """Called from scan_coordinator on bulk job start/complete."""
+    _stats_cache["time"] = 0.0
+
 
 @router.get("/status")
 async def pipeline_status(
@@ -229,6 +240,10 @@ async def pipeline_stats(
 ) -> dict:
     """Pipeline funnel statistics across all processing stages."""
 
+    now = _time.time()
+    if _stats_cache["result"] and now - _stats_cache["time"] < _CACHE_TTL:
+        return _stats_cache["result"]
+
     async def _safe(coro):
         try:
             return await coro
@@ -286,7 +301,7 @@ async def pipeline_stats(
 
     analysis = analysis or {}
 
-    return {
+    result = {
         "scanned": scanned or 0,
         "pending_conversion": pending_conv or 0,
         "failed": failed or 0,
@@ -296,6 +311,9 @@ async def pipeline_stats(
         "analysis_failed": analysis.get("failed", 0),
         "in_search_index": search_count,
     }
+    _stats_cache["result"] = result
+    _stats_cache["time"] = _time.time()
+    return result
 
 
 @router.get("/files")

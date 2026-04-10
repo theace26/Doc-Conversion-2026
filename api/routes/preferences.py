@@ -11,6 +11,7 @@ from api.models import PreferenceUpdate
 from core.auth import AuthenticatedUser, UserRole, require_role, role_satisfies
 from core.database import DEFAULT_PREFERENCES, get_all_preferences, set_preference
 from core.logging_config import update_log_level
+from core.preferences_cache import invalidate_preference
 
 router = APIRouter(prefix="/api/preferences", tags=["preferences"])
 
@@ -498,6 +499,7 @@ async def update_preference(
     _validate_preference(key, body.value)
 
     await set_preference(key, body.value)
+    invalidate_preference(key)
 
     if key == "log_level":
         update_log_level(body.value)

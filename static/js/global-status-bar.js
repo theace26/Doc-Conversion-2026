@@ -12,6 +12,10 @@ function initStatusBadge() {
   var badge = document.querySelector('.nav-badge');
   if (!badge) return;
 
+  var POLL_VISIBLE = 20000;
+  var POLL_HIDDEN = 30000;
+  var MAX_HIDDEN_MS = 1800000;
+  var hiddenSince = null;
   var pollTimer = null;
 
   async function poll() {
@@ -35,12 +39,26 @@ function initStatusBadge() {
 
   function startPolling() {
     clearInterval(pollTimer);
-    pollTimer = setInterval(poll, document.hidden ? 30000 : 5000);
+    pollTimer = setInterval(poll, POLL_VISIBLE);
   }
 
-  document.addEventListener('visibilitychange', function () {
-    startPolling();
-    if (!document.hidden) poll();
+  document.addEventListener('visibilitychange', function() {
+    if (document.hidden) {
+      hiddenSince = Date.now();
+      clearInterval(pollTimer);
+      pollTimer = setInterval(function() {
+        if (Date.now() - hiddenSince > MAX_HIDDEN_MS) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+          return;
+        }
+        poll();
+      }, POLL_HIDDEN);
+    } else {
+      hiddenSince = null;
+      clearInterval(pollTimer);
+      location.reload();
+    }
   });
 
   // Expose for immediate refresh from other scripts (e.g. status.html reset)

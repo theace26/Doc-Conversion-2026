@@ -68,7 +68,25 @@ OUTPUT_BASE = Path(os.getenv("OUTPUT_DIR", "output"))
 ZIP_BOMB_RATIO = 200
 
 # Semaphore limiting concurrent CPU-bound conversions
-_semaphore = asyncio.Semaphore(int(os.getenv("MAX_CONCURRENT_CONVERSIONS", "3")))
+def _detect_default_concurrency() -> int:
+    """Auto-detect optimal concurrent conversions based on host CPU."""
+    cpu_count = os.cpu_count() or 4
+    physical = max(2, min(cpu_count // 2, 8))
+    return physical
+
+_semaphore_limit = _detect_default_concurrency()
+_semaphore = asyncio.Semaphore(_semaphore_limit)
+
+
+async def refresh_semaphore():
+    """Rebuild semaphore when max_concurrent_conversions preference changes."""
+    global _semaphore, _semaphore_limit
+    from core.preferences_cache import get_cached_preference
+    limit = int(await get_cached_preference("max_concurrent_conversions", _detect_default_concurrency()))
+    if limit != _semaphore_limit:
+        _semaphore = asyncio.Semaphore(limit)
+        _semaphore_limit = limit
+        log.info("converter.semaphore_updated", limit=limit)
 
 
 # ── Result dataclass ──────────────────────────────────────────────────────────

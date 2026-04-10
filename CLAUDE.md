@@ -89,68 +89,65 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.22.19
+## Current Version — v0.23.0
 
-**Scan-time junk-file filter + one-time historical cleanup.** A direct
-follow-up to the v0.22.18 sweep, triggered by a UI screenshot showing
-~43 "LibreOffice not found" errors on a cancelled bulk job. Investigation
-revealed those errors were NOT actually about a missing binary — they
-were `~$*` Microsoft Office lock files (162-byte sentinels Office
-creates when a document is opened) being submitted to LibreOffice, which
-correctly exited non-zero, which the *pre-v0.22.18* helper then misreported
-as "binary missing". v0.22.18 had already fixed the misleading message;
-v0.22.19 fixes the *actual* root cause: these files should never have
-been queued in the first place. Full context:
+**Audit remediation: 20-task overhaul across DB, pipeline, and
+frontend.** Addresses all 17 items from the Health Audit +
+Specification Review. Full context:
 [`docs/version-history.md`](docs/version-history.md).
 
-**The fix** lives in `core/bulk_scanner.py` as a new module-level
-`is_junk_filename()` helper plus a `_JUNK_BASENAME_PREFIXES_LOWER` /
-`_JUNK_BASENAMES_LOWER` pair. It catches:
+**DB layer:**
+- Single-writer connection pool (`core/db/pool.py`) with async write
+  queue — eliminates "database is locked" errors. 1 writer + 3
+  read-only connections, WAL mode, 30s busy timeout.
+- Preferences TTL cache (`core/preferences_cache.py`) — 5-minute
+  in-memory cache, invalidated on PUT. Eliminates per-call DB reads
+  for scheduler ticks, worker files, and scan iterations.
+- `bulk_files` dedup migration — one-time cleanup of ~187K duplicate
+  rows. Schema migrated from `unique(job_id, source_path)` to
+  `unique(source_path)` so rescans update in place.
+- Stale job detection — 60s heartbeat + startup cleanup for jobs
+  stuck in 'running' > 30 min.
+- `core/db/migrations.py` — new module for one-time gated migrations.
 
-- `~$*` — MS Office lock files (Word/Excel/PowerPoint/Visio)
-- `~WRL*.tmp` — Word recovery temp files
-- `Thumbs.db` / `ehthumbs.db` — Windows Explorer thumbnail cache
-- `desktop.ini` — Windows folder customization metadata
-- `.DS_Store` / `.AppleDouble` — macOS Finder artifacts
+**Pipeline:**
+- Incremental scanning — files already converted with same mtime are
+  skipped. Post-scan cross-job dedup as safety net.
+- Counter batching (`CounterAccumulator`) — reduces per-file DB
+  writes from ~800K to ~16K per full scan (flush every 50 files or 5s).
+- Pipeline stats 20s TTL cache — eliminates 95%+ of heavy COUNT/NOT
+  EXISTS queries. Invalidated on bulk job start/complete.
+- Lifecycle I/O moved outside DB transactions via `asyncio.to_thread()`.
+- Forced trash expiry every 4th run regardless of active bulk jobs.
+- 2-hour housekeeping job (dedup + PRAGMA optimize + conditional VACUUM).
+- Vector indexing backpressure — bounded semaphore (20) prevents
+  unbounded asyncio task accumulation when Qdrant is slow.
 
-Wired into `BulkScanner._is_excluded()` (`core/bulk_scanner.py`) and
-both `_is_excluded` closures in `core/lifecycle_scanner.py` (serial walk
-+ parallel walk). Pure case-insensitive string ops, no regex — gets
-called millions of times per scan and a regex compile is overkill for
-six fixed patterns.
+**PDF engine:** PyMuPDF as default with auto-switch to pdfplumber for
+table pages only. Controlled by `pdf_engine` preference.
 
-**One-time historical cleanup.** Pre-v0.22.19 these files had been
-accumulating in `bulk_files` and `source_files` for weeks (1,327
-Thumbs.db rows in `bulk_files` and 453 in `source_files` observed in
-the live DB at upgrade time). The fix wouldn't help retroactively, so
-`main.py:lifespan` runs a one-shot DELETE migration on startup gated
-by the `junk_cleanup_v0_22_19_done` preference flag. Idempotent —
-runs exactly once per database, then never again.
+**Vision adapter:** Magic-byte MIME detection (fixes 115 batch failures
+from .jpg files that are GIFs). Provider-aware batch limits (anthropic,
+openai, gemini, ollama).
 
-**Why this matters for prod-readiness.** The 43 misleading errors per
-job were the loudest visible symptom, but the real cost was cumulative:
-every scan added more junk rows to `source_files`, every bulk job
-re-processed the same `~$*` lock files, the file count UI badge
-overstated by ~5%, and the `lifecycle_scan.file_error` count was
-inflated. This is the same "noise hides real signal" pattern v0.22.18
-set out to fix — the difference is v0.22.18 fixed the *symptom layer*
-(error messages, retry logic, timeouts) and v0.22.19 fixes the
-*data layer* (don't queue garbage in the first place).
+**Frontend:** Polling reduced from 5s to 20s visible, 30s hidden.
+Stops after 30 min hidden. Tab re-activation reloads page.
 
-**Validation performed:** `python -m py_compile` clean on all four
-edited files (`core/bulk_scanner.py`, `core/lifecycle_scanner.py`,
-`main.py`, `core/version.py`). Live deploy verification still pending
-(see "rebuild + deploy + verify" task).
+**Other:** Conversion semaphore auto-detected from CPU count
+(`cpu_count // 2`, capped 2–8). Unused `mammoth` + `markdownify`
+deps removed. httpx/httpcore debug logging suppressed (~40K lines/day).
+`structural_hash()` on DocumentModel for round-trip testing.
+`markitdown` validation comparison utility.
 
 ---
 
-### v0.22.18 (carried-forward summary) — production-readiness sweep
+### v0.22.18–v0.22.19 (carried-forward summaries)
 
-Four targeted fixes from a runtime-log audit of the live `vector`
-branch. Each one closed a recurring failure mode that was bleeding
-~2,500 noisy events / 24h into the logs without crashing the app.
-Full context:
-[`docs/version-history.md`](docs/version-history.md).
+**v0.22.19:** Scan-time junk-file filter + one-time historical cleanup
+(~$* Office lock files, Thumbs.db, desktop.ini, .DS_Store).
+**v0.22.18:** Four production-readiness fixes from runtime-log audit
+(~2,500 noisy events/24h eliminated).
+Full context: [`docs/version-history.md`](docs/version-history.md).
 
 ---
 
@@ -241,10 +238,9 @@ log archive system is interim.
 
 ## Pre-production checklist
 
-- **Lifecycle timers are at testing values** — MUST restore before production:
-  - `lifecycle_grace_period_hours`: currently **12** (production: 36+)
-  - `lifecycle_trash_retention_days`: currently **7** (production: 60+)
-  - Set via Settings UI or `PUT /api/preferences/<key>`
+- **Lifecycle timers** — v0.23.0 startup logs a WARNING if grace < 24h or
+  retention < 30d. Current defaults: grace=36h, retention=60d. Override via
+  Settings UI or `PUT /api/preferences/<key>`.
 - **Security audit** (62 findings in `docs/security-audit.md`) not yet addressed.
 
 **Temporary instrumentation (deactivate when resolved):**
@@ -277,7 +273,9 @@ All phases 0–11 are **Done**. Phase 1 historical spec: [`docs/phase-1-instruct
 | File | Purpose |
 |------|---------|
 | `main.py` | FastAPI app, lifespan, router mounts |
-| `core/db/` | Domain-split DB package (connection, schema, bulk, lifecycle, auth, ...) |
+| `core/db/` | Domain-split DB package (connection, pool, schema, bulk, lifecycle, auth, migrations, ...) |
+| `core/db/pool.py` | Single-writer connection pool + async write queue (v0.23.0) |
+| `core/preferences_cache.py` | In-memory TTL cache for DB preferences (v0.23.0) |
 | `core/converter.py` | Pipeline orchestrator (single-file conversion) |
 | `core/bulk_worker.py` | Worker pool: BulkJob, pause/resume/cancel, SSE |
 | `core/scan_coordinator.py` | Scan priority coordinator (Bulk > Run Now > Lifecycle) |

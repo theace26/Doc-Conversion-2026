@@ -168,6 +168,12 @@ def notify_bulk_started(job_id: str = "") -> None:
     # Pause run-now — it will resume when bulk completes
     pause_run_now_scan(reason=f"bulk_job_started:{job_id}")
 
+    try:
+        from api.routes.pipeline import invalidate_stats_cache
+        invalidate_stats_cache()
+    except ImportError:
+        pass
+
 
 def notify_bulk_completed(job_id: str = "") -> None:
     """Called when a bulk job finishes. Resumes run-now if no other bulk active."""
@@ -178,6 +184,12 @@ def notify_bulk_completed(job_id: str = "") -> None:
 
     if _active_bulk_count == 0:
         resume_run_now_scan(reason="all_bulk_jobs_complete")
+
+    try:
+        from api.routes.pipeline import invalidate_stats_cache
+        invalidate_stats_cache()
+    except ImportError:
+        pass
 
 
 def notify_run_now_started() -> None:

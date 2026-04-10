@@ -4,6 +4,97 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.23.0 — Audit remediation: DB pool, pipeline hardening, vision MIME fix (2026-04-09)
+
+20-task overhaul addressing all 17 items from the Health Audit + Specification
+Review. Organized into 4 waves for maximum parallelism.
+
+### DB Layer
+- **Connection pool** (`core/db/pool.py`): Single-writer async write queue + 3
+  read-only connections. WAL mode, 30s busy timeout. `db_fetch_one/all` and
+  `db_execute` in `core/db/connection.py` transparently route through pool when
+  initialized, falling back to direct connection during startup schema init.
+  Eliminates "database is locked" errors under concurrent bulk + lifecycle scans.
+- **Preferences TTL cache** (`core/preferences_cache.py`): 5-minute in-memory
+  cache. Invalidated on PUT via `api/routes/preferences.py`. Eliminates ~50K
+  DB reads/day from scheduler ticks, worker files, and scan iterations.
+- **bulk_files dedup migration** (`core/db/migrations.py:run_bulk_files_dedup`):
+  One-time cleanup keeping only the latest row per `source_path`. Expected to
+  delete ~187K rows. Schema migrated from `unique(job_id, source_path)` to
+  `unique(source_path)` so rescans update in place instead of creating duplicates.
+- **Stale job detection** (`core/db/migrations.py:add_heartbeat_column` +
+  `cleanup_stale_jobs`): `bulk_jobs` gets `last_heartbeat` column. Workers update
+  every 60s. Startup cleans jobs stuck in 'running' with heartbeat > 30 min old.
+- **Counter batching** (`core/bulk_worker.py:CounterAccumulator`): Batches
+  converted/failed/skipped counter updates (flush every 50 files or 5s). Reduces
+  per-scan DB writes from ~800K to ~16K.
+
+### Pipeline
+- **Incremental scanning** (`core/bulk_scanner.py`): Files already converted with
+  same mtime are skipped. Post-scan cross-job dedup DELETE as safety net.
+- **Pipeline stats cache** (`api/routes/pipeline.py`): 20s TTL on `/api/pipeline/stats`.
+  Invalidated on bulk job start/complete via `core/scan_coordinator.py`.
+- **Lifecycle I/O fix** (`core/lifecycle_manager.py`): `shutil.move` and
+  `unlink` wrapped in `asyncio.to_thread()`. Added `recover_moving_files()`
+  for startup crash recovery.
+- **Forced trash expiry** (`core/scheduler.py`): Every 4th `run_trash_expiry`
+  invocation bypasses the active-jobs check.
+- **Housekeeping job** (`core/scheduler.py:run_housekeeping`): Every 2 hours.
+  Cross-job dedup + PRAGMA optimize + conditional VACUUM (>10% free pages).
+  Does NOT yield to active bulk jobs.
+- **Vector backpressure** (`core/bulk_worker.py`): Bounded semaphore (20) on
+  Qdrant indexing tasks. Skipped files picked up on next lifecycle scan.
+
+### PDF Engine
+- **PyMuPDF as default** (`formats/pdf_handler.py`): Pages with table gridlines
+  (detected via `get_drawings()` line analysis) switch to pdfplumber for that
+  page only. All other pages use PyMuPDF (~3x faster). Full pdfplumber fallback
+  on any PyMuPDF failure. Controlled by `pdf_engine` preference.
+
+### Vision Adapter
+- **Magic-byte MIME detection** (`core/vision_adapter.py:detect_mime`): Detects
+  JPEG, PNG, GIF, BMP, WebP from file headers. Fixes 115 batch failures from
+  .jpg files that were actually GIFs.
+- **Provider-aware batch limits** (`core/vision_adapter.py:plan_batches`):
+  Per-provider caps for anthropic (24MB/20img), openai (18MB/10img), gemini
+  (18MB/16img), ollama (50MB/5img).
+
+### Frontend
+- **Polling reduction** (`static/js/global-status-bar.js`): 20s visible (was 5s),
+  30s hidden, stops after 30 min hidden. Tab re-activation reloads page.
+  Eliminates ~40K unnecessary requests/day.
+
+### Other
+- **Conversion semaphore auto-detect** (`core/converter.py`): `cpu_count // 2`,
+  capped 2–8. Configurable via `max_concurrent_conversions` preference.
+- **Removed unused deps** (`requirements.txt`): `mammoth` and `markdownify`
+  deleted (zero imports found).
+- **Logging suppression** (`core/logging_config.py`): httpx/httpcore set to
+  WARNING (~40K debug lines/day from Meilisearch polling).
+- **Structural hash** (`core/document_model.py:DocumentModel.structural_hash`):
+  SHA-256 of heading/table/image/list structure for round-trip comparison.
+- **markitdown validation** (`core/validation/markitdown_compare.py`): CLI tool
+  for comparing MarkFlow output against Microsoft markitdown. Dev use only.
+- **Startup migrations** (`main.py:lifespan`): Pool init, heartbeat column,
+  stale job cleanup, bulk dedup, vision MIME re-queue, lifecycle timer warnings,
+  crash recovery.
+
+### Files modified (18) + created (4)
+Modified: `main.py`, `core/version.py`, `core/db/connection.py`, `core/db/bulk.py`,
+`core/bulk_worker.py`, `core/bulk_scanner.py`, `core/converter.py`,
+`core/document_model.py`, `core/lifecycle_manager.py`, `core/logging_config.py`,
+`core/scan_coordinator.py`, `core/scheduler.py`, `core/vision_adapter.py`,
+`formats/pdf_handler.py`, `api/routes/pipeline.py`, `api/routes/preferences.py`,
+`requirements.txt`, `static/js/global-status-bar.js`
+
+Created: `core/db/pool.py`, `core/db/migrations.py`, `core/preferences_cache.py`,
+`core/validation/` (package with `markitdown_compare.py`)
+
+### Validation
+`python -m py_compile` clean on all 22 files.
+
+---
+
 ## v0.22.19 — Scan-time junk-file filter + historical cleanup (2026-04-08)
 
 Direct follow-up to the v0.22.18 sweep. Triggered by a UI screenshot of

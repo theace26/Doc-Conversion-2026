@@ -553,6 +553,18 @@ class BulkScanner:
                 result.total_discovered += 1
 
                 if ext in SUPPORTED_EXTENSIONS:
+                    # Incremental skip: already converted with same mtime
+                    try:
+                        existing = await db_fetch_one(
+                            "SELECT status, stored_mtime FROM bulk_files WHERE source_path = ?",
+                            (str(file_path),),
+                        )
+                        if existing and existing["status"] == "converted" and existing.get("stored_mtime") == mtime:
+                            result.convertible_count += 1
+                            continue
+                    except Exception:
+                        pass  # On any DB error, fall through to normal processing
+
                     result.convertible_count += 1
                     self._convertible_paths.append(file_path)
                     convertible_batch.append((str(file_path), ext, file_size, mtime))
@@ -586,6 +598,19 @@ class BulkScanner:
         if pending_write is not None:
             await pending_write
         await _flush_batch()
+
+        # Post-scan dedup — remove any older duplicate rows per source_path
+        # (safety net after schema migration to unique(source_path))
+        try:
+            from core.db.connection import db_execute as _db_execute
+            await _db_execute("""
+                DELETE FROM bulk_files
+                WHERE rowid NOT IN (
+                    SELECT MAX(rowid) FROM bulk_files GROUP BY source_path
+                )
+            """)
+        except Exception as e:
+            log.warning("scan.post_dedup_failed", error=str(e))
 
         return file_count
 

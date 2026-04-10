@@ -12,6 +12,7 @@ Export:
   - Tier 3 not supported (PDF internal structure too complex to patch)
 """
 
+import asyncio
 import re
 import time
 from pathlib import Path
@@ -34,6 +35,25 @@ log = structlog.get_logger(__name__)
 _MIN_TEXT_LENGTH = 50
 
 
+def _has_tables_pymupdf(page) -> bool:
+    """Detect table presence via line/rect analysis in PyMuPDF page."""
+    try:
+        drawings = page.get_drawings()
+        h_lines = 0
+        v_lines = 0
+        for d in drawings:
+            for item in d.get("items", []):
+                if item[0] == "l" and len(item) >= 3:
+                    p1, p2 = item[1], item[2]
+                    if abs(p1.y - p2.y) < 2:
+                        h_lines += 1
+                    if abs(p1.x - p2.x) < 2:
+                        v_lines += 1
+        return h_lines >= 3 and v_lines >= 3
+    except Exception:
+        return False
+
+
 @register_handler
 class PdfHandler(FormatHandler):
     EXTENSIONS = ["pdf"]
@@ -41,6 +61,101 @@ class PdfHandler(FormatHandler):
     # ── Ingest ────────────────────────────────────────────────────────────────
 
     def ingest(self, file_path: Path) -> DocumentModel:
+        """Ingest PDF — uses PyMuPDF by default, pdfplumber for table pages."""
+        try:
+            return self._ingest_pymupdf_with_fallback(file_path)
+        except Exception as exc:
+            log.warning("pdf_engine.pymupdf_failed_fallback_pdfplumber", error=str(exc))
+            return self._ingest_pdfplumber(file_path)
+
+    def _ingest_pymupdf_with_fallback(self, file_path: Path) -> DocumentModel:
+        """PyMuPDF primary, pdfplumber for pages with tables."""
+        import fitz
+
+        t_start = time.perf_counter()
+        log.info("handler_ingest_start", filename=file_path.name, format="pdf", engine="pymupdf")
+
+        model = DocumentModel()
+        model.metadata = DocumentMetadata(
+            source_file=file_path.name,
+            source_format="pdf",
+        )
+
+        doc = fitz.open(str(file_path))
+        model.metadata.page_count = len(doc)
+
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+
+            if page_num > 0:
+                model.add_element(Element(type=ElementType.PAGE_BREAK, content=""))
+
+            if _has_tables_pymupdf(page):
+                log.debug("pdf_engine.table_detected_switching",
+                          page=page_num + 1, engine="pdfplumber")
+                elements = self._extract_page_pdfplumber(file_path, page_num)
+            else:
+                elements = self._extract_page_pymupdf(page, page_num)
+
+            model.elements.extend(elements)
+
+        doc.close()
+
+        duration_ms = int((time.perf_counter() - t_start) * 1000)
+        log.info("handler_ingest_complete", filename=file_path.name,
+                 element_count=len(model.elements), duration_ms=duration_ms, engine="pymupdf")
+        return model
+
+    def _extract_page_pymupdf(self, page, page_num: int) -> list:
+        """Extract text from a single page using PyMuPDF."""
+        elements = []
+        blocks = page.get_text("dict")["blocks"]
+        for block in blocks:
+            if block["type"] == 0:  # text block
+                for line in block["lines"]:
+                    text = "".join(span["text"] for span in line["spans"]).strip()
+                    if text:
+                        elements.append(Element(
+                            type=ElementType.PARAGRAPH,
+                            content=text,
+                            attributes={"page": page_num + 1},
+                        ))
+            elif block["type"] == 1:  # image block
+                elements.append(Element(
+                    type=ElementType.IMAGE,
+                    content=f"page_{page_num + 1}_image",
+                    attributes={"page": page_num + 1,
+                                "width": block.get("width", 0),
+                                "height": block.get("height", 0)},
+                ))
+        return elements
+
+    def _extract_page_pdfplumber(self, file_path: Path, page_num: int) -> list:
+        """Extract a single page using pdfplumber (better table extraction)."""
+        import pdfplumber
+        elements = []
+        with pdfplumber.open(str(file_path)) as pdf:
+            if page_num < len(pdf.pages):
+                page = pdf.pages[page_num]
+                tables = page.extract_tables()
+                for table in tables:
+                    elements.append(Element(
+                        type=ElementType.TABLE,
+                        content=table,
+                        attributes={"page": page_num + 1},
+                    ))
+                text = page.extract_text() or ""
+                for line in text.split("\n"):
+                    line = line.strip()
+                    if line:
+                        elements.append(Element(
+                            type=ElementType.PARAGRAPH,
+                            content=line,
+                            attributes={"page": page_num + 1},
+                        ))
+        return elements
+
+    def _ingest_pdfplumber(self, file_path: Path) -> DocumentModel:
         import pdfplumber
 
         t_start = time.perf_counter()

@@ -14,6 +14,8 @@ import io
 from dataclasses import dataclass
 from pathlib import Path
 
+import mimetypes
+
 import httpx
 import structlog
 
@@ -34,9 +36,97 @@ _ANTHROPIC_MAX_PAYLOAD_BYTES = 24 * 1024 * 1024  # 24 MB
 _ANTHROPIC_MAX_IMAGE_RAW_BYTES = 3_500_000  # 3.5 MB raw → ~4.7 MB base64
 _VISION_MAX_EDGE_PX = 1568
 
+_MAGIC_BYTES: list[tuple[bytes, str]] = [
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"GIF89a", "image/gif"),
+    (b"GIF87a", "image/gif"),
+    (b"BM", "image/bmp"),
+]
+
+
+def detect_mime(file_path: Path | str) -> str:
+    """Detect actual MIME from file magic bytes, fall back to extension."""
+    try:
+        with open(file_path, "rb") as f:
+            header = f.read(32)
+        if header[:4] == b"RIFF" and header[8:12] == b"WEBP":
+            return "image/webp"
+        for magic, mime in _MAGIC_BYTES:
+            if header[: len(magic)] == magic:
+                return mime
+    except OSError:
+        pass
+    return mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+
+
+_PROVIDER_LIMITS = {
+    "anthropic": {
+        "max_request_bytes": 24 * 1024 * 1024,
+        "max_image_raw_bytes": 3_500_000,
+        "max_images_per_batch": 20,
+        "max_edge_px": 1568,
+    },
+    "openai": {
+        "max_request_bytes": 18 * 1024 * 1024,
+        "max_image_raw_bytes": 18 * 1024 * 1024,
+        "max_images_per_batch": 10,
+        "max_edge_px": 2048,
+    },
+    "gemini": {
+        "max_request_bytes": 18 * 1024 * 1024,
+        "max_image_raw_bytes": 18 * 1024 * 1024,
+        "max_images_per_batch": 16,
+        "max_edge_px": 3072,
+    },
+    "ollama": {
+        "max_request_bytes": 50 * 1024 * 1024,
+        "max_image_raw_bytes": 50 * 1024 * 1024,
+        "max_images_per_batch": 5,
+        "max_edge_px": 1568,
+    },
+}
+_DEFAULT_LIMITS = _PROVIDER_LIMITS["anthropic"]
+
+
+def get_provider_limits(provider: str) -> dict:
+    """Return batch limits for the given provider."""
+    return _PROVIDER_LIMITS.get(provider, _DEFAULT_LIMITS)
+
+
+def plan_batches(
+    images: list[tuple[Path, int]],
+    provider: str,
+) -> list[list[Path]]:
+    """Bin-pack images into batches sized per provider limits."""
+    limits = get_provider_limits(provider)
+    max_bytes = limits["max_request_bytes"]
+    max_count = limits["max_images_per_batch"]
+
+    batches: list[list[Path]] = []
+    current_batch: list[Path] = []
+    current_bytes = 0
+
+    for path, size in images:
+        encoded_size = int(size * 1.34)
+        if current_batch and (
+            current_bytes + encoded_size > max_bytes
+            or len(current_batch) >= max_count
+        ):
+            batches.append(current_batch)
+            current_batch = []
+            current_bytes = 0
+        current_batch.append(path)
+        current_bytes += encoded_size
+
+    if current_batch:
+        batches.append(current_batch)
+
+    return batches
+
 
 def _compress_image_for_vision(
-    raw: bytes, suffix: str
+    raw: bytes, mime_or_suffix: str
 ) -> tuple[bytes, str]:
     """
     Ensure an image fits within the per-image vision API budget.
@@ -53,8 +143,12 @@ def _compress_image_for_vision(
     the original bytes are returned so the caller's existing 5 MB error
     path still fires — this function never raises.
     """
+    if mime_or_suffix.startswith("image/"):
+        mime = mime_or_suffix
+    else:
+        mime = mimetypes.guess_type(f"file{mime_or_suffix}")[0] or "image/png"
+
     if len(raw) <= _ANTHROPIC_MAX_IMAGE_RAW_BYTES:
-        mime = "image/png" if suffix.lower() == ".png" else "image/jpeg"
         return raw, mime
 
     try:
@@ -104,7 +198,6 @@ def _compress_image_for_vision(
             original_bytes=len(raw),
         )
         # Return original; the API call will surface the real 5 MB error
-        mime = "image/png" if suffix.lower() == ".png" else "image/jpeg"
         return raw, mime
 
 

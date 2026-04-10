@@ -109,41 +109,61 @@ def now_iso() -> str:
 
 
 # ── Generic query helpers ─────────────────────────────────────────────────────
+#
+# Route through the connection pool when available, falling back to a direct
+# connection for backward compatibility during startup (before pool init).
+
+from core.db.pool import get_pool
+
+
 async def db_fetch_one(sql: str, params: tuple = ()) -> dict[str, Any] | None:
     """Execute a SELECT and return the first row as a dict (or None)."""
-    caller = _get_caller(skip_frames=2)
-    start = time.monotonic()
-    async with get_db() as conn:
-        async with conn.execute(sql, params) as cursor:
-            row = await cursor.fetchone()
-            result = dict(row) if row else None
-            dur_ms = (time.monotonic() - start) * 1000
-            log_query(sql, params, caller, dur_ms,
-                      row_count=1 if result else 0, intent="read")
-            return result
+    try:
+        pool = get_pool()
+        return await pool.read_one(sql, params)
+    except RuntimeError:
+        # Pool not initialized yet (during schema init)
+        caller = _get_caller(skip_frames=2)
+        start = time.monotonic()
+        async with get_db() as conn:
+            async with conn.execute(sql, params) as cursor:
+                row = await cursor.fetchone()
+                result = dict(row) if row else None
+                dur_ms = (time.monotonic() - start) * 1000
+                log_query(sql, params, caller, dur_ms,
+                          row_count=1 if result else 0, intent="read")
+                return result
 
 
 async def db_fetch_all(sql: str, params: tuple = ()) -> list[dict[str, Any]]:
     """Execute a SELECT and return all rows as a list of dicts."""
-    caller = _get_caller(skip_frames=2)
-    start = time.monotonic()
-    async with get_db() as conn:
-        async with conn.execute(sql, params) as cursor:
-            rows = await cursor.fetchall()
-            result = [dict(r) for r in rows]
-            dur_ms = (time.monotonic() - start) * 1000
-            log_query(sql, params, caller, dur_ms,
-                      row_count=len(result), intent="read")
-            return result
+    try:
+        pool = get_pool()
+        return await pool.read(sql, params)
+    except RuntimeError:
+        caller = _get_caller(skip_frames=2)
+        start = time.monotonic()
+        async with get_db() as conn:
+            async with conn.execute(sql, params) as cursor:
+                rows = await cursor.fetchall()
+                result = [dict(r) for r in rows]
+                dur_ms = (time.monotonic() - start) * 1000
+                log_query(sql, params, caller, dur_ms,
+                          row_count=len(result), intent="read")
+                return result
 
 
 async def db_execute(sql: str, params: tuple = ()) -> int:
     """Execute an INSERT/UPDATE/DELETE. Returns lastrowid."""
-    caller = _get_caller(skip_frames=2)
-    start = time.monotonic()
-    async with get_db() as conn:
-        async with conn.execute(sql, params) as cursor:
-            await conn.commit()
-            dur_ms = (time.monotonic() - start) * 1000
-            log_query(sql, params, caller, dur_ms, intent="write")
-            return cursor.lastrowid
+    try:
+        pool = get_pool()
+        return await pool.write(sql, params)
+    except RuntimeError:
+        caller = _get_caller(skip_frames=2)
+        start = time.monotonic()
+        async with get_db() as conn:
+            async with conn.execute(sql, params) as cursor:
+                await conn.commit()
+                dur_ms = (time.monotonic() - start) * 1000
+                log_query(sql, params, caller, dur_ms, intent="write")
+                return cursor.lastrowid

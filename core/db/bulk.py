@@ -166,7 +166,8 @@ async def upsert_bulk_file(
                (id, job_id, source_path, file_ext, file_size_bytes,
                 source_mtime, status, source_file_id)
                VALUES (?,?,?,?,?,?,?,?)
-               ON CONFLICT(job_id, source_path) DO UPDATE SET
+               ON CONFLICT(source_path) DO UPDATE SET
+                job_id = excluded.job_id,
                 file_ext = excluded.file_ext,
                 file_size_bytes = excluded.file_size_bytes,
                 source_file_id = excluded.source_file_id,
@@ -189,8 +190,8 @@ async def upsert_bulk_file(
 
         # Retrieve actual id (generated for inserts, existing for conflicts)
         async with conn.execute(
-            "SELECT id FROM bulk_files WHERE job_id=? AND source_path=?",
-            (job_id, source_path),
+            "SELECT id FROM bulk_files WHERE source_path=?",
+            (source_path,),
         ) as cur:
             row = await cur.fetchone()
             file_id = row["id"]
@@ -261,7 +262,8 @@ async def upsert_bulk_files_batch(
                        (id, job_id, source_path, file_ext, file_size_bytes,
                         source_mtime, status, source_file_id)
                        VALUES (?,?,?,?,?,?,?,?)
-                       ON CONFLICT(job_id, source_path) DO UPDATE SET
+                       ON CONFLICT(source_path) DO UPDATE SET
+                        job_id = excluded.job_id,
                         file_ext = excluded.file_ext,
                         file_size_bytes = excluded.file_size_bytes,
                         source_file_id = excluded.source_file_id,

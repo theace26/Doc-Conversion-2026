@@ -151,6 +151,43 @@ class DocumentModel:
         """Return all top-level elements of a given type."""
         return [e for e in self.elements if e.type == element_type]
 
+    def structural_hash(self) -> str:
+        """Generate a single hash representing document structure for comparison."""
+        import hashlib as _hashlib
+        parts = []
+
+        headings = [e for e in self.elements if e.type == ElementType.HEADING]
+        parts.append(f"h:{len(headings)}")
+        for h in headings:
+            parts.append(f"ht:{h.content[:100]}")
+
+        tables = [e for e in self.elements if e.type == ElementType.TABLE]
+        parts.append(f"t:{len(tables)}")
+        for t in tables:
+            if isinstance(t.content, list):
+                rows_count = len(t.content)
+                cols_count = len(t.content[0]) if t.content else 0
+                parts.append(f"td:{rows_count}x{cols_count}")
+                for row in t.content:
+                    for cell in row:
+                        parts.append(f"tc:{str(cell)[:50]}")
+
+        images = [e for e in self.elements if e.type == ElementType.IMAGE]
+        parts.append(f"i:{len(images)}")
+        for img in images:
+            w = img.attributes.get("width", 0) if img.attributes else 0
+            h_val = img.attributes.get("height", 0) if img.attributes else 0
+            parts.append(f"id:{w}x{h_val}")
+
+        lists = [e for e in self.elements if e.type == ElementType.LIST]
+        parts.append(f"l:{len(lists)}")
+        for li in lists:
+            depth = li.level or 0
+            parts.append(f"ld:{depth}")
+
+        combined = "|".join(parts)
+        return _hashlib.sha256(combined.encode()).hexdigest()
+
     def to_markdown(self) -> str:
         """Convert to Markdown string (uses MarkdownHandler)."""
         from formats.markdown_handler import MarkdownHandler

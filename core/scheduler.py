@@ -19,6 +19,8 @@ log = structlog.get_logger(__name__)
 
 scheduler = AsyncIOScheduler()
 
+_trash_expiry_run_count = 0
+
 # ── Pipeline pause state (in-memory, resets on container restart) ─────────────
 _pipeline_paused: bool = False
 
@@ -108,13 +110,22 @@ async def run_lifecycle_scan(force: bool = False) -> None:
 
 async def run_trash_expiry() -> None:
     """Move expired marked_for_deletion to trash, purge expired trash."""
+    global _trash_expiry_run_count
+    _trash_expiry_run_count += 1
+
     try:
-        # Yield to active bulk jobs — they hold the DB heavily
-        from core.bulk_worker import get_all_active_jobs
-        active = await get_all_active_jobs()
-        if any(j["status"] in ("scanning", "running", "paused") for j in active):
-            log.info("scheduler.trash_expiry_skipped_bulk_job_active")
-            return
+        force = (_trash_expiry_run_count % 4 == 0)
+
+        if not force:
+            # Yield to active bulk jobs — they hold the DB heavily
+            from core.bulk_worker import get_all_active_jobs
+            active = await get_all_active_jobs()
+            if any(j["status"] in ("scanning", "running", "paused") for j in active):
+                log.info("scheduler.trash_expiry_skipped_bulk_job_active")
+                return
+
+        if force:
+            log.info("trash_expiry.forced_housekeeping_run", run_count=_trash_expiry_run_count)
 
         from core.database import get_source_files_pending_trash, get_source_files_pending_purge, db_fetch_all
         from core.lifecycle_manager import move_to_trash, purge_file
@@ -488,6 +499,52 @@ async def _bulk_files_self_correction() -> None:
         log.error("bulk_files_self_correction_failed", error=str(exc))
 
 
+async def run_housekeeping():
+    """Periodic housekeeping — supersedes all other tasks.
+
+    Does NOT check get_all_active_jobs(). Runs regardless of active bulk jobs.
+    """
+    log.info("housekeeping.start")
+
+    # 1. Cross-job dedup (safety net)
+    try:
+        from core.db.connection import db_execute
+        await db_execute("""
+            DELETE FROM bulk_files
+            WHERE rowid NOT IN (
+                SELECT MAX(rowid) FROM bulk_files GROUP BY source_path
+            )
+        """)
+        log.info("housekeeping.dedup_complete")
+    except Exception as e:
+        log.warning("housekeeping.dedup_failed", error=str(e))
+
+    # 2. PRAGMA optimize
+    try:
+        from core.db.connection import db_execute as _db_execute
+        await _db_execute("PRAGMA optimize")
+    except Exception:
+        pass
+
+    # 3. Check free pages — VACUUM if > 10%
+    try:
+        from core.db.connection import db_fetch_one, db_execute as _db_exec
+        free = await db_fetch_one("PRAGMA freelist_count")
+        total = await db_fetch_one("PRAGMA page_count")
+        if free and total:
+            free_count = list(free.values())[0]
+            total_count = list(total.values())[0]
+            if total_count > 0 and free_count / total_count > 0.10:
+                log.info("housekeeping.vacuum_starting",
+                         free_pages=free_count, total_pages=total_count)
+                await _db_exec("VACUUM")
+                log.info("housekeeping.vacuum_complete")
+    except Exception as e:
+        log.warning("housekeeping.vacuum_failed", error=str(e))
+
+    log.info("housekeeping.complete")
+
+
 def start_scheduler() -> None:
     """Register all jobs and start the scheduler. Called from lifespan."""
     from core.metrics_collector import collect_metrics, collect_disk_snapshot, purge_old_metrics
@@ -654,8 +711,19 @@ def start_scheduler() -> None:
         misfire_grace_time=300,
     )
 
+    # v0.23.0: Housekeeping — every 2 hours (dedup + optimize + conditional VACUUM)
+    scheduler.add_job(
+        run_housekeeping,
+        trigger=IntervalTrigger(hours=2),
+        id="run_housekeeping",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=300,
+    )
+
     scheduler.start()
-    log.info("scheduler.started", jobs=15)
+    log.info("scheduler.started", jobs=16)
 
 
 def get_pipeline_status() -> dict:

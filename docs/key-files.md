@@ -8,7 +8,10 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 |------|---------|
 | `main.py` | FastAPI app, lifespan, mounts all routers + `/ocr-images` static |
 | `core/database.py` | Backward-compatible re-export wrapper for `core/db/` package |
-| `core/db/connection.py` | DB_PATH, get_db(), db_fetch_one/all, db_execute, db_write_with_retry, now_iso |
+| `core/db/connection.py` | DB_PATH, get_db(), db_fetch_one/all, db_execute (routes through pool when available), db_write_with_retry, now_iso |
+| `core/db/pool.py` | Single-writer connection pool + async write queue (1 writer + 3 readers, WAL mode) (v0.23.0) |
+| `core/db/migrations.py` | One-time startup migrations gated by preference flags (bulk dedup, heartbeat column, stale jobs) (v0.23.0) |
+| `core/preferences_cache.py` | In-memory TTL cache (300s) for DB preferences, invalidated on PUT (v0.23.0) |
 | `core/db/schema.py` | Schema DDL, versioned migrations, init_db(), cleanup_orphaned_jobs |
 | `core/db/preferences.py` | DEFAULT_PREFERENCES, get/set/all preference helpers |
 | `core/db/bulk.py` | Bulk jobs, bulk files, source file upsert/query helpers + `cleanup_stale_bulk_files()` self-correction (v0.22.7) |
@@ -18,6 +21,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `core/db/analysis.py` | Analysis queue: enqueue, dedup, claim batch, write results, token summary |
 | `core/db/auth.py` | API key management (create, lookup, revoke, list, touch) |
 | `core/db/contention_logger.py` | **TEMPORARY** DB contention/query logging for lock diagnosis (v0.19.6.5) |
+| `core/validation/markitdown_compare.py` | CLI tool for comparing MarkFlow output against Microsoft markitdown (v0.23.0) |
 | `core/health.py` | Startup checks for Tesseract, LibreOffice, Poppler, WeasyPrint, disk, DB |
 | `core/logging_config.py` | structlog JSON logging, rotating file handler |
 | `core/converter.py` | Pipeline orchestrator; `from_md` path detects sidecar + original → tier 1/2/3 |

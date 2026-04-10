@@ -5,8 +5,6 @@ python-multipart
 
 # Document processing — DOCX
 python-docx
-mammoth
-markdownify
 
 # Document processing — PDF
 pymupdf

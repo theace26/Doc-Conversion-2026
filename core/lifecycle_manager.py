@@ -7,6 +7,7 @@ Called by the lifecycle scanner (Sub-phase D) and maintenance jobs (Sub-phase F)
 Does not run scans — only applies decisions the scanner has made.
 """
 
+import asyncio
 import json
 import os
 import shutil
@@ -122,7 +123,7 @@ async def restore_file(bulk_file_id: str, scan_run_id: str) -> None:
             if trash_file.exists() and not original.exists():
                 try:
                     original.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.move(str(trash_file), str(original))
+                    await asyncio.to_thread(shutil.move, str(trash_file), str(original))
                     log.info("lifecycle.restored_from_trash", path=str(original))
                 except OSError as exc:
                     log.warning("lifecycle.restore_move_failed", error=str(exc))
@@ -165,7 +166,7 @@ async def move_to_trash(bulk_file_id: str) -> None:
             if original.exists():
                 try:
                     trash_dest.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.move(str(original), str(trash_dest))
+                    await asyncio.to_thread(shutil.move, str(original), str(trash_dest))
                     log.info("lifecycle.moved_to_trash", path=str(original), trash=str(trash_dest))
                 except OSError as exc:
                     log.warning("lifecycle.trash_move_failed", error=str(exc))
@@ -215,7 +216,7 @@ async def purge_file(bulk_file_id: str) -> None:
             trash_file = get_trash_path(OUTPUT_REPO_ROOT, Path(output_path))
             if trash_file.exists():
                 try:
-                    trash_file.unlink()
+                    await asyncio.to_thread(trash_file.unlink)
                     log.info("lifecycle.purged_file", path=str(trash_file))
                 except OSError as exc:
                     log.warning("lifecycle.purge_delete_failed", error=str(exc))
@@ -320,3 +321,25 @@ async def record_content_change(
         lines_added=diff.lines_added,
         lines_removed=diff.lines_removed,
     )
+
+
+async def recover_moving_files():
+    """On startup, reset any files stuck in transitional states (crash recovery)."""
+    from core.database import db_fetch_all, db_execute
+    # Check for any source_files stuck in non-terminal transitional states
+    # (This is a safety net — the current code doesn't use a 'moving' status,
+    # but future refactors might. No-op if no rows match.)
+    try:
+        rows = await db_fetch_all(
+            "SELECT id FROM source_files WHERE lifecycle_status = 'moving'"
+        )
+        for row in rows:
+            log.warning("lifecycle.recovering_stuck_move", file_id=row["id"])
+            await db_execute(
+                "UPDATE source_files SET lifecycle_status = 'marked_for_deletion' WHERE id = ?",
+                (row["id"],),
+            )
+        if rows:
+            log.info("lifecycle.recovery_complete", count=len(rows))
+    except Exception as e:
+        log.warning("lifecycle.recovery_failed", error=str(e))

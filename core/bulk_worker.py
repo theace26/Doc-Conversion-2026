@@ -48,6 +48,40 @@ from core.database import (
 log = structlog.get_logger(__name__)
 
 
+class CounterAccumulator:
+    """Batch counter updates to reduce DB writes from per-file to per-batch."""
+
+    def __init__(self, job_id: str, flush_interval: int = 50, flush_timeout: float = 5.0):
+        self.job_id = job_id
+        self.counts: dict[str, int] = {"converted": 0, "failed": 0, "skipped": 0, "adobe_indexed": 0}
+        self.since_flush = 0
+        self.last_flush = time.time()
+        self.flush_interval = flush_interval
+        self.flush_timeout = flush_timeout
+
+    def increment(self, field: str):
+        self.counts[field] = self.counts.get(field, 0) + 1
+        self.since_flush += 1
+
+    async def maybe_flush(self):
+        if self.since_flush >= self.flush_interval or \
+           time.time() - self.last_flush > self.flush_timeout:
+            await self._flush()
+
+    async def _flush(self):
+        if self.since_flush == 0:
+            return
+        for field, count in self.counts.items():
+            if count > 0:
+                await increment_bulk_job_counter(self.job_id, field, count)
+        self.counts = {k: 0 for k in self.counts}
+        self.since_flush = 0
+        self.last_flush = time.time()
+
+    async def flush_final(self):
+        await self._flush()
+
+
 _IMAGE_EXTENSIONS_BW = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".gif", ".eps"}
 
 
@@ -76,6 +110,7 @@ def _emit_bulk_event(job_id: str, event: str, data: dict) -> None:
 
 # ── Job registry ─────────────────────────────────────────────────────────────
 _active_jobs: dict[str, "BulkJob"] = {}
+_vector_semaphore = asyncio.Semaphore(20)
 
 
 def get_active_job(job_id: str) -> "BulkJob | None":
@@ -145,6 +180,26 @@ async def _index_vector_async(
             error=repr(vec_exc),
             exc_type=type(vec_exc).__name__,
         )
+
+
+async def _index_vector_with_backpressure(
+    vec_indexer,
+    md_path: Path,
+    doc_id: str,
+    title: str,
+    source_path: str,
+    source_format: str,
+    file_id: str,
+) -> None:
+    """Index to Qdrant with bounded concurrency. Skip if queue is full."""
+    acquired = _vector_semaphore.acquire_nowait()
+    if not acquired:
+        log.info("vector_indexing.backpressure_skip", file=source_path)
+        return
+    try:
+        await _index_vector_async(vec_indexer, md_path, doc_id, title, source_path, source_format, file_id)
+    finally:
+        _vector_semaphore.release()
 
 
 # ── OCR confidence pre-scan ──────────────────────────────────────────────────
@@ -410,6 +465,9 @@ class BulkJob:
             except Exception:
                 self._password_handler = None
 
+            # Heartbeat tracker — shared across workers
+            self._last_heartbeat_time = time.time()
+
             # 2. Enqueue pending files
             pending_files = await get_unprocessed_bulk_files(self.job_id)
             self._total_pending = len(pending_files)
@@ -532,6 +590,18 @@ class BulkJob:
             # Check global stop again after pause
             if should_stop():
                 continue
+
+            # Heartbeat — update every 60s so the DB knows this job is alive
+            if time.time() - self._last_heartbeat_time > 60:
+                try:
+                    from core.database import db_execute
+                    await db_execute(
+                        "UPDATE bulk_jobs SET last_heartbeat = datetime('now') WHERE id = ?",
+                        (self.job_id,),
+                    )
+                    self._last_heartbeat_time = time.time()
+                except Exception:
+                    pass
 
             file_dict = item
             ext = file_dict["file_ext"]
@@ -888,7 +958,7 @@ class BulkJob:
                         vec_indexer = await get_vector_indexer()
                         if vec_indexer:
                             vec_doc_id = hashlib.sha256(str(actual_output).encode()).hexdigest()[:16]
-                            asyncio.create_task(_index_vector_async(
+                            asyncio.create_task(_index_vector_with_backpressure(
                                 vec_indexer=vec_indexer,
                                 md_path=actual_output,
                                 doc_id=vec_doc_id,

@@ -198,6 +198,12 @@ def configure_logging(
                   "pdfminer.pdfpage", "pdfminer.pdfdocument"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
+    # Suppress httpx/httpcore debug noise (~40,000 lines/day from Meilisearch polling)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore.connection").setLevel(logging.WARNING)
+    logging.getLogger("httpcore.http11").setLevel(logging.WARNING)
+
 
 def update_log_level(new_level: str) -> None:
     """
