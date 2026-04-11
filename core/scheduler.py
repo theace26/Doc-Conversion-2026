@@ -148,26 +148,79 @@ async def run_trash_expiry() -> None:
                 except Exception as exc:
                     log.error("scheduler.trash_move_failed", file_id=bf["id"], error=str(exc))
 
-        # Purge expired trash — same pattern
+        # v0.23.6 M4: the purge branch has moved to the dedicated daily
+        # _purge_aged_trash job. This hourly job now only moves expired
+        # marked_for_deletion rows into trash.
+        if pending_trash:
+            log.info(
+                "scheduler.trash_expiry_complete",
+                trashed=len(pending_trash),
+            )
+    except Exception as exc:
+        log.error("scheduler.trash_expiry_failed", error=str(exc))
+
+
+async def _purge_aged_trash() -> None:
+    """v0.23.6 M4: daily 04:00 job — permanently delete trashed files older
+    than `lifecycle_trash_retention_days` (default 60). Gated on the new
+    `trash_auto_purge_enabled` preference, and yields to active bulk jobs
+    like every other scheduled job.
+    """
+    try:
+        enabled = await get_preference("trash_auto_purge_enabled")
+        if enabled == "false":
+            log.info("scheduler.purge_aged_trash_skipped_disabled")
+            return
+
+        # Yield to active bulk jobs
+        from core.bulk_worker import get_all_active_jobs
+        active = await get_all_active_jobs()
+        if any(j["status"] in ("scanning", "running", "paused") for j in active):
+            log.info("scheduler.purge_aged_trash_skipped_bulk_job_active")
+            return
+
+        from core.database import get_source_files_pending_purge, db_fetch_all
+        from core.lifecycle_manager import purge_file
+
+        retention_str = await get_preference("lifecycle_trash_retention_days")
+        retention_days = int(retention_str) if retention_str else 60
+
         pending_purge = await get_source_files_pending_purge(trash_retention_days=retention_days)
+        bytes_freed = 0
+        purged_count = 0
         for sf in pending_purge:
+            size = sf.get("file_size_bytes") or 0
+            try:
+                bytes_freed += int(size)
+            except (TypeError, ValueError):
+                pass
             bf_rows = await db_fetch_all(
                 "SELECT id FROM bulk_files WHERE source_file_id = ?", (sf["id"],),
             )
             for bf in bf_rows:
                 try:
                     await purge_file(bf["id"])
+                    purged_count += 1
                 except Exception as exc:
-                    log.error("scheduler.purge_failed", file_id=bf["id"], error=str(exc))
+                    log.error("scheduler.purge_aged_trash_failed", file_id=bf["id"], error=str(exc))
 
-        if pending_trash or pending_purge:
-            log.info(
-                "scheduler.trash_expiry_complete",
-                trashed=len(pending_trash),
-                purged=len(pending_purge),
-            )
+        log.info(
+            "scheduler.purge_aged_trash_complete",
+            retention_days=retention_days,
+            purged=purged_count,
+            bytes_freed=bytes_freed,
+        )
+
+        if purged_count > 0:
+            try:
+                await record_activity_event(
+                    "trash_auto_purge",
+                    f"Auto-purged {purged_count} trashed files ({bytes_freed / (1024*1024):.0f} MB)",
+                )
+            except Exception:
+                pass
     except Exception as exc:
-        log.error("scheduler.trash_expiry_failed", error=str(exc))
+        log.error("scheduler.purge_aged_trash_error", error=str(exc))
 
 
 async def run_db_compaction() -> None:
@@ -600,13 +653,23 @@ def start_scheduler() -> None:
         max_instances=1,
     )
 
-    # Trash expiry — every hour
+    # Trash expiry — every hour (only moves expired marks → trash)
     scheduler.add_job(
         run_trash_expiry,
         trigger=IntervalTrigger(hours=1),
         id="trash_expiry",
         replace_existing=True,
         max_instances=1,
+    )
+
+    # v0.23.6 M4: Aged-trash auto-purge — daily at 04:00 local
+    scheduler.add_job(
+        _purge_aged_trash,
+        trigger=CronTrigger(hour=4, minute=0),
+        id="purge_aged_trash",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
     )
 
     # DB compaction — Sunday 02:00
@@ -723,7 +786,7 @@ def start_scheduler() -> None:
     )
 
     scheduler.start()
-    log.info("scheduler.started", jobs=16)
+    log.info("scheduler.started", jobs=17)
 
 
 def get_pipeline_status() -> dict:

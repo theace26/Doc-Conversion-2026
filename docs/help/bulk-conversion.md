@@ -213,7 +213,7 @@ In addition to jobs you start manually, MarkFlow runs an automatic **lifecycle s
 
 The lifecycle scanner status appears on the Status page as its own card, showing when the last scan ran and whether one is currently in progress.
 
-For full details on what the lifecycle scanner does, see [File Lifecycle](/help#file-lifecycle).
+For full details on what the lifecycle scanner does, see [File Lifecycle](/help.html#file-lifecycle).
 
 
 ## Bulk Job Settings
@@ -225,10 +225,43 @@ These settings affect bulk conversion behavior:
 | **Worker Count**               | Number of parallel conversion workers                | 2       | Settings or Admin |
 | **OCR Confidence Threshold**   | Below this, PDFs are skipped to the review queue     | 60      | Settings        |
 | **Unattended Mode**            | Accept all OCR text without review prompts           | Off     | Settings        |
+| **Force OCR on every PDF page** *(v0.23.6)* | Override to re-OCR every page even when a text layer exists | Off | Per-job (Bulk modal) + Settings → OCR default |
 | **Scanner Enabled**            | Whether the automatic lifecycle scanner runs         | On      | Settings        |
 | **Scanner Interval (minutes)** | How often the lifecycle scanner checks for changes   | 15      | Settings        |
 
 > **Tip:** If you are running a very large bulk job and want maximum speed, temporarily increase the worker count and enable unattended mode. Remember to restore your preferred settings afterward.
+
+### Pre-flight checks *(v0.23.6)*
+
+Before a bulk job spins up workers, MarkFlow now runs two checks
+that can stop the job cleanly:
+
+- **Disk-space check** — sums the total input bytes, multiplies
+  by a 3× buffer (Markdown + sidecars + intermediates), and
+  compares against free space on the output volume. A failing
+  job transitions to `failed` immediately with an error like
+  "12 GB free on output volume but 45 GB needed (9,123 files,
+  15 GB input × 3 buffer)" and no files are touched.
+- **Prior pre-flight: the scan phase** already catches path
+  collisions, path-too-long files, and files skipped by the
+  exclude-patterns / exclude-extensions preferences.
+
+When a job fails the disk-space check, the Active Jobs panel
+shows the failure reason and the job is logged to the activity
+stream as `bulk_start` → `job_failed_disk_space`.
+
+### Force OCR per-job *(v0.23.6)*
+
+The Bulk page config modal now includes a **Force OCR on every
+PDF page** checkbox under **Conversion Options**, just below the
+**OCR mode** dropdown. Tick it to re-OCR every PDF regardless of
+whether a text layer exists.
+
+Use this for repositories where the original scans had a bad or
+misleading text layer you don't trust — it makes the job take
+much longer but produces a clean Tesseract pass. See
+[OCR Pipeline](/help.html#ocr-pipeline) for more detail on when
+to use it and the expected cost.
 
 
 ## After the Job Completes
@@ -237,7 +270,7 @@ When a bulk job finishes:
 
 - **Output directory** — Converted files are organized in a structure mirroring the source. Each file has its Markdown, sidecar, and original alongside it.
 - **History** — Every converted file appears in the History page, searchable and filterable.
-- **Search index** — All converted content is indexed for full-text search (see [Search](/help#search)).
+- **Search index** — All converted content is indexed for full-text search (see [Search](/help.html#search)).
 - **Review queue** — If any PDFs were skipped for OCR review, a link to the Bulk Review page appears.
 - **Unrecognized files** — Files without a supported format are cataloged separately. You can view them on the Unrecognized Files page.
 
@@ -263,8 +296,8 @@ It depends on the number of files, their sizes, and whether OCR is needed. As a 
 
 ## Related
 
-- [Getting Started](/help#getting-started)
-- [Document Conversion](/help#document-conversion)
-- [OCR Pipeline](/help#ocr-pipeline)
-- [Search](/help#search)
-- [File Lifecycle](/help#file-lifecycle)
+- [Getting Started](/help.html#getting-started)
+- [Document Conversion](/help.html#document-conversion)
+- [OCR Pipeline](/help.html#ocr-pipeline)
+- [Search](/help.html#search)
+- [File Lifecycle](/help.html#file-lifecycle)

@@ -54,6 +54,6 @@ The Status link in the navigation bar shows a small number badge indicating how 
 
 ## Related
 
-- [Bulk Repository Conversion](/help#bulk-conversion)
-- [File Lifecycle & Versioning](/help#file-lifecycle)
-- [Administration](/help#admin-tools)
+- [Bulk Repository Conversion](/help.html#bulk-conversion)
+- [File Lifecycle & Versioning](/help.html#file-lifecycle)
+- [Administration](/help.html#admin-tools)

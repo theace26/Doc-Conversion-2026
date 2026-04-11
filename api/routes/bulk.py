@@ -80,6 +80,9 @@ class CreateBulkJobRequest(BaseModel):
     password_brute_force_enabled: bool | None = None
     password_timeout_seconds: int | None = None
     password_hashcat_enabled: bool | None = None
+    # v0.23.6 C5: per-job force-OCR flag. When true, every PDF in the job is
+    # re-OCR'd regardless of its text layer.
+    force_ocr: bool | None = None
 
 
 # ── POST /api/bulk/jobs ──────────────────────────────────────────────────────
@@ -162,7 +165,8 @@ async def create_job(
     for key in ('scan_max_threads', 'collision_strategy', 'max_files',
                 'ocr_confidence_threshold', 'unattended',
                 'password_dictionary_enabled', 'password_brute_force_enabled',
-                'password_timeout_seconds', 'password_hashcat_enabled'):
+                'password_timeout_seconds', 'password_hashcat_enabled',
+                'force_ocr'):
         val = getattr(req, key, None)
         if val is not None:
             job_overrides[key] = val

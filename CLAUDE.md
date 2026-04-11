@@ -90,31 +90,72 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.23.5
+## Current Version — v0.23.6
 
-**Search page keyboard shortcuts + migration FK fix.** Ten new
-keyboard shortcuts on the Search page (`/`, `Esc`, `Alt+Shift+A` for
-AI Assist, `Alt+A` select-all, `Alt+Shift+D` download zip,
-`Alt+Click` direct download, `Shift+Click` range-select, and more)
-plus a critical startup crash fix. Full context:
+**Spec remediation Batch 1: six-item hardening release.** Image
+dim hints in Markdown output (M1), pre-flight disk-space check
+(M2), configurable trash auto-purge with a dedicated daily job
+(M4), per-job force-OCR override and default preference (C5),
+unified structural-hash helper + round-trip test (S4), and an
+enhanced `/api/convert/preview` endpoint with zip-bomb check +
+estimated duration + `ready_to_convert` verdict (S1). Full
+context: [`docs/version-history.md`](docs/version-history.md).
+
+- **M1 Markdown image dims** — `formats/markdown_handler.py` emits
+  `![alt](src){width=Wpx height=Hpx}` (CommonMark attribute-list)
+  when `ImageData` carries dimensions; ingest parses both the new
+  attr-list form AND the legacy `"WxH"` title form.
+- **M2 Disk-space pre-flight** — `BulkJob._precheck_disk_space()`
+  sums input sizes × 3 and compares against
+  `shutil.disk_usage(output_path).free` before workers start;
+  single-file converter path does the same per-file. Failing
+  bulk jobs emit `job_failed_disk_space` SSE + fail cleanly.
+- **M4 Trash auto-purge** — new `trash_auto_purge_enabled` pref
+  (default `true`). New `_purge_aged_trash()` job in
+  `core/scheduler.py` registered as a `CronTrigger(hour=4,
+  minute=0)` daily; gated on the new pref, yields to active bulk
+  jobs. Hourly `run_trash_expiry` no longer purges — it only
+  moves expired marks into trash. Scheduler job count: 16 → 17.
+- **C5 Force-OCR** — new `force_ocr_default` pref (default
+  `false`). `PdfHandler.ingest()` grows `force_ocr: bool = False`
+  kwarg; when `True`, dispatches to new
+  `_ingest_pdfplumber_force_ocr()` that marks every page as
+  scanned and stashes PIL images on `model._scanned_pages` for
+  the deferred OCR runner. Plumbed through
+  `api/routes/bulk.py` → `BulkJob.overrides` → `convert_opts` →
+  `_convert_file_sync`. Bulk modal + Settings → OCR both get a
+  toggle. Non-PDF handlers ignore the kwarg via a `TypeError`
+  fallback in the converter.
+- **S4 Structural hash** — new
+  `compute_structural_hash(model)` in
+  `core/document_model.py` hashes a canonical JSON rep of
+  counts + heading levels + heading text + table dims + table
+  cell text + image dims + list nesting depths. New helper
+  `_list_depths()` recursively walks list items. Round-trip test
+  `test_structural_hash_survives_roundtrip` in
+  `tests/test_roundtrip.py`.
+- **S1 Enhanced preview** — `core/converter._preview_file_sync`
+  gains zip-bomb check, size-limit check,
+  `estimated_conversion_seconds` (ingest_wall × 2 + 5s/page
+  when OCR likely), and `ready_to_convert` bool.
+  `api/models.PreviewResponse` + `api/routes/convert.py`
+  surface the new fields. `static/index.html` Preview button
+  handler renders a multi-line summary modal.
+- **Help docs** — new v0.23.6 entry in `docs/help/whats-new.md`
+  at top. Settings guide, OCR pipeline, file lifecycle, document
+  conversion, bulk conversion all get v0.23.6 callouts.
+
+---
+
+### v0.23.5 (carried-forward summary) — Search shortcuts + startup crash fix
+
+Ten new Search page keyboard shortcuts (`/`, `Esc`, `Alt+Shift+A`,
+`Alt+A`, `Alt+Shift+D`, `Alt+Click`, `Shift+Click`, and more). Plus
+two critical startup crash fixes: migration FK enforcement
+(`_run_migrations` now runs with `PRAGMA foreign_keys=OFF`) and MCP
+server race (MCP no longer calls `init_db()`, polls for
+`schema_migrations` instead). Full context:
 [`docs/version-history.md`](docs/version-history.md).
-
-- **Search shortcuts** — `static/search.html` global keydown handler
-  + per-row Alt-click diversion to the download endpoint + shift-click
-  range selection. Discoverable via the search input `title` tooltip.
-- **Help docs** — new `docs/help/whats-new.md` version page,
-  rewritten `search.md` with vector + AI Assist worked examples,
-  rewritten `settings-guide.md` for v0.23.4 layout, expanded
-  `keyboard-shortcuts.md`, registered in `_index.json`.
-- **Crash fix: migration FK** — `_run_migrations` in `core/db/schema.py`
-  now commits and `PRAGMA foreign_keys=OFF` before running migrations,
-  so schema rebuilds (migration 27 bulk_files) carry historical
-  orphan rows through instead of aborting on FK violation. init_db
-  re-enables FKs after the batch.
-- **Crash fix: MCP migration race** — `mcp_server/server.py` no
-  longer calls `init_db()`. MCP is a reader; the main container owns
-  schema. MCP now polls for `schema_migrations` existence (2-minute
-  cap) before starting.
 
 ---
 

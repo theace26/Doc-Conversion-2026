@@ -89,7 +89,7 @@ docker volume ls | grep markflow
 `.docx` first.
 
 **Check for password protection.** Encrypted documents cannot be converted.
-See [Password-Protected Documents](/help#password-recovery) for workarounds.
+See [Password-Protected Documents](/help.html#password-recovery) for workarounds.
 
 **Read the error message.** The History page shows the specific failure:
 
@@ -218,7 +218,7 @@ trigger a search index rebuild.
 more questionable results, or set OCR mode to `force` if a PDF has an
 unreliable text layer.
 
-**Enable LLM correction.** If you have an [LLM provider](/help#llm-providers)
+**Enable LLM correction.** If you have an [LLM provider](/help.html#llm-providers)
 configured, turn on the OCR correction toggle for AI-powered cleanup of
 common OCR mistakes.
 
@@ -242,7 +242,7 @@ the original image side by side with the extracted text.
 > corrupt the SQLite write-ahead log. Always use the Stop controls.
 
 **Check disk space.** If the output volume is full, conversions fail
-silently. Check the [Admin disk usage section](/help#admin-tools).
+silently. Check the [Admin disk usage section](/help.html#admin-tools).
 
 ---
 
@@ -319,7 +319,7 @@ When something goes wrong, check these in order:
 
 ## Related Articles
 
-- [Administration](/help#admin-tools) -- database tools and disk usage
-- [Status & Active Jobs](/help#status-page) -- monitoring and stopping jobs
-- [Resources & Monitoring](/help#resources-monitoring) -- system metrics
-- [Settings Reference](/help#settings-guide) -- adjusting thresholds
+- [Administration](/help.html#admin-tools) -- database tools and disk usage
+- [Status & Active Jobs](/help.html#status-page) -- monitoring and stopping jobs
+- [Resources & Monitoring](/help.html#resources-monitoring) -- system metrics
+- [Settings Reference](/help.html#settings-guide) -- adjusting thresholds

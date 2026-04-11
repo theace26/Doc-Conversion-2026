@@ -138,7 +138,7 @@ indicate current usage:
 
 Below the bars, a note tells you whether MarkFlow is using all cores or is
 pinned to specific ones. Core pinning is configured on the
-[Admin page](/help#admin-tools).
+[Admin page](/help.html#admin-tools).
 
 ### Memory Panel
 
@@ -228,9 +228,9 @@ Google Sheets, or any spreadsheet application.
 
 ## Related Articles
 
-- [Administration](/help#admin-tools) -- API keys, database tools,
+- [Administration](/help.html#admin-tools) -- API keys, database tools,
   resource controls
-- [Status & Active Jobs](/help#status-page) -- monitoring running bulk jobs
-- [Settings Reference](/help#settings-guide) -- adjusting worker count,
+- [Status & Active Jobs](/help.html#status-page) -- monitoring running bulk jobs
+- [Settings Reference](/help.html#settings-guide) -- adjusting worker count,
   scanner intervals, and log levels
-- [Troubleshooting](/help#troubleshooting) -- common issues and fixes
+- [Troubleshooting](/help.html#troubleshooting) -- common issues and fixes

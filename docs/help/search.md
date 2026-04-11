@@ -58,7 +58,7 @@ A handful of single-keystroke shortcuts speed up common tasks:
 | `Shift + Click` a checkbox | Range-select every row between the last click and this one |
 
 For the complete list including Esc priority order and other pages,
-see [Keyboard Shortcuts](/help#keyboard-shortcuts).
+see [Keyboard Shortcuts](/help.html#keyboard-shortcuts).
 
 ---
 
@@ -451,10 +451,10 @@ Assist** on that provider.
 
 ## Related
 
-- [What's New](/help#whats-new)
-- [Getting Started](/help#getting-started)
-- [LLM Provider Setup](/help#llm-providers)
-- [Database Files](/help#database-files)
-- [OCR Pipeline](/help#ocr-pipeline)
-- [File Lifecycle](/help#file-lifecycle)
-- [Settings Reference](/help#settings-guide)
+- [What's New](/help.html#whats-new)
+- [Getting Started](/help.html#getting-started)
+- [LLM Provider Setup](/help.html#llm-providers)
+- [Database Files](/help.html#database-files)
+- [OCR Pipeline](/help.html#ocr-pipeline)
+- [File Lifecycle](/help.html#file-lifecycle)
+- [Settings Reference](/help.html#settings-guide)

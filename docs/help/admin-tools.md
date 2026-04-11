@@ -223,8 +223,8 @@ the Admin page as a reminder not to run in this mode in production.
 
 ## Related Articles
 
-- [Resources & Monitoring](/help#resources-monitoring) -- CPU/memory charts
+- [Resources & Monitoring](/help.html#resources-monitoring) -- CPU/memory charts
   and activity log
-- [Status & Active Jobs](/help#status-page) -- monitoring running bulk jobs
-- [Settings Reference](/help#settings-guide) -- every preference explained
-- [Troubleshooting](/help#troubleshooting) -- common issues and fixes
+- [Status & Active Jobs](/help.html#status-page) -- monitoring running bulk jobs
+- [Settings Reference](/help.html#settings-guide) -- every preference explained
+- [Troubleshooting](/help.html#troubleshooting) -- common issues and fixes

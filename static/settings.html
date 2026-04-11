@@ -417,6 +417,16 @@
           <p class="hint">Skip review and auto-accept all OCR flags.</p>
           <div class="inline-error" id="err-unattended_default"></div>
         </div>
+
+        <div class="form-group">
+          <label>Force OCR by default (v0.23.6)</label>
+          <label class="toggle">
+            <input type="checkbox" id="pref-force_ocr_default" data-key="force_ocr_default">
+            <span class="toggle-track"></span>
+            <span class="toggle-label" id="toggle-label-force-ocr">OFF</span>
+          </label>
+          <p class="hint">When enabled, new bulk jobs default to re-OCRing every PDF page even when a text layer is present. Per-job override is on the Bulk page config modal.</p>
+        </div>
       </div>
 
       </details>
@@ -875,6 +885,16 @@
           <input type="number" id="pref-lifecycle_trash_retention_days" data-key="lifecycle_trash_retention_days" min="1" max="365">
           <p class="hint">How long files stay in trash before permanent deletion.</p>
           <div class="inline-error" id="err-lifecycle_trash_retention_days"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Auto-purge aged trash (v0.23.6)</label>
+          <label class="toggle">
+            <input type="checkbox" id="pref-trash_auto_purge_enabled" data-key="trash_auto_purge_enabled">
+            <span class="toggle-track"></span>
+            <span class="toggle-label" id="toggle-label-trash-auto-purge">OFF</span>
+          </label>
+          <p class="hint">When enabled, a daily 04:00 job permanently deletes trashed files older than the retention window above. Disable to keep trash forever until an admin empties it manually.</p>
         </div>
       </div>
 

@@ -41,6 +41,9 @@ class PreviewResponse(BaseModel):
         default_factory=dict,
         examples=[{"heading": 3, "paragraph": 12, "table": 1}],
     )
+    # v0.23.6 S1
+    estimated_conversion_seconds: float = Field(default=0.0, examples=[1.2])
+    ready_to_convert: bool = Field(default=True)
 
 
 # ── Batch status ──────────────────────────────────────────────────────────────

@@ -40,6 +40,14 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     "scanner_business_hours_end": "22:00",
     "lifecycle_grace_period_hours": "36",
     "lifecycle_trash_retention_days": "60",
+    # v0.23.6 M4: master switch for the scheduled auto-purge job that deletes
+    # trashed files older than lifecycle_trash_retention_days. When false,
+    # trash accumulates forever until an admin runs empty-trash manually.
+    "trash_auto_purge_enabled": "true",
+    # v0.23.6 C5: default state of the per-job force-OCR override.
+    # When true, PDFs are OCR'd on every page regardless of the text-layer
+    # heuristic. Per-job override exposed in the Bulk page config modal.
+    "force_ocr_default": "false",
     "worker_count": "8",
     "cpu_affinity_cores": "[]",
     "process_priority": "normal",

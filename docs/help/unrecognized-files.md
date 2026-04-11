@@ -242,6 +242,6 @@ unrecognized files in its totals.
 
 ## Related
 
-- [Adobe Files](/help#adobe-files) -- how creative files are indexed at Level 2
-- [Settings Guide](/help#settings-guide) -- configuring bulk jobs and the scanner
-- [Status Page](/help#status-page) -- monitoring active jobs and their unrecognized counts
+- [Adobe Files](/help.html#adobe-files) -- how creative files are indexed at Level 2
+- [Settings Guide](/help.html#settings-guide) -- configuring bulk jobs and the scanner
+- [Status Page](/help.html#status-page) -- monitoring active jobs and their unrecognized counts

@@ -203,4 +203,6 @@ async def preview_file(
         ocr_likely=result.ocr_likely,
         warnings=result.warnings,
         element_counts=result.element_counts,
+        estimated_conversion_seconds=result.estimated_conversion_seconds,
+        ready_to_convert=result.ready_to_convert,
     )

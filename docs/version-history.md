@@ -4,6 +4,220 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.23.6 — Spec remediation Batch 1 (2026-04-10)
+
+Six-item landing of the first batch of the v0.23.5 spec-review
+remediation. No user-visible redesign — this release is about
+hardening and small quality-of-life wins on top of the conversion
+pipeline and the lifecycle manager. See `docs/superpowers/` for the
+original audit and `memory/project_batch2_spec_remediation.md` for
+the deferred Batch 2 scope.
+
+### M1 — Width/height hints in markdown image output
+
+`formats/markdown_handler.py` now emits images in the CommonMark
+attribute-list form `![alt](src){width=Wpx height=Hpx}` when the
+source `ImageData` carries dimensions. Previously dimensions were
+encoded in the markdown title string (`![alt](src "WxH")`) which
+was legal but noisy and harder to reason about. The ingest-side
+parser in `_ast_to_elements` now recognises both the new attr-list
+syntax AND the legacy `"WxH"` title form, so round-tripping an
+old-format .md file still restores dims on the DocumentModel.
+
+**Why it matters:** Tier 2 DOCX round-trip now keeps image
+dimensions end-to-end, and any downstream tooling that reads the
+generated markdown can size images without having to re-open the
+PNG from `assets/`.
+
+**Files touched:** `formats/markdown_handler.py`.
+
+### M2 — Pre-conversion disk space check
+
+Both the bulk worker and the single-file converter path now run a
+disk-space pre-flight check before any files are touched.
+`core/bulk_worker.py` adds `BulkJob._precheck_disk_space()`, called
+immediately after the scan phase completes and before workers
+start. It sums the input sizes, multiplies by a 3× conservative
+buffer (markdown + sidecars + intermediates), and compares against
+`shutil.disk_usage(output_path).free` on the nearest existing
+parent directory. A failing job transitions cleanly to the
+`failed` state with `cancellation_reason=Insufficient disk space:
+…` and emits a `job_failed_disk_space` SSE event for the UI.
+
+`core/converter._convert_file_sync` performs the same check
+per-file, with the multiplier applied to `file_path.stat().st_size`.
+Failures raise `ValueError("Insufficient disk space for
+conversion: …")` which the existing exception handler converts
+into a recorded `ConvertResult` with status `error`.
+
+The feature logs `convert_disk_precheck` /
+`bulk_disk_precheck` events with the full reasoning (input bytes,
+required bytes, free bytes, probe path) so post-mortems are
+trivial.
+
+**Files touched:** `core/bulk_worker.py`, `core/converter.py`.
+
+### M4 — Configurable trash retention + scheduled auto-purge
+
+Two new preferences:
+
+- `trash_auto_purge_enabled` (default `true`) — master switch for
+  the automatic retention-based purge job
+- (existing) `lifecycle_trash_retention_days` — authoritative
+  retention window (already read by `run_trash_expiry` since
+  v0.22.x, but with this release the purge branch moves to a
+  dedicated daily job)
+
+`core/scheduler.py` adds `_purge_aged_trash()`, registered as a
+cron job at `04:00` local time. It respects the new master
+switch, yields to active bulk jobs (like every other scheduled
+job), reads `lifecycle_trash_retention_days`, and deletes trashed
+rows older than the window. Log event
+`scheduler.purge_aged_trash_complete` includes `purged_count` and
+`bytes_freed`. The existing hourly `run_trash_expiry` job no
+longer purges — it only moves expired marks into trash — which
+means the two responsibilities are cleanly separated in the
+scheduler registry (now reporting 17 jobs, up from 16).
+
+`core/lifecycle_manager.py:32` gets a comment clarifying that
+`TRASH_RETENTION_DAYS = 60` is just a default used in the trash
+README text; the authoritative value lives in the preference.
+
+Settings UI: new toggle **Auto-purge aged trash (v0.23.6)** under
+the **File Lifecycle** section in `static/settings.html`, wired
+through the generic `updateToggleLabel` handler that already
+covers all toggles.
+
+**Files touched:** `core/db/preferences.py`, `core/scheduler.py`,
+`core/lifecycle_manager.py`, `static/settings.html`.
+
+### C5 — Per-job force-OCR flag
+
+New preference `force_ocr_default` (default `false`) plus a
+per-job override exposed on the bulk job config modal as a
+checkbox **Force OCR on every PDF page**. When enabled,
+`PdfHandler.ingest()` dispatches to a new
+`_ingest_pdfplumber_force_ocr()` path that skips text-layer
+extraction entirely and marks every page as scanned, stashing
+the per-page PIL images on `model._scanned_pages` so the deferred
+OCR runner in `ConversionOrchestrator._check_and_run_deferred_ocr`
+picks them up and runs Tesseract on each one.
+
+The flag is plumbed end-to-end:
+
+- `api/routes/bulk.py` adds a `force_ocr: bool | None` field to
+  `CreateBulkJobRequest` and includes it in the overrides dict
+  passed into `BulkJob`.
+- `core/bulk_worker.py` reads `self.overrides.get("force_ocr")`
+  in `_process_convertible` and plants it in `convert_opts`.
+- `core/converter._convert_file_sync` reads
+  `options.get("force_ocr")`, and when the format is PDF, calls
+  `handler.ingest(working_path, force_ocr=True)` with a
+  `TypeError` fallback for handlers that don't support the kwarg
+  (all non-PDF handlers).
+
+Settings UI: new toggle **Force OCR by default (v0.23.6)** under
+the **OCR** section. Bulk modal UI: new checkbox next to the
+**OCR mode** dropdown. Both hydrate from `force_ocr_default` on
+page load.
+
+**Why it matters:** PDFs that have a text layer but bad
+character-set mapping (a very common failure mode of old scanners
+that ran an OCR pass before saving) previously forced the user to
+drop the text layer manually. Now the operator just ticks the
+box.
+
+**Files touched:** `core/db/preferences.py`, `formats/pdf_handler.py`,
+`core/converter.py`, `core/bulk_worker.py`, `api/routes/bulk.py`,
+`static/bulk.html`, `static/settings.html`.
+
+### S4 — Structural hash helper + round-trip test
+
+New helper `compute_structural_hash(model)` in
+`core/document_model.py` that returns a deterministic SHA-256 hex
+digest of a canonical representation of document structure:
+heading count + levels + text, table count + dimensions + cell
+text, image count + dimensions, list count + nesting depths. The
+canonical rep is serialised via `json.dumps(sort_keys=True)` so
+key ordering is stable across Python versions.
+
+Added `_list_depths()` helper that recursively walks list items
+and records nesting depth — the old `structural_hash()`
+instance-method forgot about nested lists entirely.
+
+`DocumentModel.structural_hash()` stays as an instance-method
+wrapper for callers that already use that API.
+
+New round-trip test `test_structural_hash_survives_roundtrip` in
+`tests/test_roundtrip.py` asserts that DOCX → MD → DOCX
+round-tripping preserves heading/table/image/list counts — strict
+hash equality is too brittle because the DOCX round-trip can add
+a trailing empty paragraph, but the core structural dimensions
+are preserved.
+
+**Files touched:** `core/document_model.py`,
+`tests/test_roundtrip.py`.
+
+### S1 — POST /api/convert/preview dry-run endpoint (enhanced)
+
+The endpoint already existed in a minimal form (filename, format,
+page count, element counts, warnings). This release rounds it out
+with:
+
+- Pre-flight zip-bomb check via the existing `check_zip_bomb()`
+  helper — returns a warning and sets `ready_to_convert=false`
+  when a file's compression ratio exceeds the threshold
+- Size-limit check against `MAX_UPLOAD_MB` (default 100) —
+  same behaviour
+- `estimated_conversion_seconds` field — rough estimate based on
+  ingest wall time × 2 (for export + IO), plus 5s/page when OCR
+  is likely
+- `ready_to_convert` boolean — drives the Convert button state in
+  the UI
+
+The Preview button on `static/index.html` existed but had a
+minimal one-line `alert()` output. It now renders a formatted
+multi-line block with all fields, warnings as a bulleted list,
+and the `ready_to_convert` verdict.
+
+`api/models.py` `PreviewResponse` grows the two new fields.
+`core/converter.PreviewResult` dataclass matches.
+
+**Files touched:** `core/converter.py`, `api/models.py`,
+`api/routes/convert.py`, `static/index.html`.
+
+### Documentation
+
+- `docs/help/whats-new.md` — new v0.23.6 entry at top
+- `docs/help/settings-guide.md` — documents the three new
+  preferences (`trash_auto_purge_enabled`, `force_ocr_default`,
+  plus the already-existing `lifecycle_trash_retention_days`)
+- `docs/help/ocr-pipeline.md` — new "Forcing OCR on a file"
+  section
+- `docs/help/file-lifecycle.md` — mentions configurable retention
+  and scheduled auto-purge
+- `docs/help/document-conversion.md` — mentions the enhanced
+  Preview button
+- `docs/help/bulk-conversion.md` — documents the per-job
+  force-OCR checkbox
+
+### Gotchas introduced in this release
+
+1. **force_ocr kwarg is PDF-only** — the converter uses a
+   `TypeError` fallback so other handlers don't break, but no
+   other handler honours the flag. Adding force_ocr to, say, an
+   image handler would require a per-handler opt-in.
+2. **Disk-space multiplier is 3×** — deliberately conservative.
+   If a pipeline sees false-positive failures on a tight volume,
+   the multiplier constant
+   (`_DISK_SPACE_REQUIRED_MULTIPLIER` in `core/bulk_worker.py`)
+   is the knob to turn. Not exposed as a preference yet.
+3. **Daily purge runs at 04:00 local, not UTC** — matches the
+   existing `run_db_compaction` cron trigger style. Operators
+   running in a different tz should be aware.
+
+---
+
 ## v0.23.5 — Search shortcuts, migration FK fix, MCP race fix (2026-04-10)
 
 Two-track release: a set of new keyboard shortcuts on the Search

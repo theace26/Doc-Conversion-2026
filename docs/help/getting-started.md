@@ -137,13 +137,13 @@ MarkFlow keeps a copy of your original file alongside the conversion output. It 
 ## Common Questions
 
 **Can I convert more than one file at a time?**
-Yes. For a handful of files, drag them all onto the upload area on the Convert page. For large batches (hundreds or thousands of files), use the [Bulk Conversion](/help#bulk-conversion) feature instead.
+Yes. For a handful of files, drag them all onto the upload area on the Convert page. For large batches (hundreds or thousands of files), use the [Bulk Conversion](/help.html#bulk-conversion) feature instead.
 
 **What if my file has images?**
 Images are extracted and saved as separate PNG files alongside the Markdown output. The Markdown file includes references that point to those images.
 
 **What if the conversion looks wrong?**
-Some documents have complex formatting that does not translate perfectly. Check the [Fidelity Tiers](/help#fidelity-tiers) article to learn how MarkFlow handles different levels of formatting detail.
+Some documents have complex formatting that does not translate perfectly. Check the [Fidelity Tiers](/help.html#fidelity-tiers) article to learn how MarkFlow handles different levels of formatting detail.
 
 **Do I need to be online?**
 MarkFlow runs on your local network. As long as you can reach the server, you are good. No internet connection is required.
@@ -153,17 +153,17 @@ MarkFlow runs on your local network. As long as you can reach the server, you ar
 
 Now that you know the basics, explore these topics:
 
-- [Document Conversion](/help#document-conversion) — Supported formats and detailed upload instructions
-- [Fidelity Tiers](/help#fidelity-tiers) — How MarkFlow preserves formatting at different levels
-- [Search](/help#search) — Finding your converted documents by keyword
-- [Bulk Conversion](/help#bulk-conversion) — Converting entire folders at once
+- [Document Conversion](/help.html#document-conversion) — Supported formats and detailed upload instructions
+- [Fidelity Tiers](/help.html#fidelity-tiers) — How MarkFlow preserves formatting at different levels
+- [Search](/help.html#search) — Finding your converted documents by keyword
+- [Bulk Conversion](/help.html#bulk-conversion) — Converting entire folders at once
 
 
 ## Related
 
-- [Document Conversion](/help#document-conversion)
-- [Fidelity Tiers](/help#fidelity-tiers)
-- [OCR Pipeline](/help#ocr-pipeline)
-- [Bulk Conversion](/help#bulk-conversion)
-- [Search](/help#search)
-- [File Lifecycle](/help#file-lifecycle)
+- [Document Conversion](/help.html#document-conversion)
+- [Fidelity Tiers](/help.html#fidelity-tiers)
+- [OCR Pipeline](/help.html#ocr-pipeline)
+- [Bulk Conversion](/help.html#bulk-conversion)
+- [Search](/help.html#search)
+- [File Lifecycle](/help.html#file-lifecycle)

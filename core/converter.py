@@ -123,6 +123,9 @@ class PreviewResult:
     ocr_likely: bool = False
     warnings: list[str] = field(default_factory=list)
     element_counts: dict[str, int] = field(default_factory=dict)
+    # v0.23.6 S1
+    estimated_conversion_seconds: float = 0.0
+    ready_to_convert: bool = True
 
 
 # ── Validation helpers ────────────────────────────────────────────────────────
@@ -225,6 +228,34 @@ def _convert_file_sync(
         if handler is None:
             raise ValueError(f"No handler registered for .{source_format}")
 
+        # ── v0.23.6 M2: pre-conversion disk-space check ──────────────────
+        try:
+            input_size = file_path.stat().st_size if file_path.exists() else 0
+            required = input_size * 3  # output + sidecar + intermediate buffer
+            probe = Path(output_dir)
+            while not probe.exists() and probe.parent != probe:
+                probe = probe.parent
+            if required > 0 and probe.exists():
+                free_bytes = shutil.disk_usage(str(probe)).free
+                log.info(
+                    "convert_disk_precheck",
+                    filename=source_filename,
+                    input_bytes=input_size,
+                    required_bytes=required,
+                    free_bytes=free_bytes,
+                )
+                if free_bytes < required:
+                    raise ValueError(
+                        f"Insufficient disk space for conversion: "
+                        f"{free_bytes / (1024 * 1024):.0f} MB free but "
+                        f"{required / (1024 * 1024):.0f} MB needed"
+                    )
+        except ValueError:
+            raise
+        except Exception as exc:
+            log.warning("convert_disk_precheck_failed",
+                        filename=source_filename, error=str(exc))
+
         # ── Password handling (preprocess before ingest) ──────────────────
         from core.password_handler import PasswordHandler, ProtectionType
         pw_handler = options.get("_password_handler")
@@ -244,7 +275,15 @@ def _convert_file_sync(
 
         # ── Ingest ────────────────────────────────────────────────────────
         t_ingest = time.perf_counter()
-        model = handler.ingest(working_path)
+        # v0.23.6 C5: pass force_ocr kwarg to handlers that support it (PDF).
+        force_ocr = bool(options.get("force_ocr"))
+        if force_ocr and source_format == "pdf":
+            try:
+                model = handler.ingest(working_path, force_ocr=True)
+            except TypeError:
+                model = handler.ingest(working_path)
+        else:
+            model = handler.ingest(working_path)
         model.metadata.source_file = source_filename
         model.metadata.source_format = source_format
         model.metadata.converted_at = datetime.now(timezone.utc).isoformat()
@@ -473,43 +512,87 @@ def _convert_file_sync(
 
 
 def _preview_file_sync(file_path: Path, direction: str) -> PreviewResult:
-    """Quick analysis without full conversion."""
+    """v0.23.6 S1: quick dry-run analysis without writing any files.
+
+    Runs the ingest pipeline far enough to report format, page count, OCR
+    likelihood, element counts, warnings (including zip-bomb detection
+    and size-limit violations), an estimated conversion duration, and a
+    ``ready_to_convert`` flag that the UI uses to toggle the Convert button.
+    """
     source_filename = file_path.name
     source_format = file_path.suffix.lower().lstrip(".")
+    file_size = file_path.stat().st_size if file_path.exists() else 0
     warnings: list[str] = []
+    ready = True
+
+    # Size-limit check
+    try:
+        max_mb = int(os.getenv("MAX_UPLOAD_MB", "100"))
+    except ValueError:
+        max_mb = 100
+    if file_size > max_mb * 1024 * 1024:
+        warnings.append(
+            f"File is {file_size / (1024*1024):.0f} MB — above the {max_mb} MB upload limit"
+        )
+        ready = False
+
+    # Zip-bomb check for zip-based formats
+    bomb_err = check_zip_bomb(file_path)
+    if bomb_err:
+        warnings.append(bomb_err)
+        ready = False
 
     handler = get_handler_for_path(file_path)
     if handler is None:
         return PreviewResult(
             filename=source_filename,
             format=source_format,
-            file_size_bytes=file_path.stat().st_size,
-            warnings=[f"No handler for .{source_format}"],
+            file_size_bytes=file_size,
+            warnings=[f"No handler for .{source_format}", *warnings],
+            ready_to_convert=False,
         )
 
+    t_ingest = time.perf_counter()
     try:
         model = handler.ingest(file_path)
-        counts: dict[str, int] = {}
-        for elem in model.elements:
-            counts[elem.type.value] = counts.get(elem.type.value, 0) + 1
-
-        page_count = model.metadata.page_count
-        return PreviewResult(
-            filename=source_filename,
-            format=source_format,
-            file_size_bytes=file_path.stat().st_size,
-            page_count=page_count,
-            ocr_likely=model.metadata.ocr_applied,
-            warnings=model.warnings,
-            element_counts=counts,
-        )
     except Exception as exc:
         return PreviewResult(
             filename=source_filename,
             format=source_format,
-            file_size_bytes=file_path.stat().st_size if file_path.exists() else 0,
-            warnings=[str(exc)],
+            file_size_bytes=file_size,
+            warnings=[str(exc), *warnings],
+            ready_to_convert=False,
         )
+    ingest_duration = time.perf_counter() - t_ingest
+
+    counts: dict[str, int] = {}
+    for elem in model.elements:
+        counts[elem.type.value] = counts.get(elem.type.value, 0) + 1
+
+    page_count = model.metadata.page_count
+    ocr_likely = bool(model.metadata.ocr_applied) or bool(
+        getattr(model, "_scanned_pages", None)
+    )
+
+    # Rough duration estimate — ingest wall time × 2 (covers export + IO)
+    # plus +5s per OCR page for forced-OCR hypotheticals.
+    estimated = ingest_duration * 2
+    if ocr_likely and page_count:
+        estimated += page_count * 5.0
+
+    all_warnings = list(model.warnings) + warnings
+
+    return PreviewResult(
+        filename=source_filename,
+        format=source_format,
+        file_size_bytes=file_size,
+        page_count=page_count,
+        ocr_likely=ocr_likely,
+        warnings=all_warnings,
+        element_counts=counts,
+        estimated_conversion_seconds=round(estimated, 2),
+        ready_to_convert=ready,
+    )
 
 
 # ── Async orchestrator ─────────────────────────────────────────────────────────

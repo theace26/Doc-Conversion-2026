@@ -8,12 +8,17 @@ Adobe files. Supports pause, resume, and cancel operations.
 import asyncio
 import hashlib
 import json
+import shutil
 import statistics
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+# v0.23.6 M2: multiplier applied to sum(input_file_sizes) when estimating
+# required disk space for a bulk job (markdown output + sidecars + temp).
+_DISK_SPACE_REQUIRED_MULTIPLIER = 3
 
 import structlog
 
@@ -437,6 +442,30 @@ class BulkJob:
                     "strategy_applied": strategy,
                 })
 
+            # v0.23.6 M2: pre-flight disk-space check. Estimate required space
+            # as sum(input sizes) * _DISK_SPACE_REQUIRED_MULTIPLIER and compare
+            # against the output volume's free bytes. Abort the job cleanly
+            # before any workers start rather than running out mid-batch.
+            try:
+                disk_err = await self._precheck_disk_space()
+            except Exception as exc:
+                log.warning("bulk_disk_precheck_error", job_id=self.job_id, error=str(exc))
+                disk_err = None
+            if disk_err:
+                log.error("bulk_disk_precheck_failed", job_id=self.job_id, detail=disk_err)
+                await update_bulk_job_status(
+                    self.job_id, "failed",
+                    error_msg=disk_err,
+                    cancellation_reason=f"Insufficient disk space: {disk_err}",
+                    completed_at=datetime.now(timezone.utc).isoformat(),
+                )
+                _emit_bulk_event(self.job_id, "job_failed_disk_space", {
+                    "job_id": self.job_id,
+                    "detail": disk_err,
+                })
+                _emit_bulk_event(self.job_id, "done", {})
+                return
+
             # Update job totals
             self._scanning = False
             self._skipped = scan_result.skipped_count
@@ -543,6 +572,71 @@ class BulkJob:
             notify_bulk_completed(job_id=self.job_id)
             unregister_task(self.job_id)
             deregister_job(self.job_id)
+
+    async def _precheck_disk_space(self) -> str | None:
+        """v0.23.6 M2: return an error string if free disk space is insufficient.
+
+        Sums the file sizes of every pending bulk_file for this job, multiplies
+        by `_DISK_SPACE_REQUIRED_MULTIPLIER` to cover markdown + sidecars + temp
+        files, and compares against `shutil.disk_usage(self.output_path).free`.
+        Returns None when there's enough headroom; otherwise a human-readable
+        error string to surface to the user.
+        """
+        try:
+            pending_files = await get_unprocessed_bulk_files(self.job_id)
+        except Exception as exc:
+            log.warning("bulk_disk_precheck_enumeration_failed",
+                        job_id=self.job_id, error=str(exc))
+            return None
+
+        total_bytes = 0
+        for fd in pending_files:
+            size = fd.get("file_size_bytes") or 0
+            try:
+                total_bytes += int(size)
+            except (TypeError, ValueError):
+                pass
+
+        if total_bytes == 0:
+            return None
+
+        required = total_bytes * _DISK_SPACE_REQUIRED_MULTIPLIER
+
+        # Walk up to the nearest existing parent — the job's output_path may
+        # not exist yet, but shutil.disk_usage needs a real directory.
+        probe = Path(self.output_path)
+        while not probe.exists() and probe.parent != probe:
+            probe = probe.parent
+
+        try:
+            usage = await asyncio.to_thread(shutil.disk_usage, str(probe))
+        except OSError as exc:
+            log.warning("bulk_disk_precheck_usage_failed",
+                        job_id=self.job_id, probe=str(probe), error=str(exc))
+            return None
+
+        free = usage.free
+        log.info(
+            "bulk_disk_precheck",
+            job_id=self.job_id,
+            file_count=len(pending_files),
+            total_input_bytes=total_bytes,
+            required_bytes=required,
+            free_bytes=free,
+            probe_path=str(probe),
+            multiplier=_DISK_SPACE_REQUIRED_MULTIPLIER,
+        )
+        if free >= required:
+            return None
+
+        def _mb(n: int) -> str:
+            return f"{n / (1024 * 1024):.0f} MB"
+
+        return (
+            f"{_mb(free)} free on output volume but {_mb(required)} needed "
+            f"({len(pending_files)} files, {_mb(total_bytes)} input × "
+            f"{_DISK_SPACE_REQUIRED_MULTIPLIER} buffer)"
+        )
 
     async def _worker(self, worker_id: int) -> None:
         """Pull from queue and process files until sentinel received."""
@@ -840,6 +934,9 @@ class BulkJob:
 
         # Run sync conversion in thread (with shared PasswordHandler for batch reuse)
         convert_opts = {"fidelity_tier": self.fidelity_tier, "ocr_mode": self.ocr_mode}
+        # v0.23.6 C5: honor per-job force_ocr override
+        if self.overrides.get("force_ocr"):
+            convert_opts["force_ocr"] = True
         if self._password_handler:
             convert_opts["_password_handler"] = self._password_handler
         # Wait for cloud prefetch if enabled

@@ -132,7 +132,7 @@ When unattended mode is on:
 
 ## Bulk Skip-and-Review
 
-When running a [Bulk Conversion](/help#bulk-conversion) job, MarkFlow offers a middle ground between stopping for every flag and accepting everything blindly.
+When running a [Bulk Conversion](/help.html#bulk-conversion) job, MarkFlow offers a middle ground between stopping for every flag and accepting everything blindly.
 
 ### How It Works
 
@@ -160,6 +160,20 @@ On the Bulk Review page, each skipped file shows:
 > **Tip:** You do not need to resolve the review queue immediately. Skipped files stay in the queue until you decide what to do with them. They will not be retried on future bulk jobs unless you explicitly convert them.
 
 
+## Forcing OCR on a File (v0.23.6)
+
+By default MarkFlow only runs OCR on pages that look scanned — i.e. pages with very little extractable text. Sometimes that's not what you want. A PDF might have a garbled or mis-encoded text layer left behind by old OCR software, or you might want to cross-check a result against a fresh Tesseract pass.
+
+For that case there are two new controls:
+
+1. **Per-job override (Bulk page):** Open the bulk job config modal, scroll to **Conversion Options**, and tick **Force OCR on every PDF page**. Every PDF in that job will be re-OCR'd regardless of its text layer — every page is marked as scanned, rendered at 300 DPI, and handed to Tesseract. The job will take considerably longer and uses meaningfully more CPU.
+
+2. **Project-wide default (Settings → OCR):** Flip the **Force OCR by default** toggle to make every new bulk job start with the override ticked. Individual jobs can still untick it in the modal.
+
+> **When to use this:** You can tell a PDF needs force-OCR if the Markdown output contains garbled characters, suspicious ligatures (`ﬁ`, `ﬂ`), missing characters, or doesn't preserve the word boundaries you expect. Try converting a single representative file from the Convert page first before flipping this on for a whole bulk job.
+
+> **Cost:** On a 50-page PDF with a text layer, force-OCR typically takes 3–5 minutes vs. 5–10 seconds for text-layer extraction. For a bulk job with hundreds of PDFs, expect a ~30× slowdown.
+
 ## OCR Settings
 
 These settings on the Settings page control OCR behavior:
@@ -169,6 +183,7 @@ These settings on the Settings page control OCR behavior:
 | **OCR Confidence Threshold**   | Minimum average confidence to accept without review | 60      | 0 - 100  |
 | **Unattended Mode**            | Auto-accept all OCR text without flagging          | Off     | On / Off |
 | **OCR Preprocessing**          | Apply deskew, contrast, and noise reduction        | On      | On / Off |
+| **Force OCR by default** *(v0.23.6)* | Make new bulk jobs default to re-OCRing every PDF page | Off | On / Off |
 
 ### Adjusting the Confidence Threshold
 
@@ -216,8 +231,8 @@ Yes. Convert the same file again and MarkFlow will run OCR fresh. Previous revie
 
 ## Related
 
-- [Getting Started](/help#getting-started)
-- [Document Conversion](/help#document-conversion)
-- [Bulk Conversion](/help#bulk-conversion)
-- [Fidelity Tiers](/help#fidelity-tiers)
-- [Search](/help#search)
+- [Getting Started](/help.html#getting-started)
+- [Document Conversion](/help.html#document-conversion)
+- [Bulk Conversion](/help.html#bulk-conversion)
+- [Fidelity Tiers](/help.html#fidelity-tiers)
+- [Search](/help.html#search)

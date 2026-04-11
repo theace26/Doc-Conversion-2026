@@ -6,6 +6,55 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.23.6 — Pre-flight checks, force-OCR, richer preview
+
+A quality-of-life release focused on making the conversion
+pipeline harder to misuse and giving operators better visibility
+before a job starts.
+
+**Pre-conversion disk-space check.** Bulk jobs and single-file
+conversions now verify there is enough free space before touching
+the disk. You'll see a clear error (including how much is free
+and how much was needed) instead of a half-complete batch and a
+cryptic IOError.
+
+**Force OCR on every PDF page.** The Bulk page config modal gains
+a new checkbox — **Force OCR on every PDF page**. Tick it when
+you have PDFs with a bad or misleading text layer and you want
+Tesseract to re-OCR every page regardless. There's also a
+matching default in Settings under **OCR** → **Force OCR by
+default** so you can set the behaviour project-wide.
+
+**Configurable trash auto-purge.** The Settings page gains a new
+toggle under **File Lifecycle** — **Auto-purge aged trash**. When
+enabled (the default), a dedicated job runs daily at 04:00 local
+time and permanently deletes trashed files older than the
+retention window (still driven by **Trash retention (days)** in
+the same section). Disable it to keep trash forever until an
+admin empties it manually — useful when compliance or forensic
+retention rules are involved.
+
+**Richer preview.** The Preview button on the single-file Convert
+page now returns a lot more information: estimated conversion
+duration, element counts, file-size-limit and zip-bomb checks,
+and a **Ready to convert** verdict. You can use it to sanity-check
+a file before committing to the upload.
+
+**Image dimensions in Markdown.** Converted Markdown now includes
+image dimensions in the CommonMark attribute-list form
+`![alt](src){width=640px height=480px}` when the source file
+carries dimensions. Legacy `"WxH"` title syntax is still parsed
+on ingest, so existing markdown files keep round-tripping
+correctly.
+
+See [Document Conversion](/help.html#document-conversion),
+[Bulk Conversion](/help.html#bulk-conversion), and
+[OCR Pipeline](/help.html#ocr-pipeline) for how to use the new
+controls, and [Settings Guide](/help.html#settings-guide) for
+where the new preferences live.
+
+---
+
 ## v0.23.5 — Search shortcuts + startup crash fix
 
 **Ten new keyboard shortcuts on the Search page** for faster batch
@@ -24,7 +73,7 @@ work and mouse-free navigation:
 
 The fastest "grab everything" workflow is now three combos:
 `Alt+A`, `Alt+Shift+D`. See [Keyboard
-Shortcuts](/help#keyboard-shortcuts) and [Search](/help#search) for
+Shortcuts](/help.html#keyboard-shortcuts) and [Search](/help.html#search) for
 the full writeup.
 
 **Startup crash fix.** Fixed a pair of coupled bugs that caused
@@ -51,7 +100,7 @@ flat list of 21 sections.
 Section names: *Locations* became *Files and Locations*, *Conversion*
 became *Conversion Options*, *AI Enhancement* became *AI Options*.
 
-See the updated [Settings Reference](/help#settings-guide) for the
+See the updated [Settings Reference](/help.html#settings-guide) for the
 new layout.
 
 ---
@@ -95,7 +144,7 @@ Supported:
 
 Tunable via **Settings → Conversion Options → Database sample rows
 per table** (default 25, max 1000). See the
-[Database Files](/help#database-files) article for full details.
+[Database Files](/help.html#database-files) article for full details.
 
 ---
 
@@ -181,7 +230,7 @@ What this means in practice:
 - When vector search is down or disabled, search silently falls back
   to keyword-only — you don't see an error.
 
-See the updated [Search](/help#search) article for examples and
+See the updated [Search](/help.html#search) article for examples and
 guidance on crafting good queries.
 
 ---
@@ -201,7 +250,7 @@ answer synthesizing the top results, with inline citations `[1]`,
   deeper analysis of that single document in the context of your
   original query
 
-See [Search](/help#search) for worked examples.
+See [Search](/help.html#search) for worked examples.
 
 ---
 
@@ -262,6 +311,6 @@ point. MarkFlow handles `mount` and persistence on container restart.
 
 ## Related
 
-- [Getting Started](/help#getting-started)
-- [Search](/help#search)
-- [Settings Reference](/help#settings-guide)
+- [Getting Started](/help.html#getting-started)
+- [Search](/help.html#search)
+- [Settings Reference](/help.html#settings-guide)

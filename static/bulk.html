@@ -171,6 +171,10 @@
             </select>
             <label>&nbsp;</label>
             <label class="cfg-checkbox"><input type="checkbox" id="cfg-include-adobe" checked> Index Adobe files</label>
+            <label>&nbsp;</label>
+            <label class="cfg-checkbox" title="Re-OCR every PDF page even when a text layer is present (v0.23.6)">
+              <input type="checkbox" id="cfg-force-ocr"> Force OCR on every PDF page
+            </label>
           </div>
         </details>
 
@@ -576,6 +580,7 @@
       document.getElementById('cfg-pw-timeout').value = globalPrefs.password_timeout_seconds || 60;
       document.getElementById('cfg-pw-hashcat').checked = globalPrefs.password_hashcat_enabled === 'true';
       document.getElementById('cfg-unattended').checked = globalPrefs.unattended_default === 'true';
+      document.getElementById('cfg-force-ocr').checked = globalPrefs.force_ocr_default === 'true';
     } catch(e) { /* defaults are fine */ }
   }
   loadGlobalPrefs();
@@ -641,6 +646,8 @@
       password_brute_force_enabled: document.getElementById('cfg-pw-brute').checked,
       password_timeout_seconds: parseInt(document.getElementById('cfg-pw-timeout').value) || 60,
       password_hashcat_enabled: document.getElementById('cfg-pw-hashcat').checked,
+      // v0.23.6 C5
+      force_ocr: document.getElementById('cfg-force-ocr').checked,
     };
     if (scanAll) {
       payload.scan_all_sources = true;

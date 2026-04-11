@@ -152,41 +152,8 @@ class DocumentModel:
         return [e for e in self.elements if e.type == element_type]
 
     def structural_hash(self) -> str:
-        """Generate a single hash representing document structure for comparison."""
-        import hashlib as _hashlib
-        parts = []
-
-        headings = [e for e in self.elements if e.type == ElementType.HEADING]
-        parts.append(f"h:{len(headings)}")
-        for h in headings:
-            parts.append(f"ht:{h.content[:100]}")
-
-        tables = [e for e in self.elements if e.type == ElementType.TABLE]
-        parts.append(f"t:{len(tables)}")
-        for t in tables:
-            if isinstance(t.content, list):
-                rows_count = len(t.content)
-                cols_count = len(t.content[0]) if t.content else 0
-                parts.append(f"td:{rows_count}x{cols_count}")
-                for row in t.content:
-                    for cell in row:
-                        parts.append(f"tc:{str(cell)[:50]}")
-
-        images = [e for e in self.elements if e.type == ElementType.IMAGE]
-        parts.append(f"i:{len(images)}")
-        for img in images:
-            w = img.attributes.get("width", 0) if img.attributes else 0
-            h_val = img.attributes.get("height", 0) if img.attributes else 0
-            parts.append(f"id:{w}x{h_val}")
-
-        lists = [e for e in self.elements if e.type == ElementType.LIST]
-        parts.append(f"l:{len(lists)}")
-        for li in lists:
-            depth = li.level or 0
-            parts.append(f"ld:{depth}")
-
-        combined = "|".join(parts)
-        return _hashlib.sha256(combined.encode()).hexdigest()
+        """Instance-method wrapper around :func:`compute_structural_hash`."""
+        return compute_structural_hash(self)
 
     def to_markdown(self) -> str:
         """Convert to Markdown string (uses MarkdownHandler)."""
@@ -222,6 +189,77 @@ class DocumentModel:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _list_depths(elements: list[Element]) -> list[int]:
+    """v0.23.6 S4: recursively collect nesting depths of every LIST_ITEM."""
+    depths: list[int] = []
+
+    def walk(elem: Element, depth: int) -> None:
+        if elem.type == ElementType.LIST_ITEM:
+            depths.append(depth)
+        if elem.children:
+            for child in elem.children:
+                next_depth = depth + 1 if elem.type == ElementType.LIST else depth
+                walk(child, next_depth)
+
+    for elem in elements:
+        walk(elem, 0)
+    return depths
+
+
+def compute_structural_hash(model: "DocumentModel") -> str:
+    """v0.23.6 S4: unified structural fingerprint of a DocumentModel.
+
+    The canonical representation captures element counts, heading levels +
+    text, table dimensions + cell text, image dimensions, and list nesting
+    depths. Two DocumentModels with identical structure (even if derived
+    from different formats) hash to the same value — which makes it a
+    cheap one-shot assertion for round-trip tests.
+    """
+    elements = model.elements
+
+    headings = [e for e in elements if e.type == ElementType.HEADING]
+    tables = [e for e in elements if e.type == ElementType.TABLE]
+    images = [e for e in elements if e.type == ElementType.IMAGE]
+    lists = [e for e in elements if e.type == ElementType.LIST]
+
+    table_dims: list[tuple[int, int]] = []
+    table_cells: list[str] = []
+    for t in tables:
+        if isinstance(t.content, list):
+            rows = len(t.content)
+            cols = len(t.content[0]) if t.content else 0
+            table_dims.append((rows, cols))
+            for row in t.content:
+                for cell in row:
+                    table_cells.append(str(cell))
+
+    image_dims: list[tuple[int, int]] = []
+    for img in images:
+        attrs = img.attributes or {}
+        w = int(attrs.get("width") or 0)
+        h_val = int(attrs.get("height") or 0)
+        image_dims.append((w, h_val))
+
+    list_depths = _list_depths(elements)
+
+    canonical = {
+        "heading_count": len(headings),
+        "heading_levels": [h.level or 0 for h in headings],
+        "heading_texts": [str(h.content) for h in headings],
+        "table_count": len(tables),
+        "table_dims": table_dims,
+        "table_cells": table_cells,
+        "image_count": len(images),
+        "image_dims": image_dims,
+        "list_count": len(lists),
+        "list_depths": list_depths,
+    }
+
+    import json as _json
+    serialized = _json.dumps(canonical, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
 
 def compute_content_hash(content: str | list) -> str:
     """Return SHA-256[:16] of normalized content for sidecar anchoring."""

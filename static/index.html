@@ -337,7 +337,7 @@
     picker.open();
   });
 
-  // ── Preview ───────────────────────────────────────────────────────────────
+  // ── Preview (v0.23.6 S1) ──────────────────────────────────────────────────
   document.getElementById('btn-preview').addEventListener('click', async () => {
     if (!selectedFiles.length) return;
     const file = selectedFiles[0];
@@ -345,8 +345,28 @@
     fd.append('file', file);
     fd.append('direction', document.querySelector('input[name=direction]:checked').value);
     try {
-      const result = await API.upload('/api/convert/preview', fd);
-      alert(`Format: ${result.format}\nPages: ${result.page_count ?? 'N/A'}\nOCR likely: ${result.ocr_likely}\nWarnings: ${(result.warnings||[]).join(', ') || 'none'}`);
+      const r = await API.upload('/api/convert/preview', fd);
+      const sizeMB = (r.file_size_bytes / (1024 * 1024)).toFixed(2);
+      const counts = Object.entries(r.element_counts || {})
+        .map(([k, v]) => `${k}: ${v}`).join(', ') || '(none)';
+      const warnings = (r.warnings || []).length
+        ? '\n\nWarnings:\n  • ' + r.warnings.join('\n  • ')
+        : '';
+      const estSec = r.estimated_conversion_seconds || 0;
+      const estHuman = estSec < 1 ? '< 1s' : `~${estSec.toFixed(1)}s`;
+      const ready = r.ready_to_convert ? 'Yes' : 'No — see warnings';
+      alert(
+        `Preview — ${r.filename}\n` +
+        `─────────────────────────\n` +
+        `Format:           ${r.format}\n` +
+        `Size:             ${sizeMB} MB\n` +
+        `Pages:            ${r.page_count ?? 'N/A'}\n` +
+        `OCR likely:       ${r.ocr_likely ? 'Yes' : 'No'}\n` +
+        `Elements:         ${counts}\n` +
+        `Est. duration:    ${estHuman}\n` +
+        `Ready to convert: ${ready}` +
+        warnings
+      );
     } catch (e) {
       showError(`Preview failed: ${e.message}`);
     }

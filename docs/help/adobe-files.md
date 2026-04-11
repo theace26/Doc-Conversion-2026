@@ -124,7 +124,7 @@ original location on the source share. MarkFlow only stores:
 
 If the source file is moved or deleted, the lifecycle scanner will detect the
 change and update the database record accordingly. See
-[Settings Guide](/help#settings-guide) for lifecycle scanner configuration.
+[Settings Guide](/help.html#settings-guide) for lifecycle scanner configuration.
 
 ---
 
@@ -198,6 +198,6 @@ Without this, the embedded PDF stream that MarkFlow reads is empty.
 
 ## Related
 
-- [Settings Guide](/help#settings-guide) -- configuring the lifecycle scanner and search
-- [Unrecognized Files](/help#unrecognized-files) -- what happens to file types MarkFlow cannot index at all
-- [LLM Providers](/help#llm-providers) -- AI-powered search enhancements
+- [Settings Guide](/help.html#settings-guide) -- configuring the lifecycle scanner and search
+- [Unrecognized Files](/help.html#unrecognized-files) -- what happens to file types MarkFlow cannot index at all
+- [LLM Providers](/help.html#llm-providers) -- AI-powered search enhancements

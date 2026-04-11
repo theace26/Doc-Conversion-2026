@@ -29,6 +29,10 @@ from core.db.connection import db_execute
 log = structlog.get_logger(__name__)
 
 GRACE_PERIOD_HOURS = 36
+# v0.23.6 M4: this constant is only used in the trash README text below as
+# a sensible default; the authoritative retention window is the
+# `lifecycle_trash_retention_days` preference read by scheduler.run_trash_expiry
+# and scheduler._purge_aged_trash.
 TRASH_RETENTION_DAYS = 60
 TRASH_DIR_NAME = ".trash"
 

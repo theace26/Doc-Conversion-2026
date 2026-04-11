@@ -177,8 +177,8 @@ This is intentional. After `pipeline_auto_reset_days` (default 3) of being disab
 
 ## Related
 
-- [Bulk Conversion](/help#bulk-conversion)
-- [File Lifecycle](/help#file-lifecycle)
-- [Status & Active Jobs](/help#status-page)
-- [Settings Reference](/help#settings-guide)
-- [Resources & Monitoring](/help#resources-monitoring)
+- [Bulk Conversion](/help.html#bulk-conversion)
+- [File Lifecycle](/help.html#file-lifecycle)
+- [Status & Active Jobs](/help.html#status-page)
+- [Settings Reference](/help.html#settings-guide)
+- [Resources & Monitoring](/help.html#resources-monitoring)

@@ -60,13 +60,91 @@ class PdfHandler(FormatHandler):
 
     # ── Ingest ────────────────────────────────────────────────────────────────
 
-    def ingest(self, file_path: Path) -> DocumentModel:
-        """Ingest PDF — uses PyMuPDF by default, pdfplumber for table pages."""
+    def ingest(self, file_path: Path, force_ocr: bool = False) -> DocumentModel:
+        """Ingest PDF — uses PyMuPDF by default, pdfplumber for table pages.
+
+        When ``force_ocr=True`` (v0.23.6 C5), skip text-layer extraction and
+        treat every page as scanned so the deferred OCR runner re-processes
+        the entire document via Tesseract. This is the per-job override the
+        Bulk page exposes as a checkbox.
+        """
+        if force_ocr:
+            log.info("pdf.force_ocr_requested", filename=file_path.name)
+            # Use the OCR-aware pdfplumber path and flag every page as scanned.
+            return self._ingest_pdfplumber_force_ocr(file_path)
         try:
             return self._ingest_pymupdf_with_fallback(file_path)
         except Exception as exc:
             log.warning("pdf_engine.pymupdf_failed_fallback_pdfplumber", error=str(exc))
             return self._ingest_pdfplumber(file_path)
+
+    def _ingest_pdfplumber_force_ocr(self, file_path: Path) -> DocumentModel:
+        """v0.23.6 C5: force every page through the OCR path.
+
+        Builds a DocumentModel where every page is marked as scanned and
+        stores per-page PIL images on ``model._scanned_pages`` for the
+        deferred OCR runner to pick up. Does not extract text-layer content
+        itself — that's the whole point of forcing OCR.
+        """
+        import pdfplumber
+
+        t_start = time.perf_counter()
+        log.info("handler_ingest_start", filename=file_path.name, format="pdf", engine="force_ocr")
+
+        model = DocumentModel()
+        model.metadata = DocumentMetadata(
+            source_file=file_path.name,
+            source_format="pdf",
+        )
+        model.warnings.append("force_ocr enabled: every page will be OCR'd regardless of text layer")
+
+        try:
+            pdf = pdfplumber.open(file_path)
+        except Exception as exc:
+            raise ValueError(f"Cannot open PDF: {exc}") from exc
+
+        page_count = len(pdf.pages)
+        model.metadata.page_count = page_count
+        scanned_pages: list[tuple[int, Any]] = []
+
+        try:
+            from pdf2image import convert_from_path
+            for idx in range(page_count):
+                page_num = idx + 1
+                if idx > 0:
+                    model.add_element(Element(type=ElementType.PAGE_BREAK, content=""))
+                try:
+                    images = convert_from_path(
+                        str(file_path),
+                        first_page=page_num,
+                        last_page=page_num,
+                        dpi=300,
+                    )
+                    if images:
+                        scanned_pages.append((page_num, images[0]))
+                except Exception as exc:
+                    log.warning("pdf.force_ocr_page_convert_failed",
+                                page=page_num, error=str(exc))
+                model.add_element(Element(
+                    type=ElementType.PARAGRAPH,
+                    content=f"[Scanned page {page_num}]",
+                    attributes={"ocr_page": page_num, "scanned": True, "forced": True},
+                ))
+        finally:
+            pdf.close()
+
+        if scanned_pages:
+            model._scanned_pages = scanned_pages  # type: ignore[attr-defined]
+            model.metadata.ocr_applied = True
+
+        duration_ms = int((time.perf_counter() - t_start) * 1000)
+        log.info("handler_ingest_complete",
+                 filename=file_path.name,
+                 element_count=len(model.elements),
+                 scanned_pages=len(scanned_pages),
+                 duration_ms=duration_ms,
+                 engine="force_ocr")
+        return model
 
     def _ingest_pymupdf_with_fallback(self, file_path: Path) -> DocumentModel:
         """PyMuPDF primary, pdfplumber for pages with tables."""

@@ -215,7 +215,7 @@ reached or does not have a visible focus state, please report it as a bug.
 
 ## Related Articles
 
-- [Searching Your Documents](/help#search) -- full guide to search and filters
-- [Settings Reference](/help#settings-guide) -- all form controls explained
-- [Troubleshooting](/help#troubleshooting) -- what to do when things are not
+- [Searching Your Documents](/help.html#search) -- full guide to search and filters
+- [Settings Reference](/help.html#settings-guide) -- all form controls explained
+- [Troubleshooting](/help.html#troubleshooting) -- what to do when things are not
   responding

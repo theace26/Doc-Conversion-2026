@@ -11,6 +11,7 @@ MarkdownHandler.ingest(md_string) → DocumentModel:
   Splits YAML frontmatter before parsing content.
 """
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -63,7 +64,8 @@ def _render_element(elem: Element, footnotes: list[tuple[str, str]]) -> str:
         width = elem.attributes.get("width")
         height = elem.attributes.get("height")
         if width and height:
-            return f'![{alt}]({src} "{width}x{height}")'
+            # CommonMark attribute-list extension: ![alt](src){width=Wpx height=Hpx}
+            return f"![{alt}]({src}){{width={int(width)}px height={int(height)}px}}"
         return f"![{alt}]({src})"
 
     if t == ElementType.LIST:
@@ -187,20 +189,58 @@ def _ast_to_elements(nodes: list[dict]) -> list[Element]:
             ))
 
         elif ntype == "paragraph":
-            # Check if paragraph contains only an image
+            # Check if paragraph starts with an image (possibly followed by
+            # a CommonMark attribute-list like {width=Wpx height=Hpx}).
             children = node.get("children") or []
-            if len(children) == 1 and children[0].get("type") == "image":
+            if children and children[0].get("type") == "image":
                 img = children[0]
                 attrs = img.get("attrs", {})
-                elements.append(Element(
-                    type=ElementType.IMAGE,
-                    content="",
-                    attributes={
-                        "src": attrs.get("url", ""),
-                        "alt": attrs.get("alt", ""),
-                        "title": attrs.get("title", ""),
-                    },
-                ))
+                img_attrs: dict[str, Any] = {
+                    "src": attrs.get("url", ""),
+                    "alt": attrs.get("alt", ""),
+                    "title": attrs.get("title", ""),
+                }
+
+                # Parse trailing attribute-list text, if any
+                trailing = "".join(_extract_text(c) for c in children[1:]).strip()
+                attr_only = False
+                if trailing:
+                    m = re.match(r"^\{([^}]*)\}\s*$", trailing)
+                    if m:
+                        attr_body = m.group(1)
+                        wm = re.search(r"width\s*=\s*(\d+)", attr_body)
+                        hm = re.search(r"height\s*=\s*(\d+)", attr_body)
+                        if wm:
+                            img_attrs["width"] = int(wm.group(1))
+                        if hm:
+                            img_attrs["height"] = int(hm.group(1))
+                        attr_only = True
+
+                # Legacy format: dims encoded in the title as "WxH"
+                title = img_attrs.get("title") or ""
+                tm = re.match(r"^(\d+)x(\d+)$", str(title).strip())
+                if tm and "width" not in img_attrs:
+                    img_attrs["width"] = int(tm.group(1))
+                    img_attrs["height"] = int(tm.group(2))
+
+                if len(children) == 1 or attr_only:
+                    elements.append(Element(
+                        type=ElementType.IMAGE,
+                        content="",
+                        attributes=img_attrs,
+                    ))
+                else:
+                    # Mixed content after the image — emit image + paragraph
+                    elements.append(Element(
+                        type=ElementType.IMAGE,
+                        content="",
+                        attributes=img_attrs,
+                    ))
+                    if trailing:
+                        elements.append(Element(
+                            type=ElementType.PARAGRAPH,
+                            content=trailing,
+                        ))
             else:
                 # Use formatted extraction to preserve **bold**, *italic*, `code`
                 text = _extract_formatted_text(node)

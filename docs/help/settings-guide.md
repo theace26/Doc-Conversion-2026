@@ -92,6 +92,7 @@ Automatic text extraction from scanned documents.
 | Unattended mode | Off | On/Off | Auto-accepts all OCR text without flagging |
 | OCR preprocessing | On | On/Off | Deskew, contrast, noise reduction |
 | **Handwriting confidence threshold** *(v0.20.3)* | 40 | 0–100 | Below this, MarkFlow sends the page image to the active LLM vision provider for handwriting transcription |
+| **Force OCR by default** *(v0.23.6)* | Off | On/Off | When on, new bulk jobs default to re-OCRing every PDF page even if a text layer is present. Per-job override is in the Bulk page config modal. |
 
 > **Tip:** 60-80% is a good balance for the main confidence threshold.
 > Lower it if too many pages are flagged, raise it if accuracy is
@@ -165,7 +166,7 @@ The Claude-powered answer drawer on the Search page.
 > **Per-provider opt-in:** On the **Providers** page, tick **Use for
 > AI Assist** on any Anthropic provider to route AI Assist to it
 > independently of the image-scanner provider. See [What's
-> New → v0.22.11](/help#whats-new) for details.
+> New → v0.22.11](/help.html#whats-new) for details.
 
 ---
 
@@ -192,11 +193,13 @@ Automatic change detection and file management.
 | Incremental scan | On | Skip directories whose mtime has not changed |
 | Full walk every N scans | 5 | Force a full walk every Nth scan |
 | Grace period | 36 hours | Wait time before a missing file moves to trash |
-| Trash retention | 60 days | How long trashed files are kept before purge |
+| Trash retention | 60 days | How long trashed files are kept before auto-purge |
+| **Auto-purge aged trash** *(v0.23.6)* | On | Master switch for the daily 04:00 job that permanently deletes trashed files older than the retention window. Turn off to keep trash indefinitely. |
 
-> **Pre-production warning:** These timers are currently set to
-> testing values in this deployment. Grace period should be raised
-> to 36+ hours and trash retention to 60+ days before going live.
+> **Note:** Both the grace period and the trash retention are now
+> production values. The daily auto-purge job runs at 04:00 local
+> time, is gated on the **Auto-purge aged trash** toggle above, and
+> yields automatically to active bulk jobs.
 
 ---
 
@@ -255,7 +258,7 @@ tandem with the Pipeline section above.
 | Workers | 4 | Parallel conversion workers |
 | OCR threshold for auto-skip | 50 | Files below this OCR confidence are skipped |
 
-See the [Auto-Conversion](/help#auto-conversion) article for mode
+See the [Auto-Conversion](/help.html#auto-conversion) article for mode
 details.
 
 ---
@@ -287,10 +290,10 @@ Seldom-needed options for experienced operators.
 
 ## Related
 
-- [What's New](/help#whats-new)
-- [Getting Started](/help#getting-started)
-- [Bulk Repository Conversion](/help#bulk-conversion)
-- [Auto-Conversion](/help#auto-conversion)
-- [LLM Provider Setup](/help#llm-providers)
-- [Password-Protected Documents](/help#password-recovery)
-- [Search](/help#search)
+- [What's New](/help.html#whats-new)
+- [Getting Started](/help.html#getting-started)
+- [Bulk Repository Conversion](/help.html#bulk-conversion)
+- [Auto-Conversion](/help.html#auto-conversion)
+- [LLM Provider Setup](/help.html#llm-providers)
+- [Password-Protected Documents](/help.html#password-recovery)
+- [Search](/help.html#search)

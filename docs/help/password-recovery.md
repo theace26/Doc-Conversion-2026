@@ -133,7 +133,7 @@ never written to disk.
 ## Dictionary and Brute-Force Settings
 
 These settings live on the **Settings** page under **Password Recovery**. See
-[Settings Guide](/help#settings-guide) for the full reference.
+[Settings Guide](/help.html#settings-guide) for the full reference.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -173,7 +173,7 @@ There are two paths for GPU acceleration:
 | **Container (NVIDIA)** | NVIDIA only | GPU is passed into the Docker container via NVIDIA Container Toolkit |
 | **Host worker** | NVIDIA, AMD, Intel | A small script runs on your host machine with direct GPU access |
 
-See [GPU Setup](/help#gpu-setup) for installation instructions.
+See [GPU Setup](/help.html#gpu-setup) for installation instructions.
 
 ### Hashcat Settings
 
@@ -229,6 +229,6 @@ data governance and information security policies.
 
 ## Related
 
-- [GPU Setup](/help#gpu-setup) -- installing hashcat and configuring GPU passthrough
-- [Settings Guide](/help#settings-guide) -- full reference for all password recovery settings
-- [Getting Started](/help#getting-started) -- uploading and converting your first file
+- [GPU Setup](/help.html#gpu-setup) -- installing hashcat and configuring GPU passthrough
+- [Settings Guide](/help.html#settings-guide) -- full reference for all password recovery settings
+- [Getting Started](/help.html#getting-started) -- uploading and converting your first file

@@ -41,7 +41,7 @@ MarkFlow supports these file types in both directions — original to Markdown, 
 
 **Word (.docx)** is the best-supported format. Headings, paragraphs, bold, italic, code, tables, images, footnotes, and nested tables all come through cleanly. Legacy formats (`.doc`, `.wbk`, `.wpd`) and Publisher files (`.pub`, `.p65`) are first converted to `.docx` via LibreOffice headless.
 
-**PDF (.pdf)** works well for text-based PDFs. If your PDF is a scanned image (no selectable text), MarkFlow uses OCR to read the text. See [OCR Pipeline](/help#ocr-pipeline) for details on how that works.
+**PDF (.pdf)** works well for text-based PDFs. If your PDF is a scanned image (no selectable text), MarkFlow uses OCR to read the text. See [OCR Pipeline](/help.html#ocr-pipeline) for details on how that works.
 
 **PowerPoint (.pptx, .pptm)** treats each slide as a separate section. Slide titles become headings, and bullet points become lists. Speaker notes are included. Images on slides are extracted. Macro-enabled `.pptm` files are processed identically (macros are not executed).
 
@@ -73,7 +73,7 @@ At the top of the page is a toggle that controls the conversion direction:
 | **To Markdown**    | Upload an original file, get Markdown back                  |
 | **From Markdown**  | Upload a Markdown file, get the original format back        |
 
-When converting **from Markdown**, MarkFlow looks for a style sidecar file (a `.styles.json` file) alongside your Markdown. If it finds one, the output will include more of the original formatting. See [Fidelity Tiers](/help#fidelity-tiers) for the full explanation.
+When converting **from Markdown**, MarkFlow looks for a style sidecar file (a `.styles.json` file) alongside your Markdown. If it finds one, the output will include more of the original formatting. See [Fidelity Tiers](/help.html#fidelity-tiers) for the full explanation.
 
 ### The Upload Area
 
@@ -96,6 +96,32 @@ You can upload multiple files at once. Each one gets its own card.
 
 After adding your files, click **Convert** to start. The button is disabled until at least one valid file is added.
 
+### The Preview Button *(v0.23.6)*
+
+Next to **Convert** there's a **Preview** button. Click it to run
+a dry-run analysis on the first selected file — MarkFlow reports:
+
+- **Format** and **size** — as detected from the file itself
+- **Pages** — estimated page count (PDFs + most Office formats)
+- **OCR likely** — whether the format's heuristics think the
+  file will need OCR during conversion
+- **Elements** — element counts (headings, paragraphs, tables,
+  images, lists)
+- **Estimated duration** — rough wall-clock estimate based on
+  the ingest time MarkFlow measured during the preview
+- **Ready to convert** — yes/no verdict; if no, the **Warnings**
+  list tells you why (file too large, zip-bomb-like compression
+  ratio, missing handler, etc.)
+- **Warnings** — everything the handler collected that you
+  should know before committing to the conversion
+
+No files are written to disk during a preview. The file is read
+in-memory and discarded.
+
+**When it's useful:** sanity-checking a suspicious PDF before
+running it through a big bulk job, verifying that a scanned file
+will trigger OCR, confirming the file isn't accidentally a 2 GB
+video mis-labelled as a document.
 
 ## Batch Progress
 
@@ -112,7 +138,7 @@ What you will see:
 
 The progress screen uses a live connection to the server, so you do not need to refresh the page. Just watch the progress bar fill up.
 
-> **Warning:** If you close the browser tab during conversion, the conversion continues in the background. You can find the results in [History](/help#getting-started) when it finishes.
+> **Warning:** If you close the browser tab during conversion, the conversion continues in the background. You can find the results in [History](/help.html#getting-started) when it finishes.
 
 ### What If a File Fails?
 
@@ -123,7 +149,7 @@ Common reasons a file might fail:
 - The file is password-protected
 - The file is corrupt or incomplete
 - The file is extremely large and runs out of memory
-- A scanned PDF has unreadable text (see [OCR Pipeline](/help#ocr-pipeline))
+- A scanned PDF has unreadable text (see [OCR Pipeline](/help.html#ocr-pipeline))
 
 
 ## Downloading Results
@@ -170,7 +196,7 @@ To turn a Markdown file back into a Word document (or PDF, or any other format):
 1. Go to the **Convert** page.
 2. Set the direction toggle to **From Markdown**.
 3. Upload your `.md` file.
-4. Optionally, upload the `.styles.json` sidecar and the original file alongside it. The more files you provide, the better the output will look. See [Fidelity Tiers](/help#fidelity-tiers).
+4. Optionally, upload the `.styles.json` sidecar and the original file alongside it. The more files you provide, the better the output will look. See [Fidelity Tiers](/help.html#fidelity-tiers).
 5. Click **Convert**.
 
 MarkFlow detects the target format from the sidecar metadata or asks you to specify it.
@@ -188,16 +214,16 @@ These preferences on the Settings page influence how conversions behave:
 | **Unattended Mode**       | Skip OCR review prompts and accept all text automatically | Off     |
 | **Worker Count**          | Number of files processed in parallel during bulk jobs  | 2         |
 
-For more on OCR settings, see [OCR Pipeline](/help#ocr-pipeline). For bulk job settings, see [Bulk Conversion](/help#bulk-conversion).
+For more on OCR settings, see [OCR Pipeline](/help.html#ocr-pipeline). For bulk job settings, see [Bulk Conversion](/help.html#bulk-conversion).
 
 
 ## Troubleshooting
 
 **My converted Markdown is missing some formatting.**
-This is normal for complex documents. MarkFlow captures structure (headings, tables, lists) reliably. Fine-grained formatting like exact font sizes and colors is stored in the style sidecar, not in the Markdown itself. See [Fidelity Tiers](/help#fidelity-tiers).
+This is normal for complex documents. MarkFlow captures structure (headings, tables, lists) reliably. Fine-grained formatting like exact font sizes and colors is stored in the style sidecar, not in the Markdown itself. See [Fidelity Tiers](/help.html#fidelity-tiers).
 
 **My PDF conversion has garbled text.**
-The PDF may be a scanned image. MarkFlow uses OCR for these, but results depend on scan quality. Check the [OCR Pipeline](/help#ocr-pipeline) article for tips on improving OCR results.
+The PDF may be a scanned image. MarkFlow uses OCR for these, but results depend on scan quality. Check the [OCR Pipeline](/help.html#ocr-pipeline) article for tips on improving OCR results.
 
 **The conversion is taking a very long time.**
 Large PDFs with many pages, especially scanned ones requiring OCR, can take minutes. The progress screen shows live updates so you can track where it is.
@@ -208,8 +234,8 @@ You cannot cancel a conversion that has already started, but the original file i
 
 ## Related
 
-- [Getting Started](/help#getting-started)
-- [Fidelity Tiers](/help#fidelity-tiers)
-- [OCR Pipeline](/help#ocr-pipeline)
-- [Bulk Conversion](/help#bulk-conversion)
-- [Search](/help#search)
+- [Getting Started](/help.html#getting-started)
+- [Fidelity Tiers](/help.html#fidelity-tiers)
+- [OCR Pipeline](/help.html#ocr-pipeline)
+- [Bulk Conversion](/help.html#bulk-conversion)
+- [Search](/help.html#search)

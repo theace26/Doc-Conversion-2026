@@ -245,5 +245,5 @@ length in Settings. GPU acceleration helps but cannot crack every password.
 
 ## Related
 
-- [Password Recovery](/help#password-recovery) -- full cracking cascade and settings
-- [Settings Guide](/help#settings-guide) -- hashcat workload profile and timeout settings
+- [Password Recovery](/help.html#password-recovery) -- full cracking cascade and settings
+- [Settings Guide](/help.html#settings-guide) -- hashcat workload profile and timeout settings

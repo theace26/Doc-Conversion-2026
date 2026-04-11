@@ -47,6 +47,24 @@ The Trash page shows all files currently in the trash:
 
 > **Warning:** Purging is permanent. There is no undo.
 
+### Automatic purge *(v0.23.6)*
+
+MarkFlow also runs an automatic daily purge at 04:00 local time
+that permanently deletes every trashed file older than the
+**Trash retention** window (default 60 days). The job:
+
+- Is gated on the **Auto-purge aged trash** toggle under
+  Settings → File Lifecycle (on by default)
+- Yields to active bulk jobs — like every other scheduled
+  maintenance task
+- Reports purge counts and bytes freed to the activity log as
+  `trash_auto_purge`
+
+Turn **Auto-purge aged trash** off if your retention rules
+require an admin to make the delete decision manually. Turning
+it off doesn't stop the **Empty Trash** button from working —
+it only disables the automatic schedule.
+
 ## Settings
 
 | Setting | Default | What It Does |
@@ -56,10 +74,11 @@ The Trash page shows all files currently in the trash:
 | Business hours start | 06:00 | When scanning begins each weekday |
 | Business hours end | 18:00 | When scanning stops each weekday |
 | Grace period | 36 hours | How long before a missing file moves to trash |
-| Trash retention | 60 days | How long files stay in trash before purging |
+| Trash retention | 60 days | How long files stay in trash before auto-purge |
+| **Auto-purge aged trash** *(v0.23.6)* | On | Master switch for the daily 04:00 auto-purge job |
 
 ## Related
 
-- [Bulk Repository Conversion](/help#bulk-conversion)
-- [Administration](/help#admin-tools)
-- [Settings Reference](/help#settings-guide)
+- [Bulk Repository Conversion](/help.html#bulk-conversion)
+- [Administration](/help.html#admin-tools)
+- [Settings Reference](/help.html#settings-guide)

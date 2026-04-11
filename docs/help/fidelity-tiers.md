@@ -183,13 +183,13 @@ project/
   report.docx            <- The original document
 ```
 
-If you are using [Bulk Conversion](/help#bulk-conversion), MarkFlow stores these files in a structured output directory automatically. The sidecar and original are always placed alongside the Markdown output.
+If you are using [Bulk Conversion](/help.html#bulk-conversion), MarkFlow stores these files in a structured output directory automatically. The sidecar and original are always placed alongside the Markdown output.
 
 
 ## Related
 
-- [Getting Started](/help#getting-started)
-- [Document Conversion](/help#document-conversion)
-- [OCR Pipeline](/help#ocr-pipeline)
-- [Bulk Conversion](/help#bulk-conversion)
-- [File Lifecycle](/help#file-lifecycle)
+- [Getting Started](/help.html#getting-started)
+- [Document Conversion](/help.html#document-conversion)
+- [OCR Pipeline](/help.html#ocr-pipeline)
+- [Bulk Conversion](/help.html#bulk-conversion)
+- [File Lifecycle](/help.html#file-lifecycle)

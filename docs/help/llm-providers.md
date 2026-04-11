@@ -273,6 +273,6 @@ The model name must match what the server expects.
 
 ## Related
 
-- [Settings Guide](/help#settings-guide) -- all AI and vision settings with defaults
-- [GPU Setup](/help#gpu-setup) -- GPU acceleration for password cracking (separate from LLM)
-- [Adobe Files](/help#adobe-files) -- how AI search enhancement applies to indexed files
+- [Settings Guide](/help.html#settings-guide) -- all AI and vision settings with defaults
+- [GPU Setup](/help.html#gpu-setup) -- GPU acceleration for password cracking (separate from LLM)
+- [Adobe Files](/help.html#adobe-files) -- how AI search enhancement applies to indexed files

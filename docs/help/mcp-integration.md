@@ -169,7 +169,7 @@ A companion health check is available at `GET /api/cowork/status`.
 
 > **Tip:** The Cowork API requires at least `search_user` role authentication.
 > In development with `DEV_BYPASS_AUTH=true`, this works without credentials.
-> In production, use an API key from the [Admin panel](/help#admin-tools).
+> In production, use an API key from the [Admin panel](/help.html#admin-tools).
 
 ---
 
@@ -188,7 +188,7 @@ A companion health check is available at `GET /api/cowork/status`.
 
 ## Related Articles
 
-- [Searching Your Documents](/help#search) -- using the web-based search
-- [Administration](/help#admin-tools) -- generating API keys for integrations
-- [LLM Provider Setup](/help#llm-providers) -- configuring AI providers
-- [Troubleshooting](/help#troubleshooting) -- what to do if MCP connection fails
+- [Searching Your Documents](/help.html#search) -- using the web-based search
+- [Administration](/help.html#admin-tools) -- generating API keys for integrations
+- [LLM Provider Setup](/help.html#llm-providers) -- configuring AI providers
+- [Troubleshooting](/help.html#troubleshooting) -- what to do if MCP connection fails
