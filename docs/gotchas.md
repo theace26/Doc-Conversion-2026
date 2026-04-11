@@ -341,6 +341,32 @@ the relevant subsystem. Referenced from CLAUDE.md.
   used from day one. Rule of thumb: any long-running scan loop that races
   with writers needs both an inner-loop cancel check AND retry-on-lock.
 
+- **Adding a `location_exclusion` retroactively marks existing files for
+  deletion**: `location_exclusions` are enforced by having the scanner's
+  walk skip matching directory subtrees. But `lifecycle_scanner.run_lifecycle_scan()`
+  at `core/lifecycle_scanner.py:370-412` does its "deletion detection" by
+  comparing `SELECT * FROM source_files WHERE lifecycle_status='active'`
+  against the set of `seen_paths` the current walk collected. Anything in
+  the DB but not in `seen_paths` is treated as "disappeared" and fed to
+  `mark_file_for_deletion()`, which starts the 36h grace → 60d trash → purge
+  cascade. Net effect: the first scan after you add an exclusion will
+  **mass-mark every file under that excluded subtree for deletion**, even
+  though the files are still on disk. This is the designed behavior of
+  exclusions — "exclude" means "forget about these entirely," not "skip
+  future scans only" — but in aggregate it looks alarming if you don't
+  know the cascade. Symptoms of the common case: `source_files` shows zero
+  active rows and hundreds of thousands of `in_trash` / `marked_for_deletion`,
+  with `marked_for_deletion_at` histograms that line up exactly with the
+  `created_at` timestamps in the `location_exclusions` table. Before
+  panicking, cross-reference those timelines. Observed in the field
+  2026-04-11 on a VM where the user had added 9 exclusions (Plex, Ember,
+  MediaMonkey, Google Photos, etc.) over Apr 4-6 and ended up with ~319k
+  source_files rows in non-active lifecycle states — all legitimate user
+  cleanup. Rule of thumb: **for lifecycle "mass trashed" state, `SELECT
+  created_at FROM location_exclusions` is always the first query, and
+  only investigate further if marked paths are NOT covered by any
+  exclusion or `scan_skip_patterns` entry**.
+
 - **Adobe files need TWO conversion passes (v0.22.9)**: `_worker()` in
   `core/bulk_worker.py` dispatches every file through `_process_convertible()`
   for the regular markdown conversion (which lands in the `documents`

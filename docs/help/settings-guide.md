@@ -26,7 +26,7 @@ The starting point for every pipeline action.
 |---------|--------------|
 | Source locations | Paths MarkFlow scans for files (add / edit / delete) |
 | Output directory | Where converted Markdown is written |
-| Excluded paths | Prefix-match directories to skip during scanning |
+| Excluded paths | Prefix-match directories to drop from the catalog — adding an exclusion will mark every existing file under it for deletion (36h grace → trash → 60d retention). See [File Lifecycle](/help.html#file-lifecycle) for the full cascade |
 | Check access | Verify MarkFlow can read each configured source |
 
 ### Password Recovery

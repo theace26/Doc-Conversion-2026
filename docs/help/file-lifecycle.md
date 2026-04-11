@@ -13,6 +13,24 @@ A background scanner runs every 15 minutes during business hours. It walks throu
 
 > **Tip:** The scanner only runs during business hours (Mon–Fri, 6 AM – 6 PM by default). You can change these hours in Settings.
 
+### Adding a new exclusion marks existing files for deletion
+
+Worth knowing before you add an entry to **Excluded paths** in
+Settings → Files and Locations: the scanner enforces exclusions by
+**skipping those subtrees during its walk**. On the next scan, any
+file you previously had under that path will look "disappeared" to
+the scanner — because it's in MarkFlow's records but wasn't seen in
+the walk — and will enter the soft-delete pipeline described below.
+
+This is normal and intended. An exclusion means "stop tracking these
+files entirely," not "just stop scanning them from now on." The
+cascade has the usual 36-hour grace period and 60-day trash retention,
+so nothing is permanently deleted immediately — but if you only meant
+to silence future scans (without dropping the existing records), the
+exclusion is the wrong tool. Remove the exclusion before the grace
+period expires and the scanner will restore everything on its next
+pass.
+
 ## The Soft-Delete Pipeline
 
 When a file disappears from the source share, MarkFlow doesn't immediately delete its converted output. Instead, it goes through a careful pipeline:
