@@ -4,6 +4,101 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.23.7 — Bulk vector indexer backpressure fix (2026-04-11)
+
+Single-bug hotfix on the vector branch. Bulk vector indexing was
+100% broken in v0.23.6 due to an `asyncio.Semaphore` API misuse in
+the bulk worker's backpressure helper. Every bulk-converted file
+raised an unhandled `AttributeError` when it tried to enter the
+Qdrant indexing path, and the error was only visible via
+`Task exception was never retrieved` messages on the event loop
+because the helper was launched as a detached `create_task()`.
+
+### The bug
+
+`core/bulk_worker.py:_index_vector_with_backpressure()` was
+written to cap concurrent Qdrant upserts at 20 via a
+module-level `asyncio.Semaphore(20)`, with a non-blocking
+acquire so saturated runs would log-and-skip instead of piling up:
+
+```python
+_vector_semaphore = asyncio.Semaphore(20)
+
+async def _index_vector_with_backpressure(...):
+    """Index to Qdrant with bounded concurrency. Skip if queue is full."""
+    acquired = _vector_semaphore.acquire_nowait()    # ← AttributeError
+    if not acquired:
+        log.info("vector_indexing.backpressure_skip", file=source_path)
+        return
+    try:
+        await _index_vector_async(...)
+    finally:
+        _vector_semaphore.release()
+```
+
+`asyncio.Semaphore` has **no** `acquire_nowait()` method — that
+method lives on `threading.Semaphore`. The author was porting a
+`threading`-style idiom to async without noticing the surface API
+diverges. Because the call is the first statement, every single
+bulk file triggered the error, and because the helper runs under
+`asyncio.create_task()` inside `_index_vector_async`'s caller,
+the exception was swallowed into `Task exception was never
+retrieved` warnings that were easy to miss in the log firehose.
+
+Discovered via `~/pull-logs.sh` analysis on 2026-04-11 after
+refreshing to the latest vector-branch HEAD on the Proxmox VM:
+11 `AttributeError` occurrences in a single tail window, all
+from `_index_vector_with_backpressure`. The root cause was
+isolated to a single line; the rest of the vector pipeline
+(embedding model load, deterministic chunk IDs, idempotent
+upserts, rebuild loop, 60s httpx timeout) was unaffected.
+
+### The fix
+
+Replaced the manual acquire / try / finally block with the
+idiomatic async context manager, which is equivalent in intent,
+shorter, and crucially does not leak a permit if the task is
+cancelled between `acquire()` and the `try:`:
+
+```python
+async def _index_vector_with_backpressure(...):
+    """Index to Qdrant with bounded concurrency. Waits for a free slot when the pool is saturated."""
+    async with _vector_semaphore:
+        await _index_vector_async(...)
+```
+
+**Behavioural change:** the pool now **blocks** when saturated
+instead of **skipping**. Under the old (broken) code the intent
+was log-and-drop, but that was never a reachable code path because
+the helper crashed before the acquire could succeed. Making the
+semaphore block is the correct semantics for a backpressure
+primitive anyway — the bulk worker never wants to silently drop
+files from the vector index when Qdrant is healthy but slow. The
+`vector_indexing.backpressure_skip` log event is gone as a result,
+which matches the new "we never skip" behaviour.
+
+Timeout safety is still provided upstream: `AsyncQdrantClient` is
+configured with `QDRANT_TIMEOUT_S=60` (see `## Vector Search &
+Qdrant` in `gotchas.md`), so a genuinely wedged qdrant will fail
+the individual upsert rather than permanently holding a semaphore
+permit.
+
+**Why it matters:** v0.23.6 on the vector branch shipped a
+bulk-conversion pipeline where every file failed to vector-index,
+so keyword search kept working (Meilisearch path is independent)
+but semantic/hybrid search results quietly stopped growing.
+This is exactly the class of silent-failure regression that the
+"Vector search is best-effort" gotcha in `gotchas.md` is meant
+to protect against at the call-site level — but this case was
+inside the backpressure helper itself, not at a call site, so
+the best-effort guard never fired.
+
+**Files touched:** `core/version.py`, `core/bulk_worker.py`,
+`CLAUDE.md`, `docs/gotchas.md`, `docs/version-history.md`,
+`docs/help/whats-new.md`.
+
+---
+
 ## v0.23.6 — Spec remediation Batch 1 (2026-04-10)
 
 Six-item landing of the first batch of the v0.23.5 spec-review

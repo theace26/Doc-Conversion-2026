@@ -545,6 +545,34 @@ the relevant subsystem. Referenced from CLAUDE.md.
   `AsyncQdrantClient(...)`. 60s is harmless to throughput because the
   upsert is async-detached.
 
+- **`asyncio.Semaphore` has NO `acquire_nowait()` (v0.23.7)**: Only
+  `threading.Semaphore` has `acquire_nowait()`. Porting a sync-style
+  "try acquire or skip" pattern to async and calling
+  `asyncio.Semaphore.acquire_nowait()` raises `AttributeError` every
+  time, and if the caller is a detached `create_task()` (as in
+  `bulk_worker._index_vector_with_backpressure`) the exception shows
+  up only as `Task exception was never retrieved` — easy to miss in
+  a busy log stream. This shipped in v0.23.6 and broke 100% of bulk
+  vector indexing silently. Use one of these instead, and pick based
+  on semantics:
+  - **`async with semaphore:`** — blocking backpressure (the fix in
+    v0.23.7). Guaranteed release on cancellation. Correct default
+    for "cap parallel work at N; make excess work wait its turn."
+  - **`await asyncio.wait_for(semaphore.acquire(), timeout=N)`** —
+    bounded wait. Raises `asyncio.TimeoutError` after N seconds.
+    Use when you want a safety net against downstream stalls (e.g.
+    permanently wedged qdrant) but still want backpressure as the
+    normal path.
+  - **`if not semaphore.locked(): await semaphore.acquire()`** —
+    truly non-blocking, but **racy**: another coroutine can grab
+    the slot between `locked()` and `acquire()`. Only use for
+    best-effort signals where a false positive is tolerable.
+  Rule of thumb: if you are writing vocabulary that exists in both
+  `threading` and `asyncio` (Lock, Semaphore, Event, Queue), look up
+  the method on the asyncio version before assuming the API matches
+  — several methods are intentionally missing to keep asyncio's
+  suspension model clean.
+
 ## Locations & Browse
 
 - **Locations validate endpoint timeout**: `file_count_estimate` capped at 10s. Null is not an error.

@@ -196,15 +196,9 @@ async def _index_vector_with_backpressure(
     source_format: str,
     file_id: str,
 ) -> None:
-    """Index to Qdrant with bounded concurrency. Skip if queue is full."""
-    acquired = _vector_semaphore.acquire_nowait()
-    if not acquired:
-        log.info("vector_indexing.backpressure_skip", file=source_path)
-        return
-    try:
+    """Index to Qdrant with bounded concurrency. Waits for a free slot when the pool is saturated."""
+    async with _vector_semaphore:
         await _index_vector_async(vec_indexer, md_path, doc_id, title, source_path, source_format, file_id)
-    finally:
-        _vector_semaphore.release()
 
 
 # ── OCR confidence pre-scan ──────────────────────────────────────────────────

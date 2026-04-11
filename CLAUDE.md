@@ -90,60 +90,45 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.23.6
+## Current Version — v0.23.7
 
-**Spec remediation Batch 1: six-item hardening release.** Image
-dim hints in Markdown output (M1), pre-flight disk-space check
-(M2), configurable trash auto-purge with a dedicated daily job
-(M4), per-job force-OCR override and default preference (C5),
-unified structural-hash helper + round-trip test (S4), and an
-enhanced `/api/convert/preview` endpoint with zip-bomb check +
-estimated duration + `ready_to_convert` verdict (S1). Full
-context: [`docs/version-history.md`](docs/version-history.md).
+**Bulk vector indexer backpressure fix — single-bug hotfix on
+the vector branch.** `core/bulk_worker._index_vector_with_backpressure`
+called `asyncio.Semaphore.acquire_nowait()`, a method that does
+not exist on `asyncio.Semaphore` (it's a `threading.Semaphore`
+idiom). Every bulk-converted file raised `AttributeError` inside
+a detached task, surfacing only as `Task exception was never
+retrieved` warnings, so v0.23.6 shipped with 100% of bulk vector
+indexing broken while keyword search continued to work. Fix:
+replaced the manual acquire/release with
+`async with _vector_semaphore:`. Semantics changed from "log and
+skip when saturated" (unreachable, always crashed) to "wait for
+a free slot" (correct backpressure). `AsyncQdrantClient
+timeout=60s` upstream prevents permit-leak on wedged qdrant.
+Full context: [`docs/version-history.md`](docs/version-history.md).
 
-- **M1 Markdown image dims** — `formats/markdown_handler.py` emits
-  `![alt](src){width=Wpx height=Hpx}` (CommonMark attribute-list)
-  when `ImageData` carries dimensions; ingest parses both the new
-  attr-list form AND the legacy `"WxH"` title form.
-- **M2 Disk-space pre-flight** — `BulkJob._precheck_disk_space()`
-  sums input sizes × 3 and compares against
-  `shutil.disk_usage(output_path).free` before workers start;
-  single-file converter path does the same per-file. Failing
-  bulk jobs emit `job_failed_disk_space` SSE + fail cleanly.
-- **M4 Trash auto-purge** — new `trash_auto_purge_enabled` pref
-  (default `true`). New `_purge_aged_trash()` job in
-  `core/scheduler.py` registered as a `CronTrigger(hour=4,
-  minute=0)` daily; gated on the new pref, yields to active bulk
-  jobs. Hourly `run_trash_expiry` no longer purges — it only
-  moves expired marks into trash. Scheduler job count: 16 → 17.
-- **C5 Force-OCR** — new `force_ocr_default` pref (default
-  `false`). `PdfHandler.ingest()` grows `force_ocr: bool = False`
-  kwarg; when `True`, dispatches to new
-  `_ingest_pdfplumber_force_ocr()` that marks every page as
-  scanned and stashes PIL images on `model._scanned_pages` for
-  the deferred OCR runner. Plumbed through
-  `api/routes/bulk.py` → `BulkJob.overrides` → `convert_opts` →
-  `_convert_file_sync`. Bulk modal + Settings → OCR both get a
-  toggle. Non-PDF handlers ignore the kwarg via a `TypeError`
-  fallback in the converter.
-- **S4 Structural hash** — new
-  `compute_structural_hash(model)` in
-  `core/document_model.py` hashes a canonical JSON rep of
-  counts + heading levels + heading text + table dims + table
-  cell text + image dims + list nesting depths. New helper
-  `_list_depths()` recursively walks list items. Round-trip test
-  `test_structural_hash_survives_roundtrip` in
-  `tests/test_roundtrip.py`.
-- **S1 Enhanced preview** — `core/converter._preview_file_sync`
-  gains zip-bomb check, size-limit check,
-  `estimated_conversion_seconds` (ingest_wall × 2 + 5s/page
-  when OCR likely), and `ready_to_convert` bool.
-  `api/models.PreviewResponse` + `api/routes/convert.py`
-  surface the new fields. `static/index.html` Preview button
-  handler renders a multi-line summary modal.
-- **Help docs** — new v0.23.6 entry in `docs/help/whats-new.md`
-  at top. Settings guide, OCR pipeline, file lifecycle, document
-  conversion, bulk conversion all get v0.23.6 callouts.
+- **Files touched:** `core/version.py`, `core/bulk_worker.py`,
+  `CLAUDE.md`, `docs/gotchas.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`.
+- **New gotcha** in `docs/gotchas.md` under "Vector Search &
+  Qdrant": `asyncio.Semaphore` has no `acquire_nowait()`;
+  `threading.Semaphore` does. Use `async with semaphore:` for
+  backpressure; use `wait_for(acquire(), timeout=N)` if you need
+  a bounded wait.
+
+---
+
+### v0.23.6 (carried-forward summary) — Spec remediation Batch 1
+
+Six-item hardening release: image dim hints in Markdown (M1),
+pre-flight disk-space check on bulk + single-file paths (M2),
+configurable trash auto-purge with a dedicated 04:00 daily job
+(M4, scheduler job count 16→17), per-job force-OCR override +
+default preference (C5), unified structural-hash helper with
+round-trip test (S4), and an enhanced `/api/convert/preview`
+endpoint with zip-bomb check + estimated duration +
+`ready_to_convert` verdict (S1). Full context:
+[`docs/version-history.md`](docs/version-history.md).
 
 ---
 

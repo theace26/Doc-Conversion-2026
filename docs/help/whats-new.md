@@ -6,6 +6,41 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.23.7 — Bulk vector indexing fix
+
+A hotfix on top of v0.23.6 that restores **semantic search
+coverage for files processed through a Bulk Conversion job**.
+
+**What was broken.** In v0.23.6 every file converted through
+a bulk job failed to be added to the vector index behind the
+scenes. Keyword search on the Search page kept working normally
+(it uses a different index), but **AI Assist**, hybrid re-ranking,
+and any search that relies on meaning-based matching stopped
+seeing newly-converted files from bulk jobs. Single-file
+conversions on the Convert page were not affected.
+
+The failure was silent — no error banner, no failed-job status —
+because the vector indexing path runs as a background task after
+each file finishes converting. The only symptom was that search
+results for recently-converted content looked thinner than they
+should.
+
+**What changed in v0.23.7.** The bulk worker's concurrency
+control for Qdrant upserts was rewritten to use the correct
+asyncio pattern. It now correctly caps parallel vector writes at
+20 at a time and waits for a free slot if the pool is saturated,
+instead of crashing on every attempt.
+
+**What you should do.** If you ran any bulk conversion jobs on
+v0.23.6 and care about semantic search coverage for those files,
+trigger a **Rebuild Index** from **Settings → Search** once
+you're on v0.23.7. The rebuild walks every converted file and
+re-indexes it to both Meilisearch and Qdrant, filling in the
+vector entries that were missed. Ordinary usage from v0.23.7
+forward does not need any manual action.
+
+---
+
 ## v0.23.6 — Pre-flight checks, force-OCR, richer preview
 
 A quality-of-life release focused on making the conversion
