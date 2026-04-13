@@ -81,6 +81,7 @@ How files get turned into Markdown.
 | PDF engine | pdfplumber | Which library reads PDF files |
 | Database sample rows per table | 25 | First N rows extracted per table in database files (max 1000) |
 | **Skip file extensions** *(v0.23.3)* | `[]` | JSON list of extensions (no dots) to exclude from scanning. Example: `["tmp", "bak", "log"]` |
+| **PPTX chart extraction** *(v0.23.8)* | Placeholder | How to handle charts in PowerPoint files. `Placeholder` shows `[Chart: title]` text. `LibreOffice` renders charts as PNG images via LibreOffice headless (~5s per chart). SmartArt shapes always produce a warning regardless of this setting. |
 
 ### OCR
 

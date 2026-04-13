@@ -65,6 +65,10 @@ When you convert a document to Markdown, MarkFlow automatically creates a file n
 
 The sidecar uses **content-hash keying** — each entry is linked to the actual text content of the paragraph or table it describes. This means even if you rearrange paragraphs in the Markdown, the correct style still gets applied when converting back.
 
+As of v0.23.8, sidecars also handle **duplicate content** correctly. If your document has two identical paragraphs with different formatting (e.g., one bold and one italic), each occurrence keeps its own style. Earlier versions would lose all but the last occurrence's formatting.
+
+The sidecar also supports **fuzzy matching** — if you lightly edit a paragraph in the Markdown (changing a few words), the sidecar can still find and apply the closest matching style. Edits of roughly 10% or less of the text will still match.
+
 ### How to Get Tier 2
 
 When converting from Markdown back to the original format:

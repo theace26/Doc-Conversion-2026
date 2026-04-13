@@ -22,8 +22,12 @@ MarkFlow uses multiple signals to decide whether a PDF page needs OCR:
 | **Text density**           | Is there enough text relative to the page size?               |
 | **Character count**        | Are there too few characters for a page that should have text? |
 | **Image coverage**         | Does a large image cover most of the page?                    |
+| **Text position quality** *(v0.23.8)* | Are the characters actually positioned on the page, or all stacked at position (0,0)? |
+| **Character encoding** *(v0.23.8)*    | Does the extracted text use the expected character set (Latin for English documents)? |
 
 If these signals indicate a page is mostly or entirely image-based, MarkFlow marks it for OCR processing. Pages with adequate selectable text skip OCR entirely.
+
+The two newest signals (v0.23.8) specifically target **garbage text layers** — PDFs that appear to have extractable text but where the text is actually useless. This can happen when old OCR software embedded a low-quality text layer, or when a PDF was generated with a corrupt font mapping. MarkFlow detects these cases and sends the page through OCR instead of using the garbled text.
 
 > **Tip:** Detection happens per page, not per document. A 20-page PDF where only pages 5 and 6 are scanned will have OCR applied to just those two pages. The other 18 pages use their existing text.
 
