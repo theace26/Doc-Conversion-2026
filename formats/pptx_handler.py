@@ -514,7 +514,9 @@ class PptxHandler(FormatHandler):
                 _tmp_pptx.unlink(missing_ok=True)
 
     def _extract_styles_impl(self, file_path: Path, Presentation: Any, MSO_SHAPE_TYPE: Any) -> dict[str, Any]:
+        from collections import Counter
         styles: dict[str, Any] = {"document_level": {}}
+        _hash_counter: Counter[str] = Counter()
 
         prs = Presentation(str(file_path))
         styles["document_level"]["slide_width"] = prs.slide_width
@@ -576,7 +578,9 @@ class PptxHandler(FormatHandler):
             # Also key by content hash for sidecar lookup
             title = self._get_slide_title(slide, idx + 1)
             h = compute_content_hash(title)
-            styles[h] = {"layout_index": slide_style.get("layout_index", 1)}
+            n = _hash_counter[h]
+            _hash_counter[h] += 1
+            styles[f"{h}:{n}"] = {"layout_index": slide_style.get("layout_index", 1)}
 
         return styles
 

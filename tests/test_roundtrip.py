@@ -344,3 +344,153 @@ def test_edited_content_with_tier2_sidecar(simple_docx, docx_handler, md_handler
 
     assert out.exists()
     assert out.stat().st_size > 0
+
+
+# ── Task 5/6: Occurrence-indexed extraction + lookup ─────────────────────────
+
+def test_duplicate_paragraphs_preserve_distinct_styles(tmp_path, docx_handler, md_handler):
+    """Two identical paragraphs with different styles both survive the sidecar."""
+    from docx import Document as _Doc
+    from docx.shared import Pt
+
+    doc = _Doc()
+    p1 = doc.add_paragraph()
+    run1 = p1.add_run("Repeated paragraph text")
+    run1.font.bold = True
+    run1.font.size = Pt(14)
+
+    p2 = doc.add_paragraph()
+    run2 = p2.add_run("Repeated paragraph text")
+    run2.font.italic = True
+    run2.font.size = Pt(10)
+
+    docx_path = tmp_path / "dupes.docx"
+    doc.save(str(docx_path))
+
+    style_data = docx_handler.extract_styles(docx_path)
+    sidecar = generate_sidecar(docx_handler.ingest(docx_path), style_data)
+    elements = sidecar["elements"]
+
+    h = compute_content_hash("Repeated paragraph text")
+    assert f"{h}:0" in elements, "First occurrence missing from sidecar"
+    assert f"{h}:1" in elements, "Second occurrence missing from sidecar"
+    assert elements[f"{h}:0"]["bold"] is True
+    assert elements[f"{h}:1"].get("italic") is True
+
+
+def test_tier2_duplicate_styles_applied(tmp_path, docx_handler, md_handler):
+    """Full round-trip: duplicate paragraphs get their distinct styles back via Tier 2."""
+    from docx import Document as _Doc
+    from docx.shared import Pt
+
+    doc = _Doc()
+    doc.add_heading("Test Document", level=1)
+
+    p1 = doc.add_paragraph()
+    r1 = p1.add_run("Same text here")
+    r1.font.bold = True
+    r1.font.size = Pt(14)
+
+    p2 = doc.add_paragraph()
+    r2 = p2.add_run("Same text here")
+    r2.font.italic = True
+    r2.font.size = Pt(10)
+
+    docx_path = tmp_path / "src.docx"
+    doc.save(str(docx_path))
+
+    model = docx_handler.ingest(docx_path)
+    style_data = docx_handler.extract_styles(docx_path)
+    sidecar = generate_sidecar(model, style_data)
+
+    md_path = tmp_path / "rt.md"
+    md_handler.export(model, md_path)
+
+    model2 = md_handler.ingest(md_path)
+    out = tmp_path / "rt_out.docx"
+    docx_handler.export(model2, out, sidecar=sidecar)
+
+    out_doc = _Doc(str(out))
+    same_text_paras = [p for p in out_doc.paragraphs if "Same text here" in p.text]
+    assert len(same_text_paras) >= 2
+
+    first_run = same_text_paras[0].runs[0] if same_text_paras[0].runs else None
+    second_run = same_text_paras[1].runs[0] if same_text_paras[1].runs else None
+    assert first_run is not None and second_run is not None
+    assert first_run.font.bold is True
+    assert second_run.font.italic is True
+
+
+# ── Task 8: Integration roundtrip tests ──────────────────────────────────────
+
+def test_v1_sidecar_backward_compat(tmp_path, md_handler, docx_handler):
+    """A v1 sidecar (bare hash keys) still applies styles after auto-migration."""
+    from core.document_model import compute_content_hash
+
+    md_text = "# Title\n\nHello world paragraph.\n\nAnother paragraph.\n"
+    md_path = tmp_path / "v1test.md"
+    md_path.write_text(md_text, encoding="utf-8")
+
+    h = compute_content_hash("Hello world paragraph.")
+    v1_sidecar = {
+        "schema_version": "1.0.0",
+        "source_format": "docx",
+        "source_file": "test.docx",
+        "converted_at": "2026-01-01T00:00:00Z",
+        "document_level": {},
+        "elements": {
+            h: {"type": "paragraph", "bold": True, "font_size_pt": 16},
+        },
+    }
+
+    sidecar_path = tmp_path / "v1test.styles.json"
+    sidecar_path.write_text(json.dumps(v1_sidecar), encoding="utf-8")
+
+    from core.metadata import load_sidecar
+    sidecar = load_sidecar(sidecar_path)
+
+    model = md_handler.ingest(md_path)
+    out = tmp_path / "v1test_out.docx"
+    docx_handler.export(model, out, sidecar=sidecar)
+
+    from docx import Document as _Doc
+    doc = _Doc(str(out))
+    hello_paras = [p for p in doc.paragraphs if "Hello world" in p.text]
+    assert len(hello_paras) >= 1
+    assert hello_paras[0].runs[0].font.bold is True
+
+
+def test_fuzzy_match_on_minor_edit(tmp_path, docx_handler, md_handler):
+    """Lightly editing a paragraph in markdown still picks up the sidecar style."""
+    from docx import Document as _Doc
+    from docx.shared import Pt
+
+    doc = _Doc()
+    doc.add_heading("Report", level=1)
+    p = doc.add_paragraph()
+    r = p.add_run("The quarterly results show a significant improvement over last year")
+    r.font.bold = True
+    r.font.size = Pt(12)
+
+    docx_path = tmp_path / "fuzzy_src.docx"
+    doc.save(str(docx_path))
+
+    model = docx_handler.ingest(docx_path)
+    style_data = docx_handler.extract_styles(docx_path)
+    sidecar = generate_sidecar(model, style_data)
+
+    md_path = tmp_path / "fuzzy.md"
+    md_handler.export(model, md_path)
+    md_text = md_path.read_text(encoding="utf-8")
+    edited = md_text.replace("significant improvement", "notable improvement")
+    md_path.write_text(edited, encoding="utf-8")
+
+    model2 = md_handler.ingest(md_path)
+    out = tmp_path / "fuzzy_out.docx"
+    docx_handler.export(model2, out, sidecar=sidecar)
+
+    out_doc = _Doc(str(out))
+    result_paras = [p for p in out_doc.paragraphs if "notable improvement" in p.text]
+    assert len(result_paras) >= 1
+    if result_paras[0].runs:
+        assert result_paras[0].runs[0].font.bold is True

@@ -31,6 +31,7 @@ from core.document_model import (
     compute_content_hash,
 )
 from core.image_handler import extract_image
+from core.sidecar_match import OccurrenceTracker, resolve_sidecar_entry
 
 log = structlog.get_logger(__name__)
 
@@ -505,6 +506,8 @@ class DocxHandler(FormatHandler):
 
         # ── Per-paragraph styles ──────────────────────────────────────────
         from docx.oxml.ns import qn
+        from collections import Counter
+        _hash_counter: Counter[str] = Counter()
 
         for child in doc.element.body:
             tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
@@ -518,12 +521,15 @@ class DocxHandler(FormatHandler):
                 h = compute_content_hash(text)
                 entry = self._para_style_entry(para)
                 if entry:
-                    style_data[h] = entry
+                    n = _hash_counter[h]
+                    _hash_counter[h] += 1
+                    entry["_text"] = re.sub(r"\s+", " ", text).strip().lower()
+                    style_data[f"{h}:{n}"] = entry
 
             elif tag == "tbl":
                 from docx.table import Table
                 table = Table(child, doc)
-                self._table_styles(table, style_data)
+                self._table_styles(table, style_data, _hash_counter)
 
         return style_data
 
@@ -559,14 +565,20 @@ class DocxHandler(FormatHandler):
         except Exception:
             return None
 
-    def _table_styles(self, table, style_data: dict[str, Any]) -> None:
+    def _table_styles(self, table, style_data: dict[str, Any],
+                      hash_counter: "Counter[str] | None" = None) -> None:
         """Extract and store style info for a table."""
+        from collections import Counter
+        if hash_counter is None:
+            hash_counter = Counter()
         try:
             rows_text = [
                 [cell.text.strip() for cell in row.cells]
                 for row in table.rows
             ]
             h = compute_content_hash(rows_text)
+            n = hash_counter[h]
+            hash_counter[h] += 1
             entry: dict[str, Any] = {"type": "table"}
             # Column widths in points
             col_widths = []
@@ -582,7 +594,7 @@ class DocxHandler(FormatHandler):
                 entry["table_style"] = table.style.name if table.style else ""
             except Exception:
                 pass
-            style_data[h] = entry
+            style_data[f"{h}:{n}"] = entry
         except Exception as exc:
             log.debug("docx.table_style_skip", reason=str(exc))
 
@@ -604,6 +616,8 @@ class DocxHandler(FormatHandler):
         """
         import docx
         from docx.shared import Pt
+
+        self._sidecar_tracker = OccurrenceTracker()
 
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -714,7 +728,16 @@ class DocxHandler(FormatHandler):
             # Apply column widths from sidecar (Tier 2)
             if sidecar:
                 elements_map = sidecar.get("elements", {})
-                entry = elements_map.get(elem.content_hash)
+                tracker = getattr(self, "_sidecar_tracker", None)
+                if tracker is None:
+                    tracker = OccurrenceTracker()
+                    self._sidecar_tracker = tracker
+                table_hash = elem.content_hash or compute_content_hash(rows)
+                table_n = tracker.next(table_hash)
+                entry = elements_map.get(f"{table_hash}:{table_n}")
+                if not entry:
+                    # Bare-hash fallback (v1 compat)
+                    entry = elements_map.get(table_hash)
                 if entry and entry.get("type") == "table":
                     col_widths = entry.get("column_widths_pt", [])
                     for c_idx, col_pt in enumerate(col_widths):
@@ -765,28 +788,27 @@ class DocxHandler(FormatHandler):
                 doc.add_paragraph(text)
 
     def _apply_sidecar_style(self, para, content: str, sidecar: dict | None) -> None:
-        """
-        Apply Tier 2 style from sidecar to a paragraph (best-effort).
+        """Apply Tier 2 style from sidecar to a paragraph (best-effort).
 
-        Looks up the sidecar by plain-text hash (markdown markers stripped) so
-        that the lookup works regardless of whether inline formatting markers
-        are present in the element content.
+        Uses occurrence-aware lookup from core.sidecar_match to handle
+        duplicate paragraphs with distinct styles.
         """
         if not sidecar:
             return
         elements_map = sidecar.get("elements", {})
-        # Strip markdown markers before hashing (sidecar keys use plain text)
-        entry = elements_map.get(_plain_text_hash(content))
-        if not entry:
-            # Fallback: try direct hash (content without markers)
-            entry = elements_map.get(compute_content_hash(content))
+        tracker = getattr(self, "_sidecar_tracker", None)
+        if tracker is None:
+            tracker = OccurrenceTracker()
+            self._sidecar_tracker = tracker
+
+        entry = resolve_sidecar_entry(elements_map, content, tracker)
         if not entry:
             return
+
         try:
             from docx.shared import Pt, RGBColor
             from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-            # Apply run-level formatting to ALL runs
             for run in para.runs:
                 if entry.get("font_family"):
                     run.font.name = entry["font_family"]
@@ -806,7 +828,6 @@ class DocxHandler(FormatHandler):
                         )
                         run.font.color.rgb = RGBColor(r, g, b)
 
-            # Apply paragraph-level formatting
             fmt = para.paragraph_format
             if entry.get("space_before_pt") is not None:
                 fmt.space_before = Pt(entry["space_before_pt"])
