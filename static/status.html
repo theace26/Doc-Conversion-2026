@@ -474,7 +474,7 @@
         return;
       }
 
-      _flpPanelsByJob[jobId] = { status: status, page: 1, total: 0 };
+      _flpPanelsByJob[jobId] = { status: status, page: 1, total: 0, lastCount: null };
 
       clearElement(panel);
       var loading = document.createElement('div');
@@ -495,6 +495,7 @@
       try {
         var data = await API.get('/api/bulk/jobs/' + encodeURIComponent(jobId) + '/files?status=' + encodeURIComponent(status) + '&page=' + state.page + '&per_page=50');
         state.total = data.total || 0;
+        state.lastCount = data.total || 0;
 
         if (!append) {
           clearElement(panel);
@@ -653,15 +654,46 @@
         if (!liveJobIds[jobId]) delete _flpPanelsByJob[jobId];
       });
       // Re-open any panels whose state persisted. The new panel elements are empty
-      // after innerHTML wipe, so we must re-fetch page 1. Accept the small flicker
-      // on poll in exchange for preserved open state.
+      // after innerHTML wipe. To preserve pagination position (user scrolled to
+      // page 3 shouldn't get snapped to page 1 every 3s), read the current
+      // counter value from the DOM and compare against state.lastCount:
+      //   - If unchanged AND user was on page > 1: re-fetch pages 1..page
+      //     sequentially and append, restoring the full scroll-through.
+      //   - If changed, or on page 1: single fetch of current page (status quo).
       Object.keys(_flpPanelsByJob).forEach(function (jobId) {
         var state = _flpPanelsByJob[jobId];
         var panel = findPanel(jobId);
         if (!panel) return;
         panel.classList.add('open');
-        state.page = 1;
-        fetchAndRenderFileList(jobId, state.status, false);
+
+        // Read current count from the counter span that this panel tracks.
+        var currentCount = null;
+        var counterEl = container.querySelector(
+          '.flp-counter[data-flp-job="' + CSS.escape(jobId) + '"][data-flp-status="' + CSS.escape(state.status) + '"]'
+        );
+        if (counterEl) {
+          var parsed = parseInt((counterEl.textContent || '').replace(/[^0-9]/g, ''), 10);
+          if (!isNaN(parsed)) currentCount = parsed;
+        }
+
+        var countUnchanged = (state.lastCount != null && currentCount === state.lastCount);
+        var targetPage = state.page;
+
+        if (countUnchanged && targetPage > 1) {
+          // Preserve pagination: re-fetch all pages 1..targetPage and append.
+          (async function () {
+            state.page = 1;
+            await fetchAndRenderFileList(jobId, state.status, false);
+            for (var p = 2; p <= targetPage; p++) {
+              state.page = p;
+              await fetchAndRenderFileList(jobId, state.status, true);
+            }
+          })();
+        } else {
+          // Count changed (or page==1): refresh page 1.
+          state.page = 1;
+          fetchAndRenderFileList(jobId, state.status, false);
+        }
       });
     }
 
