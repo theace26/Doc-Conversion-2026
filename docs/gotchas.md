@@ -247,6 +247,32 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 - **Auto-OCR gap-fill candidates**: PDF with `ocr_page_count IS NULL` and `status='success'`.
 
+- **Text-layer quality signals (v0.23.8)**: `text_layer_is_garbage()` and
+  `text_encoding_is_suspect()` operate on pdfplumber char data and extracted text
+  respectively, NOT on PIL images like `needs_ocr()`. They must be called from
+  `pdf_handler.py` where page data is available, not from the image-based OCR
+  pipeline. The >80% origin-stacking threshold was tuned against real corrupt PDFs;
+  lowering it causes false positives on legitimate multi-column layouts where many
+  chars share the same x0.
+
+## Style Sidecars
+
+- **Sidecar schema v2 keys (v0.23.8)**: Element keys are `{hash}:{occurrence}`, not
+  bare hashes. `load_sidecar()` auto-migrates v1 sidecars by appending `:0` to bare
+  keys. If writing code that manually constructs sidecar element keys, always include
+  the `:{n}` suffix.
+
+- **OccurrenceTracker must be per-export-call**: `_apply_sidecar_style()` uses
+  `self._sidecar_tracker` to count how many times each hash has been seen during a
+  single export. The tracker is initialized in `export()` — if you call
+  `_apply_sidecar_style` outside of `export()`, the tracker auto-creates but occurrence
+  counting will be wrong for documents with duplicate paragraphs.
+
+- **Fuzzy match scans ALL entries**: `resolve_sidecar_entry()` level 4 (fuzzy match)
+  compares against every `_text` field in the sidecar. For documents with 500+ styled
+  elements, this is O(n) per unmatched paragraph. Not a problem for typical documents
+  but could be slow on very large ones.
+
 ## API & Routes
 
 - **Pipeline files UNION query must wrap in subquery (v0.19.6)**: `GET /api/pipeline/files`

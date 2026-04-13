@@ -4,6 +4,95 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.23.8 — Spec remediation Batch 2 (2026-04-13)
+
+Three items from the spec review, completing the remediation started in
+v0.23.6 (Batch 1).
+
+### C1-a: Content-hash sidecar collision fix
+
+**Problem:** Style sidecars keyed elements by bare content hash
+(SHA-256[:16]). When a document contained duplicate paragraphs
+(e.g., two "N/A" with different styles), only the last entry
+survived — the others were silently overwritten.
+
+**Fix:** Element keys now use `{hash}:{occurrence}` format
+(`a1b2c3d4:0`, `a1b2c3d4:1`). A new `core/sidecar_match.py`
+module provides occurrence-aware lookup with a 4-level cascade:
+
+1. Exact v2 key `{hash}:{n}` (nth occurrence of this hash)
+2. Overflow fallback (more occurrences than entries → use last stored)
+3. Bare hash fallback (v1 backward compatibility)
+4. Fuzzy text match (SequenceMatcher ratio >= 0.90 against `_text` fields)
+
+Each sidecar entry now includes a `_text` field storing the
+normalized source text, enabling fuzzy matching for lightly
+edited paragraphs (~10% edit distance tolerance).
+
+Sidecar schema version bumped `1.0.0` → `2.0.0`.
+`load_sidecar()` auto-migrates v1 sidecars by appending `:0` to
+bare-hash keys. Migration is in-memory only — existing sidecar
+files on disk remain v1 until regenerated.
+
+**Files:** `core/sidecar_match.py` (new), `core/metadata.py`,
+`formats/docx_handler.py`, `formats/pptx_handler.py`,
+`tests/test_sidecar_match.py` (new), `tests/test_roundtrip.py`,
+`tests/test_docx.py`.
+
+### M5: PPTX chart/SmartArt extraction
+
+**Problem:** Charts in PPTX files produced only a `[Chart: title]`
+text placeholder. SmartArt was not detected at all.
+
+**Fix:** New `pptx_chart_extraction_mode` preference with two
+values:
+
+- `placeholder` (default): Current behavior — text placeholder
+  with warning. No change for existing users.
+- `libreoffice`: Converts PPTX to PDF via LibreOffice headless
+  (timeout 60s), renders each slide to a PIL image via PyMuPDF
+  at 2x resolution, crops chart region using EMU-to-pixel
+  coordinate mapping, and saves as a PNG IMAGE element.
+
+SmartArt detection added: group shapes with `dgm:relIds` or
+`smartArt` in their XML emit a warning. Text content is still
+extracted via recursive group traversal.
+
+LibreOffice failure (timeout, binary not found, render error)
+falls back silently to placeholder mode — never crashes on a
+chart.
+
+Preference is read synchronously from SQLite in the handler
+(same pattern as `database_handler._get_sample_rows_limit`).
+
+**Files:** `formats/pptx_handler.py`, `core/db/preferences.py`,
+`api/routes/preferences.py`, `static/settings.html`,
+`tests/test_pptx_handler.py`.
+
+### C5: Remaining OCR signals (text-layer quality)
+
+**Problem:** `needs_ocr()` used 3 image-based signals (entropy,
+edge density, entropy+edges combo). PDFs with garbage text layers
+(bad OCR, corrupt embedding) were not detected.
+
+**Fix:** Two new functions in `core/ocr.py`:
+
+- `text_layer_is_garbage(chars)`: Checks pdfplumber char positions.
+  If >80% of chars have `x0 == 0 AND top == 0`, or all chars
+  stack at the same point, the text layer is garbage.
+- `text_encoding_is_suspect(text)`: Checks Unicode block
+  distribution. If >30% of letter characters have ordinal >= 0x0250
+  (outside Latin/Latin Extended), the extracted text is suspect.
+
+Both wired into `formats/pdf_handler.py` at both ingest paths
+(`_ingest_pdfplumber` and `ingest_with_ocr`). When either signal
+fires, the page is treated as scanned (triggers OCR).
+
+**Files:** `core/ocr.py`, `formats/pdf_handler.py`,
+`tests/test_ocr.py`.
+
+---
+
 ## v0.23.7 — Bulk vector indexer backpressure fix (2026-04-11)
 
 Single-bug hotfix on the vector branch. Bulk vector indexing was

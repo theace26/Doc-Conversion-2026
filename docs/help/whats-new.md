@@ -6,6 +6,30 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.23.8 — Better style fidelity, chart images, smarter OCR
+
+**Style fidelity for duplicate content.** When the same paragraph
+text appears multiple times in a document (e.g., repeated "N/A",
+repeated disclaimers), MarkFlow now preserves each occurrence's
+distinct formatting during round-trip conversion. Previously,
+only the last occurrence's style was kept.
+
+**PPTX chart rendering (opt-in).** Charts in PowerPoint files can
+now be rendered as actual images instead of `[Chart: title]`
+placeholders. Go to **Settings > Conversion Options** and set
+**PPTX chart extraction** to "Render via LibreOffice." This
+converts charts to PNG images using LibreOffice headless (adds
+~5 seconds per chart). SmartArt shapes now produce a warning in
+the conversion output.
+
+**Smarter OCR detection.** Two new signals help MarkFlow identify
+PDFs with garbage text layers — cases where text appears to exist
+but is spatially corrupt or encoded incorrectly. These pages are
+now automatically sent through OCR instead of producing garbled
+output.
+
+---
+
 ## v0.23.7 — Bulk vector indexing fix
 
 A hotfix on top of v0.23.6 that restores **semantic search

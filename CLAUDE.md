@@ -90,31 +90,70 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.23.7
+## Current Version — v0.23.8
 
-**Bulk vector indexer backpressure fix — single-bug hotfix on
-the vector branch.** `core/bulk_worker._index_vector_with_backpressure`
-called `asyncio.Semaphore.acquire_nowait()`, a method that does
-not exist on `asyncio.Semaphore` (it's a `threading.Semaphore`
-idiom). Every bulk-converted file raised `AttributeError` inside
-a detached task, surfacing only as `Task exception was never
-retrieved` warnings, so v0.23.6 shipped with 100% of bulk vector
-indexing broken while keyword search continued to work. Fix:
-replaced the manual acquire/release with
-`async with _vector_semaphore:`. Semantics changed from "log and
-skip when saturated" (unreachable, always crashed) to "wait for
-a free slot" (correct backpressure). `AsyncQdrantClient
-timeout=60s` upstream prevents permit-leak on wedged qdrant.
+**Spec remediation Batch 2 — three items from the spec review.**
+
+### C1-a: Content-hash sidecar collision fix
+
+Sidecar element keys changed from bare hashes (`a1b2c3d4`) to
+occurrence-indexed hashes (`a1b2c3d4:0`, `a1b2c3d4:1`). Duplicate
+paragraphs (e.g., repeated "N/A") previously overwrote each
+other's styles (last-one-wins). Now each occurrence stores its
+own style entry. Schema version bumped `1.0.0` → `2.0.0`;
+`load_sidecar()` auto-migrates v1 bare-hash keys to `:0` suffix.
+New `core/sidecar_match.py` module provides occurrence-aware
+lookup with a 4-level cascade: exact v2 key → overflow fallback
+→ bare hash (v1 compat) → fuzzy text match (SequenceMatcher
+ratio >= 0.90). Each sidecar entry now includes a `_text` field
+(normalized source text) enabling fuzzy matching when users edit
+paragraphs in the markdown.
+
+### M5: PPTX chart/SmartArt extraction
+
+New `pptx_chart_extraction_mode` preference (`placeholder` default,
+`libreoffice` opt-in). In libreoffice mode, PPTX is converted to
+PDF via LibreOffice headless, each slide rendered to a PIL image
+via PyMuPDF at 2x resolution, and chart regions cropped by mapping
+EMU shape bounds to pixel coordinates. Chart images saved as PNG
+`ImageData` elements. SmartArt detection added: group shapes with
+`dgm:relIds` or `smartArt` in their XML emit a warning; text
+content still extracted via recursive group traversal. LibreOffice
+failure falls back silently to placeholder mode (timeout 60s).
+
+### C5: Remaining OCR signals
+
+Two new text-layer quality signals in `core/ocr.py`:
+`text_layer_is_garbage(chars)` detects PDFs where >80% of
+pdfplumber chars have position (0,0) or all stack at the same
+point. `text_encoding_is_suspect(text)` flags text where >30% of
+letter characters fall outside Latin/Latin Extended blocks
+(ordinal >= 0x0250). Both wired into `formats/pdf_handler.py` at
+both ingest paths (`_ingest_pdfplumber` and `ingest_with_ocr`).
+
+- **Files created:** `core/sidecar_match.py`,
+  `tests/test_sidecar_match.py`
+- **Files modified:** `core/version.py`, `core/metadata.py`,
+  `core/ocr.py`, `core/db/preferences.py`,
+  `formats/docx_handler.py`, `formats/pptx_handler.py`,
+  `formats/pdf_handler.py`, `api/routes/preferences.py`,
+  `static/settings.html`, `tests/test_roundtrip.py`,
+  `tests/test_docx.py`, `tests/test_pptx_handler.py`,
+  `tests/test_ocr.py`, `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`, `docs/gotchas.md`
+- **New gotchas** added for sidecar v2 keying and OCR text-layer
+  quality signals.
+
 Full context: [`docs/version-history.md`](docs/version-history.md).
 
-- **Files touched:** `core/version.py`, `core/bulk_worker.py`,
-  `CLAUDE.md`, `docs/gotchas.md`, `docs/version-history.md`,
-  `docs/help/whats-new.md`.
-- **New gotcha** in `docs/gotchas.md` under "Vector Search &
-  Qdrant": `asyncio.Semaphore` has no `acquire_nowait()`;
-  `threading.Semaphore` does. Use `async with semaphore:` for
-  backpressure; use `wait_for(acquire(), timeout=N)` if you need
-  a bounded wait.
+---
+
+### v0.23.7 (carried-forward summary) — Bulk vector indexer fix
+
+Bulk vector indexing was 100% broken in v0.23.6 due to
+`asyncio.Semaphore.acquire_nowait()` (doesn't exist — that's
+`threading.Semaphore`). Fix: `async with _vector_semaphore:`.
+Full context: [`docs/version-history.md`](docs/version-history.md).
 
 ---
 
