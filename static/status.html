@@ -5,6 +5,34 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Status — MarkFlow</title>
   <link rel="stylesheet" href="/static/markflow.css">
+  <style>
+    /* Clickable counter values (inline file list) */
+    .job-card__counts .flp-counter { cursor: pointer; transition: opacity 0.15s; }
+    .job-card__counts .flp-counter:hover { opacity: 0.7; text-decoration: underline; }
+    .flp-counter.cv-converted { color: var(--ok); }
+    .flp-counter.cv-failed { color: var(--error); }
+    .flp-counter.cv-skipped { color: var(--text-muted); }
+
+    /* File list panel (one per job card) */
+    .file-list-panel { overflow: hidden; max-height: 0; opacity: 0; transition: max-height 0.35s ease, opacity 0.25s ease, margin 0.25s ease; margin-top: 0; }
+    .file-list-panel.open { max-height: 600px; opacity: 1; margin-top: 0.75rem; }
+    .file-list-panel .flp-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+    .file-list-panel .flp-title { font-weight: 600; font-size: 0.85rem; text-transform: uppercase; }
+    .file-list-panel .flp-close { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 1.1rem; padding: 0.2rem 0.4rem; }
+    .file-list-panel .flp-close:hover { color: var(--text); }
+    .file-list-panel .flp-loading { font-size: 0.85rem; color: var(--text-muted); padding: 0.5rem 0; }
+    .flp-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    .flp-table th { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 2px solid var(--border); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); }
+    .flp-table td { padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .flp-table tr:last-child td { border-bottom: none; }
+    .flp-table .flp-fname { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .flp-table .flp-path { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 0.78rem; }
+    .flp-table .flp-err { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--error); font-size: 0.78rem; }
+    .flp-table .flp-size { white-space: nowrap; color: var(--text-muted); }
+    .file-list-panel .flp-scroll { max-height: 400px; overflow-y: auto; }
+    .file-list-panel .flp-load-more { display: block; width: 100%; margin-top: 0.5rem; padding: 0.4rem; text-align: center; background: var(--surface-alt); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; font-size: 0.82rem; color: var(--text-muted); }
+    .file-list-panel .flp-load-more:hover { background: var(--surface); color: var(--text); }
+  </style>
 </head>
 <body>
   <nav class="nav-bar">
@@ -187,6 +215,7 @@
 
       container.innerHTML = jobs.map(renderJobCard).join('');
       wireJobButtons(container);
+      restoreOpenPanels(container);
     }
 
     function renderJobCard(job) {
@@ -261,10 +290,11 @@
           job.converted.toLocaleString() + ' / ' + (job.total_files || '?').toLocaleString() + ' files \u2014 ' + pctStr +
         '</div>' +
         '<div class="job-card__counts">' +
-          '<span class="text-ok">\u2713 ' + job.converted.toLocaleString() + ' converted</span>' +
-          '<span class="text-err">\u2717 ' + job.failed.toLocaleString() + ' failed</span>' +
-          '<span class="text-muted">\u23ed ' + job.skipped.toLocaleString() + ' skipped</span>' +
+          '<span class="text-ok">\u2713 <span class="flp-counter cv-converted" data-flp-job="' + job.job_id + '" data-flp-status="converted" title="Click to view converted files">' + job.converted.toLocaleString() + '</span> converted</span>' +
+          '<span class="text-err">\u2717 <span class="flp-counter cv-failed" data-flp-job="' + job.job_id + '" data-flp-status="failed" title="Click to view failed files">' + job.failed.toLocaleString() + '</span> failed</span>' +
+          '<span class="text-muted">\u23ed <span class="flp-counter cv-skipped" data-flp-job="' + job.job_id + '" data-flp-status="skipped" title="Click to view skipped files">' + job.skipped.toLocaleString() + '</span> skipped</span>' +
         '</div>' +
+        '<div class="file-list-panel" data-flp-panel="' + job.job_id + '"></div>' +
         workers +
         dirStats +
       '</div>';
@@ -391,6 +421,257 @@
         poll();
       } else {
         showToast('Reset failed — check logs', 'error');
+      }
+    });
+
+    // ── Inline File List (clickable counters, per-card) ───────────────────
+    // Map of job_id -> { status, page, total } for open panels.
+    var _flpPanelsByJob = {};
+
+    function clearElement(el) { while (el.firstChild) el.removeChild(el.firstChild); }
+
+    function humanFileSize(bytes) {
+      if (bytes == null || bytes === '') return '';
+      var b = Number(bytes);
+      if (b === 0) return '0 B';
+      var units = ['B', 'KB', 'MB', 'GB'];
+      var i = Math.min(Math.floor(Math.log(b) / Math.log(1024)), units.length - 1);
+      var val = b / Math.pow(1024, i);
+      return (i === 0 ? val : val.toFixed(1)) + ' ' + units[i];
+    }
+
+    function baseName(path) {
+      if (!path) return '';
+      var parts = path.replace(/\\/g, '/').split('/');
+      return parts[parts.length - 1] || '';
+    }
+
+    function dirName(path) {
+      if (!path) return '';
+      var norm = path.replace(/\\/g, '/');
+      var idx = norm.lastIndexOf('/');
+      return idx >= 0 ? norm.slice(0, idx) : '';
+    }
+
+    function truncateStr(s, max) {
+      if (!s || s.length <= max) return s || '';
+      return s.slice(0, max - 1) + '\u2026';
+    }
+
+    function findPanel(jobId) {
+      return document.querySelector('.file-list-panel[data-flp-panel="' + CSS.escape(jobId) + '"]');
+    }
+
+    async function toggleFileList(jobId, status) {
+      var panel = findPanel(jobId);
+      if (!panel) return;
+
+      var state = _flpPanelsByJob[jobId];
+      if (state && state.status === status) {
+        // Clicking same counter collapses.
+        panel.classList.remove('open');
+        delete _flpPanelsByJob[jobId];
+        return;
+      }
+
+      _flpPanelsByJob[jobId] = { status: status, page: 1, total: 0 };
+
+      clearElement(panel);
+      var loading = document.createElement('div');
+      loading.className = 'flp-loading';
+      loading.textContent = 'Loading ' + status + ' files\u2026';
+      panel.appendChild(loading);
+      panel.classList.add('open');
+
+      await fetchAndRenderFileList(jobId, status, false);
+    }
+
+    async function fetchAndRenderFileList(jobId, status, append) {
+      var panel = findPanel(jobId);
+      if (!panel) return;
+      var state = _flpPanelsByJob[jobId];
+      if (!state) return;
+
+      try {
+        var data = await API.get('/api/bulk/jobs/' + encodeURIComponent(jobId) + '/files?status=' + encodeURIComponent(status) + '&page=' + state.page + '&per_page=50');
+        state.total = data.total || 0;
+
+        if (!append) {
+          clearElement(panel);
+          renderFileListPanel(panel, data, jobId, status);
+        } else {
+          var tbody = panel.querySelector('tbody');
+          if (tbody) appendFileRows(tbody, data.files, status);
+          updateLoadMoreBtn(panel, data, jobId);
+        }
+      } catch (e) {
+        if (!append) {
+          clearElement(panel);
+          var err = document.createElement('div');
+          err.className = 'flp-loading';
+          err.style.color = 'var(--error)';
+          err.textContent = 'Failed to load files: ' + (e.message || 'unknown error');
+          panel.appendChild(err);
+        }
+      }
+    }
+
+    function renderFileListPanel(panel, data, jobId, status) {
+      var state = _flpPanelsByJob[jobId] || { total: 0, page: 1 };
+
+      var header = document.createElement('div');
+      header.className = 'flp-header';
+
+      var title = document.createElement('span');
+      title.className = 'flp-title';
+      var statusColors = { converted: 'var(--ok)', failed: 'var(--error)', skipped: 'var(--text-muted)' };
+      title.style.color = statusColors[status] || 'var(--text)';
+      title.textContent = status.charAt(0).toUpperCase() + status.slice(1) + ' Files (' + (state.total || 0).toLocaleString() + ')';
+      header.appendChild(title);
+
+      var closeBtn = document.createElement('button');
+      closeBtn.className = 'flp-close';
+      closeBtn.textContent = '\u00d7';
+      closeBtn.title = 'Close';
+      closeBtn.addEventListener('click', function () {
+        panel.classList.remove('open');
+        delete _flpPanelsByJob[jobId];
+      });
+      header.appendChild(closeBtn);
+      panel.appendChild(header);
+
+      if (!data.files || data.files.length === 0) {
+        var empty = document.createElement('div');
+        empty.className = 'flp-loading';
+        empty.textContent = 'No ' + status + ' files.';
+        panel.appendChild(empty);
+        return;
+      }
+
+      var scroll = document.createElement('div');
+      scroll.className = 'flp-scroll';
+
+      var table = document.createElement('table');
+      table.className = 'flp-table';
+
+      var thead = document.createElement('thead');
+      var headRow = document.createElement('tr');
+      var cols = ['Filename', 'Path', 'Size'];
+      if (status === 'failed') cols.push('Error');
+      cols.forEach(function (col) {
+        var th = document.createElement('th');
+        th.textContent = col;
+        headRow.appendChild(th);
+      });
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+
+      var tbody = document.createElement('tbody');
+      appendFileRows(tbody, data.files, status);
+      table.appendChild(tbody);
+
+      scroll.appendChild(table);
+      panel.appendChild(scroll);
+
+      if (data.total_pages > 1 && state.page < data.total_pages) {
+        var btn = document.createElement('button');
+        btn.className = 'flp-load-more';
+        var remaining = Math.max(0, state.total - data.files.length);
+        btn.textContent = 'Load more (' + remaining.toLocaleString() + ' remaining)';
+        btn.addEventListener('click', async function () {
+          btn.disabled = true;
+          btn.textContent = 'Loading\u2026';
+          var s = _flpPanelsByJob[jobId];
+          if (!s) return;
+          s.page++;
+          await fetchAndRenderFileList(jobId, s.status, true);
+        });
+        panel.appendChild(btn);
+      }
+    }
+
+    function appendFileRows(tbody, files, status) {
+      (files || []).forEach(function (f) {
+        var tr = document.createElement('tr');
+
+        var tdName = document.createElement('td');
+        tdName.className = 'flp-fname';
+        var fname = baseName(f.source_path);
+        tdName.textContent = truncateStr(fname, 60);
+        tdName.title = fname;
+        tr.appendChild(tdName);
+
+        var tdPath = document.createElement('td');
+        tdPath.className = 'flp-path';
+        var dname = dirName(f.source_path);
+        tdPath.textContent = truncateStr(dname, 60);
+        tdPath.title = dname;
+        tr.appendChild(tdPath);
+
+        var tdSize = document.createElement('td');
+        tdSize.className = 'flp-size';
+        tdSize.textContent = humanFileSize(f.file_size_bytes);
+        tr.appendChild(tdSize);
+
+        if (status === 'failed') {
+          var tdErr = document.createElement('td');
+          tdErr.className = 'flp-err';
+          var errText = truncateStr(f.error_msg || '', 120);
+          tdErr.textContent = errText;
+          tdErr.title = f.error_msg || '';
+          tr.appendChild(tdErr);
+        }
+
+        tbody.appendChild(tr);
+      });
+    }
+
+    function updateLoadMoreBtn(panel, data, jobId) {
+      var state = _flpPanelsByJob[jobId];
+      if (!state) return;
+      var existing = panel.querySelector('.flp-load-more');
+      if (!existing) return;
+      if (state.page >= data.total_pages) {
+        existing.remove();
+      } else {
+        var shown = state.page * 50;
+        var remaining = Math.max(0, state.total - shown);
+        existing.textContent = 'Load more (' + remaining.toLocaleString() + ' remaining)';
+        existing.disabled = false;
+      }
+    }
+
+    // After every re-render of the jobs container, restore any panels that were open.
+    // Also prune state for jobs that disappeared.
+    function restoreOpenPanels(container) {
+      var liveJobIds = {};
+      container.querySelectorAll('[data-flp-panel]').forEach(function (p) {
+        liveJobIds[p.getAttribute('data-flp-panel')] = true;
+      });
+      // Drop stale state.
+      Object.keys(_flpPanelsByJob).forEach(function (jobId) {
+        if (!liveJobIds[jobId]) delete _flpPanelsByJob[jobId];
+      });
+      // Re-open any panels whose state persisted. The new panel elements are empty
+      // after innerHTML wipe, so we must re-fetch page 1. Accept the small flicker
+      // on poll in exchange for preserved open state.
+      Object.keys(_flpPanelsByJob).forEach(function (jobId) {
+        var state = _flpPanelsByJob[jobId];
+        var panel = findPanel(jobId);
+        if (!panel) return;
+        panel.classList.add('open');
+        state.page = 1;
+        fetchAndRenderFileList(jobId, state.status, false);
+      });
+    }
+
+    // Event delegation on the jobs container — survives every re-render.
+    document.getElementById('jobs-container').addEventListener('click', function (e) {
+      var t = e.target;
+      if (t && t.classList && t.classList.contains('flp-counter')) {
+        var jobId = t.getAttribute('data-flp-job');
+        var status = t.getAttribute('data-flp-status');
+        if (jobId && status) toggleFileList(jobId, status);
       }
     });
 
