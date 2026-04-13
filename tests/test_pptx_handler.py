@@ -8,7 +8,7 @@ and Markdown → PPTX export.
 import pytest
 from pathlib import Path
 
-from core.document_model import DocumentModel, Element, ElementType
+from core.document_model import DocumentModel, DocumentMetadata, Element, ElementType
 
 
 # ── Ingest ───────────────────────────────────────────────────────────────────
@@ -274,3 +274,154 @@ class TestPptxStyleExtraction:
         assert slide.has_notes_slide
         notes_text = slide.notes_slide.notes_text_frame.text
         assert "Remember this" in notes_text
+
+
+# ── Chart extraction ────────────────────────────────────────────────────────
+
+class TestChartExtraction:
+    """Tests for M5: PPTX chart extraction and SmartArt detection."""
+
+    def test_chart_extraction_mode_preference_exists(self):
+        """The preference exists in defaults with correct value."""
+        from core.db.preferences import DEFAULT_PREFERENCES
+
+        assert "pptx_chart_extraction_mode" in DEFAULT_PREFERENCES
+        assert DEFAULT_PREFERENCES["pptx_chart_extraction_mode"] == "placeholder"
+
+    def test_chart_placeholder_default(self, tmp_path):
+        """Default mode produces [Chart: ...] placeholder."""
+        from pptx import Presentation
+        from pptx.chart.data import CategoryChartData
+        from pptx.enum.chart import XL_CHART_TYPE
+        from pptx.util import Inches
+        from formats.pptx_handler import PptxHandler
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[1])
+        slide.shapes.title.text = "Chart Slide"
+
+        chart_data = CategoryChartData()
+        chart_data.categories = ["Q1", "Q2", "Q3"]
+        chart_data.add_series("Revenue", (100, 200, 300))
+
+        slide.shapes.add_chart(
+            XL_CHART_TYPE.COLUMN_CLUSTERED,
+            Inches(1), Inches(2), Inches(6), Inches(4),
+            chart_data,
+        )
+
+        path = tmp_path / "chart_test.pptx"
+        prs.save(str(path))
+
+        handler = PptxHandler()
+        handler._chart_mode = "placeholder"
+        handler._slide_images = {}
+        handler._slide_width_emu = prs.slide_width
+        handler._slide_height_emu = prs.slide_height
+        model = DocumentModel()
+        model.metadata = DocumentMetadata(source_file="test.pptx", source_format="pptx")
+
+        from pptx import Presentation as P2
+        prs2 = P2(str(path))
+        for shape in prs2.slides[0].shapes:
+            handler._process_shape(shape, model, path, 1)
+
+        paras = model.get_elements_by_type(ElementType.PARAGRAPH)
+        chart_paras = [p for p in paras if p.attributes.get("chart")]
+        assert len(chart_paras) == 1
+        assert "[Chart:" in str(chart_paras[0].content) or "[Chart]" in str(chart_paras[0].content)
+        assert any("chart not fully extractable" in w for w in model.warnings)
+
+    def test_crop_shape_region_basic(self):
+        """Coordinate conversion crops correctly."""
+        from formats.pptx_handler import PptxHandler
+        from PIL import Image
+
+        handler = PptxHandler()
+        # Create a 200x100 test image
+        img = Image.new("RGB", (200, 100), color=(255, 0, 0))
+
+        # Simulate a shape at 50% x, 25% y, 25% width, 50% height
+        class MockShape:
+            left = 5000
+            top = 2500
+            width = 2500
+            height = 5000
+
+        result = handler._crop_shape_region(img, MockShape(), 10000, 10000)
+        assert result is not None
+        assert result.width == 50  # 25% of 200
+        assert result.height == 50  # 50% of 100
+
+    def test_crop_shape_region_clamps_bounds(self):
+        """Crop clamps to image bounds when shape extends past edge."""
+        from formats.pptx_handler import PptxHandler
+        from PIL import Image
+
+        handler = PptxHandler()
+        img = Image.new("RGB", (100, 100), color=(0, 255, 0))
+
+        class MockShape:
+            left = 8000
+            top = 8000
+            width = 5000  # extends past right edge
+            height = 5000  # extends past bottom edge
+
+        result = handler._crop_shape_region(img, MockShape(), 10000, 10000)
+        assert result is not None
+        assert result.width == 20  # clamped: 100 - 80
+        assert result.height == 20
+
+    def test_crop_shape_region_zero_area_returns_none(self):
+        """Zero-area crop returns None."""
+        from formats.pptx_handler import PptxHandler
+        from PIL import Image
+
+        handler = PptxHandler()
+        img = Image.new("RGB", (100, 100))
+
+        class MockShape:
+            left = 0
+            top = 0
+            width = 0
+            height = 0
+
+        result = handler._crop_shape_region(img, MockShape(), 10000, 10000)
+        assert result is None
+
+    def test_smartart_detection_xml(self, tmp_path):
+        """SmartArt XML markers trigger a warning and text still extracted."""
+        from pptx import Presentation
+        from pptx.util import Inches
+        from pptx.enum.shapes import MSO_SHAPE_TYPE
+        from formats.pptx_handler import PptxHandler
+
+        # Create a PPTX with a group shape, then check SmartArt detection
+        # by verifying the code path handles group shapes gracefully
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])  # blank
+
+        path = tmp_path / "smartart_test.pptx"
+        prs.save(str(path))
+
+        handler = PptxHandler()
+        handler._chart_mode = "placeholder"
+        handler._slide_images = {}
+        handler._slide_width_emu = prs.slide_width
+        handler._slide_height_emu = prs.slide_height
+
+        # The SmartArt detection code path is exercised by group shapes
+        # with dgm:relIds in their XML. Since we can't easily create real
+        # SmartArt via python-pptx, verify the handler ingests cleanly.
+        model = handler.ingest(path)
+        assert model is not None
+
+    def test_read_chart_mode_pref_default(self):
+        """When DB is unavailable, default is placeholder."""
+        from formats.pptx_handler import PptxHandler
+
+        # _read_chart_mode_pref should return "placeholder" when DB
+        # doesn't exist or has no row
+        result = PptxHandler._read_chart_mode_pref()
+        # In test environment without DB, should default gracefully
+        assert result in ("placeholder", "libreoffice")

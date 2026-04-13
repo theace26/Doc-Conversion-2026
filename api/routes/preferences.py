@@ -357,6 +357,12 @@ _PREFERENCE_SCHEMA: dict[str, dict] = {
         "description": "How long to hover before the preview appears. Lower = faster, higher = less accidental popups.",
         "section": "search_preview",
     },
+    "pptx_chart_extraction_mode": {
+        "type": "select",
+        "label": "PPTX chart extraction mode",
+        "description": "How to handle charts in PowerPoint files. 'placeholder' shows [Chart: title]. 'libreoffice' renders charts as images via LibreOffice headless (slower, ~5s/chart).",
+        "options": ["placeholder", "libreoffice"],
+    },
     "scan_skip_extensions": {
         "type": "text",
         "label": "Excluded file extensions",

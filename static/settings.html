@@ -390,6 +390,15 @@
           <input type="number" id="pref-max_concurrent_conversions" data-key="max_concurrent_conversions" min="1" max="10">
           <div class="inline-error" id="err-max_concurrent_conversions"></div>
         </div>
+
+        <div class="form-group">
+          <label for="pref-pptx_chart_extraction_mode">PPTX chart extraction</label>
+          <select id="pref-pptx_chart_extraction_mode" data-key="pptx_chart_extraction_mode">
+            <option value="placeholder">Placeholder text only</option>
+            <option value="libreoffice">Render via LibreOffice (slower)</option>
+          </select>
+          <p class="hint">How to handle charts in PowerPoint files. LibreOffice mode renders charts as PNG images but adds ~5s per chart.</p>
+        </div>
       </div>
 
       </details>

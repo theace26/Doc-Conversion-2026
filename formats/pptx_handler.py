@@ -3,7 +3,8 @@ PPTX/PPT format handler — slide extraction and reconstruction via python-pptx.
 
 Ingest:
   Each slide → H2 section. Extracts titles, body text, tables, images, speaker notes.
-  Charts/SmartArt logged as warnings. Grouped shapes recursed where possible.
+  Charts rendered as images (libreoffice mode) or placeholders. SmartArt detected
+  with text extraction and a warning. Grouped shapes recursed where possible.
   .ppt files are first converted to .pptx via LibreOffice headless.
 
 Export:
@@ -12,6 +13,7 @@ Export:
   Tier 3: if original .pptx exists and hash match ≥ 80%, patch text in-place.
 """
 
+import hashlib
 import io
 import time
 from pathlib import Path
@@ -25,6 +27,7 @@ from core.document_model import (
     DocumentMetadata,
     Element,
     ElementType,
+    ImageData,
     compute_content_hash,
 )
 
@@ -53,6 +56,11 @@ class PptxHandler(FormatHandler):
             _tmp_pptx = file_path
 
         try:
+            # Read chart extraction preference synchronously (same pattern
+            # as database_handler._get_sample_rows_limit)
+            self._chart_mode = self._read_chart_mode_pref()
+            self._slide_images: dict[int, Any] = {}  # lazy-loaded per ingest
+
             model = DocumentModel()
             model.metadata = DocumentMetadata(
                 source_file=file_path.name,
@@ -62,6 +70,21 @@ class PptxHandler(FormatHandler):
             prs = Presentation(str(file_path))
             slide_count = len(prs.slides)
             model.metadata.page_count = slide_count
+
+            # Slide dimensions in EMU (needed for chart crop coordinate conversion)
+            self._slide_width_emu = prs.slide_width
+            self._slide_height_emu = prs.slide_height
+
+            # Pre-render slides if libreoffice chart mode is active and file
+            # contains at least one chart shape
+            if self._chart_mode == "libreoffice":
+                has_charts = any(
+                    hasattr(shape, "has_chart") and shape.has_chart
+                    for slide in prs.slides
+                    for shape in slide.shapes
+                )
+                if has_charts:
+                    self._slide_images = self._render_slides_via_libreoffice(file_path)
 
             for idx, slide in enumerate(prs.slides):
                 # Add horizontal rule between slides (not before first)
@@ -98,8 +121,93 @@ class PptxHandler(FormatHandler):
             )
             return model
         finally:
+            self._slide_images = {}  # free memory
             if _tmp_pptx and _tmp_pptx.exists():
                 _tmp_pptx.unlink(missing_ok=True)
+
+    # ── Preference helpers ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _read_chart_mode_pref() -> str:
+        """Read pptx_chart_extraction_mode from DB synchronously."""
+        try:
+            import sqlite3
+            from core.database import get_db_path
+
+            conn = sqlite3.connect(get_db_path())
+            row = conn.execute(
+                "SELECT value FROM user_preferences WHERE key = ?",
+                ("pptx_chart_extraction_mode",),
+            ).fetchone()
+            conn.close()
+            if row and row[0] in ("placeholder", "libreoffice"):
+                return row[0]
+        except Exception:
+            pass
+        return "placeholder"
+
+    # ── LibreOffice slide rendering ──────────────────────────────────────────
+
+    def _render_slides_via_libreoffice(self, file_path: Path) -> dict[int, Any]:
+        """Convert PPTX to PDF via LibreOffice, render each page to a PIL Image.
+
+        Returns dict mapping slide_num (1-based) to PIL Image.
+        """
+        try:
+            from core.libreoffice_helper import convert_with_libreoffice
+            import fitz  # PyMuPDF
+
+            pdf_path = convert_with_libreoffice(file_path, "pdf", timeout=60)
+            try:
+                doc = fitz.open(str(pdf_path))
+                images: dict[int, Any] = {}
+                for i in range(len(doc)):
+                    page = doc[i]
+                    # Render at 2x for decent quality
+                    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                    from PIL import Image
+
+                    img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+                    images[i + 1] = img  # 1-based slide numbers
+                doc.close()
+                return images
+            finally:
+                pdf_path.unlink(missing_ok=True)
+        except Exception as exc:
+            log.warning("pptx.libreoffice_render_failed", error=str(exc))
+            return {}
+
+    def _crop_shape_region(
+        self, slide_img: Any, shape: Any, slide_width_emu: int, slide_height_emu: int
+    ) -> Any:
+        """Crop a region from a rendered slide image matching the shape's bounds.
+
+        Returns a PIL Image or None on failure.
+        """
+        try:
+            img_w, img_h = slide_img.size
+            # EMU to pixel conversion
+            scale_x = img_w / slide_width_emu
+            scale_y = img_h / slide_height_emu
+
+            left = int(shape.left * scale_x)
+            top = int(shape.top * scale_y)
+            right = int((shape.left + shape.width) * scale_x)
+            bottom = int((shape.top + shape.height) * scale_y)
+
+            # Clamp to image bounds
+            left = max(0, left)
+            top = max(0, top)
+            right = min(img_w, right)
+            bottom = min(img_h, bottom)
+
+            if right <= left or bottom <= top:
+                return None
+
+            return slide_img.crop((left, top, right, bottom))
+        except Exception as exc:
+            log.debug("pptx.chart_crop_failed", error=str(exc))
+            return None
 
     def _get_slide_title(self, slide: Any, slide_num: int) -> str:
         """Extract slide title from the title placeholder, or generate one."""
@@ -152,8 +260,16 @@ class PptxHandler(FormatHandler):
                     )
             return
 
-        # Group shape — recurse
+        # Group shape — recurse (with SmartArt detection)
         if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
+            # Check if this group is actually SmartArt
+            shape_xml = shape._element.xml if hasattr(shape._element, "xml") else ""
+            is_smartart = "dgm:relIds" in shape_xml or "smartArt" in shape_xml.lower()
+            if is_smartart:
+                model.warnings.append(
+                    f"Slide {slide_num}: SmartArt not fully extractable"
+                )
+            # Recurse into children to get text content regardless
             try:
                 for child_shape in shape.shapes:
                     self._process_shape(child_shape, model, file_path, slide_num)
@@ -161,13 +277,44 @@ class PptxHandler(FormatHandler):
                 log.debug("pptx.group_recurse_failed", error=str(exc))
             return
 
-        # Chart — extract title if available
+        # Chart — render via LibreOffice or fall back to placeholder
         if hasattr(shape, "has_chart") and shape.has_chart:
             chart_title = ""
             try:
                 chart_title = shape.chart.chart_title.text_frame.text
             except Exception:
                 pass
+
+            # Attempt LibreOffice rendering when enabled
+            if self._chart_mode == "libreoffice" and self._slide_images:
+                slide_img = self._slide_images.get(slide_num)
+                if slide_img:
+                    chart_img = self._crop_shape_region(
+                        slide_img, shape,
+                        self._slide_width_emu, self._slide_height_emu,
+                    )
+                    if chart_img is not None:
+                        buf = io.BytesIO()
+                        chart_img.save(buf, format="PNG")
+                        img_bytes = buf.getvalue()
+                        img_hash = hashlib.md5(img_bytes).hexdigest()[:12]
+                        img_name = f"chart_{slide_num}_{img_hash}.png"
+                        alt = f"Chart: {chart_title}" if chart_title else "Chart"
+                        model.images[img_name] = ImageData(
+                            data=img_bytes,
+                            original_format="png",
+                            width=chart_img.width,
+                            height=chart_img.height,
+                            alt_text=alt,
+                        )
+                        model.add_element(Element(
+                            type=ElementType.IMAGE,
+                            content=img_name,
+                            attributes={"chart": True, "rendered_by": "libreoffice"},
+                        ))
+                        return
+
+            # Fallback: placeholder mode
             model.add_element(
                 Element(
                     type=ElementType.PARAGRAPH,
@@ -212,7 +359,6 @@ class PptxHandler(FormatHandler):
 
     def _extract_shape_image(self, shape: Any, model: DocumentModel, slide_num: int) -> None:
         from core.image_handler import extract_image
-        from core.document_model import ImageData
 
         try:
             blob = shape.image.blob

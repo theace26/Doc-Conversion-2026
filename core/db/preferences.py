@@ -115,6 +115,8 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     "db_contention_logging": "true",
     # Database handler (v0.23.1)
     "database_sample_rows": "25",
+    # PPTX chart extraction (v0.23.8 M5)
+    "pptx_chart_extraction_mode": "placeholder",
 }
 
 
