@@ -302,7 +302,12 @@ function Test-StackHealthy {
     # 15:15:12 staged live run, which decorated every compose ps call
     # with 8-line error spam in the transcript.
     $ErrorActionPreference = "SilentlyContinue"
-    for ($attempt = 1; $attempt -le 3; $attempt++) {
+    # v0.23.6 fix: bumped from 3x5s=15s to 6x10s=60s budget. The 15s
+    # window was too short on HDD hosts where FastAPI lifespan startup
+    # (migrations, orphan cleanup, scheduler init) takes 25-40s. This
+    # caused the 2026-04-10 overnight run to false-negative on both the
+    # primary build AND the rollback, exiting 3 on a healthy stack.
+    for ($attempt = 1; $attempt -le 6; $attempt++) {
         # docker-compose ps --format json emits NDJSON (one JSON object per
         # line). Parse each line individually with ConvertFrom-Json rather
         # than regex, because the Publishers field contains nested {...}
@@ -347,10 +352,10 @@ function Test-StackHealthy {
                         "(markflow=$markflowUp, mcp=$mcpUp, attempt $attempt)") -ForegroundColor DarkYellow
         }
 
-        if ($attempt -lt 3) { Start-Sleep -Seconds 5 }
+        if ($attempt -lt 6) { Start-Sleep -Seconds 10 }
     }
 
-    Write-Host "    Test-StackHealthy: policy failed after 3 attempts" -ForegroundColor Red
+    Write-Host "    Test-StackHealthy: policy failed after 6 attempts (60s)" -ForegroundColor Red
     return $false
 }
 
@@ -657,8 +662,9 @@ function Invoke-Rollback {
     # wait once, then run both. Without this, a compose non-zero exit
     # on --force-recreate races the /api/health probe and triggers a
     # false rollback-failed (exit 3) on a healthy rolled-back stack.
-    Write-Step "Rollback step 4.5: waiting 20s for rolled-back lifespan startup"
-    Start-Sleep -Seconds 20
+    # v0.23.6 fix: bumped from 20s to 45s (same as Phase 3 lifespan pause).
+    Write-Step "Rollback step 4.5: waiting 45s for rolled-back lifespan startup"
+    Start-Sleep -Seconds 45
 
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  docker-compose up -d --force-recreate exited $LASTEXITCODE; probing stack anyway..." -ForegroundColor DarkYellow
@@ -887,16 +893,16 @@ try {
     $composeUpExit = $LASTEXITCODE
 
     # Lifespan pause applies to BOTH the clean-exit and race-override
-    # branches. Test-StackHealthy's 3x5s=15s retry budget is not enough
-    # for a cold container start, which typically takes ~20s for
-    # FastAPI lifespan startup. Without this pause the race-override
-    # path reports /api/health unreachable on a perfectly fine new
-    # build and triggers a rollback unnecessarily - caught on the
-    # 2026-04-08 15:15:12 staged live run, which rolled back a
-    # functionally-identical build just because the health probe hit
-    # the container before it finished booting.
-    Write-Step "Waiting 20 seconds for FastAPI lifespan startup"
-    if (-not $script:DryRun) { Start-Sleep -Seconds 20 }
+    # branches. Test-StackHealthy's retry budget alone is not enough
+    # for a cold container start; on HDD hosts the lifespan startup
+    # (migrations check, orphan cleanup, scheduler init) takes 25-40s.
+    # v0.23.6 fix: bumped from 20s to 45s. The 2026-04-10 overnight
+    # run hit 20+15=35s total, which was still too short on the
+    # reference HDD host (startup.orphan_cleanup ran at T+22s,
+    # /api/health wasn't ready until ~T+40s). 45s initial pause +
+    # 6x10s=60s retry budget = 105s total window.
+    Write-Step "Waiting 45 seconds for FastAPI lifespan startup"
+    if (-not $script:DryRun) { Start-Sleep -Seconds 45 }
 
     if ($composeUpExit -ne 0) {
         Write-Host ""
@@ -913,7 +919,7 @@ try {
     # Phase 4: Verify (containers + health + GPU + MCP)
     # -------------------------------------------------------------------------
     Write-PhaseHeader "4" "Verify"
-    # No additional lifespan wait - Phase 3 already waited 20s after up -d.
+    # No additional lifespan wait - Phase 3 already waited 45s after up -d.
 
     Invoke-Logged "Container status" { docker-compose ps } -AllowNonZero
 
