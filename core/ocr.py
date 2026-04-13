@@ -12,6 +12,7 @@ OCRFlagStore: in-memory + SQLite storage for pending review flags per batch.
 
 import math
 import os
+import unicodedata
 import uuid as _uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -87,6 +88,70 @@ def needs_ocr(image: "PILImage") -> bool:
         entropy=round(entropy, 2),
     )
     return True
+
+
+# ── Text-Layer Quality Signals ────────────────────────────────────────────────
+
+def text_layer_is_garbage(chars: list[dict]) -> bool:
+    """Check if a pdfplumber text layer is garbage (all chars stacked at origin).
+
+    Some PDFs have a text layer where all characters report position (0,0) --
+    the text "exists" but has no spatial layout.  This is a garbage OCR layer.
+
+    Args:
+        chars: List of char dicts from pdfplumber page.chars.
+              Each has keys: 'x0', 'top', 'x1', 'bottom', 'text', etc.
+
+    Returns:
+        True if the text layer appears to be garbage (needs OCR instead).
+    """
+    if not chars:
+        return False
+
+    total = len(chars)
+    x0_values = [c.get("x0", -1) for c in chars]
+    top_values = [c.get("top", -1) for c in chars]
+
+    # Check if >80% of chars have x0 == 0 AND top == 0
+    at_origin = sum(1 for x, t in zip(x0_values, top_values) if x == 0 and t == 0)
+    if at_origin / total > 0.8:
+        return True
+
+    # Check if ALL chars have identical x0 AND identical top (all stacked)
+    if len(set(x0_values)) == 1 and len(set(top_values)) == 1:
+        return True
+
+    return False
+
+
+def text_encoding_is_suspect(text: str, expected_script: str = "latin") -> bool:
+    """Check if extracted text has suspicious Unicode block distribution.
+
+    Some garbage OCR layers produce text that is mostly in wrong Unicode
+    blocks -- e.g., what should be English text has 30%+ characters from
+    CJK, Arabic, or other non-Latin blocks.
+
+    Args:
+        text: Extracted text from PDF text layer.
+        expected_script: Expected script family ("latin" for English docs).
+
+    Returns:
+        True if >30% of characters fall outside expected Unicode blocks.
+    """
+    # Only analyze letter characters (strip whitespace, punctuation, digits)
+    letters = [c for c in text if unicodedata.category(c).startswith("L")]
+
+    if len(letters) < 10:
+        return False
+
+    if expected_script == "latin":
+        # Latin and Latin Extended blocks: ordinal < 0x0250
+        unexpected = sum(1 for c in letters if ord(c) >= 0x0250)
+    else:
+        # Fallback: no opinion
+        return False
+
+    return unexpected / len(letters) > 0.3
 
 
 # ── Preprocessing ─────────────────────────────────────────────────────────────

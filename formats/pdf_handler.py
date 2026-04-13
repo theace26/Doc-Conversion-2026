@@ -267,6 +267,17 @@ class PdfHandler(FormatHandler):
 
             is_scanned = len(text) < _MIN_TEXT_LENGTH and _page_has_content(page)
 
+            # Signal 4 & 5: detect garbage text layers
+            if not is_scanned and text:
+                from core.ocr import text_layer_is_garbage, text_encoding_is_suspect
+                if hasattr(page, 'chars') and page.chars:
+                    if text_layer_is_garbage(page.chars):
+                        is_scanned = True
+                        log.debug("ocr_detection", signal="garbage_text_layer", page=page_num)
+                if not is_scanned and text_encoding_is_suspect(text):
+                    is_scanned = True
+                    log.debug("ocr_detection", signal="suspect_encoding", page=page_num)
+
             if is_scanned:
                 scanned_page_nums.append(page_num)
                 model.add_element(
@@ -343,6 +354,17 @@ class PdfHandler(FormatHandler):
             tables = page.extract_tables() or []
 
             is_scanned = len(text) < _MIN_TEXT_LENGTH and _page_has_content(page)
+
+            # Signal 4 & 5: detect garbage text layers
+            if not is_scanned and text:
+                from core.ocr import text_layer_is_garbage, text_encoding_is_suspect
+                if hasattr(page, 'chars') and page.chars:
+                    if text_layer_is_garbage(page.chars):
+                        is_scanned = True
+                        log.debug("ocr_detection", signal="garbage_text_layer", page=page_num)
+                if not is_scanned and text_encoding_is_suspect(text):
+                    is_scanned = True
+                    log.debug("ocr_detection", signal="suspect_encoding", page=page_num)
 
             if is_scanned:
                 try:

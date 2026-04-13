@@ -650,3 +650,58 @@ class TestRunOCR:
         page_nums = [p.page_num for p in result.pages]
         assert 1 in page_nums
         assert 2 in page_nums
+
+
+# ── Text-layer quality signal tests ──────────────────────────────────────────
+
+class TestTextLayerQuality:
+    def test_garbage_all_at_origin(self):
+        from core.ocr import text_layer_is_garbage
+        chars = [{"x0": 0, "top": 0, "text": "a"} for _ in range(100)]
+        assert text_layer_is_garbage(chars) is True
+
+    def test_normal_positions(self):
+        from core.ocr import text_layer_is_garbage
+        chars = [{"x0": i * 10, "top": 50, "text": "a"} for i in range(100)]
+        assert text_layer_is_garbage(chars) is False
+
+    def test_empty_chars(self):
+        from core.ocr import text_layer_is_garbage
+        assert text_layer_is_garbage([]) is False
+
+    def test_mostly_at_origin(self):
+        from core.ocr import text_layer_is_garbage
+        chars = [{"x0": 0, "top": 0, "text": "a"} for _ in range(85)]
+        chars += [{"x0": 100, "top": 200, "text": "b"} for _ in range(15)]
+        assert text_layer_is_garbage(chars) is True
+
+    def test_all_stacked_non_origin(self):
+        """All chars at the same non-origin point is also garbage."""
+        from core.ocr import text_layer_is_garbage
+        chars = [{"x0": 50, "top": 50, "text": "a"} for _ in range(100)]
+        assert text_layer_is_garbage(chars) is True
+
+    def test_suspect_encoding_all_cjk(self):
+        from core.ocr import text_encoding_is_suspect
+        # CJK characters where Latin text expected
+        assert text_encoding_is_suspect("你好世界这是一个测试文档") is True
+
+    def test_normal_latin_text(self):
+        from core.ocr import text_encoding_is_suspect
+        assert text_encoding_is_suspect("The quick brown fox jumps over the lazy dog") is False
+
+    def test_too_few_chars(self):
+        from core.ocr import text_encoding_is_suspect
+        assert text_encoding_is_suspect("hi") is False
+
+    def test_mixed_but_mostly_latin(self):
+        from core.ocr import text_encoding_is_suspect
+        # 90% latin, 10% non-latin -- should be fine
+        text = "a" * 90 + "\u4f60" * 10
+        assert text_encoding_is_suspect(text) is False
+
+    def test_mixed_above_threshold(self):
+        from core.ocr import text_encoding_is_suspect
+        # 60% latin, 40% non-latin -- suspect
+        text = "a" * 60 + "\u4f60" * 40
+        assert text_encoding_is_suspect(text) is True
