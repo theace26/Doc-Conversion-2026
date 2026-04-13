@@ -144,12 +144,17 @@ def test_extract_styles_document_level_has_margins(simple_docx, handler):
 def test_extract_styles_per_element_keyed_by_hash(simple_docx, handler):
     from core.document_model import compute_content_hash
     styles = handler.extract_styles(simple_docx)
-    # All non-special keys should look like content hashes (16 hex chars)
+    # v2 keys are "{16-char-hash}:{occurrence}" — validate format
     special_keys = {"document_level", "schema_version"}
     for key in styles:
         if key in special_keys:
             continue
-        assert len(key) == 16, f"Style key '{key}' is not a 16-char hash"
+        if ":" in key:
+            hash_part, occ = key.rsplit(":", 1)
+            assert len(hash_part) == 16, f"Hash part of '{key}' is not 16 chars"
+            assert occ.isdigit(), f"Occurrence part of '{key}' is not a number"
+        else:
+            assert len(key) == 16, f"Style key '{key}' is not a 16-char hash"
 
 
 # ── Export (Tier 1) ───────────────────────────────────────────────────────────
