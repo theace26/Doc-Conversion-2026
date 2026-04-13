@@ -103,7 +103,7 @@ def resolve_sidecar_entry(
         return None
 
     best_entry: dict[str, Any] | None = None
-    best_ratio = _FUZZY_THRESHOLD
+    best_ratio = 0.0
 
     for _key, candidate in elements_map.items():
         if not isinstance(candidate, dict):
@@ -112,7 +112,7 @@ def resolve_sidecar_entry(
         if not stored_text:
             continue
         ratio = SequenceMatcher(None, normalized, str(stored_text)).ratio()
-        if ratio > best_ratio:
+        if ratio >= _FUZZY_THRESHOLD and ratio > best_ratio:
             best_ratio = ratio
             best_entry = candidate
 
