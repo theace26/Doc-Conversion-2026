@@ -60,6 +60,7 @@ user-visible features or changing UX. Article inventory:
 | [`database-files.md`](docs/help/database-files.md) | Database extraction (.sqlite/.mdb/.accdb/.dbf/.qbb/.qbw) |
 | [`unrecognized-files.md`](docs/help/unrecognized-files.md) | Catalog page, MIME detection |
 | [`llm-providers.md`](docs/help/llm-providers.md) | Provider setup, AI Assist, image analysis |
+| [`hardware-specs.md`](docs/help/hardware-specs.md) | Minimum/recommended hardware, user capacity estimates |
 | [`gpu-setup.md`](docs/help/gpu-setup.md) | NVIDIA Container Toolkit, host worker, hashcat |
 | [`password-recovery.md`](docs/help/password-recovery.md) | PDF/Office/archive password cascade |
 | [`mcp-integration.md`](docs/help/mcp-integration.md) | Port 8001 MCP server, tools, auth token |
