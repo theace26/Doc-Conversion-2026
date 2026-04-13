@@ -19,9 +19,9 @@ import yaml
 
 from core.document_model import DocumentModel
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "2.0.0"
 MARKFLOW_VERSION = "0.1.0"
-SUPPORTED_SCHEMA_VERSIONS = {"1.0.0"}
+SUPPORTED_SCHEMA_VERSIONS = {"1.0.0", "2.0.0"}
 
 
 # ── Frontmatter ───────────────────────────────────────────────────────────────
@@ -114,7 +114,10 @@ def generate_sidecar(
 
 
 def load_sidecar(path: Path) -> dict[str, Any]:
-    """Load and validate a style sidecar JSON file."""
+    """Load and validate a style sidecar JSON file.
+
+    Auto-migrates v1 sidecars (bare hash keys) to v2 (occurrence-indexed).
+    """
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
 
@@ -124,7 +127,27 @@ def load_sidecar(path: Path) -> dict[str, Any]:
             f"Sidecar schema version '{version}' is not supported. "
             f"Supported: {sorted(SUPPORTED_SCHEMA_VERSIONS)}"
         )
+    elif version == "1.0.0":
+        data = _migrate_v1_to_v2(data)
 
+    return data
+
+
+def _migrate_v1_to_v2(data: dict[str, Any]) -> dict[str, Any]:
+    """Migrate a v1 sidecar to v2 by appending :0 to bare-hash element keys.
+
+    v1 keys are bare 16-char hex hashes (e.g., "a1b2c3d4e5f6g7h8").
+    v2 keys are "{hash}:{occurrence}" (e.g., "a1b2c3d4e5f6g7h8:0").
+    """
+    elements = data.get("elements", {})
+    migrated: dict[str, Any] = {}
+    for key, value in elements.items():
+        if ":" not in key:
+            migrated[f"{key}:0"] = value
+        else:
+            migrated[key] = value
+    data["elements"] = migrated
+    data["schema_version"] = SCHEMA_VERSION
     return data
 
 

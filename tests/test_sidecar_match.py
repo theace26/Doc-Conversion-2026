@@ -1,8 +1,16 @@
 """Tests for core.sidecar_match — occurrence-aware sidecar lookup with fuzzy fallback."""
 
+import json
+
 import pytest
 
-from core.document_model import compute_content_hash
+from core.document_model import DocumentModel, DocumentMetadata, compute_content_hash
+from core.metadata import (
+    generate_sidecar,
+    load_sidecar,
+    SCHEMA_VERSION,
+    SUPPORTED_SCHEMA_VERSIONS,
+)
 from core.sidecar_match import (
     OccurrenceTracker,
     _normalize,
@@ -277,3 +285,80 @@ class TestStripMdMarkers:
 
     def test_mixed(self):
         assert _strip_md_markers("**bold** and *italic* and `code`") == "bold and italic and code"
+
+
+# ===========================================================================
+# TestSchemaMigration — v1 → v2 sidecar auto-migration
+# ===========================================================================
+
+
+class TestSchemaMigration:
+    def test_schema_version_is_2(self):
+        assert SCHEMA_VERSION == "2.0.0"
+
+    def test_v1_supported(self):
+        assert "1.0.0" in SUPPORTED_SCHEMA_VERSIONS
+
+    def test_v2_supported(self):
+        assert "2.0.0" in SUPPORTED_SCHEMA_VERSIONS
+
+    def test_load_v1_migrates_keys(self, tmp_path):
+        """Loading a v1 sidecar auto-migrates bare hash keys to :0 suffix."""
+        v1_sidecar = {
+            "schema_version": "1.0.0",
+            "source_format": "docx",
+            "source_file": "test.docx",
+            "converted_at": "2026-01-01T00:00:00Z",
+            "document_level": {"margin_top_pt": 72.0},
+            "elements": {
+                "abc123": {"type": "paragraph", "bold": True},
+                "xyz789": {"type": "table", "column_widths_pt": [100]},
+            },
+        }
+        path = tmp_path / "test.styles.json"
+        path.write_text(json.dumps(v1_sidecar), encoding="utf-8")
+
+        loaded = load_sidecar(path)
+        assert loaded["schema_version"] == "2.0.0"
+        assert "abc123:0" in loaded["elements"]
+        assert "xyz789:0" in loaded["elements"]
+        assert "abc123" not in loaded["elements"]
+        assert "xyz789" not in loaded["elements"]
+        assert loaded["elements"]["abc123:0"]["bold"] is True
+
+    def test_load_v2_no_migration(self, tmp_path):
+        """Loading a v2 sidecar does not re-migrate."""
+        v2_sidecar = {
+            "schema_version": "2.0.0",
+            "source_format": "docx",
+            "source_file": "test.docx",
+            "converted_at": "2026-01-01T00:00:00Z",
+            "document_level": {},
+            "elements": {
+                "abc123:0": {"type": "paragraph", "bold": True},
+                "abc123:1": {"type": "paragraph", "bold": False},
+            },
+        }
+        path = tmp_path / "test.styles.json"
+        path.write_text(json.dumps(v2_sidecar), encoding="utf-8")
+
+        loaded = load_sidecar(path)
+        assert "abc123:0" in loaded["elements"]
+        assert "abc123:1" in loaded["elements"]
+
+    def test_generate_sidecar_v2_keys(self):
+        """generate_sidecar produces v2 schema version."""
+        model = DocumentModel()
+        model.metadata = DocumentMetadata(
+            source_file="test.docx",
+            source_format="docx",
+        )
+        style_data = {
+            "document_level": {"margin_top_pt": 72.0},
+            "abc123:0": {"type": "paragraph", "bold": True},
+            "abc123:1": {"type": "paragraph", "bold": False},
+        }
+        sidecar = generate_sidecar(model, style_data)
+        assert sidecar["schema_version"] == "2.0.0"
+        assert "abc123:0" in sidecar["elements"]
+        assert "abc123:1" in sidecar["elements"]
