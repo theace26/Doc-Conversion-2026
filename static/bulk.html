@@ -41,6 +41,33 @@
     .cfg-checkbox { display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; font-size: 0.85rem; }
     .cfg-hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.15rem; }
     .control-btns { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+
+    /* Clickable counter values */
+    .counter-value.clickable { cursor: pointer; transition: opacity 0.15s; }
+    .counter-value.clickable:hover { opacity: 0.7; text-decoration: underline; }
+    .counter-value.clickable.cv-converted { color: var(--ok); }
+    .counter-value.clickable.cv-failed { color: var(--error); }
+    .counter-value.clickable.cv-skipped { color: var(--text-muted); }
+
+    /* File list panel */
+    #file-list-panel { overflow: hidden; max-height: 0; opacity: 0; transition: max-height 0.35s ease, opacity 0.25s ease, margin 0.25s ease; margin-top: 0; }
+    #file-list-panel.open { max-height: 600px; opacity: 1; margin-top: 0.75rem; }
+    #file-list-panel .flp-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+    #file-list-panel .flp-title { font-weight: 600; font-size: 0.85rem; text-transform: uppercase; }
+    #file-list-panel .flp-close { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 1.1rem; padding: 0.2rem 0.4rem; }
+    #file-list-panel .flp-close:hover { color: var(--text); }
+    #file-list-panel .flp-loading { font-size: 0.85rem; color: var(--text-muted); padding: 0.5rem 0; }
+    .flp-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    .flp-table th { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 2px solid var(--border); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); }
+    .flp-table td { padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .flp-table tr:last-child td { border-bottom: none; }
+    .flp-table .flp-fname { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .flp-table .flp-path { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 0.78rem; }
+    .flp-table .flp-err { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--error); font-size: 0.78rem; }
+    .flp-table .flp-size { white-space: nowrap; color: var(--text-muted); }
+    #file-list-panel .flp-scroll { max-height: 400px; overflow-y: auto; }
+    #file-list-panel .flp-load-more { display: block; width: 100%; margin-top: 0.5rem; padding: 0.4rem; text-align: center; background: var(--surface-alt); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; font-size: 0.82rem; color: var(--text-muted); }
+    #file-list-panel .flp-load-more:hover { background: var(--surface); color: var(--text); }
   </style>
 </head>
 <body>
@@ -289,6 +316,7 @@
           <div class="counter" id="c-transcribed-wrap" style="display:none"><span class="counter-value" id="c-transcribed">0</span><span class="counter-label">Transcribed</span></div>
           <div class="counter" id="c-unrecognized-wrap" style="display:none"><a id="c-unrecognized-link" href="/unrecognized.html" style="text-decoration:none;color:inherit"><span class="counter-value" id="c-unrecognized">0</span><span class="counter-label">Unrecognized</span></a></div>
         </div>
+        <div id="file-list-panel"></div>
         <div id="review-queue-counter" class="text-sm" style="margin-top:0.5rem;color:var(--warn)" hidden>
           ⚠ <span id="rq-count">0</span> files need attention after job completes
         </div>
@@ -1257,6 +1285,249 @@
     startScanPolling();
   });
   startScanPolling();
+
+  // ── Inline File List (clickable counters) ─────────────────────────────────
+
+  let _flpStatus = null;   // currently-open status, or null
+  let _flpPage = 1;
+  let _flpTotal = 0;
+
+  function clearElement(el) { while (el.firstChild) el.removeChild(el.firstChild); }
+
+  // Make converted / failed / skipped counters clickable
+  function initClickableCounters() {
+    const map = { 'c-converted': 'converted', 'c-failed': 'failed', 'c-skipped': 'skipped' };
+    for (const [id, status] of Object.entries(map)) {
+      const el = document.getElementById(id);
+      if (!el || el.dataset.clickable) continue;
+      el.dataset.clickable = '1';
+      el.classList.add('clickable', 'cv-' + status);
+      el.style.cursor = 'pointer';
+      el.title = 'Click to view ' + status + ' files';
+      el.addEventListener('click', () => toggleFileList(status));
+    }
+  }
+
+  function humanFileSize(bytes) {
+    if (bytes == null || bytes === '') return '';
+    const b = Number(bytes);
+    if (b === 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.min(Math.floor(Math.log(b) / Math.log(1024)), units.length - 1);
+    const val = b / Math.pow(1024, i);
+    return (i === 0 ? val : val.toFixed(1)) + ' ' + units[i];
+  }
+
+  function baseName(path) {
+    if (!path) return '';
+    const parts = path.replace(/\\/g, '/').split('/');
+    return parts[parts.length - 1] || '';
+  }
+
+  function dirName(path) {
+    if (!path) return '';
+    const norm = path.replace(/\\/g, '/');
+    const idx = norm.lastIndexOf('/');
+    return idx >= 0 ? norm.slice(0, idx) : '';
+  }
+
+  function truncateStr(s, max) {
+    if (!s || s.length <= max) return s || '';
+    return s.slice(0, max - 1) + '\u2026';
+  }
+
+  async function toggleFileList(status) {
+    const panel = document.getElementById('file-list-panel');
+    if (!panel) return;
+
+    // Clicking the same counter again collapses
+    if (_flpStatus === status) {
+      panel.classList.remove('open');
+      _flpStatus = null;
+      return;
+    }
+
+    _flpStatus = status;
+    _flpPage = 1;
+    _flpTotal = 0;
+
+    // Show loading state
+    clearElement(panel);
+    const loading = document.createElement('div');
+    loading.className = 'flp-loading';
+    loading.textContent = 'Loading ' + status + ' files\u2026';
+    panel.appendChild(loading);
+    panel.classList.add('open');
+
+    await fetchAndRenderFileList(status, false);
+  }
+
+  async function fetchAndRenderFileList(status, append) {
+    if (!activeJobId) return;
+    const panel = document.getElementById('file-list-panel');
+    if (!panel) return;
+
+    try {
+      const data = await API.get('/api/bulk/jobs/' + activeJobId + '/files?status=' + encodeURIComponent(status) + '&page=' + _flpPage + '&per_page=50');
+      _flpTotal = data.total || 0;
+
+      if (!append) {
+        clearElement(panel);
+        renderFileListPanel(panel, data, status);
+      } else {
+        // Append rows to existing table
+        const tbody = panel.querySelector('tbody');
+        if (tbody) appendFileRows(tbody, data.files, status);
+        updateLoadMoreBtn(panel, data);
+      }
+    } catch (e) {
+      if (!append) {
+        clearElement(panel);
+        const err = document.createElement('div');
+        err.className = 'flp-loading';
+        err.style.color = 'var(--error)';
+        err.textContent = 'Failed to load files: ' + (e.message || 'unknown error');
+        panel.appendChild(err);
+      }
+    }
+  }
+
+  function renderFileListPanel(panel, data, status) {
+    // Header
+    const header = document.createElement('div');
+    header.className = 'flp-header';
+
+    const title = document.createElement('span');
+    title.className = 'flp-title';
+    const statusColors = { converted: 'var(--ok)', failed: 'var(--error)', skipped: 'var(--text-muted)' };
+    title.style.color = statusColors[status] || 'var(--text)';
+    title.textContent = status.charAt(0).toUpperCase() + status.slice(1) + ' Files (' + (_flpTotal || 0).toLocaleString() + ')';
+    header.appendChild(title);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'flp-close';
+    closeBtn.textContent = '\u00d7';
+    closeBtn.title = 'Close';
+    closeBtn.addEventListener('click', () => {
+      panel.classList.remove('open');
+      _flpStatus = null;
+    });
+    header.appendChild(closeBtn);
+    panel.appendChild(header);
+
+    if (!data.files || data.files.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'flp-loading';
+      empty.textContent = 'No ' + status + ' files.';
+      panel.appendChild(empty);
+      return;
+    }
+
+    // Scrollable container
+    const scroll = document.createElement('div');
+    scroll.className = 'flp-scroll';
+
+    // Table
+    const table = document.createElement('table');
+    table.className = 'flp-table';
+
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    const cols = ['Filename', 'Path', 'Size'];
+    if (status === 'failed') cols.push('Error');
+    cols.forEach(col => {
+      const th = document.createElement('th');
+      th.textContent = col;
+      headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    appendFileRows(tbody, data.files, status);
+    table.appendChild(tbody);
+
+    scroll.appendChild(table);
+    panel.appendChild(scroll);
+
+    // Load more button
+    if (data.total_pages > 1 && _flpPage < data.total_pages) {
+      const btn = document.createElement('button');
+      btn.className = 'flp-load-more';
+      const remaining = Math.max(0, _flpTotal - data.files.length);
+      btn.textContent = 'Load more (' + remaining.toLocaleString() + ' remaining)';
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.textContent = 'Loading\u2026';
+        _flpPage++;
+        await fetchAndRenderFileList(_flpStatus, true);
+      });
+      panel.appendChild(btn);
+    }
+  }
+
+  function appendFileRows(tbody, files, status) {
+    (files || []).forEach(f => {
+      const tr = document.createElement('tr');
+
+      const tdName = document.createElement('td');
+      tdName.className = 'flp-fname';
+      const fname = baseName(f.source_path);
+      tdName.textContent = truncateStr(fname, 60);
+      tdName.title = fname;
+      tr.appendChild(tdName);
+
+      const tdPath = document.createElement('td');
+      tdPath.className = 'flp-path';
+      const dname = dirName(f.source_path);
+      tdPath.textContent = truncateStr(dname, 60);
+      tdPath.title = dname;
+      tr.appendChild(tdPath);
+
+      const tdSize = document.createElement('td');
+      tdSize.className = 'flp-size';
+      tdSize.textContent = humanFileSize(f.file_size_bytes);
+      tr.appendChild(tdSize);
+
+      if (status === 'failed') {
+        const tdErr = document.createElement('td');
+        tdErr.className = 'flp-err';
+        const errText = truncateStr(f.error_msg || '', 120);
+        tdErr.textContent = errText;
+        tdErr.title = f.error_msg || '';
+        tr.appendChild(tdErr);
+      }
+
+      tbody.appendChild(tr);
+    });
+  }
+
+  function updateLoadMoreBtn(panel, data) {
+    const existing = panel.querySelector('.flp-load-more');
+    if (existing) {
+      if (_flpPage >= data.total_pages) {
+        existing.remove();
+      } else {
+        const shown = _flpPage * 50;
+        const remaining = Math.max(0, _flpTotal - shown);
+        existing.textContent = 'Load more (' + remaining.toLocaleString() + ' remaining)';
+        existing.disabled = false;
+      }
+    }
+  }
+
+  // Wire up counters after DOM is ready and again when SSE reconnects
+  initClickableCounters();
+  const _origResetCounters = resetCounters;
+  resetCounters = function() {
+    _origResetCounters();
+    // Collapse any open panel on new job
+    const panel = document.getElementById('file-list-panel');
+    if (panel) { clearElement(panel); panel.classList.remove('open'); }
+    _flpStatus = null;
+    // Re-attach clickable styling (counter elements are reused, not replaced)
+    initClickableCounters();
+  };
 
   // Initial load
   loadLocationDropdowns();
