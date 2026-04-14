@@ -67,6 +67,10 @@ var AIAssist = (function() {
   function openDrawer() {
     drawer.classList.add('open');
     drawer.setAttribute('aria-hidden', 'false');
+    // Briefly flash the drawer edge so users with wide monitors notice it.
+    // Slide-in transition covers 280ms; flash runs 600ms then self-removes.
+    drawer.classList.add('just-opened');
+    setTimeout(function() { drawer.classList.remove('just-opened'); }, 600);
     _updateContextUI();
   }
 
@@ -400,7 +404,24 @@ var AIAssist = (function() {
     _updateContextUI();
 
     if (runBtn) {
-      runBtn.addEventListener('click', function() { runOnCurrentResults(); });
+      runBtn.addEventListener('click', function() {
+        // Immediate visual ack: disable + spinner class so the click is
+        // obvious even before the drawer slides in. openDrawer() toggles the
+        // run button hidden via _updateContextUI, which clears the state.
+        if (runBtn.disabled) return;
+        runBtn.disabled = true;
+        runBtn.classList.add('is-running');
+        var originalLabel = runBtn.textContent;
+        runBtn.textContent = '\u2728 Opening\u2026';
+        setTimeout(function() {
+          // Restore even if something goes wrong inside runOnCurrentResults
+          // so the button isn't permanently stuck.
+          runBtn.disabled = false;
+          runBtn.classList.remove('is-running');
+          runBtn.textContent = originalLabel;
+        }, 1500);
+        runOnCurrentResults();
+      });
     }
 
     toggleBtn.addEventListener('click', function() {
@@ -415,6 +436,10 @@ var AIAssist = (function() {
         return;
       }
       setEnabled(!_enabled);
+      // Visible pulse so the on/off state change is unmissable.
+      toggleBtn.classList.remove('pulse');
+      void toggleBtn.offsetWidth;  // force reflow so the animation restarts
+      toggleBtn.classList.add('pulse');
     });
 
     var closeBtn = document.getElementById('ai-drawer-close');

@@ -4,6 +4,36 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.25.3 — AI Assist UX polish (2026-04-14)
+
+Targeted fixes to make AI Assist interactions unmissable.
+
+### Changes
+
+- **"Synthesize these results" click feedback.** On click the button
+  now disables, changes label to "Opening…", and pulses until either
+  the drawer opens (handler replaces it) or a 1.5s safety timeout
+  restores it. Previously the button appeared to do nothing because
+  the drawer slides in 400px from the right and on wide monitors the
+  user's eye stays on the results — no acknowledgement of the click.
+- **Drawer "just-opened" flash.** When the drawer first slides in it
+  briefly paints a 2px accent-colored left edge (600ms), so peripheral
+  vision catches the motion.
+- **Toggle pulse.** Clicking the AI Assist on/off toggle now scales +
+  ring-pulses briefly, confirming the state change.
+- **Reduced-motion respected.** All three animations are disabled
+  under `prefers-reduced-motion: reduce`.
+
+### Files touched
+
+- `static/js/ai-assist.js` — runBtn click wrapper, openDrawer
+  flash class, toggle pulse trigger.
+- `static/css/ai-assist.css` — `.is-running`, `.just-opened`,
+  `.pulse` keyframes + reduced-motion guard.
+- `core/version.py` → `0.25.3`.
+
+---
+
 ## v0.25.2 — Fix AI Assist init race (2026-04-14)
 
 `ai-assist.js` was logging `AIAssist: required DOM elements not

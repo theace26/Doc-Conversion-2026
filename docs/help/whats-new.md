@@ -6,6 +6,22 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.25.3 — AI Assist clicks feel responsive
+
+The **Synthesize these results** button and **AI Assist** toggle
+now give clear visual feedback when clicked:
+
+- Synthesize button: pulses and shows "Opening…" so you know the
+  click registered, even before the drawer slides in from the
+  right edge.
+- Toggle: briefly rings out when switched on or off.
+- Drawer: flashes an accent-colored edge when it first opens.
+
+If you have "reduce motion" turned on at the OS level, all of
+these are disabled automatically.
+
+---
+
 ## v0.25.2 — AI Assist buttons now actually work
 
 The **AI Assist** toggle (top-right of the search bar) and the

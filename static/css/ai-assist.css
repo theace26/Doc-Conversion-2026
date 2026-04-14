@@ -97,6 +97,36 @@
   transition: filter 0.15s;
 }
 .ai-assist-run-btn:hover { filter: brightness(1.08); }
+.ai-assist-run-btn.is-running {
+  opacity: 0.75;
+  cursor: progress;
+  animation: aiRunPulse 1s ease-in-out infinite;
+}
+.ai-assist-run-btn:disabled { cursor: wait; }
+@keyframes aiRunPulse {
+  0%, 100% { filter: brightness(1); }
+  50%      { filter: brightness(1.25); }
+}
+
+/* Toggle pulse on click — makes on/off state change unmissable */
+.ai-assist-toggle.pulse {
+  animation: aiTogglePulse 0.45s cubic-bezier(0.4, 0, 0.2, 1) 1;
+}
+@keyframes aiTogglePulse {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.08); box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 25%, transparent); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-assist-run-btn.is-running,
+  .ai-assist-toggle.pulse { animation: none; }
+}
+
+/* Drawer "just opened" flash — draws the eye on wide monitors */
+.ai-assist-drawer.just-opened {
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.2),
+              -1px 0 0 2px var(--accent);
+}
 
 /* "Needs configuration" state — feature exists but key/admin toggle missing */
 .ai-assist-toggle.needs-config {
