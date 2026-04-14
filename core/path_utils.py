@@ -6,9 +6,57 @@ computation. Tested independently of the bulk pipeline.
 """
 
 import asyncio
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
+
+
+# ── Allowed-root confinement (path traversal guard) ──────────────────────────
+#
+# Endpoints that serve files from disk (e.g., /api/analysis/files/*/download)
+# MUST confine the resolved path to a known-safe root. Docker-compose mounts:
+#   ${SOURCE_DIR}:/mnt/source:ro          → BULK_SOURCE_PATH
+#   ${OUTPUT_DIR}:/mnt/output-repo        → BULK_OUTPUT_PATH
+#   ${DRIVE_C}:/host/c:ro, ${DRIVE_D}:/host/d:ro  → drive browser
+#
+# If a crafted or symlinked path ever lands in the DB, this guard prevents
+# FileResponse from serving arbitrary files (e.g., /etc/passwd, /app/data/*).
+
+def _default_allowed_roots() -> list[Path]:
+    roots: list[Path] = []
+    for env_name, default in (
+        ("BULK_SOURCE_PATH", "/mnt/source"),
+        ("BULK_OUTPUT_PATH", "/mnt/output-repo"),
+    ):
+        roots.append(Path(os.getenv(env_name, default)))
+    # Host drive mounts (drive browser)
+    for letter in os.getenv("MOUNTED_DRIVES", "c,d").split(","):
+        letter = letter.strip().lower()
+        if letter:
+            roots.append(Path(f"/host/{letter}"))
+    return roots
+
+
+def is_path_under_allowed_root(p: Path, roots: list[Path] | None = None) -> bool:
+    """
+    Return True if `p` (resolved, symlinks followed) lives under one of the
+    allowed mount roots. Used by file-serving endpoints to prevent path
+    traversal / symlink escapes.
+    """
+    if roots is None:
+        roots = _default_allowed_roots()
+    try:
+        resolved = p.resolve()
+    except (OSError, RuntimeError):
+        return False
+    for root in roots:
+        try:
+            resolved.relative_to(root.resolve())
+            return True
+        except (ValueError, OSError):
+            continue
+    return False
 
 CollisionStrategy = Literal["rename", "skip", "error"]
 

@@ -39,8 +39,10 @@ from core.db.analysis import (
     get_analysis_stats,
     get_batch_files,
     get_batches,
+    is_image_extension,
 )
 from core.db.connection import db_fetch_one, db_fetch_all
+from core.path_utils import is_path_under_allowed_root
 
 log = structlog.get_logger(__name__)
 
@@ -146,7 +148,15 @@ async def exclude(
 
 
 async def _lookup_source_path(source_file_id: str) -> Path:
-    """Return the absolute Path for a source_files.id, or raise 404."""
+    """
+    Return the absolute Path for a source_files.id, or raise 404.
+
+    Confines the returned path to one of the configured mount roots
+    (BULK_SOURCE_PATH, BULK_OUTPUT_PATH, /host/<drive>) via
+    `is_path_under_allowed_root`. If the DB ever contains a crafted or
+    symlinked path that resolves outside those roots, we raise 404
+    (same response as "not found" — don't leak existence).
+    """
     row = await db_fetch_one(
         "SELECT source_path FROM source_files WHERE id = ?", (source_file_id,)
     )
@@ -155,10 +165,15 @@ async def _lookup_source_path(source_file_id: str) -> Path:
     p = Path(row["source_path"])
     if not p.exists():
         raise HTTPException(status_code=404, detail="File missing on disk")
+    if not is_path_under_allowed_root(p):
+        # Don't leak existence — mirror the "not found" response.
+        log.warning(
+            "analysis.file_access_denied",
+            source_file_id=source_file_id,
+            reason="path_outside_allowed_roots",
+        )
+        raise HTTPException(status_code=404, detail="File not found")
     return p
-
-
-_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".gif", ".webp"}
 
 
 @router.get("/files/{source_file_id}/download")
@@ -168,6 +183,12 @@ async def download_file(
 ) -> FileResponse:
     """Stream the source file by source_files.id."""
     path = await _lookup_source_path(source_file_id)
+    log.info(
+        "analysis.file_access",
+        user=user.email,
+        source_file_id=source_file_id,
+        mode="download",
+    )
     media_type, _ = mimetypes.guess_type(str(path))
     return FileResponse(
         path=str(path),
@@ -188,9 +209,14 @@ async def preview_file(
     return 404. A future enhancement could generate a PIL thumbnail here.
     """
     path = await _lookup_source_path(source_file_id)
-    ext = path.suffix.lower()
-    if ext not in _IMAGE_EXTS:
+    if not is_image_extension(path.suffix):
         raise HTTPException(status_code=404, detail="Preview not available for this file type")
+    log.info(
+        "analysis.file_access",
+        user=user.email,
+        source_file_id=source_file_id,
+        mode="preview",
+    )
     media_type, _ = mimetypes.guess_type(str(path))
     return FileResponse(
         path=str(path),
