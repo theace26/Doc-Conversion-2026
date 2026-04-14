@@ -175,14 +175,26 @@ grounded answer from Claude with inline citations.
 
 Click the **AI Assist** button next to the search bar (the sparkle
 icon). The button toggles on/off and the state is remembered between
-sessions. When on:
+sessions. When on, the button fills solid with a bold **ON** pill —
+unmistakable at a glance.
 
-1. Run any search as normal.
-2. A side drawer opens on the right.
-3. Claude streams an answer, word by word, as it reads the top results.
-4. Each citation (`[1]`, `[2]`, etc.) is a link — click to jump to
+You can toggle AI Assist at any time — before or after running a
+search:
+
+- **Before a search:** a hint appears under the search box —
+  *"AI synthesis will run on your next search."* — so you know
+  exactly what it will do.
+- **After a search:** a **Synthesize these results** button
+  appears in the results toolbar. Click it to run synthesis on
+  the results already on screen without having to search again.
+
+When AI Assist runs:
+
+1. A side drawer opens on the right.
+2. Claude streams an answer, word by word, as it reads the top results.
+3. Each citation (`[1]`, `[2]`, etc.) is a link — click to jump to
    the source document.
-5. At the end, the drawer shows the list of source documents Claude
+4. At the end, the drawer shows the list of source documents Claude
    used.
 
 ### Requirements

@@ -4,6 +4,58 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.24.1 — AI Assist toggle feedback (2026-04-13)
+
+Targeted UX fix on the Search page AI Assist toggle. Two user
+complaints in one session: the active state was too subtle to
+notice, and users didn't know whether the toggle could be flipped
+before running a search (it always could — the state is a
+persistent `localStorage` preference — but the UI gave no signal).
+
+### Changes
+
+- **Stronger active visual.** When enabled, the toggle now renders
+  with a solid accent fill and white text, a small `ON` pill
+  appended to the label, and a soft accent glow. The previous
+  10%-accent-tint state was being missed.
+- **Pre-search intent hint.** When the toggle is ON but no results
+  are rendered yet, a one-line caption appears under the search
+  box — "AI synthesis will run on your next search." — making the
+  pre-search state meaningful instead of ambiguous.
+- **"Synthesize these results" inline action.** When the user
+  flips the toggle ON *after* a search has already rendered, a
+  new button appears in the results toolbar. Clicking it runs
+  synthesis on the current result set without requiring a new
+  search. Previously this was a silent no-op, which looked like a
+  bug.
+- `AIAssist.runOnCurrentResults()` added to the public API.
+
+### Files
+
+- `static/css/ai-assist.css` — solid-fill `.active` state, new
+  `.ai-assist-hint` and `.ai-assist-run-btn` rules, `.toggle-state`
+  pill.
+- `static/search.html` — `toggle-state` span, `#ai-assist-hint`
+  element under the search box, `#ai-assist-run-btn` inside the
+  results toolbar.
+- `static/js/ai-assist.js` — `_updateContextUI()` drives hint /
+  run-button visibility from `_enabled` × `_currentResults.length` ×
+  drawer-open state; wired into `setEnabled()`, `onResults()`,
+  `openDrawer()`, `closeDrawer()`, and `_applyServerStatusToButton()`.
+  New public `runOnCurrentResults()`.
+- `core/version.py` — 0.24.0 → 0.24.1.
+- `docs/superpowers/specs/2026-04-13-ai-assist-toggle-feedback-design.md`
+  — design spec.
+
+### Why this matters
+
+The AI Assist toggle had been a quiet pain point: users couldn't
+tell it was on, and couldn't tell what it would *do* until they
+ran a search. Fixing both in a single patch is a better return on
+attention than a full Search page redesign would be right now.
+
+---
+
 ## v0.24.0 — Spec A (quick wins) + Spec B (batch management) (2026-04-13)
 
 The first substantial UX release since the user flagged overall UX

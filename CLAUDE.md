@@ -91,7 +91,24 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.24.0
+## Current Version — v0.24.1
+
+**Targeted UX fix on the Search page AI Assist toggle.** The active
+state is now unmistakable (solid accent fill + `ON` pill), a
+one-line hint under the search box explains what happens on the
+next search when the toggle is ON before searching, and a new
+"Synthesize these results" button appears when the toggle is
+flipped ON after a search has already rendered — closes the
+silent-no-op surprise.
+
+Files: `static/css/ai-assist.css`, `static/search.html`,
+`static/js/ai-assist.js`, `core/version.py`, design spec at
+`docs/superpowers/specs/2026-04-13-ai-assist-toggle-feedback-design.md`,
+full notes in `docs/version-history.md`.
+
+---
+
+## v0.24.0 — Spec A (quick wins) + Spec B (batch management)
 
 **Spec A (quick wins) + Spec B (batch management) — substantial UX
 release addressing the "UX is atrocious" feedback: operators can now

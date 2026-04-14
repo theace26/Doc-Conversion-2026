@@ -27,8 +27,15 @@
 
 .ai-assist-toggle.active {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 0 0 1px var(--accent), 0 2px 6px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.ai-assist-toggle.active:hover {
+  color: #fff;
+  filter: brightness(1.08);
 }
 
 .ai-assist-toggle .toggle-icon {
@@ -44,9 +51,52 @@
   transition: background 0.15s;
 }
 
-.ai-assist-toggle.active .toggle-dot {
-  background: var(--accent);
+.ai-assist-toggle.active .toggle-dot { display: none; }
+
+.ai-assist-toggle .toggle-state {
+  display: none;
+  margin-left: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 3px;
 }
+.ai-assist-toggle.active .toggle-state { display: inline; }
+
+/* Pre-search intent hint */
+.ai-assist-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -0.5rem 0 1rem;
+  padding: 6px 10px;
+  font-size: 0.82rem;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: var(--radius-sm, 4px);
+}
+.ai-assist-hint .hint-icon { font-size: 13px; }
+
+/* "Synthesize these results" inline run button */
+.ai-assist-run-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+.ai-assist-run-btn:hover { filter: brightness(1.08); }
 
 /* "Needs configuration" state — feature exists but key/admin toggle missing */
 .ai-assist-toggle.needs-config {

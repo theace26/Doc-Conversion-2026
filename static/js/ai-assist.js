@@ -25,7 +25,7 @@ var AIAssist = (function() {
   var _serverStatus = null;
 
   // DOM refs (set in init)
-  var toggleBtn, drawer, drawerBody, drawerQueryBadge;
+  var toggleBtn, drawer, drawerBody, drawerQueryBadge, hintEl, runBtn;
 
   // ── Toggle ────────────────────────────────────────────────────────────────
 
@@ -33,6 +33,7 @@ var AIAssist = (function() {
     _enabled = val;
     localStorage.setItem(STORAGE_KEY, val ? 'true' : 'false');
     _updateToggleUI();
+    _updateContextUI();
     if (!val) closeDrawer();
   }
 
@@ -44,17 +45,36 @@ var AIAssist = (function() {
     toggleBtn.setAttribute('aria-pressed', String(_enabled));
   }
 
+  // Show hint (pre-search) or run-button (toggled on while results present)
+  // depending on current state. Drawer being open means synthesis already ran.
+  function _updateContextUI() {
+    var drawerOpen = drawer && drawer.classList.contains('open');
+    var hasResults = _currentResults && _currentResults.length > 0;
+    var blocked = toggleBtn && toggleBtn.classList.contains('needs-config');
+
+    if (hintEl) {
+      var showHint = _enabled && !hasResults && !blocked;
+      hintEl.hidden = !showHint;
+    }
+    if (runBtn) {
+      var showRun = _enabled && hasResults && !drawerOpen && !_streaming && !blocked;
+      runBtn.hidden = !showRun;
+    }
+  }
+
   // ── Drawer open/close ─────────────────────────────────────────────────────
 
   function openDrawer() {
     drawer.classList.add('open');
     drawer.setAttribute('aria-hidden', 'false');
+    _updateContextUI();
   }
 
   function closeDrawer() {
     drawer.classList.remove('open');
     drawer.setAttribute('aria-hidden', 'true');
     _cancelStream();
+    _updateContextUI();
   }
 
   // ── Entry point called by search.html ─────────────────────────────────────
@@ -64,11 +84,26 @@ var AIAssist = (function() {
     _currentResults = hits || [];
     _currentSources = [];
 
-    if (!_enabled || !_currentResults.length || !query.trim()) return;
+    if (!_enabled || !_currentResults.length || !query.trim()) {
+      _updateContextUI();
+      return;
+    }
 
     openDrawer();
     _renderLoading(query);
     _startSearchStream(query, hits);
+    _updateContextUI();
+  }
+
+  // Run synthesis on whatever results are currently on screen. Used by the
+  // "Synthesize these results" button that appears when the user flips the
+  // toggle on after a search has already rendered.
+  function runOnCurrentResults() {
+    if (!_enabled || !_currentResults.length || !_currentQuery.trim()) return;
+    openDrawer();
+    _renderLoading(_currentQuery);
+    _startSearchStream(_currentQuery, _currentResults);
+    _updateContextUI();
   }
 
   // ── Stream: search synthesis ──────────────────────────────────────────────
@@ -353,6 +388,8 @@ var AIAssist = (function() {
     drawer = document.getElementById('ai-assist-drawer');
     drawerBody = document.getElementById('ai-drawer-body');
     drawerQueryBadge = document.getElementById('ai-drawer-query-badge');
+    hintEl = document.getElementById('ai-assist-hint');
+    runBtn = document.getElementById('ai-assist-run-btn');
 
     if (!toggleBtn || !drawer || !drawerBody) {
       console.warn('AIAssist: required DOM elements not found');
@@ -360,6 +397,11 @@ var AIAssist = (function() {
     }
 
     _updateToggleUI();
+    _updateContextUI();
+
+    if (runBtn) {
+      runBtn.addEventListener('click', function() { runOnCurrentResults(); });
+    }
 
     toggleBtn.addEventListener('click', function() {
       // Gating: if the server says we're not configured / not enabled, do
@@ -410,6 +452,7 @@ var AIAssist = (function() {
       toggleBtn.classList.remove('needs-config');
       toggleBtn.title = 'Toggle AI-assisted synthesis of search results';
     }
+    _updateContextUI();
   }
 
   function _showNotConfiguredNotice(reason) {
@@ -462,5 +505,5 @@ var AIAssist = (function() {
     drawerBody.appendChild(box);
   }
 
-  return { init: init, onResults: onResults };
+  return { init: init, onResults: onResults, runOnCurrentResults: runOnCurrentResults };
 })();

@@ -142,13 +142,22 @@
         aria-pressed="false" title="Toggle AI-assisted synthesis of search results">
         <span class="toggle-icon">&#10022;</span>
         <span class="toggle-dot"></span>
-        AI Assist
+        AI Assist<span class="toggle-state">On</span>
       </button>
+    </div>
+
+    <div id="ai-assist-hint" class="ai-assist-hint" hidden>
+      <span class="hint-icon">&#10022;</span>
+      <span>AI synthesis will run on your next search.</span>
     </div>
 
     <div id="results-toolbar" class="results-toolbar" hidden>
       <div id="facet-chips" class="facet-chips"></div>
       <div class="toolbar-right">
+        <button id="ai-assist-run-btn" class="ai-assist-run-btn" type="button" hidden
+          title="Run AI synthesis on the results currently shown">
+          &#10022; Synthesize these results
+        </button>
         <div class="sort-control">
           <label for="sort-select">Sort:</label>
           <select id="sort-select">

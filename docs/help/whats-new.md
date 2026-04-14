@@ -6,6 +6,25 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.24.1 — AI Assist toggle feedback
+
+Small but useful polish on the Search page AI Assist toggle.
+
+- **Clearer on/off state.** When AI Assist is on, the button now
+  fills solid with a bold **ON** pill. The previous faint-accent
+  state was easy to miss.
+- **Pre-search hint.** Flip the toggle on before searching and
+  you'll see a one-line hint — *"AI synthesis will run on your
+  next search."* — under the search box. No more wondering
+  whether the toggle "took."
+- **Synthesize on existing results.** Flip the toggle on after a
+  search is already showing and a **Synthesize these results**
+  button appears in the toolbar. Click it to run synthesis on
+  what's on screen without a new search. Previously, flipping the
+  toggle on after a search looked like a silent no-op.
+
+---
+
 ## v0.24.0 — Inline file lists, DB backup/restore, batch management
 
 A sizeable UX-focused release. Three things that previously required
