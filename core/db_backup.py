@@ -25,7 +25,6 @@ import os
 import shutil
 import sqlite3
 import tempfile
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -45,15 +44,11 @@ _READ_POOL_SIZE = int(os.getenv("DB_READ_POOL_SIZE", "3"))
 
 
 # ── Bulk-job guard ────────────────────────────────────────────────────────────
-async def _active_bulk_jobs() -> list[dict]:
-    """Return active bulk jobs (imported lazily to avoid circular imports)."""
-    from core.bulk_worker import get_all_active_jobs
-    return await get_all_active_jobs()
-
-
 # Re-exported name so tests can monkeypatch ``core.db_backup.get_all_active_jobs``.
 async def get_all_active_jobs() -> list[dict]:
-    return await _active_bulk_jobs()
+    """Return active bulk jobs (imported lazily to avoid circular imports)."""
+    from core.bulk_worker import get_all_active_jobs as _impl
+    return await _impl()
 
 
 def _has_blocking_job(jobs: list[dict]) -> bool:
@@ -70,6 +65,25 @@ def _ts_slug() -> str:
 
 def _ensure_backups_dir() -> None:
     BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _backup_sync(src_path, dest_path) -> None:
+    """Perform a SQLite online backup from ``src_path`` to ``dest_path``.
+
+    Uses ``sqlite3.Connection.backup()`` which correctly handles live WAL
+    databases — unlike a raw file copy, this sees committed WAL pages and
+    produces a self-contained destination file regardless of concurrent
+    reader transactions on the source.
+    """
+    src = sqlite3.connect(str(src_path))
+    try:
+        dest = sqlite3.connect(str(dest_path))
+        try:
+            src.backup(dest)
+        finally:
+            dest.close()
+    finally:
+        src.close()
 
 
 # ── 1. Backup ─────────────────────────────────────────────────────────────────
@@ -96,30 +110,32 @@ async def backup_database(download: bool = False):
     _ensure_backups_dir()
     ts = _ts_slug()
     filename = f"markflow-{ts}.db"
-    dest = BACKUPS_DIR / filename
 
-    log.info("db_backup.started", dest=str(dest))
+    # For the download path, materialize to a temp file outside BACKUPS_DIR
+    # so the download is a pure ephemeral artifact (not a persisted backup).
+    # For the server-side save path, write directly into BACKUPS_DIR.
+    if download:
+        fd, tmpname = tempfile.mkstemp(prefix="markflow-download-", suffix=".db")
+        os.close(fd)
+        dest = Path(tmpname)
+    else:
+        dest = BACKUPS_DIR / filename
 
-    # 1. Checkpoint WAL so the copy is self-contained.
+    log.info("db_backup.started", dest=str(dest), download=download)
+
+    # Use SQLite's online backup API — handles live WAL databases atomically
+    # without needing to copy -wal/-shm siblings. Safe even if pool connections
+    # have open read transactions (unlike wal_checkpoint(TRUNCATE) which silently
+    # degrades to PASSIVE and leaves committed pages stranded in -wal).
     try:
-        def _checkpoint() -> None:
-            conn = sqlite3.connect(str(DB_PATH))
-            try:
-                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-                conn.commit()
-            finally:
-                conn.close()
-
-        await asyncio.to_thread(_checkpoint)
-    except Exception as exc:
-        # Non-fatal — a copy is still likely recoverable, but warn.
-        log.warning("db_backup.wal_checkpoint_failed", error=str(exc))
-
-    # 2. Copy the live DB file off-thread.
-    try:
-        await asyncio.to_thread(shutil.copy2, str(DB_PATH), str(dest))
+        await asyncio.to_thread(_backup_sync, DB_PATH, dest)
     except Exception as exc:
         log.error("db_backup.copy_failed", error=str(exc))
+        if download:
+            try:
+                dest.unlink(missing_ok=True)
+            except Exception:
+                pass
         return {"ok": False, "error": f"Copy failed: {exc}", "generated_at": _now_iso()}
 
     size = dest.stat().st_size

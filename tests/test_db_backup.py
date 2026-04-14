@@ -142,6 +142,29 @@ async def test_restore_database_rotates_current_db(db, monkeypatch):
     from core import db_backup
     monkeypatch.setattr(db_backup, "get_all_active_jobs", _fake_no_active_jobs)
 
+    # Insert a recognizable sentinel row BEFORE the backup so we can verify
+    # the restored DB actually contains the data (not just an empty valid DB).
+    live = db["db_path"]
+    sentinel_key = "backup_test_marker"
+    sentinel_val = "a3-sentinel"
+
+    def _insert_sentinel():
+        conn = sqlite3.connect(str(live))
+        try:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS backup_test_sentinel "
+                "(key TEXT PRIMARY KEY, value TEXT)"
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO backup_test_sentinel (key, value) VALUES (?, ?)",
+                (sentinel_key, sentinel_val),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    await asyncio.to_thread(_insert_sentinel)
+
     # First take a valid backup of the live DB
     backup_result = await db_backup.backup_database(download=False)
     assert backup_result["ok"] is True
@@ -156,12 +179,21 @@ async def test_restore_database_rotates_current_db(db, monkeypatch):
     assert rotated.name.endswith(".bak")
 
     # Live DB still exists and is a valid sqlite file
-    live = db["db_path"]
     assert live.exists()
     conn = sqlite3.connect(str(live))
-    cur = conn.execute("PRAGMA integrity_check")
-    assert cur.fetchone()[0] == "ok"
-    conn.close()
+    try:
+        cur = conn.execute("PRAGMA integrity_check")
+        assert cur.fetchone()[0] == "ok"
+        # Verify the sentinel row survived the backup -> restore round trip.
+        cur = conn.execute(
+            "SELECT value FROM backup_test_sentinel WHERE key = ?",
+            (sentinel_key,),
+        )
+        row = cur.fetchone()
+        assert row is not None, "sentinel row missing after restore"
+        assert row[0] == sentinel_val
+    finally:
+        conn.close()
 
 
 @pytest.mark.asyncio
