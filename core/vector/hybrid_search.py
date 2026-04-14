@@ -146,8 +146,19 @@ def rrf_merge(
     for doc_id in all_ids:
         if doc_id in keyword_meta:
             doc = dict(keyword_meta[doc_id])
+            # If a document appears in BOTH lists and the keyword hit lacks a
+            # preview (e.g. Meilisearch returned only the title match with no
+            # highlight), fall back to the vector chunk text so downstream
+            # consumers (notably AI Assist) have real content to reason about.
+            if not doc.get("content_preview") and not doc.get("highlight"):
+                v = vector_meta.get(doc_id) or {}
+                chunk_text = v.get("chunk_text") or ""
+                if chunk_text:
+                    doc["content_preview"] = chunk_text
+                    doc["_preview_source"] = "vector_chunk"
         else:
-            # Vector-only hit — build minimal metadata
+            # Vector-only hit — build richer metadata including the chunk text
+            # so AI Assist and the snippet card have something to display.
             v = vector_meta[doc_id]
             doc = {
                 "id": doc_id,
@@ -155,7 +166,12 @@ def rrf_merge(
                 "source_index": v.get("source_index", ""),
                 "source_path": v.get("source_path", ""),
                 "source_format": v.get("source_format", ""),
+                "format": v.get("source_format", ""),
+                "content_preview": v.get("chunk_text", ""),
+                "highlight": v.get("chunk_text", ""),
+                "heading_path": v.get("heading_path", ""),
                 "_vector_only": True,
+                "_preview_source": "vector_chunk",
             }
         doc["_rrf_score"] = scores[doc_id]
         results.append(doc)

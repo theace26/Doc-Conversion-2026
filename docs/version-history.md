@@ -4,6 +4,74 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.26.0 — Vector hit preview enrichment + AI snippet field aliasing (2026-04-14)
+
+User reported that AI Assist consistently replied with "no preview
+text is available for any of the matched documents" when
+synthesizing across hybrid (keyword + vector) search results, even
+when the underlying documents had rich, useful content. Two
+overlapping root causes in the search → AI pipeline.
+
+### Root cause A — vector-only hits carried no content
+
+`core/vector/hybrid_search.py::rrf_merge` built the metadata dict
+for a vector-only hit from just `title`, `source_index`,
+`source_path`, and `source_format`. The Qdrant payload actually
+includes `chunk_text` (the raw text of the chunk that matched the
+query vector) plus `heading_path`, but the merge function dropped
+both. Downstream consumers — Meilisearch-only UI, AI Assist,
+source cards — therefore saw a filename with no content.
+
+### Root cause B — AI prompt looked for field names that didn't exist
+
+`core/ai_assist.py::_build_snippet_prompt` read
+`r.get("snippet") or r.get("_formatted", {}).get("content")`.
+Neither field is produced by `/api/search/all`; the search API
+emits `content_preview` and `highlight` (from Meilisearch) and
+now `chunk_text` (from the vector path, via rrf_merge). Every
+result ended up on the `(no preview available)` branch even for
+documents that had well-formed previews. The `sources` event
+emitted at the end of the stream had the same problem for
+`file_type` and `path` — old field names, empty fallbacks.
+
+### Fix
+
+- **`rrf_merge` vector-only branch** — now carries
+  `content_preview`, `highlight`, `format`, `heading_path`, and a
+  debug `_preview_source: "vector_chunk"` marker. Keyword hits that
+  happen to have an empty preview also fall back to the vector
+  chunk when one is available.
+- **`_build_snippet_prompt`** — reads preview across a five-alias
+  chain (`content_preview` → `highlight` → `snippet` →
+  `chunk_text` → `_formatted.content`), title across three, and
+  file_type across four. The 600-char truncation and
+  `DEFAULT_MAX_SNIPPETS=8` cap are unchanged.
+- **Sources event** — same alias fallbacks applied, so the drawer's
+  source-list tooltips and the "Read full doc" handler get real
+  paths and doc_ids for both keyword and vector hits.
+
+### Expected user impact
+
+- AI Assist responses now reference actual document content rather
+  than pure filenames. Business cards, event flyers, newsletter
+  articles all gain preview text in Claude's context.
+- Semantic queries like *"pictures of business cards"* should
+  surface `Ryan Paddock.jpg` (a vision-analysed JPG whose chunk
+  text says "A business card placed on a lined notebook") via the
+  vector path, because the document's chunk text now reaches the
+  ranked list instead of being stripped.
+
+### Files touched
+
+- `core/vector/hybrid_search.py` — extended vector-only metadata,
+  keyword-with-empty-preview fallback.
+- `core/ai_assist.py` — `_build_snippet_prompt` + `sources` event
+  field aliasing.
+- `core/version.py` → `0.26.0` (minor bump — user-visible ranking
+  and AI output changes).
+
+---
+
 ## v0.25.3 — AI Assist UX polish (2026-04-14)
 
 Targeted fixes to make AI Assist interactions unmissable.

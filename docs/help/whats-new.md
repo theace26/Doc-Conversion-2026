@@ -6,6 +6,36 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.26.0 — AI Assist answers are grounded in real content
+
+Before this release AI Assist often said things like "no preview
+text is available for any of the matched documents" even when
+your files were full of relevant content. Two wiring bugs were
+silently stripping document text before it reached Claude.
+
+Now:
+
+- **Vector matches carry their chunk text.** When MarkFlow finds
+  a document via semantic (vector) search, the actual passage
+  that matched your query is now passed through to AI Assist
+  instead of being dropped.
+- **AI Assist reads previews correctly.** The prompt builder now
+  looks for document snippets under the field names the search
+  API actually uses. Every result that has content in the index
+  will surface it in Claude's answer.
+- **Source list in the drawer** shows correct file types and
+  paths for the "Read full doc" button.
+
+Concretely: a search like *"pictures of business cards"* should
+now rank image files whose vision-analysis content describes a
+business card (e.g. contact card JPGs) much higher, because that
+description actually reaches the ranker and the AI.
+
+No action needed on your side — old searches get the new
+behavior automatically.
+
+---
+
 ## v0.25.3 — AI Assist clicks feel responsive
 
 The **Synthesize these results** button and **AI Assist** toggle

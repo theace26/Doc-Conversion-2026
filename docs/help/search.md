@@ -23,6 +23,11 @@ Behind the scenes, the keyword and vector results are merged with
 to the top. If vector search is offline, the bar silently falls back
 to keyword-only — you will not see an error.
 
+When a document is found only by the vector (semantic) layer, the
+passage that matched your query is still carried through to the
+result card and to AI Assist, so you always see *why* a document
+showed up rather than just its filename.
+
 ---
 
 ## Basic Search

@@ -158,14 +158,42 @@ async def _get_provider_config() -> dict:
 
 
 def _build_snippet_prompt(query: str, results: list[dict]) -> str:
-    """Build the user-turn prompt from search results."""
+    """Build the user-turn prompt from search results.
+
+    The snippet extractor is deliberately tolerant: the hit dicts flowing
+    into this function come from ``/api/search/all``, which merges
+    Meilisearch keyword hits (``content_preview`` / ``highlight``),
+    Qdrant vector-only hits (``chunk_text`` — now materialised as
+    ``content_preview`` by ``rrf_merge``), and historical callers that
+    used ``snippet`` / ``_formatted.content``. Falling back across all
+    of them prevents the "(no preview available)" path from firing on
+    every result when the upstream field name drifts.
+    """
     snippets = results[:DEFAULT_MAX_SNIPPETS]
     lines = [f'Search query: "{query}"\n']
     lines.append(f"Top {len(snippets)} matching documents:\n")
     for i, r in enumerate(snippets, 1):
-        title = r.get("title") or r.get("file_name") or "Untitled"
-        file_type = r.get("file_type") or r.get("extension") or "file"
-        snippet = (r.get("snippet") or r.get("_formatted", {}).get("content") or "").strip()
+        title = (
+            r.get("title")
+            or r.get("source_filename")
+            or r.get("file_name")
+            or "Untitled"
+        )
+        file_type = (
+            r.get("format")
+            or r.get("file_type")
+            or r.get("extension")
+            or r.get("source_format")
+            or "file"
+        )
+        snippet = (
+            r.get("content_preview")
+            or r.get("highlight")
+            or r.get("snippet")
+            or r.get("chunk_text")
+            or (r.get("_formatted") or {}).get("content")
+            or ""
+        ).strip()
         lines.append(f"[{i}] {title} ({file_type})")
         lines.append(snippet[:600] if snippet else "(no preview available)")
         lines.append("")
@@ -273,10 +301,26 @@ async def _stream_search_synthesis_impl(
                         sources = [
                             {
                                 "index": i + 1,
-                                "title": (r.get("title") or r.get("file_name") or "Untitled"),
+                                "title": (
+                                    r.get("title")
+                                    or r.get("source_filename")
+                                    or r.get("file_name")
+                                    or "Untitled"
+                                ),
                                 "doc_id": r.get("id") or r.get("doc_id") or "",
-                                "file_type": r.get("file_type") or r.get("extension") or "",
-                                "path": r.get("path") or r.get("file_path") or "",
+                                "file_type": (
+                                    r.get("format")
+                                    or r.get("file_type")
+                                    or r.get("extension")
+                                    or r.get("source_format")
+                                    or ""
+                                ),
+                                "path": (
+                                    r.get("source_path")
+                                    or r.get("path")
+                                    or r.get("file_path")
+                                    or ""
+                                ),
                             }
                             for i, r in enumerate(results[:DEFAULT_MAX_SNIPPETS])
                         ]
