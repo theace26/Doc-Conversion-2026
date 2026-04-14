@@ -4,6 +4,73 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.27.0 — Search latency fixes for CPU-only hosts (2026-04-14)
+
+Hybrid (keyword + vector) search on this CPU-only VM took ~14s for
+a novel query because a single `sentence-transformers` embed runs
+for ~10–12s on CPU. Worse, the embed was a *synchronous* CPU call
+inside an async request handler — it blocked the event loop so
+every other concurrent request on the server stalled for the
+duration. Three changes.
+
+### Change 1 — Query-embedding LRU cache (`core/vector/embedder.py`)
+
+Added `LocalEmbedder.embed_cached(text)` backed by an `OrderedDict`
+LRU of size `QUERY_EMBED_CACHE_SIZE` (default 256). Cache is
+keyed on `(model_name, text)` so exact-repeat queries after the
+first one are effectively free (~0ms vs ~10s). Hit / miss counters
+log every 25 lookups at INFO level (`embedder_cache_stats`).
+
+Multi-text batch embeds used by the indexer bypass the cache; only
+the query-search path calls `embed_cached`.
+
+### Change 2 — Offload embed to worker thread (`core/vector/index_manager.py`)
+
+`VectorIndexManager.search` previously called
+`self._embedder.embed([query])[0]` synchronously. Now wraps it in
+`asyncio.to_thread(self._embedder.embed_cached, query)`. The
+10-second embed no longer blocks the event loop, so other requests
+(health checks, admin jobs, AI Assist SSE, status polling) stay
+responsive during search.
+
+### Change 3 — Skip hybrid for confident keyword queries (`api/routes/search.py`)
+
+Introduced a `_keyword_is_confident(query, hits)` heuristic that
+short-circuits the vector path when the keyword layer already has
+a clean answer:
+
+- Explicit opt-out: `?hybrid=0` query param.
+- Implicit: quoted exact-match queries (`"2022 report"`).
+- Implicit: single-token query that already produced ≥5 keyword
+  hits — Meilisearch is confident, the embed would add latency
+  for no ranking gain.
+
+Conservative on purpose: multi-word conversational queries still
+always trigger hybrid, which is where semantic search pays off.
+
+### Expected user impact
+
+- First-time search for a novel query: unchanged (~14s).
+- Second search with the same (or identical) query: ~200ms
+  (cached embed + Qdrant lookup + RRF merge).
+- Keyword-obvious queries (`"Ryan Paddock"`, `picnic`): ~200ms
+  regardless, because hybrid is skipped entirely.
+- Concurrent requests during a search: no longer stall for the
+  duration of the embed.
+
+### Files touched
+
+- `core/vector/embedder.py` — `embed_cached` method, LRU, stats
+  counters, doc block update.
+- `core/vector/index_manager.py` — `asyncio.to_thread` wrapper
+  around the query embed.
+- `api/routes/search.py` — `hybrid` query parameter,
+  `_keyword_is_confident` heuristic, skip path with debug log.
+- `core/version.py` → `0.27.0` (minor bump — architectural change
+  to search hot path).
+
+---
+
 ## v0.26.0 — Vector hit preview enrichment + AI snippet field aliasing (2026-04-14)
 
 User reported that AI Assist consistently replied with "no preview

@@ -164,6 +164,17 @@ async def search_all(
     sort: str = Query("relevance", pattern="^(relevance|date|size|format)$"),
     page: int = Query(1, ge=1),
     per_page: int = Query(10, ge=5, le=100),
+    hybrid: int = Query(
+        1,
+        ge=0,
+        le=1,
+        description=(
+            "1 (default) to blend Meilisearch keyword results with vector "
+            "semantic results. 0 to skip the vector path entirely — useful "
+            "when the query is an exact filename / identifier and the "
+            "embedder would only add latency on CPU-only hosts."
+        ),
+    ),
     user: AuthenticatedUser = Depends(require_role(UserRole.SEARCH_USER)),
 ):
     """Unified search across all indexes with faceted format counts."""
@@ -261,26 +272,47 @@ async def search_all(
         all_hits.append(_map_hit(hit, "transcripts"))
 
     # ── Hybrid search: blend with vector results if available ───────────
-    try:
-        from core.vector.index_manager import get_vector_indexer
-        from core.vector.hybrid_search import hybrid_search as _hybrid_search
-        from core.vector.query_preprocessor import preprocess_query
+    # Skip the vector path for clearly identifier-like queries where keyword
+    # already wins cleanly. Concretely: quoted exact-match queries, or short
+    # queries that already produced several strong keyword hits. This avoids
+    # the ~10s CPU embed on hosts without GPU passthrough for queries where
+    # the blend adds no real ranking value.
+    def _keyword_is_confident(query: str, keyword_hits: list[dict]) -> bool:
+        if not query or not keyword_hits:
+            return False
+        if query.startswith('"') and query.endswith('"') and len(query) > 2:
+            return True
+        # Single bare token + plenty of keyword hits → trust Meilisearch.
+        tokens = query.split()
+        if len(tokens) == 1 and len(keyword_hits) >= 5:
+            return True
+        return False
 
-        vec_indexer = await get_vector_indexer()
-        if vec_indexer and q:
-            intent = preprocess_query(q)
-            all_hits = await _hybrid_search(
-                query=intent.normalized_query,
-                keyword_results=all_hits,
-                vector_manager=vec_indexer,
-                filters={"source_format": format} if format else None,
-                limit=per_page,
-            )
-            # If temporal intent detected, prefer date sort
-            if intent.has_temporal_intent and sort == "relevance":
-                sort = "date"
-    except Exception as exc:
-        log.warning("hybrid_search.skip", error=str(exc))
+    skip_hybrid = hybrid == 0 or _keyword_is_confident(q, all_hits)
+
+    if not skip_hybrid:
+        try:
+            from core.vector.index_manager import get_vector_indexer
+            from core.vector.hybrid_search import hybrid_search as _hybrid_search
+            from core.vector.query_preprocessor import preprocess_query
+
+            vec_indexer = await get_vector_indexer()
+            if vec_indexer and q:
+                intent = preprocess_query(q)
+                all_hits = await _hybrid_search(
+                    query=intent.normalized_query,
+                    keyword_results=all_hits,
+                    vector_manager=vec_indexer,
+                    filters={"source_format": format} if format else None,
+                    limit=per_page,
+                )
+                # If temporal intent detected, prefer date sort
+                if intent.has_temporal_intent and sort == "relevance":
+                    sort = "date"
+        except Exception as exc:
+            log.warning("hybrid_search.skip", error=str(exc))
+    else:
+        log.debug("hybrid_search.skipped", query=q, reason="keyword_confident_or_explicit")
 
     facets = docs_result.get("facetDistribution", {}).get("source_format", {})
 

@@ -27,6 +27,7 @@ Usage
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
 from pathlib import Path
@@ -277,7 +278,11 @@ class VectorIndexManager:
         """
         from qdrant_client.models import Filter, FieldCondition, MatchValue  # noqa: PLC0415
 
-        query_vector = self._embedder.embed([query])[0]
+        # Embed the query in a worker thread so a single slow embed on a
+        # CPU-only host does not block the event loop for 10+ seconds
+        # (which would stall every other concurrent request on the server).
+        # ``embed_cached`` also short-circuits for repeat queries.
+        query_vector = await asyncio.to_thread(self._embedder.embed_cached, query)
 
         # Build filter — always exclude flagged documents
         must_conditions = [

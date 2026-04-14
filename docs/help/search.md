@@ -28,6 +28,14 @@ passage that matched your query is still carried through to the
 result card and to AI Assist, so you always see *why* a document
 showed up rather than just its filename.
 
+> **Speed note:** On hosts without a GPU, the very first time
+> MarkFlow sees a given query it takes ~10 seconds to compute
+> the semantic vector. That cost is cached — repeat searches
+> for the same (or nearly-same) query complete in a fraction
+> of a second. You can also append `&hybrid=0` to a search URL
+> to skip semantic search entirely when you know the term is
+> a literal filename or identifier.
+
 ---
 
 ## Basic Search

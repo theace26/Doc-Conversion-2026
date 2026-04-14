@@ -6,6 +6,31 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.27.0 — Search is dramatically faster on repeat queries
+
+Without a GPU, MarkFlow's semantic (vector) search layer has to
+do a ~10-second CPU-heavy computation the first time it sees a
+query. That cost is now paid only once per unique query — all
+later identical queries return in ~200ms. A few related fixes:
+
+- **Query cache.** The last 256 distinct query strings have
+  their semantic vectors cached in memory. Re-searching for
+  "photos from union picnics" the second time is near-instant.
+- **Background-threaded embedding.** The slow embed now runs on
+  a worker thread, so other parts of the app (health checks,
+  AI Assist streaming, status bars) stay responsive instead of
+  freezing while one search is in flight.
+- **Keyword-confident skip.** When you search for a single
+  obvious word (like a name) and the keyword index already
+  returns plenty of matches, the vector layer is skipped —
+  saving ~10s for no loss in ranking quality. You can also
+  add `&hybrid=0` to any search URL to force keyword-only.
+
+No action needed; cached queries just work. To warm the cache,
+run a representative batch of searches once.
+
+---
+
 ## v0.26.0 — AI Assist answers are grounded in real content
 
 Before this release AI Assist often said things like "no preview

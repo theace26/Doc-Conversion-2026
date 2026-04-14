@@ -4,10 +4,23 @@ Local sentence-transformers embedding provider for MarkFlow vector search.
 The SentenceTransformer model is lazy-loaded on first use (same pattern as
 Whisper in this codebase) so importing this module at startup has zero cost.
 
+Query-embedding cache
+---------------------
+Because search is CPU-bound on hosts without GPU passthrough (a single
+query embed takes ~10–12s on this VM), :meth:`embed_cached` keeps an
+in-process LRU of the last ``QUERY_EMBED_CACHE_SIZE`` query → vector
+results. Exact-match queries after the first become effectively free.
+The cache is keyed by ``(model_name, text)`` so changing
+``EMBEDDING_MODEL`` invalidates without a restart. Multi-text batches
+(indexing path) bypass the cache.
+
 Configuration
 -------------
 EMBEDDING_MODEL env var — name of the sentence-transformers model to use.
 Defaults to "all-MiniLM-L6-v2" (384-dim, fast, good quality).
+
+QUERY_EMBED_CACHE_SIZE env var — LRU size for query embeddings.
+Defaults to 256.
 
 Usage
 -----
@@ -15,9 +28,11 @@ Usage
 
     embedder = get_embedder()
     vectors = embedder.embed(["hello world", "another text"])
+    single = embedder.embed_cached("user query")
 """
 
 import os
+from collections import OrderedDict
 from typing import Optional
 
 import structlog
@@ -52,6 +67,16 @@ class LocalEmbedder:
     def __init__(self, model_name: str = _DEFAULT_MODEL) -> None:
         self._model_name = model_name
         self._model = None  # loaded on first use
+        # LRU cache for single-query embeddings. Kept small because each
+        # vector is ~1.5 KB (384 floats); 256 entries ≈ 400 KB.
+        cache_size_env = os.environ.get("QUERY_EMBED_CACHE_SIZE", "256")
+        try:
+            self._cache_size = max(0, int(cache_size_env))
+        except ValueError:
+            self._cache_size = 256
+        self._query_cache: "OrderedDict[str, list[float]]" = OrderedDict()
+        self._cache_hits = 0
+        self._cache_misses = 0
 
     # ------------------------------------------------------------------
     # Public properties
@@ -74,6 +99,46 @@ class LocalEmbedder:
     # ------------------------------------------------------------------
     # Core API
     # ------------------------------------------------------------------
+
+    def embed_cached(self, text: str) -> list[float]:
+        """Embed a single query string with an in-process LRU cache.
+
+        Use this for user-search queries; use :meth:`embed` directly for
+        indexing batches where inputs are unique. Returns a list of floats
+        (not wrapped in an outer list) because single-text callers always
+        want the first row.
+
+        Cache is keyed on the exact query string, so trailing whitespace
+        or case differences produce separate entries — callers are
+        expected to have already normalised the query.
+        """
+        if not text:
+            return []
+
+        cache_key = text
+        cached = self._query_cache.get(cache_key)
+        if cached is not None:
+            # LRU bump
+            self._query_cache.move_to_end(cache_key)
+            self._cache_hits += 1
+            if (self._cache_hits + self._cache_misses) % 25 == 0:
+                log.info(
+                    "embedder_cache_stats",
+                    hits=self._cache_hits,
+                    misses=self._cache_misses,
+                    size=len(self._query_cache),
+                )
+            return list(cached)
+
+        self._cache_misses += 1
+        vector = self.embed([text])[0]
+
+        if self._cache_size > 0:
+            self._query_cache[cache_key] = vector
+            while len(self._query_cache) > self._cache_size:
+                self._query_cache.popitem(last=False)
+
+        return list(vector)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """
