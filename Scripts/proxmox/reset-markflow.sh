@@ -200,11 +200,17 @@ fi
 echo ""
 echo "[2/5] Force-pulling latest code from GitHub..."
 
+CURRENT_BRANCH=$(git -C "$REPO_DIR" symbolic-ref --short HEAD 2>/dev/null || true)
+if [[ -z "$CURRENT_BRANCH" ]]; then
+    echo "  [ERR] Detached HEAD in $REPO_DIR -- check out a branch before resetting"
+    exit 1
+fi
+
 git -C "$REPO_DIR" fetch origin
-git -C "$REPO_DIR" reset --hard origin/main
+git -C "$REPO_DIR" reset --hard "origin/$CURRENT_BRANCH"
 
 COMMIT=$(git -C "$REPO_DIR" log -1 --format="%h %s")
-echo "  [OK] Now at: $COMMIT"
+echo "  [OK] Now at: $CURRENT_BRANCH -- $COMMIT"
 
 # -- Write worker_capabilities.json (after git pull so reset --hard doesn't overwrite) --
 QUEUE_DIR="$REPO_DIR/hashcat-queue"
