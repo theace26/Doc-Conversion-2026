@@ -58,7 +58,7 @@ If Phase 4 verification fails, the script automatically rolls back to the `:last
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `-Branch` | `vector` | Git branch to pull |
+| `-Branch` | `main` | Git branch to pull |
 | `-SkipPull` | false | Skip git fetch/checkout/pull |
 | `-SkipBase` | false | Skip base image rebuild |
 | `-SkipGpuCheck` | false | Skip NVIDIA Container Toolkit smoke test |

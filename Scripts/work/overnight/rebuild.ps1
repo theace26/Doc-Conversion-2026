@@ -3,7 +3,7 @@
     Overnight unattended rebuild of MarkFlow with CUDA Whisper (v0.22.17+).
 
 .DESCRIPTION
-    Self-healing phased rebuild pipeline. Pulls the latest vector branch,
+    Self-healing phased rebuild pipeline. Pulls the latest main branch,
     rebuilds the Docker base image, rebuilds the app image, starts the
     stack detached, and runs extended smoke tests. On verification
     failure after the up -d commit point, attempts a blue/green rollback
@@ -50,7 +50,7 @@
     Dockerfile.base is unchanged.
 
 .PARAMETER Branch
-    Git branch to pull. Defaults to 'vector'.
+    Git branch to pull. Defaults to 'main'.
 
 .PARAMETER RepoDir
     Override the repo root. By default resolves via script location.
@@ -86,7 +86,7 @@ param(
     [switch]$SkipPull,
     [switch]$SkipBase,
     [switch]$DryRun,
-    [string]$Branch = "vector",
+    [string]$Branch = "main",
     [string]$RepoDir = ""
 )
 
