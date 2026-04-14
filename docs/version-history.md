@@ -4,6 +4,51 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.25.1 — Search responsiveness feedback (2026-04-14)
+
+User reported that hitting Enter on a plain keyword search (e.g.
+"photos") produced no visible UX response — the page went blank
+until results landed, which felt broken even when the underlying
+Meilisearch query finished in <200 ms. Root cause was `doSearch()`
+in `static/search.html` hiding every results element at the top of
+the function and only restoring them on response, with no progress
+indicator in between.
+
+### Fix
+
+- **Top-bar progress indicator.** New `#search-progress` element
+  (2px accent-colored bar, indeterminate slide animation, respects
+  `prefers-reduced-motion`) sits above the results area and toggles
+  visible for the duration of the fetch.
+- **Dim, don't hide.** `doSearch()` no longer clears the prior
+  results card / toolbar / empty-state. Instead it adds an
+  `.is-searching` class (opacity 0.5, `pointer-events: none`) so
+  the user keeps context while the new results load. On success
+  the new results replace the old in place; on error the old
+  results reappear un-dimmed.
+- **Stale-response guard.** Added a monotonic `_searchSeq`
+  counter. If the user hits Enter twice quickly, the late-arriving
+  response from request #1 is discarded instead of overwriting
+  the fresher results from request #2. This bug was latent
+  before — invisible in dev, visible in production with variable
+  network latency.
+
+AI Assist behaviour is unchanged. The drawer only auto-opens when
+the user has explicitly flipped the toggle on (persisted in
+`localStorage['markflow_ai_assist_enabled']`), so plain keyword
+searches never trigger an LLM call unless asked.
+
+### Files touched
+
+- `static/search.html` — CSS for `.search-progress` and
+  `.is-searching`, new `<div id="search-progress">`, rewritten
+  `doSearch()`.
+- `core/version.py` — bump to `0.25.1`.
+- `docs/help/whats-new.md`, `docs/help/search.md` — user-facing
+  notes.
+
+---
+
 ## v0.25.0 — EPS rasterization + vision MIME allow-list (2026-04-14)
 
 Two overlapping bugs in the analysis worker surfaced during a

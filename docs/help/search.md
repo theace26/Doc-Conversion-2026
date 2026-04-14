@@ -30,7 +30,11 @@ to keyword-only — you will not see an error.
 1. Click the search bar at the top of the Search page (it is focused
    automatically when you land on the page).
 2. Type one or more keywords.
-3. Press Enter or wait ~200 ms — results appear below the bar.
+3. Press Enter or wait ~200 ms — results appear below the bar. A
+   thin accent-colored bar slides at the top of the results area
+   while the query is running; if you're refining an earlier
+   search, the previous results stay on screen (dimmed) until the
+   new ones land.
 
 Autocomplete suggestions appear as you type, sourced from real
 document titles in your index. Use arrow keys to move through

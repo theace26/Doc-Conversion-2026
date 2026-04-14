@@ -81,6 +81,25 @@
     }
     .batch-bar button:hover { background: rgba(255,255,255,0.15); }
     .search-meta { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem; }
+    /* Top-bar progress indicator + dimmed-results state while a search is in flight */
+    .search-progress {
+      position: sticky; top: 0; height: 2px; margin-bottom: 0.5rem;
+      background: transparent; overflow: hidden; border-radius: 2px;
+    }
+    .search-progress::before {
+      content: ''; display: block; height: 100%; width: 40%;
+      background: var(--accent);
+      animation: searchProgressSlide 1.1s ease-in-out infinite;
+    }
+    @keyframes searchProgressSlide {
+      0%   { transform: translateX(-100%); }
+      50%  { transform: translateX(150%); }
+      100% { transform: translateX(350%); }
+    }
+    .is-searching { opacity: 0.5; pointer-events: none; transition: opacity 0.15s; }
+    @media (prefers-reduced-motion: reduce) {
+      .search-progress::before { animation: none; width: 100%; opacity: 0.6; }
+    }
     .hit {
       padding: 0.75rem 1.25rem; border-bottom: 1px solid var(--border);
       display: flex; gap: 0.75rem; align-items: flex-start; transition: background 0.1s;
@@ -181,6 +200,8 @@
       <button id="batch-download-btn">Download ZIP</button>
       <button id="batch-clear-btn">Clear</button>
     </div>
+
+    <div id="search-progress" class="search-progress" hidden aria-hidden="true"></div>
 
     <div id="search-meta" class="search-meta" hidden></div>
 
@@ -495,16 +516,25 @@
   })();
 
   // ── Search ────────────────────────────────────────────────────────────────
+  var _searchSeq = 0;  // monotonic counter to ignore stale responses
+
   async function doSearch() {
     var q = document.getElementById('search-input').value.trim();
     // Allow empty query (browse all) or queries with 2+ chars
     if (q.length > 0 && q.length < 2) return;
 
     updateURL(q);
-    document.getElementById('results-card').hidden = true;
-    document.getElementById('empty-state').hidden = true;
-    document.getElementById('search-meta').hidden = true;
-    document.getElementById('results-toolbar').hidden = true;
+
+    // Option C UX: keep prior results visible but dimmed, show top-bar progress.
+    var seq = ++_searchSeq;
+    var progress = document.getElementById('search-progress');
+    var rcard    = document.getElementById('results-card');
+    var rtool    = document.getElementById('results-toolbar');
+    var empty    = document.getElementById('empty-state');
+    if (progress) progress.hidden = false;
+    if (rcard) rcard.classList.add('is-searching');
+    if (rtool) rtool.classList.add('is-searching');
+    if (empty) empty.classList.add('is-searching');
 
     try {
       var qs = new URLSearchParams({
@@ -514,18 +544,29 @@
       if (activeFormat) qs.set('format', activeFormat);
 
       var data = await API.get('/api/search/all?' + qs.toString());
+      // Ignore responses from superseded requests (user typed again / hit Enter twice)
+      if (seq !== _searchSeq) return;
+
       lastFacets = data.facets || {};
       renderFacets(lastFacets);
       renderResults(data);
-      // Trigger AI Assist if enabled
+      // Trigger AI Assist if enabled (it early-returns when the toggle is off)
       if (typeof AIAssist !== 'undefined') {
         AIAssist.onResults(q, data.hits || []);
       }
     } catch(e) {
+      if (seq !== _searchSeq) return;
       if (e.status === 503) {
         showError('Search index is offline.');
       } else {
         showError('Search failed: ' + e.message);
+      }
+    } finally {
+      if (seq === _searchSeq) {
+        if (progress) progress.hidden = true;
+        if (rcard) rcard.classList.remove('is-searching');
+        if (rtool) rtool.classList.remove('is-searching');
+        if (empty) empty.classList.remove('is-searching');
       }
     }
   }

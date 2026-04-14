@@ -6,6 +6,27 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.25.1 — Search now shows you it's working
+
+Small but noticeable fix: when you hit Enter on a search, you
+should now *see* that MarkFlow is searching.
+
+- **Progress bar.** A thin accent-colored bar slides across the
+  top of the results area while the query is in flight. It
+  disappears the instant results land.
+- **Previous results stay visible.** If you're refining a search
+  ("photos" → "photos 2020"), the old results dim to 50% opacity
+  instead of blanking out. No more blink-and-you-miss-it jumps.
+- **Fast double-Enter no longer flashes stale results.** If you
+  hit Enter twice quickly, only the latest response renders —
+  the older in-flight request is discarded on arrival.
+
+No change to AI Assist: it still only fires if you have the
+toggle on (top-right of the search bar, `Alt + Shift + A`).
+Plain keyword searches never trigger an LLM call unless you ask.
+
+---
+
 ## v0.25.0 — EPS/vector files are now analyzed
 
 Vector and layered image formats now work with LLM vision analysis
