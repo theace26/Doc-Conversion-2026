@@ -208,3 +208,112 @@ async def get_analysis_result(source_path: str) -> dict[str, Any] | None:
         "SELECT * FROM analysis_queue WHERE source_path = ? AND status = 'completed'",
         (source_path,),
     )
+
+
+async def get_batches() -> list[dict[str, Any]]:
+    """
+    List all analysis batches grouped by batch_id.
+
+    Batches where ALL rows are 'excluded' are hidden.
+    Status derivation (first match wins):
+      any 'failed'    -> 'failed'
+      any 'batched'   -> 'batched'
+      all 'completed' -> 'completed'
+      otherwise       -> 'mixed'
+    """
+    rows = await db_fetch_all(
+        """SELECT aq.batch_id, aq.status,
+                  aq.batched_at,
+                  COALESCE(sf.file_size_bytes, 0) AS file_size_bytes
+           FROM analysis_queue aq
+           LEFT JOIN source_files sf ON sf.source_path = aq.source_path
+           WHERE aq.batch_id IS NOT NULL"""
+    )
+
+    groups: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        bid = r["batch_id"]
+        g = groups.setdefault(bid, {
+            "batch_id": bid,
+            "statuses": [],
+            "file_count": 0,
+            "total_size_bytes": 0,
+            "batched_ats": [],
+        })
+        g["statuses"].append(r["status"])
+        g["file_count"] += 1
+        g["total_size_bytes"] += r["file_size_bytes"] or 0
+        if r["batched_at"]:
+            g["batched_ats"].append(r["batched_at"])
+
+    result = []
+    for bid, g in groups.items():
+        statuses = g["statuses"]
+        # Hide batches where ALL rows are excluded
+        if all(s == "excluded" for s in statuses):
+            continue
+        # Derive status (ignore excluded rows for derivation decisions
+        # except as part of the "not-all-completed" fallback)
+        non_excluded = [s for s in statuses if s != "excluded"]
+        if any(s == "failed" for s in non_excluded):
+            derived = "failed"
+        elif any(s == "batched" for s in non_excluded):
+            derived = "batched"
+        elif non_excluded and all(s == "completed" for s in non_excluded):
+            derived = "completed"
+        else:
+            derived = "mixed"
+
+        batched_ats = g["batched_ats"]
+        result.append({
+            "batch_id": bid,
+            "file_count": g["file_count"],
+            "total_size_bytes": g["total_size_bytes"],
+            "status": derived,
+            "earliest_batched_at": min(batched_ats) if batched_ats else None,
+            "latest_batched_at": max(batched_ats) if batched_ats else None,
+        })
+    return result
+
+
+async def get_batch_files(batch_id: str) -> list[dict[str, Any]]:
+    """Return files in a batch joined with source_files metadata."""
+    rows = await db_fetch_all(
+        """SELECT aq.id, aq.source_path, aq.status, aq.enqueued_at, aq.batched_at,
+                  sf.file_size_bytes, sf.source_mtime
+           FROM analysis_queue aq
+           LEFT JOIN source_files sf ON sf.source_path = aq.source_path
+           WHERE aq.batch_id = ?
+           ORDER BY aq.enqueued_at ASC""",
+        (batch_id,),
+    )
+    return [dict(r) for r in rows]
+
+
+async def exclude_files(file_ids: list[str]) -> int:
+    """Mark the given analysis_queue ids as status='excluded'. Return rows updated."""
+    if not file_ids:
+        return 0
+    placeholders = ",".join("?" * len(file_ids))
+    async with get_db() as conn:
+        cur = await conn.execute(
+            f"UPDATE analysis_queue SET status = 'excluded' WHERE id IN ({placeholders})",
+            list(file_ids),
+        )
+        await conn.commit()
+        return cur.rowcount or 0
+
+
+async def cancel_all_batched() -> int:
+    """
+    Reset all rows with status='batched' back to status='pending',
+    clearing batch_id and batched_at. Returns count reset.
+    """
+    async with get_db() as conn:
+        cur = await conn.execute(
+            """UPDATE analysis_queue
+               SET status = 'pending', batch_id = NULL, batched_at = NULL
+               WHERE status = 'batched'"""
+        )
+        await conn.commit()
+        return cur.rowcount or 0
