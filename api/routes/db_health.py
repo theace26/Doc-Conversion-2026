@@ -108,11 +108,16 @@ async def repair_db(
     return await repair_database()
 
 
-def _error_to_http_status(error: str) -> int:
-    """Map a db_backup error string to an HTTP status code."""
-    if "Bulk jobs active" in error:
-        return 409
-    return 400
+_STATUS_BY_CODE = {
+    "bulk_jobs_active": 409,
+    "integrity_check_failed": 400,
+    "source_missing": 400,
+}
+
+
+def _error_to_http_status(result: dict) -> int:
+    """Map a db_backup result's ``code`` field to an HTTP status code."""
+    return _STATUS_BY_CODE.get(result.get("code"), 400)
 
 
 @router.post("/backup")
@@ -130,12 +135,14 @@ async def db_backup(
 
     # download=True returns a FileResponse on success
     if isinstance(result, FileResponse):
+        log.info("db_backup.requested", user=user.email, download=download, ok=True)
         return result
 
     # Otherwise result is a dict
+    log.info("db_backup.requested", user=user.email, download=download, ok=result.get("ok"))
     if not result.get("ok", False):
         err = result.get("error", "Backup failed")
-        raise HTTPException(status_code=_error_to_http_status(err), detail=err)
+        raise HTTPException(status_code=_error_to_http_status(result), detail=err)
     return result
 
 
@@ -168,9 +175,16 @@ async def db_restore(
         # Path-traversal / "exactly one" guard from restore_database
         raise HTTPException(status_code=400, detail=str(exc))
 
+    log.info(
+        "db_restore.requested",
+        user=user.email,
+        via="upload" if file is not None else "server",
+        backup_path=backup_path,
+        ok=result.get("ok"),
+    )
     if not result.get("ok", False):
         err = result.get("error", "Restore failed")
-        raise HTTPException(status_code=_error_to_http_status(err), detail=err)
+        raise HTTPException(status_code=_error_to_http_status(result), detail=err)
     return result
 
 
@@ -181,4 +195,5 @@ async def db_list_backups(
     """List available backup files in BACKUPS_DIR, newest-first."""
     from core.db_backup import list_backups
     entries = await list_backups()
+    log.info("db_backups.listed", user=user.email, count=len(entries))
     return {"backups": entries}

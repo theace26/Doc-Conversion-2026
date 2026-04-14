@@ -72,6 +72,7 @@ async def test_backup_database_refuses_during_bulk_job(db, monkeypatch):
     monkeypatch.setattr(db_backup, "get_all_active_jobs", fake_running)
     result = await db_backup.backup_database(download=False)
     assert result["ok"] is False
+    assert result["code"] == "bulk_jobs_active"
     assert "Bulk jobs active" in result["error"]
 
 
@@ -134,6 +135,7 @@ async def test_restore_database_validates_integrity(db, monkeypatch):
 
     result = await db_backup.restore_database(source_path=corrupt)
     assert result["ok"] is False
+    assert result["code"] == "integrity_check_failed"
     assert "integrity" in result["error"].lower()
 
 
@@ -209,6 +211,7 @@ async def test_restore_database_refuses_during_bulk_job(db, monkeypatch):
     candidate.write_bytes(b"x")
     result = await db_backup.restore_database(source_path=candidate)
     assert result["ok"] is False
+    assert result["code"] == "bulk_jobs_active"
     assert "Bulk jobs active" in result["error"]
 
 
@@ -234,6 +237,17 @@ async def test_backup_download_returns_file_response(db, monkeypatch):
     assert isinstance(result, FileResponse)
     # FileResponse should have a filename attribute
     assert "markflow-" in result.filename
+
+
+@pytest.mark.asyncio
+async def test_restore_database_source_missing_code(db, monkeypatch):
+    from core import db_backup
+    monkeypatch.setattr(db_backup, "get_all_active_jobs", _fake_no_active_jobs)
+
+    missing = db["backups_dir"] / "does-not-exist.db"
+    result = await db_backup.restore_database(source_path=missing)
+    assert result["ok"] is False
+    assert result["code"] == "source_missing"
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

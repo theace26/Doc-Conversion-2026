@@ -103,6 +103,7 @@ async def backup_database(download: bool = False):
         log.warning("db_backup.refused_bulk_active", jobs=len(jobs))
         return {
             "ok": False,
+            "code": "bulk_jobs_active",
             "error": "Bulk jobs active — pause or wait for completion before backing up",
             "generated_at": _now_iso(),
         }
@@ -136,7 +137,7 @@ async def backup_database(download: bool = False):
                 dest.unlink(missing_ok=True)
             except Exception:
                 pass
-        return {"ok": False, "error": f"Copy failed: {exc}", "generated_at": _now_iso()}
+        return {"ok": False, "code": "copy_failed", "error": f"Copy failed: {exc}", "generated_at": _now_iso()}
 
     size = dest.stat().st_size
     log.info("db_backup.completed", dest=str(dest), size_bytes=size)
@@ -209,6 +210,7 @@ async def restore_database(
         log.warning("db_restore.refused_bulk_active", jobs=len(jobs))
         return {
             "ok": False,
+            "code": "bulk_jobs_active",
             "error": "Bulk jobs active — pause or wait for completion before restoring",
             "generated_at": _now_iso(),
         }
@@ -224,16 +226,17 @@ async def restore_database(
             await asyncio.to_thread(temp_upload.write_bytes, uploaded_bytes)
         except Exception as exc:
             log.error("db_restore.upload_write_failed", error=str(exc))
-            return {"ok": False, "error": f"Upload write failed: {exc}", "generated_at": _now_iso()}
+            return {"ok": False, "code": "upload_write_failed", "error": f"Upload write failed: {exc}", "generated_at": _now_iso()}
         candidate = temp_upload
     else:
         try:
             candidate = _resolve_and_validate_source(source_path)  # type: ignore[arg-type]
         except ValueError as exc:
-            return {"ok": False, "error": str(exc), "generated_at": _now_iso()}
+            return {"ok": False, "code": "path_traversal", "error": str(exc), "generated_at": _now_iso()}
         if not candidate.exists():
             return {
                 "ok": False,
+                "code": "source_missing",
                 "error": f"Backup file not found: {candidate}",
                 "generated_at": _now_iso(),
             }
@@ -254,6 +257,7 @@ async def restore_database(
                 pass
         return {
             "ok": False,
+            "code": "integrity_check_failed",
             "error": "Backup failed integrity check",
             "findings": findings,
             "generated_at": _now_iso(),
@@ -297,7 +301,7 @@ async def restore_database(
             await init_pool(DB_PATH, read_pool_size=_READ_POOL_SIZE)
         except Exception:
             pass
-        return {"ok": False, "error": f"Swap failed: {exc}", "generated_at": _now_iso()}
+        return {"ok": False, "code": "swap_failed", "error": f"Swap failed: {exc}", "generated_at": _now_iso()}
     finally:
         if temp_upload is not None:
             try:
@@ -312,6 +316,7 @@ async def restore_database(
         log.error("db_restore.pool_reinit_failed", error=str(exc))
         return {
             "ok": False,
+            "code": "pool_reinit_failed",
             "error": f"Restore copied but pool reinit failed: {exc}",
             "rotated_to": str(rotated_path),
             "generated_at": _now_iso(),
