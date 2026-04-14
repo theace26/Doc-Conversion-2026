@@ -129,22 +129,41 @@ class PptxHandler(FormatHandler):
 
     @staticmethod
     def _read_chart_mode_pref() -> str:
-        """Read pptx_chart_extraction_mode from DB synchronously."""
+        """Return the pptx_chart_extraction_mode preference.
+
+        Prefers the in-memory preferences cache (no DB I/O). On a cold
+        cache, falls back to a single synchronous sqlite read and warms
+        the cache so subsequent conversions hit memory only. This avoids
+        the "open a raw sqlite3 connection on every PPTX ingest" pattern
+        that bypassed the connection pool.
+        """
         try:
+            from core.preferences_cache import peek_cached_preference, _cache
+            import time as _time
+
+            value = peek_cached_preference("pptx_chart_extraction_mode")
+            if value in ("placeholder", "libreoffice"):
+                return value
+
+            # Cold cache: one-time sync read, then populate the cache so
+            # all later PPTX conversions are cache-only.
             import sqlite3
             from core.database import get_db_path
 
             conn = sqlite3.connect(get_db_path())
-            row = conn.execute(
-                "SELECT value FROM user_preferences WHERE key = ?",
-                ("pptx_chart_extraction_mode",),
-            ).fetchone()
-            conn.close()
-            if row and row[0] in ("placeholder", "libreoffice"):
-                return row[0]
+            try:
+                row = conn.execute(
+                    "SELECT value FROM user_preferences WHERE key = ?",
+                    ("pptx_chart_extraction_mode",),
+                ).fetchone()
+            finally:
+                conn.close()
+
+            resolved = row[0] if row and row[0] in ("placeholder", "libreoffice") else "placeholder"
+            _cache["pptx_chart_extraction_mode"] = (resolved, _time.time() + 300)
+            return resolved
         except Exception:
-            pass
-        return "placeholder"
+            return "placeholder"
 
     # ── LibreOffice slide rendering ──────────────────────────────────────────
 

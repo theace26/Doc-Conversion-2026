@@ -103,12 +103,13 @@ the relevant subsystem. Referenced from CLAUDE.md.
   used the wrong name, crashing all scans. Always use the DB helper layer in
   `core/db/preferences.py` when possible; if writing raw SQL, double-check the table name.
 
-- **DB contention logging is TEMPORARY (v0.19.6.5)**: `core/db/contention_logger.py`
-  adds three dedicated log files (`db-contention.log`, `db-queries.log`, `db-active.log`)
-  with instrumentation in `core/db/connection.py`. These logs are high-volume during
-  scans (every DB call is logged). **Deactivate once "database is locked" errors are
-  diagnosed and fixed** — remove the module, undo the imports and instrumentation in
-  `connection.py`, and restore the original lean functions.
+- **DB contention logging was retired in v0.24.2.** The module
+  `core/db/contention_logger.py`, its settings-page UI, the
+  `/debug/api/contention-logs` endpoint, and the `db_contention_logging`
+  preference are all removed. `db-contention.log`, `db-queries.log`, and
+  `db-active.log` are no longer written. If "database is locked" is
+  suspected again, add short-lived structured logging in
+  `core/db/connection.py` rather than reintroducing the full module.
 
 - **Batch upsert fallback (v0.19.3)**: `upsert_bulk_files_batch()` in `core/db/bulk.py`
   wraps each batch of 200 files in a single transaction. If the batch write fails

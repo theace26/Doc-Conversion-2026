@@ -6,6 +6,26 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.24.2 — Hardening pass
+
+Mostly invisible work, but worth knowing about:
+
+- **Database backup restore is safer.** Restoring a backup from a
+  newer version of MarkFlow is now refused with a clear error
+  ("schema version X is newer than this build") instead of silently
+  corrupting the database. Older backups still restore and upgrade
+  as before.
+- **Audio/video transcription behaves better under timeout.** If a
+  Whisper transcription exceeds its timeout, subsequent jobs now
+  queue safely behind the still-running one rather than competing
+  for the GPU. A warning is logged so you know the GPU is still busy.
+- **DB diagnostic logging retired.** The temporary "DB Contention
+  Logging" section on the Settings page is gone; its log files are
+  no longer written. If you had it enabled, this is a nice quiet
+  improvement to your log volume.
+
+---
+
 ## v0.24.1 — AI Assist toggle feedback
 
 Small but useful polish on the Search page AI Assist toggle.

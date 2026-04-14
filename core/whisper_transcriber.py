@@ -11,6 +11,7 @@ GPU auto-detection:
 """
 
 import asyncio
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -18,6 +19,38 @@ import structlog
 import torch
 
 log = structlog.get_logger(__name__)
+
+# Single-flight gate for Whisper inference.
+#
+# Python threads cannot be cancelled, so a timed-out transcription (via
+# ``asyncio.wait_for``) continues running in the background, consuming the
+# GPU/CPU until the underlying ``model.transcribe`` returns. The fix uses
+# TWO locks:
+#
+#   _thread_lock (threading.Lock): held INSIDE the worker thread for the
+#     entire duration of ``model.transcribe``. An orphan thread (from a
+#     prior timeout) holds this until it finishes, so the next worker
+#     thread blocks at ``_thread_lock.acquire()`` rather than contending
+#     with the orphan on the GPU.
+#
+#   _asyncio_lock (asyncio.Lock): held by the coroutine across the whole
+#     ``asyncio.to_thread`` call. On CancelledError (wait_for timeout),
+#     this lock releases immediately, freeing the awaiter — but the next
+#     coroutine still blocks on _thread_lock inside its own worker thread
+#     before touching the model. Net effect: at most one real Whisper
+#     inference runs at any moment, even under repeated timeouts.
+_thread_lock = threading.Lock()
+_asyncio_lock = asyncio.Lock()
+
+# True while any worker thread is actively inside ``model.transcribe``.
+# Exposed for diagnostics — a timed-out caller can check this to know
+# whether their GPU is still occupied by the orphan job.
+_orphan_thread_active = False
+
+
+def orphan_thread_active() -> bool:
+    """Return True if a previous timed-out Whisper job is still running."""
+    return _orphan_thread_active
 
 
 @dataclass
@@ -111,16 +144,34 @@ class WhisperTranscriber:
         """
 
         def _run():
-            model = cls._load_model(model_name, device)
-            options = {}
-            if language and language != "auto":
-                options["language"] = language
+            global _orphan_thread_active
+            # Block here if a prior orphan thread is still running. This
+            # is the GPU-level serialization that outlives asyncio.
+            with _thread_lock:
+                _orphan_thread_active = True
+                try:
+                    model = cls._load_model(model_name, device)
+                    options = {}
+                    if language and language != "auto":
+                        options["language"] = language
 
-            result = model.transcribe(str(audio_path), **options)
-            return result
+                    return model.transcribe(str(audio_path), **options)
+                finally:
+                    _orphan_thread_active = False
 
-        # CPU-bound — run in thread pool
-        raw = await asyncio.to_thread(_run)
+        async with _asyncio_lock:
+            try:
+                raw = await asyncio.to_thread(_run)
+            except asyncio.CancelledError:
+                log.warning(
+                    "whisper_orphan_thread",
+                    note="Inference thread cannot be cancelled; it will "
+                         "continue running until model.transcribe returns. "
+                         "Subsequent Whisper jobs will queue behind it at "
+                         "the threading.Lock boundary.",
+                    file=str(audio_path),
+                )
+                raise
 
         segments = []
         total_text = []

@@ -24,7 +24,7 @@ Read on demand — none of these are auto-loaded. Listed by role.
 
 | File | Role / read it when... |
 |------|------------------------|
-| [`docs/security-audit.md`](docs/security-audit.md) | Findings-only security audit performed at v0.16.0. **62 findings, 3 critical + 5 high — pre-prod blocker.** Read when working on auth, input validation, JWT, role guards, or anything customer-data-sensitive. |
+| [`docs/security-audit.md`](docs/security-audit.md) | Findings-only security audit performed at v0.16.0. **62 findings: 10 critical + 18 high + 22 medium + 12 low/info — pre-prod blocker.** Read when working on auth, input validation, JWT, role guards, or anything customer-data-sensitive. |
 | [`docs/streamlining-audit.md`](docs/streamlining-audit.md) | Code-quality / DRY audit performed at v0.16.0. All 24 items resolved across v0.16.1–v0.16.2. Read only when you want history of how the codebase was tightened (e.g., why `core/db/` is split into 8 modules). |
 
 ### Integration / contracts (Phase 10+)
@@ -91,18 +91,64 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.24.1
+## Current Version — v0.24.2
 
-**Targeted UX fix on the Search page AI Assist toggle.** The active
-state is now unmistakable (solid accent fill + `ON` pill), a
-one-line hint under the search box explains what happens on the
-next search when the toggle is ON before searching, and a new
-"Synthesize these results" button appears when the toggle is
-flipped ON after a search has already rendered — closes the
-silent-no-op surprise.
+**Hardening pass: audit-accuracy correction, DB backup
+schema-version guard, PPTX pref read no longer bypasses the pool,
+Whisper inference serialized so timed-out threads can't stack, and
+the temporary DB contention logging instrumentation was retired.**
 
-Files: `static/css/ai-assist.css`, `static/search.html`,
-`static/js/ai-assist.js`, `core/version.py`, design spec at
+- **Security audit count corrected** — CLAUDE.md had "3 critical + 5
+  high"; actual doc has 10 critical + 18 high + 22 medium + 12
+  low/info. Still the one pre-prod blocker.
+- **DB backup schema-version guard** (`core/db_backup.py`) — restore
+  refuses a backup whose highest applied `schema_migrations.version`
+  is newer than the current build. Prevents "passes integrity check,
+  crashes on first migration-dependent query."
+- **PPTX pref read** (`formats/pptx_handler.py`) — was opening a raw
+  sqlite3 connection on every ingest. Now reads through the
+  preferences cache (new `peek_cached_preference` sync helper in
+  `core/preferences_cache.py`), with a one-time sync sqlite read on
+  cold cache to warm it.
+- **Whisper serialization** (`core/whisper_transcriber.py`) —
+  `asyncio.wait_for` times out the awaiter but can't cancel the
+  underlying inference thread. Added a `threading.Lock` inside the
+  worker thread + an `asyncio.Lock` around the outer await; orphan
+  threads from a prior timeout block all subsequent calls at the
+  thread-level lock instead of stacking on the GPU. Honest
+  `whisper_orphan_thread` warning logged on timeout.
+- **DB contention logging retired** — `core/db/contention_logger.py`
+  deleted, call sites in `core/db/connection.py`, `main.py`,
+  `api/routes/debug.py`, `api/routes/preferences.py` removed, settings
+  UI section deleted, `db_contention_logging` preference removed from
+  defaults. Gotchas + key-files updated.
+- **Convert-page SSE** — listed in v0.22.15 follow-ups; on static
+  review in v0.24.2, `api/routes/batch.py:100-207` +
+  `core/converter.py:40-53` appear functional. Leaving a watch on
+  this with no code change; if a reproducible failure surfaces,
+  revisit with an actual repro.
+- **Corrupt-audio tensor reshape** — listed in v0.22.15 follow-ups;
+  no `.reshape()` calls exist anywhere in the audio/transcription
+  paths. Assumed resolved in an earlier patch. Removing from
+  outstanding list.
+
+Files: `core/version.py`, `core/db_backup.py`, `formats/pptx_handler.py`,
+`core/preferences_cache.py`, `core/whisper_transcriber.py`,
+`core/db/connection.py`, `core/db/preferences.py`,
+`api/routes/debug.py`, `api/routes/preferences.py`, `main.py`,
+`static/settings.html`, `CLAUDE.md`, `docs/gotchas.md`,
+`docs/key-files.md`, `docs/version-history.md`. Module deleted:
+`core/db/contention_logger.py`.
+
+---
+
+## v0.24.1 — AI Assist toggle feedback
+
+Targeted UX fix on the Search page AI Assist toggle. Active state
+now solid accent fill + `ON` pill; pre-search intent hint; inline
+"Synthesize these results" button when toggled on after results are
+already showing. Files: `static/css/ai-assist.css`,
+`static/search.html`, `static/js/ai-assist.js`. Design spec at
 `docs/superpowers/specs/2026-04-13-ai-assist-toggle-feedback-design.md`,
 full notes in `docs/version-history.md`.
 
@@ -379,12 +425,12 @@ log archive system is interim.
 
 - ~~**Lifecycle timers**~~ — **DONE** (v0.23.3). Defaults and DB both at
   production values: grace=36h, retention=60d. Adjustable via Settings UI.
-- **Security audit** (62 findings in `docs/security-audit.md`) not yet addressed.
+- **Security audit** (62 findings: 10 critical + 18 high + 22 medium + 12
+  low/info in `docs/security-audit.md`) not yet addressed.
 
-**Temporary instrumentation (deactivate when resolved):**
-- **DB contention logging (v0.19.6.5):** `db-contention.log`, `db-queries.log`,
-  `db-active.log` via `core/db/contention_logger.py`. High-volume during scans.
-  Remove once "database is locked" is fully diagnosed.
+**Temporary instrumentation:** DB contention logging was retired in
+v0.24.2 (`core/db/contention_logger.py` deleted, all call sites cleaned
+up). No temporary instrumentation currently active.
 
 ---
 

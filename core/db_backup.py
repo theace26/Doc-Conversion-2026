@@ -173,6 +173,29 @@ def _integrity_check_sync(path: Path) -> tuple[bool, list[str]]:
     return ok, findings
 
 
+def _schema_version_sync(path: Path) -> int:
+    """Return the highest applied schema_migrations.version, or 0 if unknown."""
+    try:
+        conn = sqlite3.connect(str(path))
+        try:
+            cur = conn.execute("SELECT MAX(version) FROM schema_migrations")
+            row = cur.fetchone()
+            return int(row[0]) if row and row[0] is not None else 0
+        finally:
+            conn.close()
+    except Exception:
+        return 0
+
+
+def _current_schema_version_sync() -> int:
+    """Highest migration version known to this build (from code)."""
+    try:
+        from core.db.schema import _MIGRATIONS
+        return max(v for v, _d, _s in _MIGRATIONS) if _MIGRATIONS else 0
+    except Exception:
+        return 0
+
+
 def _resolve_and_validate_source(source_path: Path) -> Path:
     """Resolve ``source_path`` and ensure it sits under ``BACKUPS_DIR``.
 
@@ -263,7 +286,40 @@ async def restore_database(
             "generated_at": _now_iso(),
         }
 
-    log.info("db_restore.started", candidate=str(candidate))
+    # Schema-version guard: refuse to restore a backup whose highest applied
+    # migration is NEWER than this build knows about. Restoring a future-schema
+    # backup into older code passes integrity_check but crashes on first
+    # migration-dependent query. Backups from OLDER schemas are allowed —
+    # init_db's migration runner will bring them forward.
+    backup_version = await asyncio.to_thread(_schema_version_sync, candidate)
+    current_version = _current_schema_version_sync()
+    if backup_version > current_version:
+        log.error(
+            "db_restore.schema_version_mismatch",
+            backup=backup_version,
+            current=current_version,
+            candidate=str(candidate),
+        )
+        if temp_upload is not None:
+            try:
+                temp_upload.unlink(missing_ok=True)
+            except Exception:
+                pass
+        return {
+            "ok": False,
+            "code": "schema_version_newer",
+            "error": (
+                f"Backup schema version {backup_version} is newer than this "
+                f"build's latest migration ({current_version}). Upgrade "
+                f"MarkFlow before restoring this backup."
+            ),
+            "backup_schema_version": backup_version,
+            "current_schema_version": current_version,
+            "generated_at": _now_iso(),
+        }
+
+    log.info("db_restore.started", candidate=str(candidate),
+             backup_schema=backup_version, current_schema=current_version)
 
     # Shut pool down so we can swap files.
     try:

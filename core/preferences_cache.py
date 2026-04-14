@@ -35,6 +35,24 @@ async def get_cached_preference(key: str, default: Any = None) -> Any:
     return value
 
 
+def peek_cached_preference(key: str, default: Any = None) -> Any:
+    """Synchronous cache peek. Returns the cached value or ``default``.
+
+    Does NOT hit the DB on miss. Safe to call from threads. Intended for
+    sync-only code paths (e.g., handlers running inside asyncio.to_thread)
+    that previously opened raw sqlite connections to read a preference.
+    After the first async read (which populates the cache), this returns
+    the same value without I/O. A Settings change invalidates the key so
+    the next async read refreshes it.
+    """
+    now = time.time()
+    if key in _cache:
+        value, expiry = _cache[key]
+        if now < expiry:
+            return value
+    return default
+
+
 def invalidate_preference(key: str):
     """Remove a single key from cache. Call after PUT /api/preferences/<key>."""
     removed = _cache.pop(key, None)

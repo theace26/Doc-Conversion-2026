@@ -4,6 +4,122 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.24.2 — Hardening pass (2026-04-13)
+
+A batch of small, surgical fixes across five areas. Output of a
+code review + state analysis session that followed the v0.24.1 UX
+fix. No new features.
+
+### Security-audit count correction
+
+CLAUDE.md's header row for `docs/security-audit.md` said "3 critical
++ 5 high." The actual doc has **62 findings: 10 critical + 18 high
++ 22 medium + 12 low/info.** Pre-prod blocker unchanged, but the
+*size* of the blocker now reflects reality.
+
+### DB backup schema-version guard
+
+`core/db_backup.py` gains `_schema_version_sync` and
+`_current_schema_version_sync` helpers and checks the backup's
+highest applied `schema_migrations.version` before touching the live
+DB. If the backup is newer than the running build knows about, the
+restore refuses with `code: "schema_version_newer"`. Older backups
+are still allowed — the migration runner brings them forward at
+init. Catches a failure mode where `integrity_check` passes but the
+first migration-dependent query crashes.
+
+### PPTX pref read no longer bypasses the pool
+
+`formats/pptx_handler._read_chart_mode_pref` was opening a raw
+`sqlite3.connect` on every PPTX ingest. Now reads through the
+in-memory preferences cache (new `peek_cached_preference` sync
+helper added to `core/preferences_cache.py`). On a cold cache, a
+one-time sync sqlite read warms the cache and all subsequent
+conversions hit memory only. Low-volume issue in practice (the
+old path was read-only), but it was one of several inconsistent
+patterns for reading prefs from sync code, and the pattern was
+spreading.
+
+### Whisper inference serialized — orphan threads can't stack
+
+`core/whisper_transcriber.py` wraps `model.transcribe` in
+`asyncio.to_thread`. When the caller wraps that in
+`asyncio.wait_for`, a timeout cancels the awaiter but the thread
+keeps running until `model.transcribe` returns — Python threads
+cannot be cancelled. Two stacked timeouts meant two threads
+competing for GPU memory.
+
+Fix uses two locks:
+- `threading.Lock` held *inside* the worker thread for the entire
+  `model.transcribe` call. An orphan thread from a prior timeout
+  holds this until it completes.
+- `asyncio.Lock` around the outer `asyncio.to_thread` so concurrent
+  awaiters queue at the asyncio layer first.
+
+An honest `whisper_orphan_thread` warning is logged on
+`CancelledError` so the operator sees the "GPU still busy" state
+rather than a silent resource leak. `orphan_thread_active()`
+exposed as a module function for status-page hooks.
+
+### DB contention logging retired
+
+The temporary instrumentation module flagged in v0.19.6.5 is
+removed. The "database is locked" bug it was hunting hasn't
+surfaced in recent runs and the module was spamming log files at
+2.4M+ lines during scans. Changes:
+
+- `core/db/contention_logger.py` — deleted
+- `core/db/connection.py` — imports + every `log_acquire` /
+  `log_release` / `log_query` / `log_lock_error` call removed;
+  `get_db()` and `db_write_with_retry()` back to their original
+  lean form
+- `main.py` — startup preference apply block removed
+- `api/routes/preferences.py` — conditional toggle handler removed
+- `api/routes/debug.py` — `/debug/api/contention-logs` endpoint
+  removed
+- `core/db/preferences.py` — `db_contention_logging` entry removed
+  from `DEFAULT_PREFERENCES`
+- `static/settings.html` — "Debug: DB Contention Logging" section
+  and its ~120-line `contentionViewer` IIFE removed
+- `docs/gotchas.md` — the "TEMPORARY" gotcha now documents the
+  retirement; if lock contention reappears, add short-lived
+  structured logging rather than reintroducing the full module
+- `docs/key-files.md` — row removed
+
+Log files on disk (`db-contention.log`, `db-queries.log`,
+`db-active.log`) are orphaned but not deleted by this patch —
+operators can rm them at leisure.
+
+### v0.22.15 follow-ups — reconciliation
+
+CLAUDE.md listed three "outstanding" follow-ups from v0.22.15:
+
+1. **Broken Convert-page SSE** — on static review,
+   `api/routes/batch.py:100-207` and `core/converter.py:40-53`
+   appear functional. The `/api/convert` flow creates a batch,
+   redirects to `progress.html`, which opens SSE to
+   `/api/batch/{id}/stream`, which reads from the progress queue
+   the converter emits into. No clear bug found. Leaving a watch —
+   if a reproducible failure surfaces, revisit with an actual repro.
+2. **Uncancellable `asyncio.wait_for` on Whisper** — addressed this
+   release (see above).
+3. **Corrupt-audio tensor reshape** — no `.reshape()` calls exist
+   anywhere in the audio/transcription paths (`grep` confirmed).
+   Assumed resolved in an earlier patch. Removed from outstanding
+   list.
+
+### Files touched
+
+`core/version.py`, `core/db_backup.py`, `formats/pptx_handler.py`,
+`core/preferences_cache.py`, `core/whisper_transcriber.py`,
+`core/db/connection.py`, `core/db/preferences.py`,
+`api/routes/debug.py`, `api/routes/preferences.py`, `main.py`,
+`static/settings.html`, `CLAUDE.md`, `docs/gotchas.md`,
+`docs/key-files.md`, `docs/version-history.md`. Deleted:
+`core/db/contention_logger.py`.
+
+---
+
 ## v0.24.1 — AI Assist toggle feedback (2026-04-13)
 
 Targeted UX fix on the Search page AI Assist toggle. Two user
