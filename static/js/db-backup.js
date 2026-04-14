@@ -14,6 +14,15 @@
 
   let modalsInjected = false;
   let selectedFile = null;
+  // Per-modal Esc handlers + opener references so focus can be restored on close.
+  const modalState = {
+    backup: { escHandler: null, opener: null },
+    restore: { escHandler: null, opener: null },
+  };
+
+  // Accepted restore file extensions. Keep in sync with the file input's
+  // `accept` attribute (which is only a picker hint — drag-drop bypasses it).
+  const DB_EXT_RE = /\.(db|sqlite|sqlite3)$/i;
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   function fmtBytes(n) {
@@ -268,7 +277,14 @@
       const oldText = btn.textContent;
       btn.textContent = 'Preparing...';
       try {
-        const response = await fetch('/api/db/backup?download=true', { method: 'POST' });
+        // Raw fetch (need the blob body, not JSON). Match API.post's options so
+        // same-origin cookies / auth travel identically — see `API.post` in app.js.
+        const response = await fetch('/api/db/backup?download=true', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({}),
+        });
         if (!response.ok) {
           let detail = `HTTP ${response.status}`;
           try {
@@ -380,6 +396,16 @@
   }
 
   function setSelectedFile(file) {
+    if (!file) return;
+    // The file input's `accept=".db,.sqlite,.sqlite3"` is only a picker hint —
+    // drag-and-drop bypasses it. Validate extension explicitly here so both
+    // paths (change + drop) enforce the same whitelist.
+    if (!DB_EXT_RE.test(file.name)) {
+      banner('Please select a .db, .sqlite, or .sqlite3 file.');
+      const fi = document.getElementById('dbbk-file-input');
+      if (fi) fi.value = '';
+      return;
+    }
     selectedFile = file;
     const info = document.getElementById('dbbk-file-info');
     info.textContent = '';
@@ -510,13 +536,59 @@
   }
 
   // ── Modal open/close ───────────────────────────────────────────────────────
-  function openModal(backdrop) { backdrop.classList.add('open'); }
-  function closeModal(backdrop) { backdrop.classList.remove('open'); }
+  // `key` is 'backup' or 'restore' — used to track opener + Esc handler per modal.
+  function openModal(backdrop, key) {
+    backdrop.classList.add('open');
+    const state = modalState[key];
+    if (state) {
+      // Stash the element that opened us so we can restore focus on close.
+      state.opener = document.activeElement;
+      // One Esc handler per modal; removed on close.
+      state.escHandler = (e) => {
+        if (e.key === 'Escape') {
+          e.stopPropagation();
+          closeModal(backdrop, key);
+        }
+      };
+      document.addEventListener('keydown', state.escHandler);
+    }
+    // Move focus into the dialog. The close button is the safest initial
+    // focus target (it's always present and its action is non-destructive).
+    const closeId = key === 'backup' ? 'dbbk-btn-close-backup' : 'dbbk-btn-close-restore';
+    const focusTarget = document.getElementById(closeId) || backdrop.querySelector('.dialog');
+    if (focusTarget && typeof focusTarget.focus === 'function') {
+      // Defer so the browser applies .open styles before focusing.
+      setTimeout(() => focusTarget.focus(), 0);
+    }
+  }
+
+  function closeModal(backdrop, key) {
+    backdrop.classList.remove('open');
+    // Resolve key from the backdrop id if the caller didn't pass it (older
+    // call sites just pass the backdrop element).
+    if (!key) {
+      key = backdrop.id === 'dbbk-backup-backdrop' ? 'backup'
+          : backdrop.id === 'dbbk-restore-backdrop' ? 'restore'
+          : null;
+    }
+    const state = key ? modalState[key] : null;
+    if (state) {
+      if (state.escHandler) {
+        document.removeEventListener('keydown', state.escHandler);
+        state.escHandler = null;
+      }
+      // Restore focus to the element that opened the modal.
+      if (state.opener && typeof state.opener.focus === 'function') {
+        try { state.opener.focus(); } catch {}
+      }
+      state.opener = null;
+    }
+  }
 
   // ── Public API ─────────────────────────────────────────────────────────────
   window.openBackupModal = function () {
     injectModals();
-    openModal(document.getElementById('dbbk-backup-backdrop'));
+    openModal(document.getElementById('dbbk-backup-backdrop'), 'backup');
   };
 
   window.openRestoreModal = function () {
@@ -535,6 +607,6 @@
     backdrop.querySelectorAll('.dbbk-panel').forEach(p => {
       p.classList.toggle('active', p.getAttribute('data-panel') === 'upload');
     });
-    openModal(backdrop);
+    openModal(backdrop, 'restore');
   };
 })();
