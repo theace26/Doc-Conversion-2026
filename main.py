@@ -417,6 +417,10 @@ app.include_router(mounts_routes.router)
 from api.routes import ai_assist as ai_assist_routes
 app.include_router(ai_assist_routes.router)
 
+# Spec B — Analysis queue management
+from api.routes import analysis as analysis_routes
+app.include_router(analysis_routes.router)
+
 log.info("markflow.all_routes_registered")
 
 # ── Static files ──────────────────────────────────────────────────────────────
