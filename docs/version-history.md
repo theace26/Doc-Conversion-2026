@@ -4,6 +4,39 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.25.2 — Fix AI Assist init race (2026-04-14)
+
+`ai-assist.js` was logging `AIAssist: required DOM elements not
+found` on every search page load. Root cause: the inline
+`<script>` block in `static/search.html` called `AIAssist.init()`
+synchronously during HTML parsing at line ~1045, but the
+`<aside id="ai-assist-drawer">` element it looks up lives at
+line ~1253 — below the script. At init time the drawer hadn't
+been parsed yet, so `getElementById('ai-assist-drawer')` returned
+null, `init()` bailed at its null-guard, and click handlers for
+the **AI Assist toggle** and **"Synthesize these results"** run
+button were never attached. Both buttons rendered but silently
+did nothing.
+
+### Fix
+
+Wrap `AIAssist.init()` in a `DOMContentLoaded` listener when
+`document.readyState === 'loading'` (otherwise call it directly).
+This is a one-branch guard — no HTML reorganization needed, and
+it tolerates future inline-script moves without silently
+reintroducing the bug.
+
+### Notes
+
+- Backend and CSS were never the problem. `/api/ai-assist/status`
+  returned `enabled: true` and the SSE stream at
+  `/api/ai-assist/search` produced Claude output on direct POST.
+- This has been broken since the drawer element was added;
+  nobody caught it because the only visible symptom is a single
+  `console.warn` that's trivial to miss.
+
+---
+
 ## v0.25.1 — Search responsiveness feedback (2026-04-14)
 
 User reported that hitting Enter on a plain keyword search (e.g.

@@ -6,6 +6,19 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.25.2 — AI Assist buttons now actually work
+
+The **AI Assist** toggle (top-right of the search bar) and the
+**Synthesize these results** button (appears in the results
+toolbar when AI Assist is turned on) were silently broken —
+clicking them did nothing. A DOM-ordering bug in the search page
+meant the click handlers never got attached. Fixed.
+
+If you tried AI Assist earlier today and thought it was disabled
+or misconfigured, try again — it should work now.
+
+---
+
 ## v0.25.1 — Search now shows you it's working
 
 Small but noticeable fix: when you hit Enter on a search, you

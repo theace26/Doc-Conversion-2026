@@ -1041,8 +1041,18 @@
   }
 
   // ── AI Assist init ─────────────────────────────────────────────────────────
+  // Defer to DOMContentLoaded: the drawer <aside id="ai-assist-drawer"> lives
+  // at the bottom of the body, AFTER this inline <script> block. If we called
+  // init() synchronously here, getElementById('ai-assist-drawer') would return
+  // null, init() would bail at its "required DOM elements not found" check,
+  // and the toggle + run buttons would silently never bind their click
+  // handlers.
   if (typeof AIAssist !== 'undefined') {
-    AIAssist.init();
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function() { AIAssist.init(); });
+    } else {
+      AIAssist.init();
+    }
   }
 
   // ── Flag Modal ──���──────────────────────────────────────────��──────────────
