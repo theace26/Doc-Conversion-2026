@@ -26,7 +26,8 @@
         {"slug": "adobe-files", "title": "Adobe File Indexing", "description": "Metadata and text extraction from creative files"},
         {"slug": "unrecognized-files", "title": "Unrecognized Files", "description": "What happens with unsupported file types"},
         {"slug": "llm-providers", "title": "LLM Provider Setup", "description": "AI-powered OCR correction and summaries"},
-        {"slug": "gpu-setup", "title": "GPU Acceleration Setup", "description": "NVIDIA, AMD, and Intel GPU configuration"}
+        {"slug": "gpu-setup", "title": "GPU Acceleration Setup", "description": "NVIDIA, AMD, and Intel GPU configuration"},
+        {"slug": "hardware-specs", "title": "Hardware Specs", "description": "Minimum and recommended hardware, user capacity estimates"}
       ]
     },
     {
