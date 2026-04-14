@@ -199,11 +199,17 @@
 
       function fmtDateTime(iso) {
         if (!iso) return '—';
-        const s = /Z|[+-]\d{2}:\d{2}$/.test(iso) ? iso : iso + 'Z';
-        const d = new Date(s);
-        if (isNaN(d.getTime())) return iso;
-        return d.toLocaleString();
+        try {
+          const d = typeof parseUTC === 'function' ? parseUTC(iso) : new Date(iso);
+          if (!d || isNaN(d.getTime())) return String(iso);
+          return d.toLocaleString();
+        } catch (e) {
+          return String(iso);
+        }
       }
+
+      const VALID_STATUSES = new Set(['batched', 'completed', 'failed', 'mixed', 'excluded', 'pending']);
+      function safeStatus(s) { return VALID_STATUSES.has(s) ? s : 'mixed'; }
 
       function fmtMtime(mtime) {
         if (mtime == null) return '—';
@@ -262,12 +268,39 @@
       }
 
       async function refreshStatus() {
+        const data = await API.get('/api/analysis/status');
+        setStatus(data.paused);
+        renderCounts(data.counts);
+      }
+
+      function hideError() {
+        const banner = document.getElementById('error-banner');
+        if (banner) {
+          banner.hidden = true;
+          banner.textContent = '';
+        }
+      }
+
+      let pollFailCount = 0;
+      async function pollTick() {
+        if (document.hidden) {
+          setTimeout(pollTick, 5000);
+          return;
+        }
         try {
-          const data = await API.get('/api/analysis/status');
-          setStatus(data.paused);
-          renderCounts(data.counts);
+          await refreshStatus();
+          if (pollFailCount > 0) {
+            hideError();
+            pollFailCount = 0;
+          }
         } catch (e) {
-          showError('Failed to load analysis status: ' + e.message);
+          pollFailCount++;
+          if (pollFailCount === 1) {
+            showError('Status update failed: ' + (e.message || 'network error'));
+          }
+          // quieter on subsequent failures — banner already up
+        } finally {
+          setTimeout(pollTick, 5000);
         }
       }
 
@@ -325,7 +358,7 @@
         header.appendChild(sizeSpan);
 
         const pill = document.createElement('span');
-        pill.className = 'bm-pill ' + (batch.status || 'mixed');
+        pill.className = 'bm-pill ' + safeStatus(batch.status);
         pill.textContent = batch.status || 'mixed';
         header.appendChild(pill);
 
@@ -493,7 +526,7 @@
 
         const statusTd = document.createElement('td');
         const spill = document.createElement('span');
-        spill.className = 'bm-pill ' + (f.status || '');
+        spill.className = 'bm-pill ' + safeStatus(f.status);
         spill.textContent = f.status || '';
         statusTd.appendChild(spill);
         tr.appendChild(statusTd);
@@ -618,10 +651,17 @@
         }
       });
 
-      refreshStatus();
+      (async () => {
+        try {
+          await refreshStatus();
+        } catch (e) {
+          pollFailCount = 1;
+          showError('Status update failed: ' + (e.message || 'network error'));
+        }
+      })();
       loadBatches();
 
-      setInterval(refreshStatus, 5000);
+      setTimeout(pollTick, 5000);
     })();
   </script>
 </body>
