@@ -6,6 +6,49 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.24.0 — Inline file lists, DB backup/restore, batch management
+
+A sizeable UX-focused release. Three things that previously required
+leaving the page (or shelling into the server) are now one click away.
+
+**Inline file lists on Bulk and Status pages.** The counter values
+on the Bulk page and the Status page — converted, failed, skipped,
+pending — are now clickable. Click any count to see the actual list
+of files in that bucket right below the counters, paginated with
+"Load more." No more leaving the page to pull up a search just to
+figure out *which* 253 files got skipped. The list stays on the
+page you scrolled to even when the Status page auto-refreshes in
+the background.
+
+**Back up and restore the database from the UI.** Admins can now
+create and restore MarkFlow database backups directly from the
+**DB Health** page (and there's a matching **Database Maintenance**
+section on the Settings page for convenience). Restore is a
+drag-and-drop modal — drop a previous backup file, confirm, and
+MarkFlow swaps it in. Backups use SQLite's online backup API
+under the hood, so they're safe to take while the app is under
+load — you don't need to pause work first.
+
+**Batch management page.** A new **Batch Management** page (linked
+from the sidebar and from the pipeline pill on the Status page)
+lists every image-analysis batch with its status and file count.
+From here you can:
+
+- **Pause new batch submissions** — the analysis worker stops
+  picking up new batches while keeping in-flight work going.
+  Useful for draining the queue before a restart.
+- **Cancel pending batches** that haven't started yet.
+- **Exclude specific files** that are crashing the worker, without
+  nuking the whole batch.
+
+**New Hardware specs help article.** The help drawer now includes a
+dedicated **Hardware specs** article covering minimum and recommended
+CPU / RAM / GPU / storage, plus estimated user capacity for various
+deployment sizes. Useful when sizing a new deployment or deciding
+whether to add a GPU.
+
+---
+
 ## v0.23.8 — Better style fidelity, chart images, smarter OCR
 
 **Style fidelity for duplicate content.** When the same paragraph

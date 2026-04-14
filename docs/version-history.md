@@ -4,6 +4,206 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.24.0 — Spec A (quick wins) + Spec B (batch management) (2026-04-13)
+
+The first substantial UX release since the user flagged overall UX
+as needing attention. 19 commits across two design specs:
+**Spec A** — eight quick-win operator usability improvements
+(inline file lists on counter values, DB backup/restore UI, a
+hardware-specs help article registered in the help drawer, a
+Database Maintenance section on Settings). **Spec B** — a
+dedicated Batch Management page for the image-analysis queue,
+with pause gate, per-batch cancel, file exclusion, and 9 new API
+endpoints backed by 4 new DB helpers.
+
+### Why this shipped
+
+Two things were chronically awkward in v0.23.x:
+
+1. **Operator visibility on bulk / status pages.** When a bulk job
+   reported "253 skipped," there was no way to see *which* 253
+   files without leaving the page, opening a search, and manually
+   filtering by status. The Status page had the same problem per
+   card. Users had to mentally hold the filter query while navigating.
+2. **No in-product way to back up the DB before a risky operation.**
+   Admins were shelling into the container and running
+   `sqlite3 .backup` by hand (or, worse, `cp markflow.db ...`,
+   which silently produced a stale snapshot on a WAL database
+   under load). There was also no way to restore from the UI.
+3. **No operator surface for the image-analysis queue.** Batches
+   piled up with no way to cancel an in-flight batch, exclude a
+   specific file that was crashing the worker, or pause new
+   submissions while draining what was already queued.
+
+v0.24.0 addresses all three in a single release.
+
+### Inline file lists (A1, A2)
+
+**What changed.** Bulk page (`static/bulk.html`) and Status page
+(`static/status.html`) counter values — converted / failed /
+skipped / pending — are now clickable. Clicking one opens an
+inline panel directly under the counter strip showing the actual
+file list for that bucket, with "Load more" pagination.
+
+**Status page polling.** The Status page refreshes each card
+every 5 seconds. The first implementation re-rendered the panel
+from scratch on every poll, dumping the user back to page 1. The
+5e6a84c fix preserves the load-more page across polls by snapshotting
+the current `page` integer before re-render and restoring it after.
+Event delegation (cd5057b) was chosen over per-card click handlers
+because each poll replaces the card DOM — individual handlers
+would have been re-bound on every tick.
+
+**Files:** `static/bulk.html`, `static/status.html`,
+`static/js/bulk.js` (or equivalent helper), `api/routes/bulk.py`
+(new list endpoints scoped to job_id + status).
+
+### DB Backup / Restore (A3 – A6)
+
+**Why `sqlite3.Connection.backup()` and not `shutil.copy2()`.**
+MarkFlow runs with `PRAGMA journal_mode=WAL`. Under WAL, committed
+transactions may live in the `-wal` sidecar file for an arbitrary
+window before the checkpoint thread merges them back into the main
+`.db`. A naive file copy of the `.db` alone can silently miss a
+few seconds of committed writes, producing a backup that looks
+valid but is corrupt-ish (indexes pointing at rows that aren't
+there yet, etc.). The SQLite **online backup API** —
+`sqlite3.Connection.backup(dest_conn)` — is the correct answer: it
+reads pages under the WAL reader lock and produces a
+transactionally consistent snapshot even while writes are in
+flight. `core/db_backup.py` wraps this API. The sentinel-row test
+in `tests/test_db_backup.py` inserts a row, runs backup, and
+verifies the row is in the dest — proving the online backup beats
+the race.
+
+**API surface.** `api/routes/db_backup.py` exposes:
+
+- `POST /api/db/backup` — create a named backup. Returns typed
+  error codes on failure (disk-space, permissions, backup-in-flight).
+- `POST /api/db/restore` — upload a `.db` file, validate, swap in.
+- `GET /api/db/backups` — list existing backups with size + mtime.
+
+All routes are admin-only. Every call writes an audit log entry
+(initiator user, action, target file, result).
+
+**UI.** `static/js/db-backup.js` drives two modals on the DB
+Health page:
+
+- **Create Backup** — fire-and-forget button, success toast on
+  completion.
+- **Restore** — drag-drop drop-zone, file-type validation (must be
+  `.db`), Esc-to-close, focus trap, explicit confirm step, progress
+  indicator. Download-backup links go through authenticated cookie
+  fetch so signed URLs aren't required.
+
+Settings page (`static/settings.html`) gets a matching **Database
+Maintenance** section with the same controls plus links out to
+the full Health page.
+
+### Hardware specs help article (A7)
+
+`docs/help/hardware-specs.md` was written but not yet registered
+in the help drawer sidebar. Commit 12a8c15 adds it to
+`docs/help/_index.json` so it shows up in the `/help.html` TOC.
+Covers minimum / recommended CPU / RAM / GPU / storage, plus
+per-user throughput estimates matching the reference hardware
+(i7-10750H / 64 GB / GTX 1660 Ti).
+
+### Batch management page (B1 – B6)
+
+**Goal.** Give operators a single page that lists every
+image-analysis batch with status (queued / running / completed /
+cancelled), file counts, and per-batch controls. Let admins
+pause new submissions, cancel batches that haven't started, and
+exclude individual files that are crashing the worker.
+
+**DB layer (B1, B2).** Four new helpers in `core/db/analysis.py`:
+
+- `get_batches(status_filter=None, limit=50)` — list batches with
+  file counts, paginated.
+- `get_batch_files(batch_id)` — enumerate files in a batch.
+- `exclude_files(file_ids, reason)` — mark specific files
+  excluded so the worker skips them.
+- `cancel_all_batched(batch_id)` — mark all non-started files in
+  a batch as cancelled.
+
+Ten failing tests landed first (6c45d2e), then the implementation
+turned them green (ab4ec70) — strict TDD.
+
+**Pause preference (B3, B5).** New `analysis_submission_paused`
+boolean in `core/db/preferences.py` (default `false`). The
+analysis worker (`core/image_analysis_worker.py`) now checks this
+gate on each loop iteration and skips submission while paused.
+In-flight work is not cancelled — paused = "don't start new," not
+"kill existing." Operators drain the queue by pausing, waiting
+for current batches to finish, then acting.
+
+**API router (B4).** `api/routes/analysis.py` mounts 9 endpoints:
+list batches, get batch files, cancel batch, exclude files,
+cancel-all-batched, get/set pause state, resubmit batch, and a
+batch-detail lookup. Code review (1657048) added a path-traversal
+guard on file-access endpoints, deduplicated the
+`is_image_extension` helper (was defined in two places), and
+wrote audit-log entries for every exclude/cancel.
+
+**Frontend (B6).** `static/batch-management.html` renders the
+batch list with inline file expansion, pause toggle in the
+header, and per-batch action buttons. `fix(B6)` (b597d53) added
+a polling overlap guard (don't start a new fetch while the
+previous is in flight), honored the `parseUTC()` convention for
+backend timestamps (SQLite strips `+00:00`), and whitelisted the
+allowed status values client-side so a bad server response can't
+render as an arbitrary class name.
+
+The sidebar gets a new nav entry, and the pipeline pill on the
+Status page now links directly to `/batch-management.html`
+instead of a generic anchor.
+
+### Files created
+
+- `core/db_backup.py`
+- `core/db/analysis.py`
+- `api/routes/db_backup.py`
+- `api/routes/analysis.py`
+- `static/batch-management.html`
+- `static/js/db-backup.js`
+- `tests/test_db_backup.py`
+- `tests/test_analysis_batches.py`
+- `docs/help/hardware-specs.md` (content finalized + registered)
+
+### Files modified
+
+`core/version.py`, `core/db/preferences.py`,
+`core/image_analysis_worker.py`, `main.py`, `static/bulk.html`,
+`static/status.html`, `static/health.html`,
+`static/settings.html`, `docs/help/_index.json`, sidebar nav
+partial, `CLAUDE.md`, `docs/version-history.md`,
+`docs/help/whats-new.md`, `docs/gotchas.md`.
+
+### Tests
+
+**21 new tests** total:
+
+- 10 in `tests/test_analysis_batches.py` covering the four new
+  DB helpers (happy paths + exclude-already-excluded +
+  cancel-already-cancelled + filter / limit).
+- 11 in `tests/test_db_backup.py` covering the online backup
+  API, sentinel-row race, restore with validation, typed
+  error codes, and audit-log integration.
+
+### Why it matters
+
+This release swaps three operator workflows from "shell into the
+container and run queries" to "click something on the page."
+It's the first of what's expected to be several UX-focused
+releases addressing the broader feedback. The DB backup path
+is also the prerequisite for every future destructive-operation
+audit: any code path that mutates the schema or bulk-deletes
+data can now surface a "back up first?" prompt that actually
+works.
+
+---
+
 ## v0.23.8 — Spec remediation Batch 2 (2026-04-13)
 
 Three items from the spec review, completing the remediation started in

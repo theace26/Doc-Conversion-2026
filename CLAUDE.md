@@ -91,61 +91,100 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.23.8
+## Current Version — v0.24.0
 
-**Spec remediation Batch 2 — three items from the spec review.**
+**Spec A (quick wins) + Spec B (batch management) — substantial UX
+release addressing the "UX is atrocious" feedback: operators can now
+drill into bulk/status counters inline, back up and restore the DB
+from the UI, and manage image-analysis batches on a dedicated page.**
 
-### C1-a: Content-hash sidecar collision fix
+### Inline file lists (Spec A1 / A2)
 
-Sidecar element keys changed from bare hashes (`a1b2c3d4`) to
-occurrence-indexed hashes (`a1b2c3d4:0`, `a1b2c3d4:1`). Duplicate
-paragraphs (e.g., repeated "N/A") previously overwrote each
-other's styles (last-one-wins). Now each occurrence stores its
-own style entry. Schema version bumped `1.0.0` → `2.0.0`;
-`load_sidecar()` auto-migrates v1 bare-hash keys to `:0` suffix.
-New `core/sidecar_match.py` module provides occurrence-aware
-lookup with a 4-level cascade: exact v2 key → overflow fallback
-→ bare hash (v1 compat) → fuzzy text match (SequenceMatcher
-ratio >= 0.90). Each sidecar entry now includes a `_text` field
-(normalized source text) enabling fuzzy matching when users edit
-paragraphs in the markdown.
+Bulk page and Status page counter values (converted / failed /
+skipped / pending) are now clickable. Clicking a count opens an
+inline panel with the actual file list for that bucket, paginated
+with "Load more." Status page uses event delegation so the same
+handler works across per-card polls, and pagination state is
+preserved across the 5s polling interval (fix in 5e6a84c) so users
+don't get bounced back to page 1 mid-scroll.
 
-### M5: PPTX chart/SmartArt extraction
+### DB Backup / Restore (Spec A3-A6)
 
-New `pptx_chart_extraction_mode` preference (`placeholder` default,
-`libreoffice` opt-in). In libreoffice mode, PPTX is converted to
-PDF via LibreOffice headless, each slide rendered to a PIL image
-via PyMuPDF at 2x resolution, and chart regions cropped by mapping
-EMU shape bounds to pixel coordinates. Chart images saved as PNG
-`ImageData` elements. SmartArt detection added: group shapes with
-`dgm:relIds` or `smartArt` in their XML emit a warning; text
-content still extracted via recursive group traversal. LibreOffice
-failure falls back silently to placeholder mode (timeout 60s).
+New `core/db_backup.py` module wrapping `sqlite3.Connection.backup()`
+— the SQLite online backup API, which is WAL-safe and handles live
+committed transactions still in `-wal` correctly. A naive
+`shutil.copy2` of the `.db` file would silently miss those and
+produce a corrupt/stale snapshot. Sentinel-row test proves the
+backup captures the latest commit.
 
-### C5: Remaining OCR signals
+New endpoints in `api/routes/db_backup.py`:
+`POST /api/db/backup`, `POST /api/db/restore`, `GET /api/db/backups`.
+Typed error codes, audit-log entries for every backup/restore/
+download, admin-only role guard.
 
-Two new text-layer quality signals in `core/ocr.py`:
-`text_layer_is_garbage(chars)` detects PDFs where >80% of
-pdfplumber chars have position (0,0) or all stack at the same
-point. `text_encoding_is_suspect(text)` flags text where >30% of
-letter characters fall outside Latin/Latin Extended blocks
-(ordinal >= 0x0250). Both wired into `formats/pdf_handler.py` at
-both ingest paths (`_ingest_pdfplumber` and `ingest_with_ocr`).
+UI on the DB Health page (`static/health.html` + `static/js/db-backup.js`):
+drag-drop restore modal, download-backup button with auth cookie,
+Esc-to-close, focus management. Matching "Database Maintenance"
+section on `static/settings.html`.
 
-- **Files created:** `core/sidecar_match.py`,
-  `tests/test_sidecar_match.py`
-- **Files modified:** `core/version.py`, `core/metadata.py`,
-  `core/ocr.py`, `core/db/preferences.py`,
-  `formats/docx_handler.py`, `formats/pptx_handler.py`,
-  `formats/pdf_handler.py`, `api/routes/preferences.py`,
-  `static/settings.html`, `tests/test_roundtrip.py`,
-  `tests/test_docx.py`, `tests/test_pptx_handler.py`,
-  `tests/test_ocr.py`, `CLAUDE.md`, `docs/version-history.md`,
+### Hardware specs help article (A7)
+
+`docs/help/hardware-specs.md` (already present) wired into the help
+drawer TOC (`docs/help/_index.json`). Covers minimum / recommended
+hardware, CPU / RAM / GPU / storage guidance, user capacity estimates.
+
+### Batch management page (Spec B1-B6)
+
+New `static/batch-management.html` page with full batch CRUD for
+the image-analysis queue. Four new DB helpers in
+`core/db/analysis.py` (`get_batches`, `get_batch_files`,
+`exclude_files`, `cancel_all_batched`) — 10 unit tests.
+
+New `analysis_submission_paused` boolean preference (default false).
+The analysis worker checks this gate on each loop iteration and
+skips submission when paused, so operators can drain in-flight
+batches without triggering new ones.
+
+New `/api/analysis` router with 9 endpoints (list batches, get
+batch files, cancel batch, exclude files, cancel all batched,
+toggle pause, etc.). Path-traversal guard on file-access endpoints,
+`is_image_extension` deduplicated, audit logs for exclude / cancel
+actions.
+
+Nav entry added to the sidebar; the pipeline pill on the status
+page links directly to the batch management page.
+
+- **Files created:** `core/db_backup.py`, `core/db/analysis.py`,
+  `api/routes/db_backup.py`, `api/routes/analysis.py`,
+  `static/batch-management.html`, `static/js/db-backup.js`,
+  `tests/test_db_backup.py`, `tests/test_analysis_batches.py`,
+  `docs/help/hardware-specs.md` (content finalized)
+- **Files modified:** `core/version.py`, `core/db/preferences.py`,
+  `core/image_analysis_worker.py`, `main.py`,
+  `static/bulk.html`, `static/status.html`,
+  `static/health.html`, `static/settings.html`,
+  `static/help.html` / `docs/help/_index.json`,
+  navigation includes, `CLAUDE.md`, `docs/version-history.md`,
   `docs/help/whats-new.md`, `docs/gotchas.md`
-- **New gotchas** added for sidecar v2 keying and OCR text-layer
-  quality signals.
+- **Tests:** 21 new tests total (10 batch-mgmt DB + 11 DB backup).
+- **New gotcha** added: SQLite online backup API is the correct
+  approach for WAL databases — `shutil.copy2` of `.db` can miss
+  committed transactions still in the `-wal` file.
 
 Full context: [`docs/version-history.md`](docs/version-history.md).
+
+---
+
+### v0.23.8 (carried-forward summary) — Spec remediation Batch 2
+
+Three items: content-hash sidecar collision fix (occurrence-indexed
+keys `{hash}:{n}`, schema v2.0.0 with v1 auto-migrate, 4-level
+cascade lookup incl. fuzzy match), PPTX chart/SmartArt extraction
+(opt-in `pptx_chart_extraction_mode=libreoffice` renders charts via
+LibreOffice+PyMuPDF), and C5 remaining OCR signals
+(`text_layer_is_garbage` + `text_encoding_is_suspect` in
+`core/ocr.py`). Full context:
+[`docs/version-history.md`](docs/version-history.md).
 
 ---
 

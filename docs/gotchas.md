@@ -23,6 +23,19 @@ the relevant subsystem. Referenced from CLAUDE.md.
   sets `PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout=10000`. All code that opens
   DB connections should use `get_db()` or set these PRAGMAs manually.
 
+- **SQLite online backup API is correct for WAL — `shutil.copy2` is NOT (v0.24.0)**:
+  Under WAL mode, committed transactions may live in the `-wal` sidecar for an
+  arbitrary window before the checkpoint thread merges them back into the main
+  `.db`. A naive `shutil.copy2(db_path, backup_path)` can silently miss those —
+  you get a snapshot that looks valid but is missing the last several seconds
+  of committed writes (indexes pointing at rows that aren't there, etc.). The
+  fix is `sqlite3.Connection.backup(dest_conn)` — SQLite's built-in online
+  backup API reads under the WAL reader lock and produces a transactionally
+  consistent snapshot even under live write load. `core/db_backup.py` wraps it;
+  `tests/test_db_backup.py` has a sentinel-row race test that proves the online
+  backup captures the latest commit while `shutil.copy2` would not. Do NOT
+  "simplify" the backup module to a file copy.
+
 - **DB compaction runs concurrently**: No scan-running guard. Uses `PRAGMA optimize` +
   `incremental_vacuum`, not full VACUUM (unless freelist > 25%). Safe in WAL mode.
 
