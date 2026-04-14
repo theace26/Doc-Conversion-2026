@@ -357,6 +357,11 @@ _PREFERENCE_SCHEMA: dict[str, dict] = {
         "description": "How long to hover before the preview appears. Lower = faster, higher = less accidental popups.",
         "section": "search_preview",
     },
+    "analysis_submission_paused": {
+        "type": "toggle",
+        "label": "Pause analysis submission",
+        "description": "When true, new image analysis batches are not submitted to the provider. In-flight batches continue to completion.",
+    },
     "pptx_chart_extraction_mode": {
         "type": "select",
         "label": "PPTX chart extraction mode",

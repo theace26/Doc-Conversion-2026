@@ -82,6 +82,7 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     # Image analysis queue (v0.18.0)
     "analysis_enabled": "true",
     "analysis_batch_size": "10",
+    "analysis_submission_paused": "false",
     # Cloud file prefetch (v0.15.1)
     "cloud_prefetch_enabled": "false",
     "cloud_prefetch_concurrency": "5",
