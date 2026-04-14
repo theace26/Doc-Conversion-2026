@@ -280,6 +280,7 @@ async def get_batch_files(batch_id: str) -> list[dict[str, Any]]:
     """Return files in a batch joined with source_files metadata."""
     rows = await db_fetch_all(
         """SELECT aq.id, aq.source_path, aq.status, aq.enqueued_at, aq.batched_at,
+                  sf.id AS source_file_id,
                   sf.file_size_bytes, sf.source_mtime
            FROM analysis_queue aq
            LEFT JOIN source_files sf ON sf.source_path = aq.source_path

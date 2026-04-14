@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Batch Management — MarkFlow</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+  <style>
+    .bm-topbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.85rem 1rem;
+      background: var(--bg-secondary, #1a1a2e);
+      border-radius: var(--radius, 8px);
+      margin-bottom: 1rem;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .bm-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+    .bm-status .dot {
+      width: 0.6rem;
+      height: 0.6rem;
+      border-radius: 50%;
+      background: var(--ok, #16a34a);
+    }
+    .bm-status.paused .dot { background: var(--warn, #d97706); }
+    .bm-counts {
+      margin-left: auto;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+      font-size: 0.85rem;
+      color: var(--text-muted, #aaa);
+    }
+    .bm-counts span strong { color: var(--text, #eee); margin-left: 0.25em; }
+    .bm-card {
+      border: 1px solid var(--border, #2b2b3f);
+      border-radius: var(--radius, 8px);
+      margin-bottom: 0.75rem;
+      background: var(--surface, #161624);
+      overflow: hidden;
+    }
+    .bm-card-header {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.85rem;
+      align-items: center;
+      padding: 0.75rem 1rem;
+      cursor: pointer;
+      user-select: none;
+    }
+    .bm-card-header:hover { background: rgba(255,255,255,0.03); }
+    .bm-card-header .caret {
+      display: inline-block;
+      width: 0.6rem;
+      transition: transform 0.15s;
+    }
+    .bm-card.open .caret { transform: rotate(90deg); }
+    .bm-card-body { display: none; padding: 0 1rem 1rem 1rem; }
+    .bm-card.open .bm-card-body { display: block; }
+    .bm-pill {
+      display: inline-block;
+      padding: 0.1em 0.55em;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .bm-pill.batched { background: rgba(59,130,246,0.15); color: #60a5fa; }
+    .bm-pill.completed { background: rgba(22,163,74,0.15); color: #4ade80; }
+    .bm-pill.failed { background: rgba(220,38,38,0.15); color: #f87171; }
+    .bm-pill.mixed { background: rgba(217,119,6,0.15); color: #fbbf24; }
+    .bm-pill.excluded { background: rgba(120,120,120,0.15); color: #aaa; }
+    .bm-bulkbar {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      padding: 0.5rem 0;
+      font-size: 0.85rem;
+      color: var(--text-muted, #aaa);
+    }
+    .bm-file-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    .bm-file-table th, .bm-file-table td {
+      padding: 0.45rem 0.6rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border, #2b2b3f);
+      vertical-align: middle;
+    }
+    .bm-file-table th { font-size: 0.75rem; color: var(--text-muted, #aaa); text-transform: uppercase; }
+    .bm-file-table td.path {
+      max-width: 28ch;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text-muted, #aaa);
+      font-family: ui-monospace, monospace;
+      font-size: 0.8rem;
+    }
+    .bm-file-table a.filename {
+      color: var(--link, #93c5fd);
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .bm-file-table a.filename:hover { text-decoration: underline; }
+    .bm-preview-tip {
+      position: fixed;
+      z-index: 100;
+      max-width: 320px;
+      max-height: 320px;
+      padding: 0.25rem;
+      background: #000;
+      border: 1px solid var(--border, #2b2b3f);
+      border-radius: var(--radius-sm, 4px);
+      box-shadow: var(--shadow-lg, 0 8px 24px rgba(0,0,0,0.5));
+      pointer-events: none;
+    }
+    .bm-preview-tip img { max-width: 300px; max-height: 300px; display: block; }
+    .bm-empty {
+      padding: 3rem 1rem;
+      text-align: center;
+      color: var(--text-muted, #aaa);
+    }
+    .bm-loading { color: var(--text-muted, #aaa); padding: 0.5rem 0; }
+  </style>
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="/" class="nav-logo">MarkFlow</a>
+    <div id="main-nav" class="nav-links"></div>
+  </nav>
+
+  <main class="container page-content">
+    <div id="error-banner" role="alert" hidden></div>
+
+    <h1>Batch Management</h1>
+    <p class="text-muted text-sm">Review and manage analysis queue batches. Pause batch submission, cancel pending rows, or exclude individual files from analysis.</p>
+
+    <div class="bm-topbar">
+      <div id="bm-status" class="bm-status">
+        <span class="dot"></span>
+        <span id="bm-status-label">Submission: loading...</span>
+      </div>
+      <button id="bm-toggle" class="btn btn-sm" type="button">Pause</button>
+      <button id="bm-cancel-all" class="btn btn-ghost btn-sm" type="button">Cancel All Pending</button>
+      <button id="bm-refresh" class="btn btn-ghost btn-sm" type="button">Refresh</button>
+      <div class="bm-counts" id="bm-counts"></div>
+    </div>
+
+    <div id="bm-batches"></div>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+    (function(){
+      'use strict';
+
+      const statusEl = document.getElementById('bm-status');
+      const statusLabel = document.getElementById('bm-status-label');
+      const toggleBtn = document.getElementById('bm-toggle');
+      const cancelBtn = document.getElementById('bm-cancel-all');
+      const refreshBtn = document.getElementById('bm-refresh');
+      const countsEl = document.getElementById('bm-counts');
+      const batchesEl = document.getElementById('bm-batches');
+
+      let paused = false;
+      let previewTip = null;
+      let previewTimer = null;
+
+      function clearChildren(el) {
+        while (el.firstChild) el.removeChild(el.firstChild);
+      }
+
+      function setLoadingText(el, text) {
+        clearChildren(el);
+        const p = document.createElement('p');
+        p.className = 'bm-loading';
+        p.textContent = text;
+        el.appendChild(p);
+      }
+
+      function fmtBytes(n) {
+        if (typeof formatBytes === 'function') return formatBytes(n);
+        if (n == null) return '—';
+        if (n < 1024) return n + ' B';
+        if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+        if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB';
+        return (n / 1073741824).toFixed(2) + ' GB';
+      }
+
+      function fmtDateTime(iso) {
+        if (!iso) return '—';
+        const s = /Z|[+-]\d{2}:\d{2}$/.test(iso) ? iso : iso + 'Z';
+        const d = new Date(s);
+        if (isNaN(d.getTime())) return iso;
+        return d.toLocaleString();
+      }
+
+      function fmtMtime(mtime) {
+        if (mtime == null) return '—';
+        const d = new Date(mtime * 1000);
+        if (isNaN(d.getTime())) return '—';
+        return d.toLocaleDateString();
+      }
+
+      function basename(p) {
+        if (!p) return '';
+        const parts = String(p).split(/[\\/]/);
+        return parts[parts.length - 1] || p;
+      }
+
+      function dirname(p) {
+        if (!p) return '';
+        const s = String(p);
+        const idx = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
+        return idx > 0 ? s.substring(0, idx) : '';
+      }
+
+      function truncate(s, n) {
+        if (!s) return '';
+        return s.length > n ? '…' + s.substring(s.length - n + 1) : s;
+      }
+
+      function extOf(p) {
+        const b = basename(p);
+        const i = b.lastIndexOf('.');
+        return i > 0 ? b.substring(i) : '';
+      }
+
+      function setStatus(pausedFlag) {
+        paused = !!pausedFlag;
+        statusEl.classList.toggle('paused', paused);
+        statusLabel.textContent = paused ? 'Submission: Paused' : 'Submission: Running';
+        toggleBtn.textContent = paused ? 'Resume' : 'Pause';
+      }
+
+      function renderCounts(counts) {
+        counts = counts || {};
+        clearChildren(countsEl);
+        const order = ['pending', 'batched', 'completed', 'failed', 'excluded'];
+        const labels = {
+          pending: 'Pending', batched: 'Batched',
+          completed: 'Completed', failed: 'Failed', excluded: 'Excluded'
+        };
+        order.forEach(k => {
+          const span = document.createElement('span');
+          span.textContent = labels[k] + ':';
+          const strong = document.createElement('strong');
+          strong.textContent = String(counts[k] != null ? counts[k] : 0);
+          span.appendChild(strong);
+          countsEl.appendChild(span);
+        });
+      }
+
+      async function refreshStatus() {
+        try {
+          const data = await API.get('/api/analysis/status');
+          setStatus(data.paused);
+          renderCounts(data.counts);
+        } catch (e) {
+          showError('Failed to load analysis status: ' + e.message);
+        }
+      }
+
+      async function loadBatches() {
+        setLoadingText(batchesEl, 'Loading batches...');
+        try {
+          const data = await API.get('/api/analysis/batches');
+          const batches = (data && data.batches) || [];
+          clearChildren(batchesEl);
+          if (batches.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'bm-empty';
+            empty.textContent = 'No analysis batches. Batches are created automatically after bulk conversion scans complete.';
+            batchesEl.appendChild(empty);
+            return;
+          }
+          batches.sort((a, b) => {
+            const ax = a.earliest_batched_at || '';
+            const bx = b.earliest_batched_at || '';
+            return bx.localeCompare(ax);
+          });
+          batches.forEach(b => batchesEl.appendChild(renderBatchCard(b)));
+        } catch (e) {
+          clearChildren(batchesEl);
+          showError('Failed to load batches: ' + e.message);
+        }
+      }
+
+      function renderBatchCard(batch) {
+        const card = document.createElement('div');
+        card.className = 'bm-card';
+        card.dataset.batchId = batch.batch_id;
+
+        const header = document.createElement('div');
+        header.className = 'bm-card-header';
+
+        const caret = document.createElement('span');
+        caret.className = 'caret';
+        caret.textContent = '▶';
+        header.appendChild(caret);
+
+        const idSpan = document.createElement('strong');
+        idSpan.textContent = (batch.batch_id || '').substring(0, 8);
+        idSpan.style.fontFamily = 'ui-monospace, monospace';
+        header.appendChild(idSpan);
+
+        const countSpan = document.createElement('span');
+        countSpan.textContent = batch.file_count + ' file' + (batch.file_count === 1 ? '' : 's');
+        countSpan.className = 'text-muted';
+        header.appendChild(countSpan);
+
+        const sizeSpan = document.createElement('span');
+        sizeSpan.textContent = fmtBytes(batch.total_size_bytes);
+        sizeSpan.className = 'text-muted';
+        header.appendChild(sizeSpan);
+
+        const pill = document.createElement('span');
+        pill.className = 'bm-pill ' + (batch.status || 'mixed');
+        pill.textContent = batch.status || 'mixed';
+        header.appendChild(pill);
+
+        const dateSpan = document.createElement('span');
+        dateSpan.textContent = fmtDateTime(batch.earliest_batched_at);
+        dateSpan.className = 'text-muted';
+        dateSpan.style.marginLeft = 'auto';
+        dateSpan.style.fontSize = '0.85rem';
+        header.appendChild(dateSpan);
+
+        const body = document.createElement('div');
+        body.className = 'bm-card-body';
+
+        header.addEventListener('click', () => {
+          const wasOpen = card.classList.toggle('open');
+          if (wasOpen && !body.dataset.loaded) {
+            loadBatchFiles(batch.batch_id, body);
+          }
+        });
+
+        card.appendChild(header);
+        card.appendChild(body);
+        return card;
+      }
+
+      async function loadBatchFiles(batchId, container) {
+        setLoadingText(container, 'Loading files...');
+        try {
+          const data = await API.get('/api/analysis/batches/' + encodeURIComponent(batchId) + '/files');
+          clearChildren(container);
+          const files = (data && data.files) || [];
+          renderFileTable(batchId, files, container);
+          container.dataset.loaded = '1';
+        } catch (e) {
+          clearChildren(container);
+          const err = document.createElement('p');
+          err.className = 'text-muted';
+          err.textContent = 'Failed to load files: ' + e.message;
+          container.appendChild(err);
+        }
+      }
+
+      function renderFileTable(batchId, files, container) {
+        const bar = document.createElement('div');
+        bar.className = 'bm-bulkbar';
+        const bulkBtn = document.createElement('button');
+        bulkBtn.className = 'btn btn-ghost btn-sm';
+        bulkBtn.type = 'button';
+        bulkBtn.textContent = 'Exclude Selected';
+        bulkBtn.disabled = true;
+        bar.appendChild(bulkBtn);
+        const selInfo = document.createElement('span');
+        selInfo.textContent = '0 selected';
+        bar.appendChild(selInfo);
+        container.appendChild(bar);
+
+        const table = document.createElement('table');
+        table.className = 'bm-file-table';
+
+        const thead = document.createElement('thead');
+        const hrow = document.createElement('tr');
+        ['', 'Filename', 'Path', 'Size', 'Date', 'Type', 'Status', 'Action'].forEach(h => {
+          const th = document.createElement('th');
+          if (h === '') {
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.addEventListener('change', () => {
+              table.querySelectorAll('tbody input.row-cb').forEach(x => { x.checked = cb.checked; });
+              updateSel();
+            });
+            th.appendChild(cb);
+          } else {
+            th.textContent = h;
+          }
+          hrow.appendChild(th);
+        });
+        thead.appendChild(hrow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        if (files.length === 0) {
+          const tr = document.createElement('tr');
+          const td = document.createElement('td');
+          td.colSpan = 8;
+          td.style.textAlign = 'center';
+          td.style.padding = '1rem';
+          td.className = 'text-muted';
+          td.textContent = 'No files in this batch.';
+          tr.appendChild(td);
+          tbody.appendChild(tr);
+        } else {
+          files.forEach(f => tbody.appendChild(renderFileRow(f, updateSel)));
+        }
+        table.appendChild(tbody);
+        container.appendChild(table);
+
+        function updateSel() {
+          const checked = tbody.querySelectorAll('input.row-cb:checked');
+          selInfo.textContent = checked.length + ' selected';
+          bulkBtn.disabled = checked.length === 0;
+        }
+
+        bulkBtn.addEventListener('click', async () => {
+          const ids = Array.from(tbody.querySelectorAll('input.row-cb:checked'))
+            .map(cb => cb.dataset.entryId)
+            .filter(Boolean);
+          if (ids.length === 0) return;
+          if (!confirm('Exclude ' + ids.length + ' file(s) from analysis? They will not be submitted to the LLM.')) return;
+          try {
+            const r = await API.post('/api/analysis/exclude', { file_ids: ids });
+            if (typeof showToast === 'function') showToast('Excluded ' + r.excluded + ' file(s)');
+            await refreshStatus();
+            await loadBatches();
+          } catch (e) {
+            showError('Exclude failed: ' + e.message);
+          }
+        });
+      }
+
+      function renderFileRow(f, updateSel) {
+        const tr = document.createElement('tr');
+
+        const cbTd = document.createElement('td');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'row-cb';
+        cb.dataset.entryId = f.id;
+        cb.addEventListener('change', updateSel);
+        cbTd.appendChild(cb);
+        tr.appendChild(cbTd);
+
+        const nameTd = document.createElement('td');
+        const fileName = basename(f.source_path);
+        if (f.source_file_id) {
+          const a = document.createElement('a');
+          a.className = 'filename';
+          a.href = '/api/analysis/files/' + encodeURIComponent(f.source_file_id) + '/download';
+          a.textContent = fileName;
+          a.setAttribute('download', fileName);
+          attachPreview(a, f);
+          nameTd.appendChild(a);
+        } else {
+          nameTd.textContent = fileName;
+        }
+        tr.appendChild(nameTd);
+
+        const pathTd = document.createElement('td');
+        pathTd.className = 'path';
+        const dir = dirname(f.source_path);
+        pathTd.textContent = truncate(dir, 32);
+        pathTd.title = dir;
+        tr.appendChild(pathTd);
+
+        const sizeTd = document.createElement('td');
+        sizeTd.textContent = fmtBytes(f.file_size_bytes);
+        tr.appendChild(sizeTd);
+
+        const dateTd = document.createElement('td');
+        dateTd.textContent = fmtMtime(f.source_mtime);
+        tr.appendChild(dateTd);
+
+        const typeTd = document.createElement('td');
+        typeTd.textContent = extOf(f.source_path);
+        tr.appendChild(typeTd);
+
+        const statusTd = document.createElement('td');
+        const spill = document.createElement('span');
+        spill.className = 'bm-pill ' + (f.status || '');
+        spill.textContent = f.status || '';
+        statusTd.appendChild(spill);
+        tr.appendChild(statusTd);
+
+        const actTd = document.createElement('td');
+        const excl = document.createElement('button');
+        excl.className = 'btn btn-ghost btn-xs';
+        excl.type = 'button';
+        excl.textContent = 'Exclude';
+        excl.disabled = f.status === 'excluded';
+        excl.addEventListener('click', async (ev) => {
+          ev.stopPropagation();
+          if (!confirm('Exclude "' + fileName + '" from analysis?')) return;
+          try {
+            await API.post('/api/analysis/exclude', { file_ids: [f.id] });
+            if (typeof showToast === 'function') showToast('Excluded 1 file');
+            await refreshStatus();
+            await loadBatches();
+          } catch (e) {
+            showError('Exclude failed: ' + e.message);
+          }
+        });
+        actTd.appendChild(excl);
+        tr.appendChild(actTd);
+
+        return tr;
+      }
+
+      const _IMG_EXT = new Set(['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.gif', '.eps']);
+      function isImageExt(p) {
+        return _IMG_EXT.has(extOf(p).toLowerCase());
+      }
+
+      function attachPreview(anchor, f) {
+        if (!f.source_file_id || !isImageExt(f.source_path)) return;
+        anchor.addEventListener('mouseenter', (ev) => {
+          clearTimeout(previewTimer);
+          previewTimer = setTimeout(() => {
+            showPreview(f.source_file_id, ev.clientX, ev.clientY);
+          }, 250);
+        });
+        anchor.addEventListener('mousemove', (ev) => {
+          if (previewTip) positionTip(ev.clientX, ev.clientY);
+        });
+        anchor.addEventListener('mouseleave', () => {
+          clearTimeout(previewTimer);
+          hidePreview();
+        });
+      }
+
+      function positionTip(x, y) {
+        if (!previewTip) return;
+        const pad = 16;
+        let tx = x + pad;
+        let ty = y + pad;
+        const w = previewTip.offsetWidth || 320;
+        const h = previewTip.offsetHeight || 320;
+        if (tx + w > window.innerWidth) tx = x - w - pad;
+        if (ty + h > window.innerHeight) ty = y - h - pad;
+        previewTip.style.left = tx + 'px';
+        previewTip.style.top = ty + 'px';
+      }
+
+      function showPreview(sourceFileId, x, y) {
+        hidePreview();
+        previewTip = document.createElement('div');
+        previewTip.className = 'bm-preview-tip';
+        const img = document.createElement('img');
+        img.alt = '';
+        img.src = '/api/analysis/files/' + encodeURIComponent(sourceFileId) + '/preview';
+        img.onerror = () => { hidePreview(); };
+        previewTip.appendChild(img);
+        document.body.appendChild(previewTip);
+        positionTip(x, y);
+      }
+
+      function hidePreview() {
+        if (previewTip && previewTip.parentNode) {
+          previewTip.parentNode.removeChild(previewTip);
+        }
+        previewTip = null;
+      }
+
+      toggleBtn.addEventListener('click', async () => {
+        toggleBtn.disabled = true;
+        try {
+          const ep = paused ? '/api/analysis/resume' : '/api/analysis/pause';
+          await API.post(ep, {});
+          await refreshStatus();
+          if (typeof showToast === 'function') {
+            showToast(paused ? 'Analysis paused' : 'Analysis resumed');
+          }
+        } catch (e) {
+          showError('Failed: ' + e.message);
+        } finally {
+          toggleBtn.disabled = false;
+        }
+      });
+
+      cancelBtn.addEventListener('click', async () => {
+        if (!confirm('Reset all batched rows back to pending? Any in-flight batch requests will still complete, but no new batches will be submitted until status is Running.')) return;
+        cancelBtn.disabled = true;
+        try {
+          const r = await API.post('/api/analysis/cancel-pending', {});
+          if (typeof showToast === 'function') showToast('Reset ' + r.reset + ' row(s) to pending');
+          await refreshStatus();
+          await loadBatches();
+        } catch (e) {
+          showError('Cancel failed: ' + e.message);
+        } finally {
+          cancelBtn.disabled = false;
+        }
+      });
+
+      refreshBtn.addEventListener('click', async () => {
+        refreshBtn.disabled = true;
+        try {
+          await refreshStatus();
+          await loadBatches();
+        } finally {
+          refreshBtn.disabled = false;
+        }
+      });
+
+      refreshStatus();
+      loadBatches();
+
+      setInterval(refreshStatus, 5000);
+    })();
+  </script>
+</body>
+</html>

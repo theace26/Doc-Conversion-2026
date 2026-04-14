@@ -163,6 +163,7 @@ async def test_get_batch_files_joins_source_file_metadata(db):
     assert f["status"] == "batched"
     assert "batched_at" in f
     assert "enqueued_at" in f
+    assert f["source_file_id"] == "sf1"
 
 
 # ── exclude_files() ───────────────────────────────────────────────────────────

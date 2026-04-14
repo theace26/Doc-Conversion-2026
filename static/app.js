@@ -173,6 +173,7 @@ const NAV_ITEMS = [
     { href: "/index.html",      label: "Convert",   minRole: "operator"    },
     { href: "/history.html",    label: "History",   minRole: "operator"    },
     { href: "/bulk.html",       label: "Bulk Jobs", minRole: "manager"     },
+    { href: "/batch-management.html", label: "Batches", minRole: "manager" },
     { href: "/trash.html",      label: "Trash",     minRole: "manager"     },
     { href: "/resources.html",  label: "Resources", minRole: "manager"     },
     { href: "/settings.html",   label: "Settings",  minRole: "manager"     },
