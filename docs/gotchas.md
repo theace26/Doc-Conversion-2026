@@ -676,6 +676,36 @@ the relevant subsystem. Referenced from CLAUDE.md.
   Rule of thumb: API providers always have multiple stacked limits — the
   envelope check is necessary but not sufficient.
 
+- **Vision providers accept ONLY jpeg/png/gif/webp — the raw-passthrough
+  fast path had to learn that (v0.25.0)**: The v0.22.18 fix above added
+  size-based recompression but kept a `if len(raw) <= threshold: return
+  raw, mime` short-circuit that blindly trusted whatever MIME was detected.
+  Two classes of files fell through and produced HTTP 400s:
+  (a) `.eps` under 3.5 MB — `detect_mime` returned
+  `application/postscript`, which doesn't start with `image/`, so the
+  `else` branch defaulted to `image/png`. Raw PostScript bytes were sent
+  with a fake `image/png` MIME and rejected with
+  `"Could not process image"`.
+  (b) `.bmp` / `.tif` under 3.5 MB — correctly detected as `image/bmp` /
+  `image/tiff` but those MIMEs aren't accepted. Rejected with
+  `media_type: Input should be 'image/jpeg', 'image/png', 'image/gif'
+  or 'image/webp'`.
+  Fix:
+  1. **Upstream**: `core/vector_rasterizer.py` renders `.eps/.ai/.ps`
+     via Ghostscript and `.psd/.psb` via PIL before the adapter ever
+     sees them. `bulk_worker.py` tags these with
+     `file_category='vector_image'` at enqueue time so
+     `analysis_worker.py` knows to route them through the rasterizer.
+     Output cached by `content_hash` at `/app/data/vector_cache/`.
+  2. **Adapter**: `_compress_image_for_vision` now gates the
+     raw-passthrough path on `_VISION_ALLOWED_MIMES = {jpeg, png, gif,
+     webp}`. Anything else (BMP, TIFF, or a mistyped MIME that slipped
+     upstream) falls through to the existing PIL → JPEG re-encode path
+     regardless of size. Belt-and-suspenders.
+  Rule of thumb: "detected MIME" ≠ "MIME the API will accept." Validate
+  against the provider allow-list at the last mile, don't just trust
+  what came out of magic-byte sniffing.
+
 - **`libreoffice_helper.py` "not found" error message was ambiguous
   pre-v0.22.18**: The helper raised `RuntimeError("LibreOffice not found.
   Install libreoffice-headless.")` in TWO different cases: (a) neither

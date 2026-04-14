@@ -6,6 +6,35 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.25.0 — EPS/vector files are now analyzed
+
+Vector and layered image formats now work with LLM vision analysis
+instead of silently failing with 400 errors:
+
+- **`.eps` files get analyzed.** Previously, any `.eps` file queued
+  for vision analysis would come back with "Could not process image"
+  from Anthropic and land in the failed bucket. Now they're
+  rasterized to PNG via Ghostscript (150 DPI) and analyzed normally.
+  Cached renders under `/app/data/vector_cache/` so retries are
+  instant.
+- **`.bmp` and `.tif` / `.tiff` files get analyzed.** Same class of
+  bug: small BMP/TIFF files slipped through the vision adapter's
+  raw-passthrough fast path with a `image/bmp` or `image/tiff`
+  MIME, which Anthropic doesn't accept. Now the adapter enforces
+  an allow-list (`jpeg / png / gif / webp`) and re-encodes anything
+  else via PIL before the API call.
+- **Infrastructure for `.ai` and `.psd` vision analysis.** The new
+  `core/vector_rasterizer.py` module supports Adobe Illustrator and
+  Photoshop source files too. They're not enqueued for vision by
+  default yet (the existing Adobe indexer handles them for text
+  extraction), but the plumbing is in place if you want it later.
+
+**If you had failed analysis rows**, they were flipped back to
+pending automatically on upgrade and will be re-tried by the
+analysis worker.
+
+---
+
 ## v0.24.2 — Hardening pass
 
 Mostly invisible work, but worth knowing about:

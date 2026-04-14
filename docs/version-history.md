@@ -4,6 +4,105 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.25.0 — EPS rasterization + vision MIME allow-list (2026-04-14)
+
+Two overlapping bugs in the analysis worker surfaced during a
+production drain against Anthropic. Both produced HTTP 400s that
+cascaded into `analysis_queue` failures for entire file classes.
+
+### Root causes
+
+**Upstream (bug A):** `.eps` was in `_IMAGE_EXTENSIONS` in both
+`core/db/analysis.py` and `core/bulk_worker.py`, so the scanner
+enqueued EPS files with `file_category='image'`. The vision adapter's
+`detect_mime()` returned `application/postscript`, which does not
+start with `image/`, so `_compress_image_for_vision` fell through
+the `else` branch and defaulted `mime = "image/png"`. For files
+under the 3.5 MB raw threshold, raw PostScript bytes were then sent
+to Anthropic tagged as `image/png` — rejected with
+`"Could not process image"`.
+
+**Adapter (bug B):** The raw-passthrough fast path
+(`if len(raw) <= _ANTHROPIC_MAX_IMAGE_RAW_BYTES: return raw, mime`)
+never verified that `mime` was in the provider's allow-list. Small
+BMP/TIFF files slipped through with `image/bmp` / `image/tiff`,
+producing the distinct error
+`messages.0.content.1.image.source.base64.media_type: Input should
+be 'image/jpeg', 'image/png', 'image/gif' or 'image/webp'`.
+
+### Fix
+
+- **New: `core/vector_rasterizer.py`** — `rasterize(source, content_hash)`
+  renders EPS/AI/PS via async Ghostscript (`gs -dNOPAUSE -dBATCH -dSAFER
+  -sDEVICE=png16m -r150 -dFirstPage=1 -dLastPage=1`) and PSD/PSB via PIL
+  composite. Cache keyed by content_hash at
+  `/app/data/vector_cache/<hash>.png`; fallback key is
+  `sha256(abspath)` when content_hash is unavailable.
+- **`core/db/analysis.py`** — split `_IMAGE_EXTENSIONS` (raster only) from
+  new `_VECTOR_IMAGE_EXTENSIONS = {".eps"}`; added
+  `is_vector_image_extension()`; parameterized `enqueue_for_analysis` with
+  `file_category: str = "image"`; `claim_pending_batch` now selects
+  `file_category` too.
+- **`core/bulk_worker.py`** — removed `.eps` from `_IMAGE_EXTENSIONS_BW`,
+  added `_VECTOR_IMAGE_EXTENSIONS_BW`, added `_analysis_category()` helper;
+  caller passes `file_category` through.
+- **`core/analysis_worker.py`** — before `describe_batch`, iterate claimed
+  rows and rasterize any with `file_category='vector_image'` or
+  `is_rasterizable(source)` to the cached PNG. Per-item rasterization
+  failures write through `write_batch_results` without wasting the
+  Anthropic API call; the rest of the batch proceeds.
+- **`core/vision_adapter.py`** — added
+  `_VISION_ALLOWED_MIMES = {"image/jpeg", "image/png", "image/gif",
+  "image/webp"}`; the raw-passthrough fast path now requires MIME to be
+  in the allow-list. Anything else falls through to the existing PIL
+  decode + JPEG re-encode path, regardless of raw size.
+
+### Migration
+
+Applied directly to prod DB on upgrade (not a schema migration — data
+rehydration only):
+
+```sql
+UPDATE analysis_queue
+  SET file_category='vector_image'
+  WHERE LOWER(source_path) LIKE '%.eps'
+     OR LOWER(source_path) LIKE '%.ai'
+     OR LOWER(source_path) LIKE '%.ps'
+     OR LOWER(source_path) LIKE '%.psd'
+     OR LOWER(source_path) LIKE '%.psb';
+
+UPDATE analysis_queue
+  SET status='pending', retry_count=0, batch_id=NULL, batched_at=NULL, error=NULL
+  WHERE status='failed';
+```
+
+363 rows re-tagged `vector_image`; 140 prior failures flipped back to
+pending for re-processing through the new path.
+
+### Verified
+
+Four drain cycles against live Anthropic after deploy:
+
+| Drain | Content | Result |
+|---|---|---|
+| 1 | 10 BMPs (Blender freestyle brushes) | 10/0 — PIL re-encode |
+| 2 | 10 mixed (6 EPS, 2 JPEG, 2 others) | 10/0 — mix of GS raster + PIL recompress |
+| 3 | 10 EPS (Logo_multipanel series) | 10/0 — GS raster |
+| 4 | 10 mixed | 10/0 |
+
+Cache after test: 17 PNGs / 5.6 MB.
+
+### Rule of thumb
+
+API providers stack validation layers (envelope size check + per-image
+size check + MIME allow-list). An envelope check is necessary but not
+sufficient; MIME validation must happen before the bytes cross the wire,
+not after. Both pieces were present in the code but had gaps — upstream
+trusted the scanner, adapter trusted upstream. Defense in depth required
+fixing both.
+
+---
+
 ## v0.24.2 — Hardening pass (2026-04-13)
 
 A batch of small, surgical fixes across five areas. Output of a
