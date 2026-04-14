@@ -360,6 +360,22 @@
 
       </details>
 
+      <!-- Database Maintenance section -->
+      <details class="settings-section">
+      <summary>Database Maintenance</summary>
+      <div class="card">
+        <p class="text-sm text-muted" style="margin:0 0 1rem">
+          Create backups of the application database or restore from a previous backup.
+          Restores require pausing active operations.
+        </p>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+          <button type="button" class="btn btn-primary btn-sm" onclick="openBackupModal()">Backup Database</button>
+          <button type="button" class="btn btn-danger btn-sm" onclick="openRestoreModal()">Restore Database</button>
+        </div>
+      </div>
+
+      </details>
+
       <!-- Conversion section -->
       <details class="settings-section" open>
       <summary>Conversion Options</summary>
@@ -1275,6 +1291,7 @@
   </div>
 
   <script src="/static/app.js"></script>
+  <script src="/static/js/db-backup.js"></script>
   <script>
   // ── Expand / Collapse All ──────────────────────────────────────────────
   document.getElementById('toggle-all-btn').addEventListener('click', function() {
