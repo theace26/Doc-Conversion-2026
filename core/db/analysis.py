@@ -10,12 +10,18 @@ from typing import Any
 
 from core.db.connection import db_fetch_one, db_fetch_all, get_db, now_iso
 
-_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".gif", ".eps"}
+_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".gif"}
+_VECTOR_IMAGE_EXTENSIONS = {".eps"}
 
 
 def is_image_extension(ext: str) -> bool:
-    """Return True if ext (with or without leading dot) is a supported image format."""
+    """Return True if ext (with or without leading dot) is a raster image format."""
     return ("." + ext.lstrip(".")).lower() in _IMAGE_EXTENSIONS
+
+
+def is_vector_image_extension(ext: str) -> bool:
+    """Return True if ext is a vector/layered format needing rasterization for vision."""
+    return ("." + ext.lstrip(".")).lower() in _VECTOR_IMAGE_EXTENSIONS
 
 
 async def enqueue_for_analysis(
@@ -23,6 +29,7 @@ async def enqueue_for_analysis(
     content_hash: str | None = None,
     job_id: str | None = None,
     scan_run_id: str | None = None,
+    file_category: str = "image",
 ) -> str | None:
     """
     Enqueue an image file for LLM analysis. Returns entry id or None if skipped.
@@ -74,7 +81,7 @@ async def enqueue_for_analysis(
                  extracted_text = NULL,
                  error = NULL,
                  retry_count = 0""",
-            (entry_id, source_path, "image", job_id, scan_run_id,
+            (entry_id, source_path, file_category, job_id, scan_run_id,
              now, "pending", content_hash, 0),
         )
         await conn.commit()
@@ -91,7 +98,7 @@ async def claim_pending_batch(batch_size: int = 10) -> list[dict[str, Any]]:
 
     async with get_db() as conn:
         async with conn.execute(
-            """SELECT id, source_path, content_hash FROM analysis_queue
+            """SELECT id, source_path, content_hash, file_category FROM analysis_queue
                WHERE status = 'pending'
                ORDER BY enqueued_at ASC
                LIMIT ?""",

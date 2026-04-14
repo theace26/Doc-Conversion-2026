@@ -36,6 +36,10 @@ _ANTHROPIC_MAX_PAYLOAD_BYTES = 24 * 1024 * 1024  # 24 MB
 _ANTHROPIC_MAX_IMAGE_RAW_BYTES = 3_500_000  # 3.5 MB raw → ~4.7 MB base64
 _VISION_MAX_EDGE_PX = 1568
 
+# Anthropic / OpenAI / Gemini all accept only these four. Anything else
+# (BMP, TIFF, PostScript, PSD, etc.) must be re-encoded before the API call.
+_VISION_ALLOWED_MIMES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+
 _MAGIC_BYTES: list[tuple[bytes, str]] = [
     (b"\xff\xd8\xff", "image/jpeg"),
     (b"\x89PNG\r\n\x1a\n", "image/png"),
@@ -148,7 +152,10 @@ def _compress_image_for_vision(
     else:
         mime = mimetypes.guess_type(f"file{mime_or_suffix}")[0] or "image/png"
 
-    if len(raw) <= _ANTHROPIC_MAX_IMAGE_RAW_BYTES:
+    # Raw-passthrough fast path: only safe if both (a) under the raw byte budget
+    # AND (b) in the vision-API allowed MIME list. BMP/TIFF/PS under 3.5 MB used
+    # to slip through here with a fake or mismatched MIME and trigger 400s.
+    if mime in _VISION_ALLOWED_MIMES and len(raw) <= _ANTHROPIC_MAX_IMAGE_RAW_BYTES:
         return raw, mime
 
     try:

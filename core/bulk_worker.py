@@ -87,13 +87,22 @@ class CounterAccumulator:
         await self._flush()
 
 
-_IMAGE_EXTENSIONS_BW = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".gif", ".eps"}
+_IMAGE_EXTENSIONS_BW = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".gif"}
+_VECTOR_IMAGE_EXTENSIONS_BW = {".eps"}
 
 
 def _should_enqueue_for_analysis(source_path) -> bool:
-    """Return True if source_path is an image file eligible for LLM vision analysis."""
+    """Return True if source_path is eligible for LLM vision analysis."""
     from pathlib import Path
-    return Path(source_path).suffix.lower() in _IMAGE_EXTENSIONS_BW
+    ext = Path(source_path).suffix.lower()
+    return ext in _IMAGE_EXTENSIONS_BW or ext in _VECTOR_IMAGE_EXTENSIONS_BW
+
+
+def _analysis_category(source_path) -> str:
+    """Return the file_category to record for vision analysis."""
+    from pathlib import Path
+    ext = Path(source_path).suffix.lower()
+    return "vector_image" if ext in _VECTOR_IMAGE_EXTENSIONS_BW else "image"
 
 
 # ── SSE progress queues (per bulk job_id) ────────────────────────────────────
@@ -1076,6 +1085,7 @@ class BulkJob:
                         source_path=str(source_path),
                         content_hash=file_dict.get("content_hash"),
                         job_id=self.job_id,
+                        file_category=_analysis_category(source_path),
                     )
                 except Exception as exc:
                     log.warning(

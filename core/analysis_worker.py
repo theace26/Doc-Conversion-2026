@@ -76,11 +76,51 @@ async def run_analysis_drain() -> None:
         if not valid_rows:
             return
 
-        image_paths = [Path(r["source_path"]) for r in valid_rows]
+        # Rasterize vector/layered source files to cached PNG before sending
+        # to the vision API (Anthropic/OpenAI/Gemini only accept JPEG/PNG/GIF/WEBP).
+        from core.vector_rasterizer import (
+            rasterize,
+            is_rasterizable,
+            _content_hash_fallback,
+        )
+
+        image_paths: list[Path] = []
+        vision_rows: list[dict] = []
+        raster_failed: list[dict] = []
+        for row in valid_rows:
+            src = Path(row["source_path"])
+            if row.get("file_category") == "vector_image" or is_rasterizable(src):
+                content_hash = row.get("content_hash") or _content_hash_fallback(src)
+                try:
+                    src = await rasterize(src, content_hash)
+                except Exception as raster_exc:
+                    log.warning(
+                        "analysis_worker.rasterize_failed",
+                        path=row["source_path"],
+                        error=str(raster_exc),
+                    )
+                    raster_failed.append({
+                        "id": row["id"],
+                        "error": f"rasterize failed: {raster_exc}",
+                    })
+                    continue
+            image_paths.append(src)
+            vision_rows.append(row)
+
+        if raster_failed:
+            await write_batch_results(raster_failed)
+        if not vision_rows:
+            log.info(
+                "analysis_worker.batch_complete",
+                completed=0,
+                failed=len(raster_failed),
+            )
+            return
+
         descriptions = await adapter.describe_batch(image_paths)
 
         results = []
-        for i, row in enumerate(valid_rows):
+        for i, row in enumerate(vision_rows):
             desc = descriptions[i] if i < len(descriptions) else None
             if desc and not desc.error:
                 results.append({
@@ -100,11 +140,11 @@ async def run_analysis_drain() -> None:
         await write_batch_results(results)
 
         completed = sum(1 for r in results if not r.get("error"))
-        failed = sum(1 for r in results if r.get("error"))
+        failed = sum(1 for r in results if r.get("error")) + len(raster_failed)
         log.info("analysis_worker.batch_complete", completed=completed, failed=failed)
 
         if completed > 0:
-            await _reindex_completed(valid_rows, results)
+            await _reindex_completed(vision_rows, results)
 
     except Exception as exc:
         # v0.22.14: SQLite lock contention is transient — downgrade to a
