@@ -46,6 +46,11 @@ async def run_analysis_drain() -> None:
             log.debug("analysis_worker.provider_no_vision", provider=provider_config.get("provider"))
             return
 
+        paused = await get_preference("analysis_submission_paused") or "false"
+        if paused == "true":
+            log.info("analysis_worker.paused_by_user")
+            return
+
         batch_size_str = await get_preference("analysis_batch_size") or "10"
         batch_size = max(1, min(int(batch_size_str), 20))
         rows = await claim_pending_batch(batch_size)
