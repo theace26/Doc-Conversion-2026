@@ -46,6 +46,10 @@ class MountConfig:
     smb_credentials: SMBCredentials | None = None
     kerberos: KerberosConfig | None = None
     extra_options: dict[str, str] = field(default_factory=dict)
+    # Universal Storage Manager — optional human-readable label for the share.
+    # Legacy "source"/"output" roles leave this as None (the role is the name).
+    # Named shares in /mnt/shares/<name> use this to round-trip the display label.
+    display_name: str | None = None
 
     def validate(self) -> None:
         """Raise ValueError if config is invalid."""
@@ -81,6 +85,8 @@ class MountConfig:
             d["nfs_kerberos"] = False
         if self.extra_options:
             d["extra_options"] = self.extra_options
+        if self.display_name:
+            d["display_name"] = self.display_name
         return d
 
     @classmethod
@@ -106,6 +112,7 @@ class MountConfig:
             smb_credentials=smb_creds,
             kerberos=kerberos,
             extra_options=d.get("extra_options", {}),
+            display_name=d.get("display_name"),
         )
 
 
@@ -126,11 +133,83 @@ class TestResult:
     latency_ms: float
 
 
+# -- mounts.json schema migration --
+#
+# v1 (flat, pre-Universal Storage Manager):
+#     {"source": {...mountcfg...}, "output": {...mountcfg...}}
+#
+# v2 (Universal Storage Manager):
+#     {"_schema_version": 2,
+#      "shares": {"source": {...}, "output": {...}, "nas-docs": {...}, ...}}
+#
+# v1 role-keys (source / output) become entries under shares. The migration
+# is idempotent: passing a v2 dict returns it unchanged.
+
+_MOUNTS_SCHEMA_VERSION = 2
+
+
+def _migrate_mounts_json(raw: dict) -> dict:
+    """v1 (flat) -> v2 (shares dict). v1 entries with known roles become named shares."""
+    if not isinstance(raw, dict):
+        return {"_schema_version": _MOUNTS_SCHEMA_VERSION, "shares": {}}
+    if raw.get("_schema_version") == _MOUNTS_SCHEMA_VERSION:
+        return raw
+    shares: dict[str, dict] = {}
+    for role, cfg in raw.items():
+        if isinstance(role, str) and role.startswith("_"):
+            continue
+        if isinstance(cfg, dict) and cfg:
+            shares[role] = cfg
+    return {"_schema_version": _MOUNTS_SCHEMA_VERSION, "shares": shares}
+
+
 class MountManager:
     """Manages network mount configuration, testing, and execution."""
 
+    SHARES_ROOT = "/mnt/shares"
+
     def __init__(self, config_path: str = "/etc/markflow/mounts.json"):
         self.config_path = Path(config_path)
+
+    # -- Named-share mount-point helpers (Universal Storage Manager) --
+
+    @staticmethod
+    def share_mount_point(name: str) -> str:
+        """Compute mount point for a named share.
+
+        Name is sanitized to a safe path segment: only [A-Za-z0-9_-] survives,
+        and leading/trailing '-' / '_' are stripped. Raises ValueError if the
+        sanitized name is empty (e.g. from '///' or whitespace-only input).
+        """
+        if not isinstance(name, str):
+            raise ValueError(f"invalid share name: {name!r}")
+        safe = "".join(c for c in name if c.isalnum() or c in ("-", "_")).strip("-_")
+        if not safe:
+            raise ValueError(f"invalid share name: {name!r}")
+        return f"{MountManager.SHARES_ROOT}/{safe}"
+
+    def mount_named(self, name: str, config: MountConfig, dry_run: bool = False) -> MountResult:
+        """Mount a named share at /mnt/shares/<name>.
+
+        Overrides config.mount_point with the canonical /mnt/shares/<name> path
+        and reuses the existing mount() path. Creates the mount point if needed
+        (only when dry_run=False — dry_run stays side-effect-free so it can be
+        called from unit tests on hosts where /mnt is read-only).
+        """
+        mount_point = self.share_mount_point(name)
+        # Override the supplied config's mount_point so all downstream
+        # validation / command generation / fstab use the canonical path.
+        config.mount_point = mount_point
+        if not config.display_name:
+            config.display_name = name
+        if not dry_run:
+            Path(mount_point).mkdir(parents=True, exist_ok=True)
+        return self.mount(config, dry_run=dry_run)
+
+    def unmount_named(self, name: str) -> bool:
+        """Unmount a named share by logical name (resolves to /mnt/shares/<name>)."""
+        mount_point = self.share_mount_point(name)
+        return self.unmount(mount_point)
 
     # -- Command / fstab generation (pure, no side effects) --
 
@@ -181,25 +260,47 @@ class MountManager:
         raise ValueError(f"Unknown protocol: {config.protocol}")
 
     # -- Config persistence --
+    #
+    # On disk, the file is always written in v2 schema:
+    #     {"_schema_version": 2, "shares": {name: {...cfg...}, ...}}
+    # v1 files (flat {role: cfg}) are auto-migrated on first read.
+    # The public save_config(name, cfg) / load_config() API is unchanged:
+    # it still takes/returns a flat mapping of share-name -> MountConfig,
+    # so existing callers (api/routes/mounts.py iterating "source"/"output")
+    # keep working.
 
-    def save_config(self, role: str, config: MountConfig) -> None:
-        """Save mount config for a role ('source' or 'output') to JSON."""
-        all_configs = self._load_config_raw()
-        all_configs[role] = config.to_dict()
+    def save_config(self, name: str, config: MountConfig) -> None:
+        """Save mount config under a share name (e.g. 'source', 'output', 'nas-docs')."""
+        doc = self._load_config_v2()
+        shares = doc.setdefault("shares", {})
+        shares[name] = config.to_dict()
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
-        self.config_path.write_text(json.dumps(all_configs, indent=2) + "\n")
-        log.info("mount_config_saved", role=role, protocol=config.protocol)
+        self.config_path.write_text(json.dumps(doc, indent=2) + "\n")
+        log.info("mount_config_saved", name=name, protocol=config.protocol)
 
     def load_config(self) -> dict[str, MountConfig]:
-        """Load all mount configs from JSON. Returns empty dict if file missing."""
-        raw = self._load_config_raw()
-        result = {}
-        for role, d in raw.items():
+        """Load all mount configs from JSON. Returns empty dict if file missing.
+
+        Returns a flat mapping {share_name: MountConfig}. v1 files are
+        auto-migrated to v2 on read (but not rewritten to disk until the
+        next save_config call).
+        """
+        doc = self._load_config_v2()
+        result: dict[str, MountConfig] = {}
+        for name, d in doc.get("shares", {}).items():
             try:
-                result[role] = MountConfig.from_dict(d)
+                result[name] = MountConfig.from_dict(d)
             except (KeyError, TypeError) as exc:
-                log.warning("mount_config_parse_error", role=role, error=str(exc))
+                log.warning("mount_config_parse_error", name=name, error=str(exc))
         return result
+
+    def save_named(self, name: str, config: MountConfig) -> None:
+        """Alias for save_config() — more natural when working with named shares."""
+        self.save_config(name, config)
+
+    def _load_config_v2(self) -> dict:
+        """Load the mounts.json document, migrating v1 -> v2 in memory if needed."""
+        return _migrate_mounts_json(self._load_config_raw())
 
     def _load_config_raw(self) -> dict:
         if self.config_path.exists():
