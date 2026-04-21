@@ -20,7 +20,9 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 log = structlog.get_logger(__name__)
 
 _DEFAULT_PATH = "/etc/markflow/credentials.enc"
-_ITERATIONS = 100_000
+# OWASP 2023+ recommendation for PBKDF2-HMAC-SHA256; if SECRET_KEY is ever a
+# human passphrase, this is the only barrier against offline brute force.
+_ITERATIONS = 600_000
 _SALT_BYTES = 16
 
 
@@ -50,7 +52,7 @@ class CredentialStore:
             data = json.loads(f.decrypt(payload).decode("utf-8"))
             return {"salt": salt_b64, "shares": data.get("shares", {})}
         except (InvalidToken, json.JSONDecodeError, ValueError, OSError) as exc:
-            log.warning("credential_store_load_failed", path=self._path, error=str(exc))
+            log.warning("credential_store_load_failed", path=self._path, error_type=type(exc).__name__)
             return {"salt": base64.b64encode(secrets.token_bytes(_SALT_BYTES)).decode("ascii"), "shares": {}}
 
     def _save(self, blob: dict) -> None:
@@ -62,6 +64,11 @@ class CredentialStore:
         with open(tmp, "wb") as fh:
             fh.write(blob["salt"].encode("ascii") + b"\n" + payload)
         os.replace(tmp, self._path)
+        try:
+            os.chmod(self._path, 0o600)
+        except OSError:
+            # Windows / unsupported FS — best-effort
+            pass
 
     def save_credentials(self, share_name: str, protocol: str, username: str, password: str) -> None:
         if not share_name or not protocol:
