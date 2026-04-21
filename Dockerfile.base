@@ -53,8 +53,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     mdbtools \
     unixodbc-dev \
     odbc-mdbtools \
-    # NFS client tools (for NFS mount support)
+    # Network filesystem client tools (NFS/CIFS/SMB mount support)
+    cifs-utils \
     nfs-common \
+    smbclient \
     # curl for healthchecks
     curl \
     # Misc build tools
