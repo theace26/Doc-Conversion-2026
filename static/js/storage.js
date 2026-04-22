@@ -1,8 +1,14 @@
 /**
- * storage.js — Universal Storage Manager UI (v0.25.0)
+ * storage.js — Universal Storage Manager UI (v0.29.0)
  *
- * Powers the Storage page: host info / quick-access / sources / output /
- * shares / discovery / exclusions / first-run wizard.
+ * Powers /storage.html: host info / quick-access / sources / output /
+ * shares / discovery / exclusions / cloud prefetch / first-run wizard.
+ *
+ * v0.29.0 polish:
+ * - Add-Share and Discovery prompt() chains replaced with proper modals
+ * - Host-OS override dropdown in the page header
+ * - Folder-picker integration for source/output path inputs
+ * - Cloud Prefetch section migrated from Settings page
  *
  * Conventions:
  * - All DOM construction uses createElement + textContent. Never innerHTML
@@ -73,7 +79,10 @@
     if (!res.ok) {
       let detail = '';
       try { detail = JSON.stringify(await res.json()); } catch { /* ignore */ }
-      throw new Error(`${path} → ${res.status} ${res.statusText} ${detail}`);
+      const err = new Error(`${path} → ${res.status} ${res.statusText} ${detail}`);
+      err.status = res.status;
+      err.detail = detail;
+      throw err;
     }
     return res.status === 204 ? null : res.json();
   }
@@ -86,6 +95,12 @@
     setTimeout(() => { banner.hidden = true; }, 8000);
   }
 
+  function flash(elem, text, ms) {
+    if (!elem) return;
+    elem.textContent = text;
+    if (ms) setTimeout(() => { if (elem.textContent === text) elem.textContent = ''; }, ms);
+  }
+
   // ── Host info / Quick Access ─────────────────────────────────────────────
 
   async function loadHostInfo() {
@@ -94,6 +109,12 @@
       const info = await api('/api/storage/host-info');
       badge.textContent = `Detected: ${prettyOS(info.os)}`;
       renderQuickAccess(info.quick_access || []);
+      // Sync override dropdown with persisted value — we need to read the pref
+      try {
+        const prefs = await api('/api/preferences');
+        const override = (prefs.preferences && prefs.preferences.host_os_override) || '';
+        $('host-os-override').value = override;
+      } catch { /* pref read is non-critical */ }
     } catch (e) {
       badge.textContent = 'OS unknown';
       console.warn('host-info failed', e);
@@ -119,6 +140,37 @@
       tile.appendChild(useBtn);
       grid.appendChild(tile);
     }
+  }
+
+  async function saveHostOsOverride() {
+    const value = $('host-os-override').value;
+    try {
+      await api('/api/preferences/host_os_override', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value })
+      });
+      // Re-load host info so Quick Access reflects the override
+      loadHostInfo();
+    } catch (e) {
+      showError(`Failed to save OS override: ${e.message}`);
+    }
+  }
+
+  // ── Folder picker integration (A4) ───────────────────────────────────────
+
+  function openFolderPicker(title, mode, inputId) {
+    if (typeof FolderPicker === 'undefined') {
+      showError('Folder picker unavailable — type the path manually.');
+      return;
+    }
+    const input = $(inputId);
+    const initial = (input && input.value.trim()) || (mode === 'output' ? '/host/rw' : '/host/root');
+    const picker = new FolderPicker({
+      title, mode, initialPath: initial,
+      onSelect: (path) => { if (input) input.value = path; }
+    });
+    picker.open();
   }
 
   // ── Sources ──────────────────────────────────────────────────────────────
@@ -313,79 +365,224 @@
     }
   }
 
-  async function addShareInteractive() {
-    const name = prompt('Share name (alphanumeric, dashes, underscores):');
-    if (!name) return;
-    const protocol = prompt('Protocol — smb, nfsv3, or nfsv4:', 'smb');
-    if (!protocol) return;
-    const server = prompt('Server (IP or hostname):');
-    if (!server) return;
-    const share = prompt('Share name on the server (SMB) or export path (NFS):');
-    if (share == null) return;
-    const username = protocol === 'smb' ? (prompt('SMB username:') || '') : '';
-    const password = protocol === 'smb' ? (prompt('SMB password:') || '') : '';
+  // ── Add-Share modal (A1) ─────────────────────────────────────────────────
+
+  function openAddShareModal(prefill) {
+    $('add-share-name').value = (prefill && prefill.name) || '';
+    const proto = (prefill && prefill.protocol) || 'smb';
+    for (const r of document.querySelectorAll('input[name="add-share-protocol"]')) {
+      r.checked = (r.value === proto);
+    }
+    $('add-share-server').value = (prefill && prefill.server) || '';
+    $('add-share-sharepath').value = (prefill && prefill.share_path) || '';
+    $('add-share-username').value = '';
+    $('add-share-password').value = '';
+    $('add-share-readonly').checked = true;
+    $('add-share-error').hidden = true;
+    toggleAddShareSmbFields();
+    $('add-share-modal').hidden = false;
+    $('add-share-name').focus();
+  }
+
+  function closeAddShareModal() { $('add-share-modal').hidden = true; }
+
+  function toggleAddShareSmbFields() {
+    const proto = document.querySelector('input[name="add-share-protocol"]:checked').value;
+    $('add-share-smb-fields').style.display = (proto === 'smb') ? '' : 'none';
+  }
+
+  async function submitAddShare() {
+    const errBox = $('add-share-error');
+    errBox.hidden = true;
+    const name = $('add-share-name').value.trim();
+    const proto = document.querySelector('input[name="add-share-protocol"]:checked').value;
+    const server = $('add-share-server').value.trim();
+    const sharePath = $('add-share-sharepath').value.trim();
+    const username = $('add-share-username').value;
+    const password = $('add-share-password').value;
+    const readOnly = $('add-share-readonly').checked;
+
+    // Client-side validation
+    if (!/^[A-Za-z0-9_-]+$/.test(name)) {
+      errBox.textContent = 'Name must be alphanumeric (dashes and underscores allowed).';
+      errBox.hidden = false; return;
+    }
+    if (!server) { errBox.textContent = 'Server is required.'; errBox.hidden = false; return; }
+    if (!sharePath) { errBox.textContent = 'Share path is required.'; errBox.hidden = false; return; }
+    if (proto === 'smb' && !username) {
+      errBox.textContent = 'SMB requires a username.'; errBox.hidden = false; return;
+    }
+
+    const submitBtn = $('add-share-submit');
+    const originalText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Adding…';
+
     try {
       await api('/api/storage/shares', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, protocol, server, share, username, password })
+        body: JSON.stringify({
+          name, protocol: proto, server, share: sharePath,
+          username, password,
+          options: { read_only: readOnly }
+        })
       });
+      closeAddShareModal();
       loadShares();
     } catch (e) {
-      showError(e.message);
+      errBox.textContent = e.detail || e.message;
+      errBox.hidden = false;
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalText;
     }
   }
 
-  async function discoverSubnet() {
-    const subnet = prompt('Subnet to scan (CIDR, e.g. 192.168.1.0/24):');
+  // ── Discovery modal (A2) ─────────────────────────────────────────────────
+
+  function openDiscoverModal() {
+    // Reset tabs to subnet, clear output
+    switchDiscoverTab('subnet');
+    clearChildren($('discover-output'));
+    $('discover-modal').hidden = false;
+  }
+
+  function closeDiscoverModal() { $('discover-modal').hidden = true; }
+
+  function switchDiscoverTab(tab) {
+    for (const btn of document.querySelectorAll('#discover-modal .tab-btn')) {
+      btn.classList.toggle('active', btn.dataset.tab === tab);
+    }
+    for (const p of document.querySelectorAll('#discover-modal .tab-panel')) {
+      p.hidden = (p.dataset.tab !== tab);
+    }
+  }
+
+  async function doDiscoverSubnet() {
+    const subnet = $('discover-subnet').value.trim();
     if (!subnet) return;
+    const out = $('discover-output');
+    clearChildren(out);
+    out.appendChild(el('p', { text: 'Scanning…', cls: 'text-muted' }));
     try {
       const { servers } = await api('/api/storage/shares/discover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scope: 'subnet', subnet })
       });
-      renderDiscovery('SMB servers found', servers, (s) => `${s.hostname} (${s.ip})`);
+      renderDiscoverResults(servers, (s) => ({
+        label: `${s.hostname} (${s.ip})`,
+        prefill: { server: s.ip, protocol: 'smb' }
+      }));
     } catch (e) {
-      showError(e.message);
+      clearChildren(out);
+      out.appendChild(el('p', { text: e.message, style: { color: '#f87171' } }));
     }
   }
 
-  async function discoverServer() {
-    const server = prompt('Server to probe (IP or hostname):');
+  async function doDiscoverServer() {
+    const server = $('discover-server').value.trim();
     if (!server) return;
-    const protocol = prompt('Protocol — smb or nfs:', 'smb');
-    if (!protocol) return;
+    const protocol = document.querySelector('input[name="discover-protocol"]:checked').value;
+    const out = $('discover-output');
+    clearChildren(out);
+    out.appendChild(el('p', { text: 'Probing…', cls: 'text-muted' }));
     try {
       const { shares } = await api('/api/storage/shares/discover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scope: 'server', server, protocol })
       });
-      renderDiscovery(
-        `${protocol.toUpperCase()} shares on ${server}`,
-        shares,
-        (s) => `${s.name || s.path}${s.comment ? ' — ' + s.comment : ''}`
-      );
+      const smbProto = protocol === 'smb' ? 'smb' : 'nfsv3';
+      renderDiscoverResults(shares, (s) => ({
+        label: `${s.name || s.path}${s.comment ? ' — ' + s.comment : ''}`,
+        prefill: {
+          server,
+          protocol: smbProto,
+          share_path: s.name || s.path,
+          name: (s.name || (s.path || '').split('/').pop() || '').replace(/[^A-Za-z0-9_-]/g, '') || 'share'
+        }
+      }));
     } catch (e) {
-      showError(e.message);
+      clearChildren(out);
+      out.appendChild(el('p', { text: e.message, style: { color: '#f87171' } }));
     }
   }
 
-  function renderDiscovery(title, items, formatter) {
-    const box = $('discovery-results');
-    clearChildren(box);
-    box.hidden = false;
-    box.appendChild(el('h4', { text: title }));
+  function renderDiscoverResults(items, toEntry) {
+    const out = $('discover-output');
+    clearChildren(out);
     if (!items || !items.length) {
-      box.appendChild(el('p', { text: 'No results.', cls: 'text-muted' }));
+      out.appendChild(el('p', { text: 'No results.', cls: 'text-muted' }));
       return;
     }
-    const ul = el('ul');
+    const ul = el('ul', { style: { listStyle: 'none', padding: '0', margin: '0' } });
     for (const it of items) {
-      ul.appendChild(el('li', { text: formatter(it) }));
+      const entry = toEntry(it);
+      const li = el('li', { style: { padding: '0.25rem 0' } });
+      const btn = el('button', {
+        text: entry.label,
+        cls: 'btn btn-ghost btn-sm',
+        style: { textAlign: 'left', width: '100%' },
+        onClick: () => {
+          closeDiscoverModal();
+          openAddShareModal(entry.prefill);
+        }
+      });
+      li.appendChild(btn);
+      ul.appendChild(li);
     }
-    box.appendChild(ul);
+    out.appendChild(ul);
+  }
+
+  // ── Cloud Prefetch (B) ────────────────────────────────────────────────────
+
+  const PREFETCH_KEYS = [
+    'cloud_prefetch_enabled',
+    'cloud_prefetch_concurrency',
+    'cloud_prefetch_rate_limit',
+    'cloud_prefetch_timeout_seconds',
+    'cloud_prefetch_min_size_bytes',
+    'cloud_prefetch_probe_all',
+  ];
+
+  async function loadPrefetch() {
+    try {
+      const { preferences } = await api('/api/preferences');
+      for (const k of PREFETCH_KEYS) {
+        const input = document.querySelector(`[data-pref="${k}"]`);
+        if (!input) continue;
+        const v = preferences[k] ?? '';
+        if (input.type === 'checkbox') {
+          input.checked = String(v).toLowerCase() === 'true';
+        } else {
+          input.value = v;
+        }
+      }
+    } catch (e) {
+      showError(`Failed to load prefetch prefs: ${e.message}`);
+    }
+  }
+
+  async function savePrefetch() {
+    const status = $('prefetch-save-status');
+    flash(status, 'Saving…');
+    try {
+      for (const k of PREFETCH_KEYS) {
+        const input = document.querySelector(`[data-pref="${k}"]`);
+        if (!input) continue;
+        const value = (input.type === 'checkbox') ? String(input.checked) : String(input.value);
+        await api(`/api/preferences/${encodeURIComponent(k)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value })
+        });
+      }
+      flash(status, 'Saved ✓', 3000);
+    } catch (e) {
+      flash(status, `Error: ${e.message}`, 6000);
+    }
   }
 
   // ── First-run wizard ─────────────────────────────────────────────────────
@@ -426,7 +623,6 @@
   }
 
   async function wizardContinue() {
-    // Per-step validation before advancing
     if (_wizardStep === 2) {
       const path = $('wizard-source-path').value.trim();
       const fb = $('wizard-source-feedback');
@@ -470,12 +666,45 @@
   // ── Init ─────────────────────────────────────────────────────────────────
 
   function init() {
+    // Sources / output / exclusions
     $('btn-add-source').addEventListener('click', () => addSource());
     $('btn-save-output').addEventListener('click', setOutput);
     $('btn-add-exclusion').addEventListener('click', addExclusion);
-    $('btn-add-share').addEventListener('click', addShareInteractive);
-    $('btn-discover-subnet').addEventListener('click', discoverSubnet);
-    $('btn-discover-server').addEventListener('click', discoverServer);
+
+    // Folder-picker buttons (A4)
+    $('btn-browse-source').addEventListener('click',
+      () => openFolderPicker('Select source folder', 'source', 'source-path-input'));
+    $('btn-browse-output').addEventListener('click',
+      () => openFolderPicker('Select output folder', 'output', 'output-path-input'));
+
+    // Shares modals (A1)
+    $('btn-add-share').addEventListener('click', () => openAddShareModal());
+    $('add-share-cancel').addEventListener('click', closeAddShareModal);
+    $('add-share-submit').addEventListener('click', submitAddShare);
+    for (const r of document.querySelectorAll('input[name="add-share-protocol"]')) {
+      r.addEventListener('change', toggleAddShareSmbFields);
+    }
+
+    // Discovery modal (A2)
+    $('btn-discover-subnet').addEventListener('click', openDiscoverModal);
+    $('btn-discover-server').addEventListener('click', () => {
+      openDiscoverModal();
+      switchDiscoverTab('server');
+    });
+    $('discover-close').addEventListener('click', closeDiscoverModal);
+    for (const b of document.querySelectorAll('#discover-modal .tab-btn')) {
+      b.addEventListener('click', () => switchDiscoverTab(b.dataset.tab));
+    }
+    $('discover-subnet-go').addEventListener('click', doDiscoverSubnet);
+    $('discover-server-go').addEventListener('click', doDiscoverServer);
+
+    // Host-OS override (A3)
+    $('host-os-override').addEventListener('change', saveHostOsOverride);
+
+    // Cloud Prefetch (B)
+    $('btn-save-prefetch').addEventListener('click', savePrefetch);
+
+    // Wizard
     $('btn-run-wizard').addEventListener('click', openWizard);
     $('wizard-skip').addEventListener('click', wizardSkip);
     $('wizard-back').addEventListener('click', () => { if (_wizardStep > 1) showStep(_wizardStep - 1); });
@@ -486,6 +715,7 @@
     loadOutput();
     loadExclusions();
     loadShares();
+    loadPrefetch();
     maybeAutoOpenWizard();
   }
 

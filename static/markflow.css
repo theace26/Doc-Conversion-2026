@@ -1496,3 +1496,30 @@ small, .text-sm { font-size: 0.85rem; }
 #discovery-results h4 { margin: 0 0 0.4rem; font-size: 0.9rem; }
 #discovery-results ul { margin: 0; padding-left: 1.2rem; }
 #discovery-results li { font-size: 0.85rem; line-height: 1.5; }
+
+/* ============================================================================
+ * Storage page — v0.29.0 additions (modal tabs, toggle labels)
+ * ========================================================================= */
+
+/* Tab buttons inside modal dialogs (Discovery modal) */
+.tab-btn {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 0.4rem 0.85rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active {
+  color: var(--text);
+  border-bottom-color: var(--accent, #4ade80);
+}
+
+/* Folder-picker open button — tighter than default btn-sm */
+#btn-browse-source, #btn-browse-output {
+  padding: 0.3rem 0.55rem;
+  min-width: auto;
+}

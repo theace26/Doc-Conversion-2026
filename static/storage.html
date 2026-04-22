@@ -16,9 +16,20 @@
     <div id="error-banner" role="alert" hidden></div>
 
     <header class="page-header" style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap">
-      <div style="display:flex;align-items:center;gap:0.75rem">
+      <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
         <h1 style="margin:0">Storage</h1>
         <span id="host-os-badge" class="badge">Detecting…</span>
+        <!-- Host OS override (A3) -->
+        <label class="text-sm text-muted" style="display:flex;align-items:center;gap:0.35rem;margin:0">
+          Override:
+          <select id="host-os-override" style="padding:0.15rem 0.4rem;font-size:0.82rem">
+            <option value="">Auto</option>
+            <option value="windows">Windows</option>
+            <option value="wsl">Windows (WSL)</option>
+            <option value="macos">macOS</option>
+            <option value="linux">Linux</option>
+          </select>
+        </label>
       </div>
       <button id="btn-run-wizard" class="btn btn-primary" type="button">Setup Wizard</button>
     </header>
@@ -43,7 +54,10 @@
         <div style="display:flex;gap:0.5rem;align-items:flex-end;flex-wrap:wrap;margin-bottom:0.5rem">
           <div class="form-group" style="flex:1;min-width:240px;margin:0">
             <label for="source-path-input">Path</label>
-            <input id="source-path-input" type="text" placeholder="/host/root/Users/you/Documents" />
+            <div style="display:flex;gap:0.25rem">
+              <input id="source-path-input" type="text" placeholder="/host/root/Users/you/Documents" style="flex:1" />
+              <button id="btn-browse-source" class="btn btn-ghost btn-sm" type="button" title="Browse…">📁</button>
+            </div>
           </div>
           <div class="form-group" style="flex:1;min-width:160px;margin:0">
             <label for="source-label-input">Label (optional)</label>
@@ -68,7 +82,10 @@
         <div style="display:flex;gap:0.5rem;align-items:flex-end;flex-wrap:wrap">
           <div class="form-group" style="flex:1;min-width:300px;margin:0">
             <label for="output-path-input">Path</label>
-            <input id="output-path-input" type="text" placeholder="/host/rw/markflow-output" />
+            <div style="display:flex;gap:0.25rem">
+              <input id="output-path-input" type="text" placeholder="/host/rw/markflow-output" style="flex:1" />
+              <button id="btn-browse-output" class="btn btn-ghost btn-sm" type="button" title="Browse…">📁</button>
+            </div>
           </div>
           <button id="btn-save-output" class="btn btn-primary" type="button">Save</button>
         </div>
@@ -116,6 +133,140 @@
         </table>
       </div>
     </details>
+
+    <!-- Cloud Prefetch (migrated from Settings in v0.29.0) -->
+    <details class="settings-section">
+      <summary>Cloud Prefetch</summary>
+      <div class="card">
+        <p class="text-sm text-muted" style="margin:0 0 0.75rem">
+          Prefetch files from cloud storage (Dropbox, iCloud, OneDrive placeholders)
+          before conversion. Tune concurrency and rate limits to match your provider.
+        </p>
+        <div class="form-group">
+          <label class="toggle-label" style="display:flex;align-items:center;gap:0.5rem">
+            <input type="checkbox" id="pref-cloud_prefetch_enabled" data-pref="cloud_prefetch_enabled" />
+            Enable cloud prefetch
+          </label>
+          <p class="hint text-sm text-muted" style="margin:0.2rem 0 0">Master toggle.</p>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0.75rem">
+          <div class="form-group" style="margin:0">
+            <label for="pref-cloud_prefetch_concurrency">Concurrent workers (1–20)</label>
+            <input type="number" id="pref-cloud_prefetch_concurrency" data-pref="cloud_prefetch_concurrency" min="1" max="20" />
+          </div>
+          <div class="form-group" style="margin:0">
+            <label for="pref-cloud_prefetch_rate_limit">Rate limit /min (1–100)</label>
+            <input type="number" id="pref-cloud_prefetch_rate_limit" data-pref="cloud_prefetch_rate_limit" min="1" max="100" />
+          </div>
+          <div class="form-group" style="margin:0">
+            <label for="pref-cloud_prefetch_timeout_seconds">Per-file timeout (sec, 10–600)</label>
+            <input type="number" id="pref-cloud_prefetch_timeout_seconds" data-pref="cloud_prefetch_timeout_seconds" min="10" max="600" />
+          </div>
+          <div class="form-group" style="margin:0">
+            <label for="pref-cloud_prefetch_min_size_bytes">Min file size (bytes, 0=all)</label>
+            <input type="number" id="pref-cloud_prefetch_min_size_bytes" data-pref="cloud_prefetch_min_size_bytes" min="0" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="toggle-label" style="display:flex;align-items:center;gap:0.5rem">
+            <input type="checkbox" id="pref-cloud_prefetch_probe_all" data-pref="cloud_prefetch_probe_all" />
+            Probe all files (slower, more thorough)
+          </label>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.5rem">
+          <button id="btn-save-prefetch" class="btn btn-primary" type="button">Save</button>
+          <span id="prefetch-save-status" class="text-sm text-muted"></span>
+        </div>
+      </div>
+    </details>
+
+    <!-- Add-Share modal (A1) -->
+    <div id="add-share-modal" class="modal" hidden>
+      <div class="modal-backdrop"></div>
+      <div class="modal-card" role="dialog" aria-labelledby="add-share-title">
+        <h2 id="add-share-title" style="margin-top:0">Add Network Share</h2>
+        <div class="form-group">
+          <label for="add-share-name">Name</label>
+          <input id="add-share-name" type="text" placeholder="nas-docs" pattern="[A-Za-z0-9_-]+" required />
+          <p class="hint text-sm text-muted">Alphanumeric, dashes, underscores. Used as <code>/mnt/shares/&lt;name&gt;</code>.</p>
+        </div>
+        <div class="form-group">
+          <label>Protocol</label>
+          <div style="display:flex;gap:1rem">
+            <label><input type="radio" name="add-share-protocol" value="smb" checked /> SMB/CIFS</label>
+            <label><input type="radio" name="add-share-protocol" value="nfsv3" /> NFSv3</label>
+            <label><input type="radio" name="add-share-protocol" value="nfsv4" /> NFSv4</label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="add-share-server">Server</label>
+          <input id="add-share-server" type="text" placeholder="192.168.1.17" required />
+        </div>
+        <div class="form-group">
+          <label for="add-share-sharepath">Share name (SMB) or export path (NFS)</label>
+          <input id="add-share-sharepath" type="text" placeholder="documents" required />
+        </div>
+        <div id="add-share-smb-fields">
+          <div class="form-group">
+            <label for="add-share-username">Username</label>
+            <input id="add-share-username" type="text" autocomplete="off" />
+          </div>
+          <div class="form-group">
+            <label for="add-share-password">Password</label>
+            <input id="add-share-password" type="password" autocomplete="new-password" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="toggle-label" style="display:flex;align-items:center;gap:0.5rem">
+            <input id="add-share-readonly" type="checkbox" checked />
+            Read-only mount (recommended for sources)
+          </label>
+        </div>
+        <p id="add-share-error" class="text-sm" style="color:#f87171;margin:0.4rem 0" hidden></p>
+        <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:1rem">
+          <button id="add-share-cancel" class="btn btn-ghost" type="button">Cancel</button>
+          <button id="add-share-submit" class="btn btn-primary" type="button">Add Share</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Discovery modal (A2) -->
+    <div id="discover-modal" class="modal" hidden>
+      <div class="modal-backdrop"></div>
+      <div class="modal-card" role="dialog" aria-labelledby="discover-title">
+        <h2 id="discover-title" style="margin-top:0">Discover Network Shares</h2>
+        <div role="tablist" style="display:flex;gap:0.25rem;border-bottom:1px solid var(--border);margin-bottom:0.75rem">
+          <button role="tab" class="tab-btn active" data-tab="subnet" type="button">Scan subnet</button>
+          <button role="tab" class="tab-btn" data-tab="server" type="button">Probe server</button>
+        </div>
+        <section class="tab-panel" data-tab="subnet">
+          <div class="form-group">
+            <label for="discover-subnet">Subnet (CIDR)</label>
+            <input id="discover-subnet" type="text" placeholder="192.168.1.0/24" />
+            <p class="hint text-sm text-muted">Scans TCP/445. Capped at 256 hosts.</p>
+          </div>
+          <button id="discover-subnet-go" class="btn btn-primary" type="button">Scan</button>
+        </section>
+        <section class="tab-panel" data-tab="server" hidden>
+          <div class="form-group">
+            <label for="discover-server">Server (IP or hostname)</label>
+            <input id="discover-server" type="text" placeholder="192.168.1.17" />
+          </div>
+          <div class="form-group">
+            <label>Protocol</label>
+            <div style="display:flex;gap:1rem">
+              <label><input type="radio" name="discover-protocol" value="smb" checked /> SMB</label>
+              <label><input type="radio" name="discover-protocol" value="nfs" /> NFS</label>
+            </div>
+          </div>
+          <button id="discover-server-go" class="btn btn-primary" type="button">Probe</button>
+        </section>
+        <div id="discover-output" style="margin-top:0.75rem;max-height:320px;overflow-y:auto"></div>
+        <div style="display:flex;justify-content:flex-end;margin-top:1rem">
+          <button id="discover-close" class="btn btn-ghost" type="button">Close</button>
+        </div>
+      </div>
+    </div>
 
     <!-- First-run wizard modal -->
     <div id="wizard-modal" class="modal" hidden>
@@ -169,6 +320,7 @@
   </div>
 
   <script src="/static/app.js"></script>
+  <script src="/static/js/folder-picker.js"></script>
   <script src="/static/js/storage.js" defer></script>
 </body>
 </html>
