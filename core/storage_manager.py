@@ -116,3 +116,84 @@ def _validate_sync(path: str, role: PathRole) -> ValidationResult:
 async def validate_path(path: str, role: PathRole) -> ValidationResult:
     """Validate `path` for its intended role. Wrapped in to_thread to tolerate slow NAS stat."""
     return await asyncio.to_thread(_validate_sync, path, role)
+
+
+# ── Write guard ──────────────────────────────────────────────────────────────
+
+_cached_output_path: str | None = None
+
+
+class StorageWriteDenied(PermissionError):
+    """Raised when a write target falls outside the configured output directory."""
+
+
+def set_output_path(path: str | None) -> None:
+    """Update the configured output directory (cached in-process). Called by config layer."""
+    global _cached_output_path
+    _cached_output_path = os.path.realpath(path) if path else None
+    log.info("output_path_updated", path=_cached_output_path)
+
+
+def get_output_path() -> str | None:
+    """Return the currently configured output path (real-resolved) or None."""
+    return _cached_output_path
+
+
+def is_write_allowed(target_path: str) -> bool:
+    """True iff target resolves inside the configured output directory.
+
+    SECURITY: This is the SOLE application-level restriction on the broad
+    /host/rw Docker mount (v0.25.0). Must be called before every file write
+    in converter.py, bulk_worker.py, and any new write path. Coverage is
+    enforced by tests/test_write_guard_coverage.py — keep it green.
+    """
+    if not _cached_output_path or not target_path:
+        return False
+    try:
+        target_real = os.path.realpath(target_path)
+    except OSError:
+        return False
+    base = _cached_output_path.rstrip(os.sep)
+    return target_real == base or target_real.startswith(base + os.sep)
+
+
+# ── Config persistence (DB-backed) ───────────────────────────────────────────
+
+
+async def load_config_from_db() -> None:
+    """Populate in-process write-guard cache from DB prefs. Call from lifespan startup."""
+    from core.preferences_cache import get_cached_preference
+    output = await get_cached_preference("storage_output_path", default=None)
+    set_output_path(output)
+    log.info("storage_config_loaded", output=output)
+
+
+async def save_output_path(path: str) -> None:
+    """Persist output path to DB prefs + update in-process cache + flag pending restart.
+
+    The pending-restart flag is only set when the output actually CHANGES
+    (not on first write), so the initial wizard configuration doesn't pop a
+    misleading restart banner.
+    """
+    from datetime import datetime, timezone
+    from core.db.preferences import set_preference
+    from core.preferences_cache import invalidate_preference
+
+    old = _cached_output_path
+    new_real = os.path.realpath(path) if path else None
+
+    await set_preference("storage_output_path", path)
+    invalidate_preference("storage_output_path")
+    set_output_path(path)
+
+    if old is not None and old != new_real:
+        await set_preference(
+            "pending_restart_reason", f"Output directory changed to {path}"
+        )
+        await set_preference(
+            "pending_restart_since", datetime.now(timezone.utc).isoformat()
+        )
+        await set_preference("pending_restart_dismissed_until", "")
+        invalidate_preference("pending_restart_reason")
+        invalidate_preference("pending_restart_since")
+        invalidate_preference("pending_restart_dismissed_until")
