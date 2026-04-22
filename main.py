@@ -36,6 +36,7 @@ from api.routes import bulk, search as search_routes, cowork, locations, browse
 from api.routes import llm_providers as llm_providers_routes
 from api.routes import mcp_info as mcp_info_routes
 from api.routes import mounts as mounts_routes
+from api.routes import storage as storage_routes
 from api.routes import auth as auth_routes
 from api.routes import admin as admin_routes
 from api.middleware import add_middleware
@@ -241,6 +242,27 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         log.warning("markflow.gpu_detection_failed", error=str(exc))
 
+    # v0.25.0: Universal Storage Manager — load output-path cache from DB,
+    # then re-mount any saved network shares. Both steps are best-effort:
+    # a flaky NAS must not block startup, and the rest of the app is happy
+    # to come up with the write guard denying everything (the Storage page
+    # then guides the operator to fix the configuration).
+    try:
+        from core import storage_manager as _sm
+        await _sm.load_config_from_db()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("markflow.storage_config_load_failed", error=str(exc))
+
+    try:
+        from core.credential_store import CredentialStore
+        from core.mount_manager import get_mount_manager, remount_all_saved
+        secret = os.environ.get("SECRET_KEY", "")
+        creds = CredentialStore(secret_key=secret) if secret else None
+        remount_result = await remount_all_saved(get_mount_manager(), creds)
+        log.info("markflow.storage_remount_complete", result=remount_result)
+    except Exception as exc:  # noqa: BLE001 — never block startup
+        log.warning("markflow.storage_remount_failed", error=str(exc))
+
     # Phase 9: Start scheduler + health-gated initial pipeline cycle
     from core.scheduler import start_scheduler, stop_scheduler
     from core.metrics_collector import record_activity_event
@@ -405,6 +427,7 @@ app.include_router(flags_routes.router)
 
 # NFS/SMB mount configuration
 app.include_router(mounts_routes.router)
+app.include_router(storage_routes.router)
 
 # v0.21.0 — AI-Assisted Search
 from api.routes import ai_assist as ai_assist_routes
