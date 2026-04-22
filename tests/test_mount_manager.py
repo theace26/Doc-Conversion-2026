@@ -603,3 +603,100 @@ def test_discover_nfs_exports_handles_timeout(monkeypatch) -> None:
     monkeypatch.setattr(sp, "run", boom)
     result = asyncio.run(mm.discover_nfs_exports("10.0.0.5"))
     assert result == []
+
+
+# -- Universal Storage Manager: singleton + remount + health monitoring --
+
+
+def test_get_mount_manager_returns_singleton() -> None:
+    from core.mount_manager import get_mount_manager
+    a = get_mount_manager()
+    b = get_mount_manager()
+    assert a is b
+
+
+def test_mount_health_dict_is_module_level() -> None:
+    from core.mount_manager import mount_health
+    assert isinstance(mount_health, dict)
+
+
+def test_remount_all_saved_returns_empty_when_no_config(tmp_path) -> None:
+    """No mounts.json → remount_all_saved returns empty dict, never raises."""
+    import asyncio
+    from core.mount_manager import remount_all_saved, MountManager
+    mgr = MountManager(config_path=str(tmp_path / "nonexistent.json"))
+    result = asyncio.run(remount_all_saved(mgr, credential_store=None))
+    assert result == {}
+
+
+def test_remount_all_saved_handles_mount_failure(tmp_path, monkeypatch) -> None:
+    """A failing mount call is logged and produces {name: False}, no exception."""
+    import asyncio
+    from core.mount_manager import (
+        remount_all_saved, MountManager, MountConfig, MountResult,
+    )
+    mgr = MountManager(config_path=str(tmp_path / "mounts.json"))
+    cfg = MountConfig(
+        protocol="nfsv3", server="10.0.0.1", share_path="/data",
+        mount_point="/mnt/shares/data", read_only=True,
+    )
+    mgr.save_config("data", cfg)
+
+    def fake_mount(self, config, dry_run=False):
+        return MountResult(success=False, message="mock failure", command="", fstab_entry="")
+
+    monkeypatch.setattr(MountManager, "mount", fake_mount)
+    result = asyncio.run(remount_all_saved(mgr, credential_store=None))
+    assert result == {"data": False}
+
+
+def test_check_mount_health_populates_dict(tmp_path, monkeypatch) -> None:
+    """check_mount_health probes share + writes to module-level mount_health."""
+    import asyncio
+    from core.mount_manager import (
+        check_mount_health, mount_health, MountManager, MountConfig,
+    )
+    mount_health.clear()
+    mgr = MountManager(config_path=str(tmp_path / "mounts.json"))
+    cfg = MountConfig(
+        protocol="nfsv3", server="10.0.0.1", share_path="/data",
+        mount_point=str(tmp_path),  # use tmp_path so listdir succeeds
+        read_only=True,
+    )
+    mgr.save_config("source", cfg)
+    asyncio.run(check_mount_health(mgr))
+    assert "source" in mount_health
+    assert mount_health["source"]["ok"] is True
+    assert mount_health["source"]["error"] is None
+
+
+def test_check_mount_health_records_failure_for_missing_path(tmp_path) -> None:
+    import asyncio
+    from core.mount_manager import (
+        check_mount_health, mount_health, MountManager, MountConfig,
+    )
+    mount_health.clear()
+    mgr = MountManager(config_path=str(tmp_path / "mounts.json"))
+    cfg = MountConfig(
+        protocol="nfsv3", server="10.0.0.1", share_path="/data",
+        mount_point=str(tmp_path / "absent"),
+        read_only=True,
+    )
+    mgr.save_config("source", cfg)
+    asyncio.run(check_mount_health(mgr))
+    assert mount_health["source"]["ok"] is False
+    assert mount_health["source"]["error"]
+
+
+def test_check_mount_health_prunes_stale_entries(tmp_path) -> None:
+    """Removing a share from config drops its entry from mount_health on next probe."""
+    import asyncio
+    from core.mount_manager import (
+        check_mount_health, mount_health, MountManager,
+    )
+    mount_health.clear()
+    mount_health["ghost"] = {"ok": True, "last_check": "x", "error": None}
+    # No mounts.json on disk → no shares → ghost should be pruned
+    mgr = MountManager(config_path=str(tmp_path / "no.json"))
+    asyncio.run(check_mount_health(mgr))
+    assert "ghost" not in mount_health

@@ -598,6 +598,25 @@ async def run_housekeeping():
     log.info("housekeeping.complete")
 
 
+async def run_mount_health_check() -> None:
+    """v0.25.0: Probe each mounted share's reachability. Yields to active bulk jobs.
+
+    A failed probe doesn't auto-remount — the operator sees the red dot on
+    the Storage page and decides what to do. Auto-remediation hides root
+    causes (matches the overnight-rebuild design philosophy).
+    """
+    try:
+        from core.bulk_worker import get_all_active_jobs
+        active = await get_all_active_jobs()
+        if active:
+            log.debug("mount_health.skipped_bulk_job_active")
+            return
+        from core.mount_manager import check_mount_health, get_mount_manager
+        await check_mount_health(get_mount_manager())
+    except Exception as exc:
+        log.error("mount_health.failed", error=str(exc))
+
+
 def start_scheduler() -> None:
     """Register all jobs and start the scheduler. Called from lifespan."""
     from core.metrics_collector import collect_metrics, collect_disk_snapshot, purge_old_metrics
@@ -785,8 +804,19 @@ def start_scheduler() -> None:
         misfire_grace_time=300,
     )
 
+    # v0.25.0: Mount health probe — every 5 minutes (yields to active bulk jobs)
+    scheduler.add_job(
+        run_mount_health_check,
+        trigger=IntervalTrigger(minutes=5),
+        id="mount_health",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=120,
+    )
+
     scheduler.start()
-    log.info("scheduler.started", jobs=17)
+    log.info("scheduler.started", jobs=18)
 
 
 def get_pipeline_status() -> dict:

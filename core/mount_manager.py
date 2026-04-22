@@ -623,3 +623,110 @@ async def discover_smb_servers(subnet: str, timeout: int = _SMB_DISCOVERY_TIMEOU
     except asyncio.TimeoutError:
         results = []
     return [r for r in results if isinstance(r, dict)]
+
+
+# ── Singleton + startup remount + health monitoring ─────────────────────────
+
+_singleton: MountManager | None = None
+
+
+def get_mount_manager() -> MountManager:
+    """Return the process-wide MountManager singleton."""
+    global _singleton
+    if _singleton is None:
+        _singleton = MountManager()
+    return _singleton
+
+
+# Module-level health state — read by /api/storage/health and the Storage page
+# status dots. Updated by check_mount_health() on the 5-minute scheduler tick.
+mount_health: dict[str, dict] = {}
+
+
+async def remount_all_saved(manager: MountManager, credential_store) -> dict[str, bool]:
+    """Re-mount every share recorded in mounts.json. Called from FastAPI lifespan.
+
+    Iterates the v2 shares dict, loads each MountConfig, looks up its password
+    from the credential_store (SMB only), and runs mount() in a thread so the
+    event loop stays responsive. Failures are logged but never raise — startup
+    must not block on a flaky NAS.
+    """
+    result: dict[str, bool] = {}
+    try:
+        configs = manager.load_config()
+    except Exception as exc:  # noqa: BLE001 — never block startup
+        log.warning("remount_load_config_failed", error=str(exc))
+        return result
+
+    for name, cfg in configs.items():
+        try:
+            # SMB needs the password merged in from the credential store
+            # (mounts.json only persists the username for security)
+            if cfg.protocol == "smb" and credential_store is not None:
+                creds = credential_store.get_credentials(name)
+                if creds:
+                    username, password = creds
+                    cfg.smb_credentials = SMBCredentials(username=username, password=password)
+            # Override mount_point to the canonical /mnt/shares/<name> for
+            # named shares (legacy "source"/"output" already have their
+            # mount_point set in the saved config — keep those).
+            if name not in ("source", "output"):
+                cfg.mount_point = MountManager.share_mount_point(name)
+            mr = await asyncio.to_thread(manager.mount, cfg)
+            result[name] = bool(getattr(mr, "success", False))
+            if not result[name]:
+                log.warning("remount_share_failed", share=name, error=getattr(mr, "message", ""))
+        except Exception as exc:  # noqa: BLE001 — log + continue
+            log.warning("remount_failed", share=name, error=str(exc))
+            result[name] = False
+    log.info("startup_remount_complete", result=result)
+    return result
+
+
+async def check_mount_health(manager: MountManager) -> None:
+    """Probe each configured share with a 1.5-second listdir. Updates mount_health.
+
+    Used by the 5-minute scheduler job. Stale entries for removed shares are
+    pruned on each tick so the Storage page UI doesn't show ghost dots.
+    """
+    from datetime import datetime, timezone
+    try:
+        share_names = list(manager._load_config_v2().get("shares", {}).keys())
+    except Exception as exc:  # noqa: BLE001
+        log.warning("mount_health_load_failed", error=str(exc))
+        return
+
+    # Drop entries for shares that no longer exist
+    for stale in [n for n in mount_health if n not in share_names]:
+        mount_health.pop(stale, None)
+
+    for name in share_names:
+        try:
+            mp = MountManager.share_mount_point(name) if name not in ("source", "output") else (
+                manager.load_config().get(name).mount_point
+            )
+        except (ValueError, AttributeError) as exc:
+            mount_health[name] = {
+                "ok": False,
+                "last_check": datetime.now(timezone.utc).isoformat(),
+                "error": f"mount-point lookup failed: {exc}",
+            }
+            continue
+
+        def _probe(path: str = mp) -> tuple[bool, str | None]:
+            import os
+            try:
+                os.listdir(path)
+                return True, None
+            except (OSError, PermissionError) as exc:
+                return False, str(exc)
+
+        try:
+            ok, err = await asyncio.wait_for(asyncio.to_thread(_probe), timeout=1.5)
+        except asyncio.TimeoutError:
+            ok, err = False, "probe timeout"
+        mount_health[name] = {
+            "ok": ok,
+            "last_check": datetime.now(timezone.utc).isoformat(),
+            "error": err,
+        }
