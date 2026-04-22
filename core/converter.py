@@ -31,6 +31,7 @@ from core.database import (
 )
 from core.logging_config import bind_batch_context, bind_file_context
 from core.metadata import generate_manifest, generate_sidecar
+from core.storage_manager import is_write_allowed, StorageWriteDenied
 import formats  # noqa: F401 — triggers handler self-registration
 from formats.base import get_handler_for_path, list_supported_extensions
 
@@ -313,21 +314,32 @@ def _convert_file_sync(
 
         # ── Prepare output directory ──────────────────────────────────────
         batch_out = output_dir / batch_id
+        if not is_write_allowed(str(batch_out)):
+            raise StorageWriteDenied(f"write denied — outside output dir: {batch_out}")
         batch_out.mkdir(parents=True, exist_ok=True)
 
         assets_dir = batch_out / "assets"
+        if not is_write_allowed(str(assets_dir)):
+            raise StorageWriteDenied(f"write denied — outside output dir: {assets_dir}")
         assets_dir.mkdir(exist_ok=True)
 
         originals_dir = batch_out / "_originals"
+        if not is_write_allowed(str(originals_dir)):
+            raise StorageWriteDenied(f"write denied — outside output dir: {originals_dir}")
         originals_dir.mkdir(exist_ok=True)
 
         # Copy original file to _originals/
-        shutil.copy2(file_path, originals_dir / source_filename)
+        _orig_dst = originals_dir / source_filename
+        if not is_write_allowed(str(_orig_dst)):
+            raise StorageWriteDenied(f"write denied — outside output dir: {_orig_dst}")
+        shutil.copy2(file_path, _orig_dst)
         model.metadata.original_preserved = True
 
         # ── Save extracted images ──────────────────────────────────────────
         for img_name, img_data in model.images.items():
             img_path = assets_dir / img_name
+            if not is_write_allowed(str(img_path)):
+                raise StorageWriteDenied(f"write denied — outside output dir: {img_path}")
             img_path.write_bytes(img_data.data)
 
         # ── Generate output ────────────────────────────────────────────────
@@ -352,6 +364,8 @@ def _convert_file_sync(
 
             from formats.markdown_handler import MarkdownHandler
             md_handler = MarkdownHandler()
+            if not is_write_allowed(str(output_path)):
+                raise StorageWriteDenied(f"write denied — outside output dir: {output_path}")
             md_handler.export(model, output_path)
 
             export_duration = int((time.perf_counter() - t_export) * 1000)
@@ -365,6 +379,8 @@ def _convert_file_sync(
             # ── Write sidecar ──────────────────────────────────────────────
             sidecar = generate_sidecar(model, style_data)
             sidecar_path = batch_out / sidecar_filename
+            if not is_write_allowed(str(sidecar_path)):
+                raise StorageWriteDenied(f"write denied — outside output dir: {sidecar_path}")
             sidecar_path.write_text(
                 json.dumps(sidecar, indent=2, ensure_ascii=False),
                 encoding="utf-8",
@@ -419,6 +435,8 @@ def _convert_file_sync(
             )
             t_export = time.perf_counter()
 
+            if not is_write_allowed(str(output_path)):
+                raise StorageWriteDenied(f"write denied — outside output dir: {output_path}")
             target_handler.export(
                 model,
                 output_path,
@@ -682,7 +700,11 @@ class ConversionOrchestrator:
         ]
         manifest = generate_manifest(batch_id, manifest_entries)
         manifest_path = self.output_base / batch_id / "manifest.json"
+        if not is_write_allowed(str(manifest_path.parent)):
+            raise StorageWriteDenied(f"write denied — outside output dir: {manifest_path.parent}")
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        if not is_write_allowed(str(manifest_path)):
+            raise StorageWriteDenied(f"write denied — outside output dir: {manifest_path}")
         manifest_path.write_text(
             json.dumps(manifest, indent=2, ensure_ascii=False),
             encoding="utf-8",

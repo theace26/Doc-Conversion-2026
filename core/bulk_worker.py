@@ -26,6 +26,7 @@ from core.progress_tracker import RollingWindowETA, ETA_UPDATE_INTERVAL, format_
 from core.scan_coordinator import notify_bulk_started, notify_bulk_completed
 from core.stop_controller import should_stop, register_task, unregister_task
 from core.metrics_collector import record_activity_event
+from core.storage_manager import is_write_allowed, StorageWriteDenied
 from core.storage_probe import ErrorRateMonitor
 from core.bulk_scanner import (
     ADOBE_EXTENSIONS,
@@ -929,8 +930,14 @@ class BulkJob:
         output_md = _map_output_path(source_path, self.source_path, self.output_path)
         sidecar_dir = _map_sidecar_dir(output_md)
 
-        # Create output dirs
+        # Create output dirs (Universal Storage Manager v0.25.0 — write-guard
+        # gate against the broad /host/rw mount; both targets must resolve
+        # inside the configured output directory)
+        if not is_write_allowed(str(output_md.parent)):
+            raise StorageWriteDenied(f"write denied — outside output dir: {output_md.parent}")
         output_md.parent.mkdir(parents=True, exist_ok=True)
+        if not is_write_allowed(str(sidecar_dir)):
+            raise StorageWriteDenied(f"write denied — outside output dir: {sidecar_dir}")
         sidecar_dir.mkdir(parents=True, exist_ok=True)
 
         t_start = time.perf_counter()
