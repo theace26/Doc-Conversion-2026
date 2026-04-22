@@ -4,6 +4,125 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.29.0 — Storage page polish + security hardening pass (2026-04-22)
+
+**Same-day follow-up to v0.28.0.** Polish pass on the Universal Storage
+Manager plus eight security-audit items from
+[`docs/security-audit.md`](security-audit.md). All work in one autonomous
+run planned at
+[`docs/superpowers/plans/2026-04-22-v0.28.0-polish.md`](superpowers/plans/2026-04-22-v0.28.0-polish.md).
+
+### Storage page polish
+
+- **Add-Share modal**: replaces the prompt() chain in `storage.js`.
+  Proper form with inline pattern validation (name matches `^[A-Za-z0-9_-]+$`),
+  protocol radio (smb/nfsv3/nfsv4), show/hide SMB credential fields, submit
+  in-flight disable, surface response errors inline instead of via alert().
+- **Discovery modal**: two-tab UI (Scan subnet / Probe server). Clicking a
+  discovered share opens the Add-Share modal pre-filled with server +
+  sanitized share name.
+- **Host-OS override dropdown**: Auto / Windows / WSL / macOS / Linux in the
+  page header. Persists via `/api/preferences/host_os_override` and re-loads
+  Quick Access on change so operators can force a particular OS rendering
+  when auto-detection is wrong.
+- **Folder-picker buttons**: 📁 next to source-path-input and
+  output-path-input open the existing FolderPicker modal. Source defaults to
+  `/host/root`; output defaults to `/host/rw`.
+- **Cloud Prefetch section** migrated from Settings: 6 existing prefs, one
+  "Save" button that writes through `/api/preferences/{key}` and flashes
+  "Saved ✓" inline.
+- **Settings page retirement**: "Storage Connections" (~139 lines) and
+  "Cloud Prefetch" (~61 lines) sections deleted from `static/settings.html`,
+  along with the dedicated Storage Connections `<script>` block (~133 lines)
+  and the Cloud Prefetch toggle-label JS. The "Files and Locations"
+  link-card and prominent "Open Storage Page →" card stay.
+
+### Security hardening — 8 audit findings
+
+- **SEC-C08** (Critical, ZIP path traversal): `_zip_member_is_safe()` rejects
+  `..`, absolute paths, and Windows-separator paths before `extract` and
+  `extractall` in both `_extract_zip` and `_batch_extract_zip`.
+- **SEC-H12** (High, missing security headers): new `_SECURITY_HEADERS` dict
+  in `api/middleware.py` sets `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`,
+  `Permissions-Policy` (no accelerometer / camera / geolocation / microphone /
+  payment / USB), and a conservative Content-Security-Policy. Applied via
+  `setdefault()` so explicit per-route overrides still win.
+- **SEC-H13** (High, weak SECRET_KEY): `main.py` lifespan rejects the
+  hardcoded dev default AND anything < 32 chars when `DEV_BYPASS_AUTH=false`.
+  In DEV mode the same check warns instead of aborting.
+- **SEC-H16** (High, dead cleanup guard): `password_handler.cleanup_temp_file`
+  was comparing `result.output_path != result.output_path` (always False) —
+  decrypted temp files were never deleted. Fixed with proper realpath
+  containment check against `tempfile.gettempdir()`.
+- **SEC-H18** (High, insecure tempfile): `libreoffice_helper` replaced
+  `tempfile.mktemp()` with `tempfile.mkstemp()` which atomically creates
+  and O_EXCL-locks the destination file.
+- **SEC-M10** (Medium, unbounded pagination): scanner/runs and
+  db/maintenance-log clamp `limit` to [1, 500].
+- **SEC-M12** (Medium, zip-bomb check): `check_compression_ratio` (imported
+  but never called) now gates every zip extraction on the aggregate ratio
+  computed from `infolist()`.
+- **SEC-M15** (Medium, world-readable passwords file): archive_handler now
+  creates `config/archive_passwords.txt` with 0600 and chmods on every
+  append so other host users can't read recovered plaintext passwords.
+- **SEC-M21** (Medium, untrusted worker_capabilities.json): new
+  `_validate_worker_report` type-checks every field against an expected
+  schema; mistyped values are dropped; unknown fields ignored.
+
+### v0.28.0/v0.29.0 self-review (SELF-H1..H4)
+
+- **H1**: `ShareIn.name` enforces `^[A-Za-z0-9_-]+$` at the API layer so
+  credentials and mount-point names can't drift out of sync.
+- **H2**: `/shares` + `/shares/discover` both reject servers starting with
+  `-` so smbclient / showmount / mount.cifs can't interpret them as flags.
+- **H3**: new `DiscoverIn` Pydantic model replaces the raw `payload: dict`
+  for `/api/storage/shares/discover`.
+- **H4**: `add_share` rolls back the just-saved `CredentialStore` entry on
+  mount failure so there are no orphan credentials.
+
+### Testing
+
+- **105 storage tests pass** in Docker (mount_manager 47, storage_manager 20,
+  host_detector 7, credential_store 7, write_guard_coverage 2, storage_api 22).
+- **1297 project tests pass** in Docker (one-shot image without Qdrant /
+  Meilisearch / tesseract fixtures). 69 failures are all pre-existing and
+  require external services or specific fixtures; none regressed from this
+  branch.
+- **Live smoke tested**: rebuilt container, probed /api/health, /api/storage/*,
+  confirmed security headers in every response, confirmed Pydantic validation
+  rejects `../evil` share names (422) and dash-prefixed servers (400).
+
+### Infrastructure
+
+- **`docker-compose.override.yml`**: zeros out the GPU `deploy:` block for
+  markflow + markflow-mcp so `docker-compose up` works on Apple Silicon /
+  any host without NVIDIA Container Toolkit. Linux developers with GPU
+  support delete the file.
+
+### Known deferrals
+
+- **CSP tightening**: current policy uses `'unsafe-inline'` for scripts.
+  Removing it requires replacing every `onclick=` handler with
+  addEventListener; v0.30.x target.
+- **SEC-H02/H01** (serve_source / view_markdown path traversal): these
+  need a per-route containment check. Punted to v0.30.x after more
+  review of /mnt/source usage.
+- **SEC-H07–H11** (XSS via unescaped DOM assignments): frontend refactor
+  — separate sprint.
+
+Files changed on this release: `api/middleware.py`, `api/routes/db_health.py`,
+`api/routes/scanner.py`, `api/routes/storage.py`, `core/gpu_detector.py`,
+`core/libreoffice_helper.py`, `core/password_handler.py`, `core/version.py`,
+`formats/archive_handler.py`, `main.py`, `static/app.js`,
+`static/js/storage.js`, `static/js/storage-restart-banner.js`,
+`static/markflow.css`, `static/settings.html`, `static/storage.html`,
+`tests/test_storage_api.py`, `docs/version-history.md`, `CLAUDE.md`,
+`docs/superpowers/plans/2026-04-22-v0.28.0-polish.md` (new),
+`docker-compose.override.yml` (new).
+
+---
+
 ## v0.28.0 — Universal Storage Manager (2026-04-22)
 
 **Problem.** First-time setup required hand-editing `.env` and `docker-compose.yml`

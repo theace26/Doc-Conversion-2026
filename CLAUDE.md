@@ -91,7 +91,38 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.28.0
+## Current Version — v0.29.0
+
+**Same-day polish follow-up to v0.28.0 plus a security hardening pass.**
+Storage page gets proper Add-Share / Discovery modal forms (replacing the
+prompt() chains), a host-OS override dropdown, folder-picker integration
+on source/output path inputs, and a migrated Cloud Prefetch section.
+Legacy "Storage Connections" and "Cloud Prefetch" sections deleted from
+`static/settings.html`. **Eight security-audit items addressed** — most
+notably ZIP path-traversal (SEC-C08 Critical), security response headers
+on every request (SEC-H12), the long-standing dead guard in
+`password_handler.cleanup_temp_file` (SEC-H16), and a hardened
+SECRET_KEY validation in lifespan (SEC-H13). **105 storage tests + 22
+integration tests pass** in Docker; live-probed endpoints confirm the
+security headers land, Pydantic rejects `../evil` share names (422), and
+dash-prefixed servers are blocked (400).
+
+Full context: [`docs/version-history.md`](docs/version-history.md). Plan
+executed autonomously from
+[`docs/superpowers/plans/2026-04-22-v0.28.0-polish.md`](docs/superpowers/plans/2026-04-22-v0.28.0-polish.md).
+
+Files changed on this release: `api/middleware.py`, `api/routes/db_health.py`,
+`api/routes/scanner.py`, `api/routes/storage.py`, `core/gpu_detector.py`,
+`core/libreoffice_helper.py`, `core/password_handler.py`, `core/version.py`,
+`formats/archive_handler.py`, `main.py`, `static/app.js`,
+`static/js/storage.js`, `static/js/storage-restart-banner.js`,
+`static/markflow.css`, `static/settings.html`, `static/storage.html`,
+`tests/test_storage_api.py`, `docs/version-history.md`, `CLAUDE.md`,
+`docker-compose.override.yml` (new for Apple Silicon dev).
+
+---
+
+## v0.28.0 — Universal Storage Manager
 
 **Universal Storage Manager — replace manual `.env` / `docker-compose.yml`
 storage config with a GUI Storage page, first-run wizard, and runtime
