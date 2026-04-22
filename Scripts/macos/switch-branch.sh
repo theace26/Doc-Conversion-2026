@@ -162,8 +162,14 @@ echo ""
 echo -e "${YELLOW}[3/3] Switching to branch: ${BOLD}$TARGET_BRANCH${NC}"
 
 if [[ "$TARGET_BRANCH" == "$CURRENT_BRANCH" ]]; then
-    echo -e "${GRAY}  Already on $TARGET_BRANCH -- pulling latest...${NC}"
-    git pull origin "$TARGET_BRANCH"
+    echo -e "${GRAY}  Already on $TARGET_BRANCH -- checking for updates...${NC}"
+    # Local-only branches (never pushed, or remote was pruned) have no upstream
+    # to pull from. Skip cleanly instead of erroring out.
+    if git rev-parse --verify --quiet "refs/remotes/origin/$TARGET_BRANCH" >/dev/null; then
+        git pull origin "$TARGET_BRANCH"
+    else
+        echo -e "${GRAY}  (local-only branch; skipping pull)${NC}"
+    fi
 else
     # Check for uncommitted changes
     if ! git diff --quiet || ! git diff --cached --quiet; then
@@ -187,7 +193,12 @@ else
         git checkout -b "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
     fi
 
-    git pull origin "$TARGET_BRANCH"
+    # Skip pull for local-only branches (never pushed, or remote was pruned).
+    if git rev-parse --verify --quiet "refs/remotes/origin/$TARGET_BRANCH" >/dev/null; then
+        git pull origin "$TARGET_BRANCH"
+    else
+        echo -e "${GRAY}  (local-only branch; skipping pull)${NC}"
+    fi
 fi
 
 NEW_COMMIT=$(git log -1 --format="%h %s")
