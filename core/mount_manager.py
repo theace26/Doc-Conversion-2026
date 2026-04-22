@@ -7,7 +7,11 @@ Generates mount commands, fstab entries, and manages config persistence.
 
 from __future__ import annotations
 
+import asyncio
+import ipaddress
 import json
+import re
+import socket
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -488,3 +492,134 @@ class MountManager:
             Path(tmp_mount).rmdir()
         except OSError:
             pass
+
+
+# ── SMB / NFS network discovery (Universal Storage Manager) ──────────────────
+#
+# All discovery functions are user-initiated (called via /api/storage/shares/discover)
+# and never run automatically. Subprocess calls have hard timeouts and route through
+# asyncio.to_thread so the event loop stays responsive.
+
+# Filtered out from smbclient -L output — administrative shares users shouldn't mount
+_IPC_SHARES = {"IPC$", "ADMIN$", "print$"}
+
+# Discovery hard limits
+_DISCOVERY_SUBNET_MAX_HOSTS = 256  # cap to prevent /16 from spawning 65k probes
+_SMB_PROBE_TIMEOUT = 1.5
+_SMB_DISCOVERY_TIMEOUT = 5
+_SHOWMOUNT_TIMEOUT = 5
+
+
+def _parse_smbclient_shares(output: str) -> list[dict]:
+    """Parse `smbclient -L //server -N` tabular output into share descriptors.
+
+    Skips administrative shares (IPC$, ADMIN$, print$). Tolerates missing
+    Comment column (some servers omit it).
+    """
+    shares: list[dict] = []
+    in_block = False
+    for line in output.splitlines():
+        line_s = line.rstrip()
+        stripped = line_s.strip()
+        if "Sharename" in line_s and "Type" in line_s:
+            in_block = True
+            continue
+        if not in_block:
+            continue
+        # Blank line ends the block
+        if not stripped:
+            in_block = False
+            continue
+        # Skip the separator row of dashes between header and data
+        if set(stripped) <= {"-", " "}:
+            continue
+        parts = re.split(r"\s{2,}", stripped, maxsplit=2)
+        if len(parts) < 2:
+            continue
+        name, share_type = parts[0], parts[1]
+        if name in _IPC_SHARES:
+            continue
+        comment = parts[2] if len(parts) == 3 else ""
+        shares.append({"name": name, "type": share_type, "comment": comment})
+    return shares
+
+
+def _parse_showmount_output(output: str) -> list[dict]:
+    """Parse `showmount -e <server>` output into export descriptors."""
+    exports: list[dict] = []
+    for line in output.splitlines():
+        line_s = line.strip()
+        if not line_s or line_s.lower().startswith("export list"):
+            continue
+        parts = re.split(r"\s+", line_s, maxsplit=1)
+        if len(parts) == 2:
+            exports.append({"path": parts[0], "allowed_hosts": parts[1]})
+        elif len(parts) == 1:
+            exports.append({"path": parts[0], "allowed_hosts": ""})
+    return exports
+
+
+async def discover_smb_shares(server: str, username: str = "", password: str = "") -> list[dict]:
+    """List SMB shares on `server` via `smbclient -L`. Returns [] on any failure."""
+    def _run() -> list[dict]:
+        cmd = ["smbclient", "-L", f"//{server}"]
+        if username:
+            cmd.extend(["-U", f"{username}%{password}"])
+        else:
+            cmd.append("-N")
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=_SHOWMOUNT_TIMEOUT)
+            return _parse_smbclient_shares(out.stdout)
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+            log.warning("smb_discovery_failed", server=server, error=str(exc))
+            return []
+    return await asyncio.to_thread(_run)
+
+
+async def discover_nfs_exports(server: str) -> list[dict]:
+    """List NFS exports on `server` via `showmount -e`. Returns [] on any failure."""
+    def _run() -> list[dict]:
+        try:
+            out = subprocess.run(
+                ["showmount", "-e", server],
+                capture_output=True, text=True, timeout=_SHOWMOUNT_TIMEOUT,
+            )
+            return _parse_showmount_output(out.stdout)
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+            log.warning("nfs_discovery_failed", server=server, error=str(exc))
+            return []
+    return await asyncio.to_thread(_run)
+
+
+async def _probe_smb_host(ip: str, timeout: float = _SMB_PROBE_TIMEOUT) -> dict | None:
+    """TCP-445 reachability probe + reverse DNS. Returns None if unreachable."""
+    def _probe() -> dict | None:
+        try:
+            with socket.create_connection((ip, 445), timeout=timeout):
+                try:
+                    hostname = socket.gethostbyaddr(ip)[0]
+                except (socket.herror, socket.gaierror):
+                    hostname = ip
+                return {"ip": ip, "hostname": hostname}
+        except (OSError, socket.timeout):
+            return None
+    return await asyncio.to_thread(_probe)
+
+
+async def discover_smb_servers(subnet: str, timeout: int = _SMB_DISCOVERY_TIMEOUT) -> list[dict]:
+    """Scan a CIDR subnet for SMB servers (TCP/445). Caps at 256 hosts."""
+    try:
+        net = ipaddress.ip_network(subnet, strict=False)
+    except ValueError:
+        return []
+    hosts = [str(h) for h in net.hosts()]
+    if len(hosts) > _DISCOVERY_SUBNET_MAX_HOSTS:
+        hosts = hosts[:_DISCOVERY_SUBNET_MAX_HOSTS]
+    tasks = [_probe_smb_host(h) for h in hosts]
+    try:
+        results = await asyncio.wait_for(
+            asyncio.gather(*tasks, return_exceptions=True), timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        results = []
+    return [r for r in results if isinstance(r, dict)]

@@ -479,3 +479,127 @@ def test_mountconfig_from_dict_without_display_name_is_none() -> None:
     }
     cfg = MountConfig.from_dict(d)
     assert cfg.display_name is None
+
+
+# -- Universal Storage Manager: SMB / NFS network discovery --
+
+
+def test_parse_smbclient_shares_drops_ipc_and_admin() -> None:
+    from core.mount_manager import _parse_smbclient_shares
+    sample = """
+        Sharename       Type      Comment
+        ---------       ----      -------
+        Documents       Disk      Shared docs
+        Backups         Disk
+        print$          Disk      Printer Drivers
+        IPC$            IPC       IPC Service
+        ADMIN$          Disk      Remote Admin
+    """
+    shares = _parse_smbclient_shares(sample)
+    names = [s["name"] for s in shares]
+    assert "Documents" in names
+    assert "Backups" in names
+    # IPC / ADMIN / print$ administrative shares are filtered out
+    assert "IPC$" not in names
+    assert "ADMIN$" not in names
+    assert "print$" not in names
+
+
+def test_parse_smbclient_shares_captures_comment() -> None:
+    from core.mount_manager import _parse_smbclient_shares
+    sample = """
+        Sharename       Type      Comment
+        ---------       ----      -------
+        Photos          Disk      Family photos archive
+    """
+    shares = _parse_smbclient_shares(sample)
+    assert shares == [{"name": "Photos", "type": "Disk", "comment": "Family photos archive"}]
+
+
+def test_parse_smbclient_shares_handles_empty_output() -> None:
+    from core.mount_manager import _parse_smbclient_shares
+    assert _parse_smbclient_shares("") == []
+
+
+def test_parse_showmount_output_parses_exports() -> None:
+    from core.mount_manager import _parse_showmount_output
+    sample = """Export list for 10.0.0.5:
+/exports/data    10.0.0.0/24
+/exports/media   *
+"""
+    exports = _parse_showmount_output(sample)
+    assert {"path": "/exports/data", "allowed_hosts": "10.0.0.0/24"} in exports
+    assert {"path": "/exports/media", "allowed_hosts": "*"} in exports
+
+
+def test_parse_showmount_output_path_only() -> None:
+    from core.mount_manager import _parse_showmount_output
+    # A line with no host column should still parse (allowed_hosts = "")
+    exports = _parse_showmount_output("Export list for x:\n/exports/lonely\n")
+    assert exports == [{"path": "/exports/lonely", "allowed_hosts": ""}]
+
+
+def test_discover_smb_servers_invalid_subnet_returns_empty() -> None:
+    import asyncio
+    from core import mount_manager as mm
+    result = asyncio.run(mm.discover_smb_servers("not-a-cidr"))
+    assert result == []
+
+
+def test_discover_smb_servers_caps_subnet_size(monkeypatch) -> None:
+    """A /16 has 65k hosts — discover_smb_servers must cap at 256 to avoid hammering."""
+    import asyncio
+    from core import mount_manager as mm
+    captured: list[str] = []
+
+    async def fake_probe(ip: str, timeout: float = 1.5):
+        captured.append(ip)
+        return None
+
+    monkeypatch.setattr(mm, "_probe_smb_host", fake_probe)
+    asyncio.run(mm.discover_smb_servers("10.0.0.0/16", timeout=5))
+    assert len(captured) == 256
+
+
+def test_discover_smb_servers_filters_unreachable(monkeypatch) -> None:
+    import asyncio
+    from core import mount_manager as mm
+
+    async def fake_probe(ip: str, timeout: float = 1.5):
+        # Only .1 answers
+        if ip.endswith(".1"):
+            return {"ip": ip, "hostname": "nas"}
+        return None
+
+    monkeypatch.setattr(mm, "_probe_smb_host", fake_probe)
+    result = asyncio.run(mm.discover_smb_servers("10.0.0.0/30", timeout=5))
+    assert all(r["hostname"] == "nas" for r in result)
+    assert all(isinstance(r, dict) for r in result)
+
+
+def test_discover_smb_shares_handles_missing_smbclient(monkeypatch) -> None:
+    """If smbclient binary is missing, return [] without raising."""
+    import asyncio
+    import subprocess as sp
+    from core import mount_manager as mm
+
+    def boom(*a, **kw):
+        raise FileNotFoundError("smbclient")
+
+    monkeypatch.setattr(sp, "run", boom)
+    result = asyncio.run(mm.discover_smb_shares("10.0.0.5"))
+    assert result == []
+
+
+def test_discover_nfs_exports_handles_timeout(monkeypatch) -> None:
+    """showmount timeout returns [] without raising."""
+    import asyncio
+    import subprocess as sp
+    from core import mount_manager as mm
+
+    def boom(*a, **kw):
+        raise sp.TimeoutExpired(cmd="showmount", timeout=5)
+
+    monkeypatch.setattr(sp, "run", boom)
+    result = asyncio.run(mm.discover_nfs_exports("10.0.0.5"))
+    assert result == []
