@@ -116,6 +116,24 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     "database_sample_rows": "25",
     # PPTX chart extraction (v0.23.8 M5)
     "pptx_chart_extraction_mode": "placeholder",
+    # ── Universal Storage Manager (v0.25.0) ─────────────────────────────────
+    # Output directory configured by the user via the Storage page. Empty
+    # string = no output configured yet (write guard denies all writes).
+    "storage_output_path": "",
+    # JSON list of {id, path, label} entries managed via /api/storage/sources.
+    "storage_sources_json": "[]",
+    # JSON list of {id, path_prefix} folder-exclusion entries.
+    "storage_exclusions_json": "[]",
+    # Restart-required banner state — set when an out-of-band config change
+    # (e.g., output dir change) needs an app restart to take full effect.
+    "pending_restart_reason": "",
+    "pending_restart_since": "",
+    "pending_restart_dismissed_until": "",
+    # First-run wizard: "true" once the user has explicitly dismissed.
+    "setup_wizard_dismissed": "",
+    # Manual override for the auto-detected host OS — empty = use detection.
+    # Valid values: "windows", "wsl", "macos", "linux", "unknown".
+    "host_os_override": "",
 }
 
 
