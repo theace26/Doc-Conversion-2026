@@ -176,6 +176,7 @@ const NAV_ITEMS = [
     { href: "/batch-management.html", label: "Batches", minRole: "manager" },
     { href: "/trash.html",      label: "Trash",     minRole: "manager"     },
     { href: "/resources.html",  label: "Resources", minRole: "manager"     },
+    { href: "/storage.html",    label: "Storage",   minRole: "manager"     },
     { href: "/settings.html",   label: "Settings",  minRole: "manager"     },
     { href: "/flagged.html",    label: "Flagged",   minRole: "admin"       },
     { href: "/admin.html",      label: "Admin",     minRole: "admin"       },
@@ -331,4 +332,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     await buildNav();
     _instrumentActions();
     _initDevLogging();
+    _loadStorageRestartBanner();
 });
+
+// v0.25.0: inject the Universal Storage Manager restart-banner script once on
+// every page that loads app.js, without needing to touch each individual HTML
+// file. The banner polls /api/storage/restart-status every 60s.
+function _loadStorageRestartBanner() {
+    if (document.getElementById('storage-restart-banner-script')) return;
+    const s = document.createElement('script');
+    s.id = 'storage-restart-banner-script';
+    s.src = '/static/js/storage-restart-banner.js';
+    s.defer = true;
+    document.head.appendChild(s);
+}

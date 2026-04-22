@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MarkFlow — Storage</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="/" class="nav-logo">MarkFlow</a>
+    <div id="main-nav" class="nav-links"></div>
+  </nav>
+
+  <div class="container page-content">
+    <div id="error-banner" role="alert" hidden></div>
+
+    <header class="page-header" style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:0.75rem">
+        <h1 style="margin:0">Storage</h1>
+        <span id="host-os-badge" class="badge">Detecting…</span>
+      </div>
+      <button id="btn-run-wizard" class="btn btn-primary" type="button">Setup Wizard</button>
+    </header>
+    <p class="text-muted mb-2">Manage source folders, output directory, network shares, and exclusions.</p>
+
+    <!-- Quick Access -->
+    <details class="settings-section" open>
+      <summary>Quick Access</summary>
+      <div class="card">
+        <p class="text-sm text-muted" style="margin:0 0 0.5rem">
+          Common locations on this host. Click a tile to set it as a source or open it in the browser.
+        </p>
+        <div id="quick-access-grid" class="quick-access-grid"></div>
+      </div>
+    </details>
+
+    <!-- Sources -->
+    <details class="settings-section" open>
+      <summary>Sources</summary>
+      <div class="card">
+        <p class="text-sm text-muted" style="margin:0 0 0.75rem">Folders MarkFlow scans for files.</p>
+        <div style="display:flex;gap:0.5rem;align-items:flex-end;flex-wrap:wrap;margin-bottom:0.5rem">
+          <div class="form-group" style="flex:1;min-width:240px;margin:0">
+            <label for="source-path-input">Path</label>
+            <input id="source-path-input" type="text" placeholder="/host/root/Users/you/Documents" />
+          </div>
+          <div class="form-group" style="flex:1;min-width:160px;margin:0">
+            <label for="source-label-input">Label (optional)</label>
+            <input id="source-label-input" type="text" placeholder="Documents" />
+          </div>
+          <button id="btn-add-source" class="btn btn-primary" type="button">Add</button>
+        </div>
+        <table class="table-compact" style="width:100%">
+          <thead><tr><th>Label</th><th>Path</th><th></th></tr></thead>
+          <tbody id="sources-tbody"><tr><td colspan="3" class="text-muted">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </details>
+
+    <!-- Output -->
+    <details class="settings-section" open>
+      <summary>Output Directory</summary>
+      <div class="card">
+        <p class="text-sm text-muted" style="margin:0 0 0.75rem">
+          Markdown output and sidecars are written here. Changing this requires a restart to fully take effect.
+        </p>
+        <div style="display:flex;gap:0.5rem;align-items:flex-end;flex-wrap:wrap">
+          <div class="form-group" style="flex:1;min-width:300px;margin:0">
+            <label for="output-path-input">Path</label>
+            <input id="output-path-input" type="text" placeholder="/host/rw/markflow-output" />
+          </div>
+          <button id="btn-save-output" class="btn btn-primary" type="button">Save</button>
+        </div>
+        <p id="output-current" class="text-sm text-muted" style="margin-top:0.5rem"></p>
+      </div>
+    </details>
+
+    <!-- Network Shares -->
+    <details class="settings-section">
+      <summary>Network Shares</summary>
+      <div class="card">
+        <p class="text-sm text-muted" style="margin:0 0 0.75rem">
+          SMB/CIFS and NFS shares. Mount points appear under <code>/mnt/shares/&lt;name&gt;</code>.
+        </p>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem">
+          <button id="btn-add-share" class="btn btn-primary" type="button">Add Share</button>
+          <button id="btn-discover-subnet" class="btn btn-ghost" type="button">Scan My Network</button>
+          <button id="btn-discover-server" class="btn btn-ghost" type="button">Probe Server</button>
+        </div>
+        <div id="discovery-results" hidden></div>
+        <table class="table-compact" style="width:100%">
+          <thead><tr><th>Name</th><th>Protocol</th><th>Server</th><th>Status</th><th></th></tr></thead>
+          <tbody id="shares-tbody"><tr><td colspan="5" class="text-muted">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </details>
+
+    <!-- Exclusions -->
+    <details class="settings-section">
+      <summary>Folder Exclusions</summary>
+      <div class="card">
+        <p class="text-sm text-muted" style="margin:0 0 0.75rem">
+          Path prefixes to skip during scanning. Useful for backup folders, OS junk, or noisy subdirectories.
+        </p>
+        <div style="display:flex;gap:0.5rem;align-items:flex-end;flex-wrap:wrap;margin-bottom:0.5rem">
+          <div class="form-group" style="flex:1;min-width:240px;margin:0">
+            <label for="exclusion-input">Path prefix</label>
+            <input id="exclusion-input" type="text" placeholder="/host/root/Users/you/.Trash" />
+          </div>
+          <button id="btn-add-exclusion" class="btn btn-primary" type="button">Add</button>
+        </div>
+        <table class="table-compact" style="width:100%">
+          <thead><tr><th>Prefix</th><th></th></tr></thead>
+          <tbody id="exclusions-tbody"><tr><td colspan="2" class="text-muted">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </details>
+
+    <!-- First-run wizard modal -->
+    <div id="wizard-modal" class="modal" hidden>
+      <div class="modal-backdrop"></div>
+      <div class="modal-card" role="dialog" aria-labelledby="wizard-title">
+        <h2 id="wizard-title">Welcome to MarkFlow</h2>
+
+        <section class="wizard-step" data-step="1">
+          <p>This 1-minute setup gets you converting documents.</p>
+          <p>You can change any of these later on the Storage page.</p>
+        </section>
+
+        <section class="wizard-step" data-step="2" hidden>
+          <h3>Step 2 — Pick a source folder</h3>
+          <p class="text-sm text-muted">Where are your documents?</p>
+          <div class="form-group">
+            <input id="wizard-source-path" type="text" placeholder="/host/root/Users/you/Documents" />
+          </div>
+          <p id="wizard-source-feedback" class="text-sm text-muted"></p>
+        </section>
+
+        <section class="wizard-step" data-step="3" hidden>
+          <h3>Step 3 — Pick an output folder</h3>
+          <p class="text-sm text-muted">Where should converted Markdown go?</p>
+          <div class="form-group">
+            <input id="wizard-output-path" type="text" placeholder="/host/rw/markflow-output" />
+          </div>
+          <p id="wizard-output-feedback" class="text-sm text-muted"></p>
+        </section>
+
+        <section class="wizard-step" data-step="4" hidden>
+          <h3>Step 4 — Add a network share (optional)</h3>
+          <p class="text-sm text-muted">Skip this if all your files are local.</p>
+          <p>You can add SMB/NFS shares anytime from the Storage page.</p>
+        </section>
+
+        <section class="wizard-step" data-step="5" hidden>
+          <h3>You're set up</h3>
+          <p>MarkFlow is ready. The Storage page lets you tweak any of this later.</p>
+        </section>
+
+        <div class="wizard-controls" style="display:flex;justify-content:space-between;margin-top:1rem">
+          <button id="wizard-skip" class="btn btn-ghost" type="button">Skip</button>
+          <div style="display:flex;gap:0.5rem">
+            <button id="wizard-back" class="btn btn-ghost" type="button" hidden>Back</button>
+            <button id="wizard-continue" class="btn btn-primary" type="button">Continue</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script src="/static/js/storage.js" defer></script>
+</body>
+</html>
