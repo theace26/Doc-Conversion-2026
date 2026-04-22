@@ -201,13 +201,30 @@ async def remove_exclusion(ex_id: str, user=Depends(require_role(UserRole.MANAGE
 
 
 class ShareIn(BaseModel):
-    name: str = Field(min_length=1, max_length=64)
+    # v0.29.0 SELF-H1: name pattern is enforced at the API layer so we can't
+    # save credentials under a key like '../../evil' that the mount layer
+    # later sanitizes to something different (credential/mount key mismatch).
+    name: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     protocol: str = Field(pattern="^(smb|nfsv3|nfsv4)$")
-    server: str
-    share: str = ""
-    username: str = ""
-    password: str = ""
+    server: str = Field(min_length=1, max_length=253)
+    share: str = Field(default="", max_length=1024)
+    username: str = Field(default="", max_length=256)
+    password: str = Field(default="", max_length=512)
     options: dict = Field(default_factory=dict)
+
+
+class DiscoverIn(BaseModel):
+    """v0.29.0 SELF-H3: explicit shape beats `payload: dict`.
+
+    scope='subnet' uses `subnet`; scope='server' uses `server`+`protocol`
+    (+ optional username/password for SMB authenticated listing).
+    """
+    scope: str = Field(pattern="^(subnet|server)$")
+    subnet: str = Field(default="", max_length=64)
+    server: str = Field(default="", max_length=253)
+    protocol: str = Field(default="smb", pattern="^(smb|nfs)$")
+    username: str = Field(default="", max_length=256)
+    password: str = Field(default="", max_length=512)
 
 
 @router.get("/shares")
@@ -233,11 +250,19 @@ async def list_shares(user=Depends(require_role(UserRole.MANAGER))) -> dict:
 @router.post("/shares", status_code=status.HTTP_201_CREATED)
 async def add_share(share: ShareIn, user=Depends(require_role(UserRole.MANAGER))) -> dict:
     mgr = get_mount_manager()
+    # v0.29.0 SELF-H2: reject servers that start with '-' so they can't be
+    # interpreted as a subprocess flag by smbclient / mount.cifs / mount.nfs.
+    if share.server.startswith("-"):
+        raise HTTPException(400, detail={"error": "server must not start with '-'"})
+
     # Persist credentials FIRST so a remount-after-restart sees them
+    creds_saved = False
     if share.username or share.password:
         _credential_store().save_credentials(
             share.name, share.protocol, share.username, share.password,
         )
+        creds_saved = True
+
     smb_creds = None
     if share.protocol == "smb":
         smb_creds = SMBCredentials(username=share.username, password=share.password)
@@ -252,8 +277,26 @@ async def add_share(share: ShareIn, user=Depends(require_role(UserRole.MANAGER))
         extra_options=share.options.get("extra_options", {}),
         display_name=share.name,
     )
-    result = await asyncio.to_thread(mgr.mount_named, share.name, cfg)
+    try:
+        result = await asyncio.to_thread(mgr.mount_named, share.name, cfg)
+    except Exception as exc:
+        # v0.29.0 SELF-H4: if mount setup raises, roll back the credential
+        # we just persisted so we don't leave an orphan.
+        if creds_saved:
+            try:
+                _credential_store().delete_credentials(share.name)
+            except Exception:
+                log.warning("credential_rollback_failed", share=share.name)
+        raise HTTPException(500, detail={"error": "mount setup failed"}) from exc
+
     if not getattr(result, "success", False):
+        # v0.29.0 SELF-H4: mount failed (bad creds / server unreachable) —
+        # delete the orphan credential.
+        if creds_saved:
+            try:
+                _credential_store().delete_credentials(share.name)
+            except Exception:
+                log.warning("credential_rollback_failed", share=share.name)
         raise HTTPException(400, detail={"error": getattr(result, "message", "mount failed")})
     mgr.save_config(share.name, cfg)
     return {"ok": True, "name": share.name}
@@ -275,29 +318,29 @@ async def remove_share(name: str, user=Depends(require_role(UserRole.MANAGER))) 
 
 
 @router.post("/shares/discover")
-async def discover(payload: dict, user=Depends(require_role(UserRole.MANAGER))) -> dict:
-    scope = payload.get("scope", "subnet")
-    if scope == "subnet":
-        subnet = payload.get("subnet", "")
-        if not subnet:
+async def discover(payload: DiscoverIn, user=Depends(require_role(UserRole.MANAGER))) -> dict:
+    if payload.scope == "subnet":
+        if not payload.subnet:
             raise HTTPException(400, "subnet is required")
-        servers = await discover_smb_servers(subnet)
+        servers = await discover_smb_servers(payload.subnet)
         return {"servers": servers}
-    if scope == "server":
-        server = payload.get("server", "")
-        if not server:
-            raise HTTPException(400, "server is required")
-        protocol = payload.get("protocol", "smb")
-        if protocol == "smb":
-            shares = await discover_smb_shares(
-                server,
-                username=payload.get("username", ""),
-                password=payload.get("password", ""),
-            )
-        else:
-            shares = await discover_nfs_exports(server)
-        return {"shares": shares}
-    raise HTTPException(400, "scope must be 'subnet' or 'server'")
+    # scope == "server"
+    if not payload.server:
+        raise HTTPException(400, "server is required")
+    # v0.29.0 SELF-H2: reject server values that start with '-' so showmount
+    # or smbclient don't interpret them as flags. Hostnames / IPs never
+    # legitimately start with '-', so this is safe to reject outright.
+    if payload.server.startswith("-"):
+        raise HTTPException(400, "server must not start with '-'")
+    if payload.protocol == "smb":
+        shares = await discover_smb_shares(
+            payload.server,
+            username=payload.username,
+            password=payload.password,
+        )
+    else:
+        shares = await discover_nfs_exports(payload.server)
+    return {"shares": shares}
 
 
 @router.post("/shares/{name}/test")

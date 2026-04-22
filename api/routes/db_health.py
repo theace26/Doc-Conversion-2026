@@ -76,7 +76,8 @@ async def maintenance_log(
     limit: int = 50,
     user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
 ) -> dict:
-    """Return recent maintenance log entries."""
+    """Return recent maintenance log entries. Limit clamped to [1, 500] (v0.29.0 SEC-M10)."""
+    limit = max(1, min(int(limit), 500))
     entries = await get_maintenance_log(limit=limit)
     return {"entries": entries}
 

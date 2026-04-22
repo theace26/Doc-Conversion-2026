@@ -6,10 +6,11 @@ and PptxHandler (.ppt → .pptx) to preprocess legacy Office formats
 before ingesting with library-level parsers.
 """
 
+import os
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
-import subprocess
 
 import structlog
 
@@ -64,9 +65,13 @@ def convert_with_libreoffice(
                         source_path.stem + "." + target_format
                     )
                     if out_path.exists():
-                        stable = Path(
-                            tempfile.mktemp(suffix="." + target_format)
-                        )
+                        # v0.29.0 SEC-H18: mktemp() returns a name without
+                        # creating the file, which leaves a TOCTOU window.
+                        # mkstemp() atomically creates (and O_EXCL-locks) the
+                        # file; shutil.copy2 then overwrites it in place.
+                        _fd, _stable_name = tempfile.mkstemp(suffix="." + target_format)
+                        os.close(_fd)
+                        stable = Path(_stable_name)
                         shutil.copy2(out_path, stable)
                         log.info(
                             "libreoffice_convert_ok",

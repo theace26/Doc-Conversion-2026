@@ -4,6 +4,7 @@ FastAPI middleware for MarkFlow.
 - Request ID generation (UUID4) injected into structlog context.
 - Request timing middleware.
 - Debug headers (X-MarkFlow-*) when DEBUG=true.
+- Security response headers (v0.29.0 — SEC-H12 remediation).
 """
 
 import os
@@ -20,6 +21,38 @@ from core.request_pressure import get_request_pressure
 
 log = structlog.get_logger(__name__)
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+
+# Security response headers (v0.29.0, addresses SEC-H12).
+# All headers are conservative defaults that won't break existing pages.
+# CSP uses 'unsafe-inline' for style because several pages have inline styles;
+# a tighter policy requires a frontend refactor and is left for a later pass.
+_SECURITY_HEADERS: dict[str, str] = {
+    # Prevent MIME sniffing
+    "X-Content-Type-Options": "nosniff",
+    # Block rendering inside a frame (clickjacking protection)
+    "X-Frame-Options": "DENY",
+    # Only send the origin on cross-origin requests (not the full URL)
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    # Lock down browser feature access
+    "Permissions-Policy": (
+        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
+        "magnetometer=(), microphone=(), payment=(), usb=()"
+    ),
+    # Reasonable CSP — same-origin scripts + inline styles (for legacy pages);
+    # unsafe-inline on scripts would be needed to fully lock down XSS, but many
+    # pages have onclick= handlers; tightening further is a v0.30.x task.
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; "
+        "font-src 'self' data:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'"
+    ),
+}
 
 # Routes that count as user-facing traffic for backpressure purposes
 _PRESSURE_PREFIXES = ("/api/search", "/api/files", "/api/history", "/api/drive")
@@ -46,6 +79,12 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
 
             duration_ms = int((time.perf_counter() - start) * 1000)
+
+            # Security response headers (v0.29.0, SEC-H12). Applied to every
+            # response, including errors, so attackers can't force an unprotected
+            # 404/500 page.
+            for _k, _v in _SECURITY_HEADERS.items():
+                response.headers.setdefault(_k, _v)
 
             if DEBUG:
                 response.headers["X-MarkFlow-Request-Id"] = request_id

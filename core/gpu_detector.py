@@ -55,6 +55,38 @@ class GPUInfo:
 _gpu_info: Optional[GPUInfo] = None
 
 
+_EXPECTED_WORKER_REPORT_TYPES = {
+    "available": bool,
+    "gpu_vendor": str,
+    "gpu_name": str,
+    "gpu_vram_mb": int,
+    "hashcat_backend": (str, type(None)),
+    "hashcat_version": (str, type(None)),
+}
+
+
+def _validate_worker_report(report: object) -> dict | None:
+    """Validate worker_capabilities.json against the expected schema.
+
+    v0.29.0 SEC-M21: the capabilities file lives on a shared volume writable
+    by any container with that mount. Treating it as trusted JSON exposed the
+    GPU-detection path to arbitrary-type injection (e.g., lists, objects, or
+    values that crash downstream code). We now type-check every field we
+    read and drop fields that don't match. Unknown fields are allowed but
+    ignored — the reset script may add new ones.
+    """
+    if not isinstance(report, dict):
+        return None
+    cleaned: dict = {}
+    for key, expected in _EXPECTED_WORKER_REPORT_TYPES.items():
+        if key not in report:
+            continue
+        value = report[key]
+        if isinstance(value, expected):
+            cleaned[key] = value
+    return cleaned
+
+
 def _read_host_worker_report() -> dict | None:
     """
     Read worker_capabilities.json and return its contents, or None if
@@ -66,13 +98,16 @@ def _read_host_worker_report() -> dict | None:
 
     Worker *liveness* (is the worker ready to process jobs?) is a separate
     concern checked by the hashcat queue, not the health display.
+
+    v0.29.0 SEC-M21: file contents are now type-validated before use.
     """
     if not _HOST_WORKER_REPORT.exists():
         return None
     try:
-        return json.loads(_HOST_WORKER_REPORT.read_text(encoding="utf-8-sig"))
+        raw = json.loads(_HOST_WORKER_REPORT.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, OSError, ValueError):
         return None
+    return _validate_worker_report(raw)
 
 
 def detect_gpu() -> GPUInfo:

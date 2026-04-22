@@ -869,12 +869,20 @@ class PasswordHandler:
         return None
 
     def cleanup_temp_file(self, result: PasswordResult) -> None:
-        """Delete the temp decrypted file after conversion is complete."""
-        if result.output_path and result.output_path != result.output_path:
-            # Only delete temp files (those in system temp dir)
-            try:
-                tmp_dir = Path(tempfile.gettempdir())
-                if result.output_path.parent == tmp_dir or str(result.output_path).startswith(str(tmp_dir)):
-                    result.output_path.unlink(missing_ok=True)
-            except Exception:
-                pass
+        """Delete the temp decrypted file after conversion is complete.
+
+        v0.29.0 SEC-H16: the pre-fix guard `result.output_path != result.output_path`
+        was always False (object compared to itself), so this function was a
+        silent no-op and decrypted documents accumulated in /tmp indefinitely.
+        """
+        if not result.output_path:
+            return
+        try:
+            tmp_dir = Path(tempfile.gettempdir()).resolve()
+            output_real = result.output_path.resolve()
+            # Only delete if the decrypted file actually lives inside the
+            # system temp dir (don't touch user-supplied paths).
+            if output_real == tmp_dir or str(output_real).startswith(str(tmp_dir) + os.sep):
+                result.output_path.unlink(missing_ok=True)
+        except Exception:
+            pass

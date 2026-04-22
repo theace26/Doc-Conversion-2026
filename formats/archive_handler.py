@@ -110,8 +110,18 @@ def _save_found_password(password: str) -> None:
 
         if password not in existing:
             pw_path.parent.mkdir(parents=True, exist_ok=True)
+            # v0.29.0 SEC-M15: create the file (if new) with 0600 so other
+            # users on the host can't read the recovered plaintext passwords.
+            # chmod on append is idempotent; a pre-existing file with wider
+            # perms gets locked down here too.
+            if not pw_path.exists():
+                pw_path.touch(mode=0o600)
             with open(pw_path, "a", encoding="utf-8") as f:
                 f.write(f"\n{password}\n")
+            try:
+                os.chmod(pw_path, 0o600)
+            except OSError:
+                pass
             log.info("archive_password_saved",
                      password_count=len(existing) + 1)
     except Exception as exc:
@@ -252,10 +262,35 @@ def _list_zip(path: Path, password: str | None) -> list[_ArchiveMember]:
     return members
 
 
+def _zip_member_is_safe(name: str) -> bool:
+    """True iff a ZIP member name is safe to extract (no traversal, no absolute).
+
+    v0.29.0 SEC-C08: ZipFile.extract / extractall do not validate member names
+    against directory traversal on Python < 3.12. Reject any member whose
+    normalized path escapes the extraction directory.
+    """
+    if not name or name.startswith(("/", "\\")):
+        return False
+    # Normalize separators so Windows-style members don't slip through
+    n = name.replace("\\", "/")
+    # Any segment that's literal '..' is unsafe
+    return not any(seg in ("..", "") for seg in n.split("/") if seg != "")
+
+
 def _extract_zip(path: Path, member: _ArchiveMember, dest: Path, password: str | None) -> Path:
     import zipfile
+    if not _zip_member_is_safe(member.path):
+        raise RuntimeError(f"unsafe zip member path: {member.path!r}")
     pw = password.encode("utf-8") if password else None
     with zipfile.ZipFile(path, "r") as zf:
+        # v0.29.0 SEC-M12: reject archives whose aggregate compression ratio
+        # looks like a zip-bomb before we start extracting.
+        infos = zf.infolist()
+        total_compressed = sum(i.compress_size for i in infos)
+        total_uncompressed = sum(i.file_size for i in infos)
+        err = check_compression_ratio(total_compressed, total_uncompressed)
+        if err:
+            raise RuntimeError(err)
         zf.extract(member.path, path=dest, pwd=pw)
     return dest / member.path
 
@@ -457,6 +492,18 @@ def _batch_extract_zip(path: Path, dest: Path, password: str | None) -> None:
     import zipfile
     pw = password.encode("utf-8") if password else None
     with zipfile.ZipFile(path, "r") as zf:
+        infos = zf.infolist()
+        # v0.29.0 SEC-C08: only extract members with safe names. Rejects
+        # '..', absolute paths, and Windows drive letters.
+        unsafe = [info.filename for info in infos if not _zip_member_is_safe(info.filename)]
+        if unsafe:
+            raise RuntimeError(f"unsafe zip members (traversal): {unsafe[:3]}")
+        # v0.29.0 SEC-M12: zip-bomb compression-ratio check before extraction
+        total_compressed = sum(i.compress_size for i in infos)
+        total_uncompressed = sum(i.file_size for i in infos)
+        err = check_compression_ratio(total_compressed, total_uncompressed)
+        if err:
+            raise RuntimeError(err)
         if pw:
             zf.setpassword(pw)
         zf.extractall(path=dest, pwd=pw)

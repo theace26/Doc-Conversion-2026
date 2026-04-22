@@ -59,11 +59,29 @@ async def lifespan(app: FastAPI):
     log.info("markflow.startup", debug=DEBUG, dev_bypass_auth=DEV_BYPASS_AUTH)
 
     # Validate required env vars in production mode
+    # v0.29.0 SEC-H13: also reject the weak hardcoded SECRET_KEY default and
+    # enforce a minimum length so a production deploy can't silently ship with
+    # a predictable JWT/credentials-store key.
+    _WEAK_DEFAULTS = {"", "dev-secret-change-in-prod", "dev-secret", "change-me", "changeme"}
     if not DEV_BYPASS_AUTH:
         if not os.getenv("UNIONCORE_JWT_SECRET"):
             raise ValueError("UNIONCORE_JWT_SECRET must be set when DEV_BYPASS_AUTH=false")
         if not os.getenv("API_KEY_SALT"):
             raise ValueError("API_KEY_SALT must be set when DEV_BYPASS_AUTH=false")
+        _sk = os.getenv("SECRET_KEY", "")
+        if _sk in _WEAK_DEFAULTS or len(_sk) < 32:
+            raise ValueError(
+                "SECRET_KEY must be set to a strong value (>=32 chars, not the "
+                "committed dev default) when DEV_BYPASS_AUTH=false"
+            )
+    else:
+        # Dev mode: still warn loudly if the key is weak so operators notice.
+        _sk = os.getenv("SECRET_KEY", "")
+        if _sk in _WEAK_DEFAULTS or len(_sk) < 32:
+            log.warning(
+                "markflow.weak_secret_key",
+                hint="SECRET_KEY is short or a known default — safe in dev, MUST be replaced before prod",
+            )
 
     # Initialize SQLite schema + default preferences
     await init_db()

@@ -99,7 +99,8 @@ async def list_runs(
     limit: int = 10,
     user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
 ) -> dict:
-    """List recent scan runs."""
+    """List recent scan runs. Limit is clamped to [1, 500] (v0.29.0 SEC-M10)."""
+    limit = max(1, min(int(limit), 500))
     rows = await db_fetch_all(
         "SELECT * FROM scan_runs ORDER BY started_at DESC LIMIT ?", (limit,)
     )
