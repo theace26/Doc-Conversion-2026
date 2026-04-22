@@ -14,6 +14,11 @@
 
 services:
   markflow:
-    deploy: {}
+    # `!reset null` explicitly zeros out the parent's deploy block — this is
+    # the documented way to remove a key via an override. Empty dicts and
+    # empty lists are treated as "unchanged" by docker-compose's merge, so
+    # a plain `deploy: {}` or `devices: []` would NOT clear the parent's
+    # NVIDIA GPU reservation. Requires docker-compose >= 2.24.
+    deploy: !reset null
   markflow-mcp:
-    deploy: {}
+    deploy: !reset null

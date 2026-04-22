@@ -223,7 +223,11 @@ if [[ -z "$DO_BUILD" ]]; then
     esac
 fi
 
-COMPOSE_ARGS=(-f docker-compose.yml)
+# Leave COMPOSE_ARGS empty so docker-compose auto-merges any
+# docker-compose.override.yml in the repo. On macOS / Apple Silicon the
+# override nulls out the NVIDIA GPU deploy block; passing `-f docker-compose.yml`
+# explicitly here would suppress that merge and the stack would fail to start.
+COMPOSE_ARGS=()
 
 if [[ "$DO_BUILD" == "yes" ]]; then
     echo ""
