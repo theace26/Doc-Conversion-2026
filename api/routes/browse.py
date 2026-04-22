@@ -20,6 +20,11 @@ from core.auth import AuthenticatedUser, UserRole, require_role
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/browse", tags=["browse"])
 
+# /host prefix-covers both /host/root (read-only v0.25.0 browse mount) and
+# /host/rw (writable v0.25.0 target mount). The actual write restriction is
+# enforced by core.storage_manager.is_write_allowed() — NOT by this browse
+# allow-list — so adding /host here enables read-only filesystem browsing
+# on the Storage page without relaxing write safety.
 ALLOWED_BROWSE_ROOTS = ["/host", "/mnt/output-repo"]
 
 

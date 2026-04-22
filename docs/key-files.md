@@ -78,6 +78,10 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `core/vector/hybrid_search.py` | RRF merge of Meilisearch keyword + Qdrant vector results |
 | `core/vector/query_preprocessor.py` | Temporal intent detection, question prefix stripping, query normalization |
 | `core/db/ai_usage.py` | AI Assist org toggle + per-user usage logging (v0.21.0) |
+| `core/host_detector.py` | Host OS detection from `/host/root` filesystem signatures + quick-access list builder (v0.28.0) |
+| `core/credential_store.py` | Fernet+PBKDF2 encrypted SMB/NFS credentials at `/etc/markflow/credentials.enc` (v0.28.0) |
+| `core/storage_manager.py` | Path validation, write-guard `is_write_allowed()`, output-path cache + persistence (v0.28.0) |
+| `core/mount_manager.py` | Multi-mount manager with v2 `mounts.json` schema, named shares at `/mnt/shares/<name>`, SMB/NFS discovery, startup remount, 5-min health probe |
 
 ## Format Handlers
 
@@ -156,6 +160,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `api/routes/flags.py` | Flag API: user flagging + admin triage (dismiss/extend/remove/blocklist) |
 | `api/routes/pipeline.py` | Pipeline control: status, pause, resume, run-now, file browser (`/api/pipeline/files`) |
 | `api/routes/ai_assist.py` | AI Assist: SSE search synthesis, doc expand, status, admin toggle + usage (v0.21.0) |
+| `api/routes/storage.py` | Universal Storage Manager API: host-info, validate, sources/output/exclusions CRUD, shares + discovery + credentials, mount health, restart status, first-run wizard (v0.28.0) |
 
 ## Frontend
 
@@ -190,6 +195,9 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `static/js/folder-picker.js` | FolderPicker widget: modal directory browser |
 | `static/js/lifecycle-badge.js` | Reusable lifecycle status badge component |
 | `static/js/version-panel.js` | Version history timeline + compare modal |
+| `static/storage.html` | Storage page: Quick Access, Sources, Output, Network Shares, Exclusions, first-run wizard overlay (v0.28.0) |
+| `static/js/storage.js` | Storage page JS: vanilla fetch against `/api/storage/*`, all DOM via `createElement` (XSS-safe), wizard with per-step validation (v0.28.0) |
+| `static/js/storage-restart-banner.js` | Amber sticky banner injected on every page; polls `/api/storage/restart-status` every 60s (v0.28.0) |
 | `static/js/deletion-banner.js` | Dismissible banner for deleted files in search |
 
 ## MCP, Tools & Config

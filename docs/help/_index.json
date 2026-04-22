@@ -33,6 +33,7 @@
     {
       "name": "Configuration",
       "articles": [
+        {"slug": "storage", "title": "Storage", "description": "Source folders, output directory, network shares, and first-run wizard"},
         {"slug": "settings-guide", "title": "Settings Reference", "description": "Every setting explained"},
         {"slug": "status-page", "title": "Status & Active Jobs", "description": "Monitoring running jobs and system state"},
         {"slug": "admin-tools", "title": "Administration", "description": "Admin panel, API keys, and database tools"},

@@ -5,6 +5,51 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 ---
 
+## Universal Storage Manager (v0.28.0)
+
+- **`/host/rw` is SECURITY-CRITICAL**: every file write in `core/converter.py`,
+  `core/bulk_worker.py`, and any new write path must call
+  `core.storage_manager.is_write_allowed()` (or carry an explicit
+  `# write-guard:skip <reason>` comment) before opening the file.
+  Missing coverage = container-level sandbox escape via the broad mount.
+  Enforced today by `tests/test_write_guard_coverage.py` — keep it green.
+
+- **`SYS_ADMIN` capability is required for runtime SMB/NFS mount**: dropping
+  it silently breaks `mount_manager.mount_named()` with "operation not
+  permitted". Keep it in `docker-compose.yml`. The capability does NOT
+  bypass the write guard — it only enables the `mount` syscall.
+
+- **`SECRET_KEY` rotation invalidates `credentials.enc`**: on first startup
+  after a key change, `remount_all_saved()` will log
+  `credential_store_load_failed` for every share, and the Storage page will
+  show red status dots. Operators must re-enter passwords via Storage →
+  Edit Share. Do NOT auto-delete the file — the user may have a backup key.
+
+- **`mounts.json` schema v1 → v2 is a one-way migration**: v2 writes always
+  use the `{_schema_version: 2, shares: {...}}` envelope. Reading a v1 file
+  silently migrates in memory but does NOT rewrite to disk until the next
+  `save_config()` call (so a read-only inspection on an older deployment
+  doesn't accidentally upgrade the file). If you need to roll back across
+  v0.28.0, copy `mounts.json` aside first.
+
+- **Write-guard test edge case (`shutil.copy2`)**: the static check regex must
+  be exhaustive — early drafts used `shutil\.(copy|move)` which silently
+  missed `shutil.copy2`. The shipping regex covers `copy|copy2|copyfile|copytree|move`.
+  When adding a new write primitive, update the regex first.
+
+- **`set_cached_preference` does not exist**: read prefs through
+  `core.preferences_cache.get_cached_preference`; write through
+  `core.db.preferences.set_preference` then call `invalidate_preference()`
+  to keep the cache consistent. Several plan/spec drafts incorrectly assume
+  a single combined function.
+
+- **`get_mount_manager()` is the singleton accessor**: do NOT instantiate
+  `MountManager()` directly in new code. The singleton lives at module
+  level in `core.mount_manager` and is shared by the lifespan remount,
+  the scheduler health probe, and the `/api/storage/shares` routes.
+
+---
+
 ## Database & aiosqlite
 
 - **aiosqlite pattern**: Use `async with aiosqlite.connect(path) as conn` — never

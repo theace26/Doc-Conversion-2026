@@ -91,9 +91,61 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.24.2
+## Current Version — v0.28.0
 
-**Hardening pass: audit-accuracy correction, DB backup
+**Universal Storage Manager — replace manual `.env` / `docker-compose.yml`
+storage config with a GUI Storage page, first-run wizard, and runtime
+network-share management. Three architectural layers: Docker grants broad
+host mounts (`/host/root:ro` + `/host/rw`) and `SYS_ADMIN` cap; the
+application enforces write restriction through `storage_manager.is_write_allowed()`
+at every file-writing site (12 sites in converter.py + bulk_worker.py,
+covered by `tests/test_write_guard_coverage.py`); the new `/storage.html`
+page consolidates sources, output, network shares, exclusions, and a
+5-step onboarding wizard.**
+
+- **5 new core modules**: `host_detector` (OS detection from
+  `/host/root` filesystem signatures), `credential_store` (Fernet+PBKDF2
+  encrypted SMB/NFS credentials), `storage_manager` (validation +
+  write-guard + DB persistence), `mount_manager` extended with
+  multi-mount + discovery + 5-min health probe, plus the new
+  `api/routes/storage.py` consolidated API surface.
+- **Scheduler grows from 17 to 18 jobs** — `mount_health` runs every 5
+  minutes and yields to active bulk jobs (matches MarkFlow convention).
+- **8 new DB preferences** (storage_output_path, storage_sources_json,
+  storage_exclusions_json, pending_restart_*, setup_wizard_dismissed,
+  host_os_override).
+- **Frontend**: new `/storage.html` with collapsible sections + wizard
+  modal; `static/js/storage.js` builds all DOM via createElement
+  (XSS-safe per CLAUDE.md gotcha); `static/js/storage-restart-banner.js`
+  is injected on every page via a dynamic script tag in `app.js` so we
+  don't have to edit 20+ HTML files.
+- **Settings page migration**: prominent "Open Storage Page →" link card
+  at top; legacy storage sections left in place for backward
+  compatibility (full removal deferred to v0.29.x once UI parity is
+  proven).
+- **Pragmatic deviations**: plan called for v0.25.0 (already taken — EPS
+  rasterization shipped that version), bumped to v0.28.0. Plan called for
+  full Settings page section removal, deferred to v0.29.x.
+- **Tests**: 83 host-venv unit tests pass; 9 integration tests run inside
+  the container.
+
+Files: `core/version.py`, `core/host_detector.py`, `core/credential_store.py`,
+`core/storage_manager.py`, `core/mount_manager.py`, `core/scheduler.py`,
+`core/db/preferences.py`, `api/routes/storage.py`, `api/routes/browse.py`,
+`main.py`, `static/storage.html`, `static/js/storage.js`,
+`static/js/storage-restart-banner.js`, `static/app.js`, `static/markflow.css`,
+`static/settings.html`, `tests/test_host_detector.py`,
+`tests/test_credential_store.py`, `tests/test_storage_manager.py`,
+`tests/test_mount_manager.py`, `tests/test_write_guard_coverage.py`,
+`tests/test_storage_api.py`, `docs/help/storage.md`, `docs/help/_index.json`,
+`docs/gotchas.md`, `docs/key-files.md`, `docs/version-history.md`,
+`CLAUDE.md`, `docker-compose.yml`, `Dockerfile.base`.
+
+---
+
+## v0.24.2 — Hardening pass
+
+**Audit-accuracy correction, DB backup
 schema-version guard, PPTX pref read no longer bypasses the pool,
 Whisper inference serialized so timed-out threads can't stack, and
 the temporary DB contention logging instrumentation was retired.**

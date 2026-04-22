@@ -4,6 +4,127 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.28.0 — Universal Storage Manager (2026-04-22)
+
+**Problem.** First-time setup required hand-editing `.env` and `docker-compose.yml`
+to point MarkFlow at the host filesystem and any network shares. That gate
+locked out non-technical users entirely. The plan: replace it with a GUI-driven
+Storage page, a first-run wizard, and runtime mount management — so the
+onboarding step that used to take an hour of Docker debugging is two clicks.
+
+**Architecture (three layers).**
+
+1. **Docker** grants broad read access (`/host/root:ro`) and writable access
+   (`/host/rw`), plus the `SYS_ADMIN` capability so the container can run
+   `mount` against SMB/NFS at runtime.
+2. **Application code** is the SOLE restriction on the broad `/host/rw`
+   mount. `core.storage_manager.is_write_allowed()` gates every file write
+   in `core/converter.py` and `core/bulk_worker.py`. Coverage is enforced
+   by `tests/test_write_guard_coverage.py` — a static check that fails CI
+   if any new write in those modules lands without a guard or an explicit
+   `# write-guard:skip` opt-out comment.
+3. **Presentation** consolidates storage configuration on a single
+   `/storage.html` page with a 5-step first-run wizard overlay.
+
+**Phase 1 (backend).** 13 tasks, 5 new core modules, 1 new route file:
+
+- `core/host_detector.py` — OS detection from `/host/root` filesystem
+  signatures (Windows / WSL / macOS / Linux), cached singleton, builds
+  OS-appropriate quick-access lists. WSL is checked before plain Linux
+  because both have `/etc/os-release`.
+- `core/credential_store.py` — Fernet + PBKDF2 (600k iterations, hardened
+  in commit `549b43f`) at `/etc/markflow/credentials.enc`, 0600 perms,
+  passwords never logged. Wrong key = silently treated as empty store
+  (no decryption error surface to operators who fat-fingered SECRET_KEY).
+- `core/storage_manager.py` — `validate_path` (async via `asyncio.to_thread`
+  to tolerate slow NAS stat), `check_source_output_conflict` (rejects same /
+  nested), `is_write_allowed` (realpath-based; defeats symlink escape),
+  `load_config_from_db` / `save_output_path` (DB persistence + cache
+  invalidation; only flags pending-restart on actual change, not first write).
+- `core/mount_manager.py` extended — multi-mount support with v2 schema
+  (`{_schema_version: 2, shares: {...}}`, idempotent migration from v1),
+  `share_mount_point()` sanitizer (strips non-alphanumeric except `-_`),
+  `mount_named` / `unmount_named` for `/mnt/shares/<name>`, network
+  discovery (`smbclient -L`, `showmount -e`), `discover_smb_servers`
+  caps subnet scan at 256 hosts, `remount_all_saved` for lifespan startup,
+  `check_mount_health` writes module-level `mount_health` dict.
+- `api/routes/storage.py` — `/api/storage/*` consolidated surface
+  (host-info, validate, sources, output, exclusions, shares, discover,
+  test, credentials, health, restart-status, restart-dismiss,
+  wizard-status, wizard-dismiss). MANAGER role minimum;
+  `/shares/{name}/credentials` is ADMIN-only.
+- `core/db/preferences.py` — 8 new defaults (storage_output_path,
+  storage_sources_json, storage_exclusions_json, pending_restart_*,
+  setup_wizard_dismissed, host_os_override).
+- `core/scheduler.py` — `mount_health` job, every 5 minutes, yields to
+  active bulk jobs. Job count grows from 17 to 18.
+- `main.py` lifespan — `load_config_from_db()` → `remount_all_saved()` →
+  `start_scheduler()`, all wrapped in broad `try/except` so a flaky NAS
+  cannot block startup.
+- Docker (`docker-compose.yml`, `Dockerfile.base`) — broad host mounts,
+  `SYS_ADMIN` capability, `smbclient` + `cifs-utils` packages added
+  (committed earlier on this branch in `c732b48`, `549b43f`, `b75d42b`).
+
+**Phase 2 (frontend).** 4 new files, 2 modified:
+
+- `static/storage.html` — page scaffolding (collapsible cards, wizard modal).
+- `static/js/storage.js` — vanilla fetch + `createElement`/`textContent`
+  throughout (never `innerHTML` on fetched data — XSS-safety per CLAUDE.md
+  gotcha). Wizard is a 5-step overlay with per-step validation against
+  `/api/storage/validate`.
+- `static/js/storage-restart-banner.js` — amber sticky banner. Polls
+  `/api/storage/restart-status` every 60s. "Remind me later" snoozes for
+  1 hour. The banner is injected via a `<script>` tag dynamically appended
+  at the end of `app.js`'s `DOMContentLoaded` handler — that way every
+  page that loads `app.js` also gets the banner without editing 20+ HTML
+  files.
+- `static/app.js` — Storage nav item (MANAGER+); restart-banner loader.
+- `static/markflow.css` — quick-access grid, mount status dots,
+  wizard modal, amber restart banner, discovery result panel.
+
+**Phase 3 (migration & polish).**
+
+- `static/settings.html` — prominent "Open Storage Page →" link card at
+  top. Existing storage-related sections (Locations, Storage Connections,
+  Cloud Prefetch) left in place for backward compatibility. Pragmatic
+  deviation from the plan, which called for full removal: dual-path during
+  the transition release. v0.29.x can prune the legacy sections once UI
+  parity is proven.
+- `api/routes/browse.py` — clarifying comment on `ALLOWED_BROWSE_ROOTS`:
+  `/host` already prefix-covers `/host/root` and `/host/rw`; the write
+  restriction is the storage_manager guard, NOT the browse allow-list.
+- `tests/test_storage_api.py` — 9 integration tests against the FastAPI
+  TestClient with `DEV_BYPASS_AUTH=true` for in-process auth bypass.
+- `docs/help/storage.md` — end-user help article (registered in
+  `docs/help/_index.json` under Configuration).
+- `docs/gotchas.md` — new "Universal Storage Manager (v0.28.0)" section
+  with 7 hard-won lessons (write-guard coverage, SYS_ADMIN requirement,
+  SECRET_KEY rotation, v1→v2 migration, regex coverage gap on `shutil.copy2`,
+  preferences read/write split, `get_mount_manager()` singleton).
+- `docs/key-files.md` — entries for the 4 new core modules, the new
+  route file, and 3 new static files.
+
+**Version note.** The plan called for v0.25.0 but that version was already
+shipped (EPS rasterization, commit `e4a5a9d`). Bumped to **v0.28.0**.
+
+**Tests.** 83 unit tests pass on a host venv (mount_manager: 47,
+storage_manager: 20, host_detector: 7, credential_store: 7,
+write_guard_coverage: 2). Integration tests in `test_storage_api.py`
+run inside the Docker container.
+
+**Known follow-ups for v0.29.x.**
+
+1. Move Cloud Prefetch UI from Settings to the Storage page so the legacy
+   Settings sections can be safely deleted.
+2. Replace the prompt-based add-share/discovery flows with proper modal
+   forms — current implementation uses `prompt()` calls which are functional
+   but unpolished.
+3. Expose `host_os_override` in the Storage page UI (DB pref already exists).
+4. End-to-end test in Docker with a real SMB server; staged-live verification
+   of `remount_all_saved` after `SECRET_KEY` rotation.
+
+---
+
 ## v0.27.0 — Search latency fixes for CPU-only hosts (2026-04-14)
 
 Hybrid (keyword + vector) search on this CPU-only VM took ~14s for
