@@ -130,49 +130,49 @@ class FolderPicker {
 
   _renderDrives(drives) {
     const el = this.dialog.querySelector('#fp-drives');
+    el.replaceChildren();
 
-    if (this.mode === 'output') {
-      // Output mode: show output repo instead of drives
-      el.innerHTML = `
-        <div class="fp-drive-label">Output</div>
-        <button class="fp-drive-btn fp-drive-mounted" data-path="/mnt/output-repo">
-          <span class="fp-drive-icon">&#128190;</span> Output Repo
-        </button>
-      `;
-      el.querySelector('.fp-drive-btn').addEventListener('click', () => {
-        this._navigate('/mnt/output-repo');
-      });
-      return;
-    }
+    const makeLabel = (text, marginTop = false) => {
+      const lbl = document.createElement('div');
+      lbl.className = 'fp-drive-label';
+      if (marginTop) lbl.style.marginTop = '0.75rem';
+      lbl.textContent = text;
+      return lbl;
+    };
 
-    let html = '<div class="fp-drive-label">Drives</div>';
-    drives.forEach(d => {
-      const cls = d.mounted ? 'fp-drive-mounted' : 'fp-drive-unmounted';
-      html += `<button class="fp-drive-btn ${cls}" data-path="${this._esc(d.path)}" data-mounted="${d.mounted}" title="${d.mounted ? 'Click to browse' : 'Not mounted'}">
-        <span class="fp-drive-icon">&#128190;</span> ${this._esc(d.name)}
-      </button>`;
-    });
+    const makeDriveBtn = ({ label, path, mounted }) => {
+      const btn = document.createElement('button');
+      btn.className = 'fp-drive-btn ' + (mounted ? 'fp-drive-mounted' : 'fp-drive-unmounted');
+      btn.dataset.path = path;
+      btn.dataset.mounted = String(mounted);
+      btn.title = mounted ? 'Click to browse' : 'Not mounted';
 
-    // Also show output repo if mode is "any"
-    if (this.mode === 'any') {
-      html += '<div class="fp-drive-label" style="margin-top:0.75rem">Output</div>';
-      html += `<button class="fp-drive-btn fp-drive-mounted" data-path="/mnt/output-repo">
-        <span class="fp-drive-icon">&#128190;</span> Output Repo
-      </button>`;
-    }
+      const icon = document.createElement('span');
+      icon.className = 'fp-drive-icon';
+      icon.textContent = '\u{1F4BE}';
+      btn.appendChild(icon);
+      btn.appendChild(document.createTextNode(' ' + label));
 
-    el.innerHTML = html;
-
-    el.querySelectorAll('.fp-drive-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        const mounted = btn.dataset.mounted;
-        if (mounted === 'false') {
-          this._showUnmountedHelp(btn.textContent.trim());
+        if (!mounted) {
+          this._showUnmountedHelp(label);
           return;
         }
-        this._navigate(btn.dataset.path);
+        this._navigate(path);
       });
+      return btn;
+    };
+
+    el.appendChild(makeLabel('Drives'));
+    drives.forEach(d => {
+      el.appendChild(makeDriveBtn({ label: d.name, path: d.path, mounted: !!d.mounted }));
     });
+
+    // Show the Output Repo shortcut for modes that write output
+    if (this.mode === 'any' || this.mode === 'output') {
+      el.appendChild(makeLabel('Output', true));
+      el.appendChild(makeDriveBtn({ label: 'Output Repo', path: '/mnt/output-repo', mounted: true }));
+    }
   }
 
   _renderBreadcrumb(path, parent) {
