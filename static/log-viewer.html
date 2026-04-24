@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Log Viewer — MarkFlow</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+  <style>
+    body { margin: 0; }
+    .lv-wrap { display: flex; flex-direction: column; height: 100vh; }
+    .lv-nav { flex: 0 0 auto; }
+    .lv-controls {
+      flex: 0 0 auto;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.65rem 1rem;
+      background: var(--bg-secondary, #1a1a2e);
+      border-bottom: 1px solid var(--border, #2b2b3f);
+    }
+    .lv-controls label { font-size: 0.82rem; color: var(--text-muted, #aaa); }
+    .lv-controls select, .lv-controls input[type="text"], .lv-controls input[type="number"] {
+      padding: 0.25rem 0.5rem; background: var(--surface, #161624);
+      color: var(--text, #eee); border: 1px solid var(--border, #2b2b3f);
+      border-radius: var(--radius-sm, 4px); font: inherit; font-size: 0.85rem;
+    }
+    .lv-controls input[type="text"] { min-width: 220px; }
+    .lv-controls .chip {
+      display: inline-flex; align-items: center; gap: 0.3rem;
+      padding: 0.2rem 0.55rem; border-radius: 999px;
+      background: var(--surface, #161624); border: 1px solid var(--border, #2b2b3f);
+      font-size: 0.8rem; cursor: pointer; user-select: none;
+    }
+    .lv-controls .chip input { margin: 0; }
+    .lv-controls .spacer { flex: 1; }
+    .lv-status { font-size: 0.78rem; color: var(--text-muted, #aaa); font-family: ui-monospace, monospace; }
+    .lv-body { flex: 1; overflow: auto; background: #0b0b14; padding: 0.5rem 0; font-family: ui-monospace, monospace; font-size: 0.82rem; }
+    .lv-line {
+      padding: 0.15rem 1rem; white-space: pre-wrap; word-break: break-word;
+      border-left: 3px solid transparent;
+    }
+    .lv-line:hover { background: rgba(255,255,255,0.04); }
+    .lv-line.level-DEBUG { color: #9ca3af; }
+    .lv-line.level-INFO { color: #e2e8f0; }
+    .lv-line.level-WARNING { color: #fcd34d; border-left-color: rgba(217,119,6,0.5); }
+    .lv-line.level-ERROR { color: #fca5a5; border-left-color: rgba(220,38,38,0.5); }
+    .lv-line.level-CRITICAL { color: #fecaca; background: rgba(220,38,38,0.08); border-left-color: rgba(220,38,38,0.8); }
+    .lv-line.hidden { display: none; }
+    .lv-line .ts { color: #7dd3fc; margin-right: 0.75rem; }
+    .lv-line .lvl { display: inline-block; min-width: 5rem; color: inherit; font-weight: 600; margin-right: 0.5rem; }
+    .lv-line .logger { color: #c4b5fd; margin-right: 0.75rem; }
+    .lv-line .msg { color: inherit; }
+    .lv-line .kv { color: #86efac; margin-left: 0.5rem; }
+    .lv-empty { padding: 2rem; text-align: center; color: var(--text-muted, #aaa); }
+  </style>
+</head>
+<body>
+  <div class="lv-wrap">
+    <nav class="nav-bar lv-nav">
+      <a href="/" class="nav-logo">MarkFlow</a>
+      <div id="main-nav" class="nav-links"></div>
+    </nav>
+    <div id="error-banner" role="alert" hidden></div>
+    <div class="lv-controls">
+      <label for="lv-file">Log</label>
+      <select id="lv-file"><option value="">Loading...</option></select>
+      <label for="lv-mode">Mode</label>
+      <select id="lv-mode">
+        <option value="live">Live tail</option>
+        <option value="history">Search history</option>
+      </select>
+      <label class="chip"><input id="lv-autoscroll" type="checkbox" checked> Auto-scroll</label>
+      <label class="chip"><input id="lv-lvl-debug" type="checkbox" checked> DEBUG</label>
+      <label class="chip"><input id="lv-lvl-info" type="checkbox" checked> INFO</label>
+      <label class="chip"><input id="lv-lvl-warn" type="checkbox" checked> WARNING</label>
+      <label class="chip"><input id="lv-lvl-err" type="checkbox" checked> ERROR</label>
+      <label for="lv-q">Search</label>
+      <input id="lv-q" type="text" placeholder="substring or regex">
+      <label class="chip"><input id="lv-regex" type="checkbox"> Regex</label>
+      <button id="lv-apply" class="btn btn-primary btn-sm" type="button">Apply</button>
+      <button id="lv-clear" class="btn btn-ghost btn-sm" type="button">Clear</button>
+      <button id="lv-pause" class="btn btn-ghost btn-sm" type="button">Pause</button>
+      <button id="lv-load-more" class="btn btn-ghost btn-sm" type="button" hidden>Load older</button>
+      <div class="spacer"></div>
+      <span id="lv-status" class="lv-status">-</span>
+    </div>
+    <div id="lv-body" class="lv-body"></div>
+  </div>
+  <script src="/static/app.js"></script>
+  <script>
+    (function(){
+      'use strict';
+      const fileSel = document.getElementById('lv-file');
+      const modeSel = document.getElementById('lv-mode');
+      const autoscrollCb = document.getElementById('lv-autoscroll');
+      const cbDebug = document.getElementById('lv-lvl-debug');
+      const cbInfo = document.getElementById('lv-lvl-info');
+      const cbWarn = document.getElementById('lv-lvl-warn');
+      const cbErr = document.getElementById('lv-lvl-err');
+      const qInp = document.getElementById('lv-q');
+      const regexCb = document.getElementById('lv-regex');
+      const applyBtn = document.getElementById('lv-apply');
+      const clearBtn = document.getElementById('lv-clear');
+      const pauseBtn = document.getElementById('lv-pause');
+      const loadMoreBtn = document.getElementById('lv-load-more');
+      const statusEl = document.getElementById('lv-status');
+      const body = document.getElementById('lv-body');
+
+      function clearChildren(el) { while (el.firstChild) el.removeChild(el.firstChild); }
+
+      let evtSource = null;
+      let paused = false;
+      let historyOffset = 0;
+      const HISTORY_LIMIT = 200;
+      let totalLines = 0;
+      let filteredLines = 0;
+
+      function activeLevels() {
+        const set = new Set();
+        if (cbDebug.checked) set.add('DEBUG');
+        if (cbInfo.checked) set.add('INFO');
+        if (cbWarn.checked) set.add('WARNING');
+        if (cbErr.checked) { set.add('ERROR'); set.add('CRITICAL'); }
+        return set;
+      }
+
+      function buildRegex() {
+        const q = qInp.value;
+        if (!q || !regexCb.checked) return null;
+        try { return new RegExp(q, 'i'); }
+        catch (e) { showError('Invalid regex: ' + e.message); return null; }
+      }
+
+      function clientMatches(parsed, raw, levels, qRegex, qLower) {
+        if (parsed && parsed.level) {
+          if (!levels.has(String(parsed.level).toUpperCase())) return false;
+        }
+        if (qRegex) { return qRegex.test(raw); }
+        if (qLower) { return raw.toLowerCase().indexOf(qLower) !== -1; }
+        return true;
+      }
+
+      function renderLineEl(raw) {
+        const tr = document.createElement('div');
+        tr.className = 'lv-line';
+        let parsed = null;
+        try {
+          const obj = JSON.parse(raw);
+          if (obj && typeof obj === 'object') parsed = obj;
+        } catch (e) { /* not JSON */ }
+        if (parsed) {
+          const lvl = String(parsed.level || '').toUpperCase();
+          if (lvl) tr.classList.add('level-' + lvl);
+          const ts = document.createElement('span'); ts.className='ts';
+          ts.textContent = parsed.timestamp || parsed.ts || '';
+          tr.appendChild(ts);
+          const lv = document.createElement('span'); lv.className='lvl';
+          lv.textContent = lvl || ''; tr.appendChild(lv);
+          if (parsed.logger) {
+            const lg = document.createElement('span'); lg.className='logger';
+            lg.textContent = parsed.logger; tr.appendChild(lg);
+          }
+          const msg = document.createElement('span'); msg.className='msg';
+          msg.textContent = parsed.event || parsed.msg || parsed.message || '';
+          tr.appendChild(msg);
+          const known = new Set(['level','timestamp','ts','logger','event','msg','message']);
+          const parts = [];
+          for (const k in parsed) {
+            if (known.has(k)) continue;
+            const v = parsed[k];
+            if (v === null || v === undefined) continue;
+            parts.push(k + '=' + (typeof v === 'object' ? JSON.stringify(v) : v));
+          }
+          if (parts.length) {
+            const kv = document.createElement('span'); kv.className='kv';
+            kv.textContent = ' ' + parts.join(' '); tr.appendChild(kv);
+          }
+        } else {
+          tr.textContent = raw;
+        }
+        tr.dataset.raw = raw;
+        tr.dataset.parsed = parsed ? JSON.stringify(parsed) : '';
+        return tr;
+      }
+
+      function applyClientFilterToAll() {
+        const levels = activeLevels();
+        const qRegex = buildRegex();
+        const q = qInp.value || '';
+        const qLower = (!regexCb.checked && q) ? q.toLowerCase() : '';
+        const nodes = body.querySelectorAll('.lv-line');
+        let shown = 0;
+        nodes.forEach(n => {
+          let parsed = null;
+          try { if (n.dataset.parsed) parsed = JSON.parse(n.dataset.parsed); }
+          catch (e) { /* ignore */ }
+          const raw = n.dataset.raw || n.textContent;
+          const match = clientMatches(parsed, raw, levels, qRegex, qLower);
+          n.classList.toggle('hidden', !match);
+          if (match) shown++;
+        });
+        filteredLines = shown;
+        updateStatus();
+      }
+
+      function updateStatus() {
+        const parts = [];
+        parts.push(totalLines + ' lines');
+        if (filteredLines !== totalLines) parts.push(filteredLines + ' visible');
+        parts.push(modeSel.value === 'live' ? (paused ? 'paused' : 'live') : 'history');
+        statusEl.textContent = parts.join(' - ');
+      }
+
+      function appendLine(raw) {
+        const el = renderLineEl(raw);
+        body.appendChild(el);
+        totalLines++;
+        const levels = activeLevels();
+        const qRegex = buildRegex();
+        const q = qInp.value || '';
+        const qLower = (!regexCb.checked && q) ? q.toLowerCase() : '';
+        let parsed = null;
+        try { if (el.dataset.parsed) parsed = JSON.parse(el.dataset.parsed); }
+        catch (e) { /* ignore */ }
+        const match = clientMatches(parsed, raw, levels, qRegex, qLower);
+        el.classList.toggle('hidden', !match);
+        if (match) filteredLines++;
+        updateStatus();
+        if (autoscrollCb.checked && !paused) {
+          body.scrollTop = body.scrollHeight;
+        }
+      }
+
+      function clearBody() {
+        clearChildren(body);
+        totalLines = 0;
+        filteredLines = 0;
+        updateStatus();
+      }
+
+      function closeSse() {
+        if (evtSource) { evtSource.close(); evtSource = null; }
+      }
+
+      function startLiveTail(name) {
+        closeSse();
+        clearBody();
+        loadMoreBtn.hidden = true;
+        const url = '/api/logs/tail/' + encodeURIComponent(name);
+        evtSource = new EventSource(url, { withCredentials: true });
+        evtSource.onmessage = (ev) => { if (!paused) appendLine(ev.data); };
+        evtSource.onerror = () => {
+          const msg = document.createElement('div');
+          msg.className = 'lv-empty';
+          msg.textContent = 'Tail stream disconnected. Select a log again to reconnect.';
+          body.appendChild(msg);
+          closeSse();
+        };
+      }
+
+      async function runHistorySearch(resetOffset = true) {
+        closeSse();
+        if (resetOffset) { clearBody(); historyOffset = 0; }
+        const name = fileSel.value;
+        if (!name) return;
+        const levels = Array.from(activeLevels()).join(',');
+        const q = qInp.value || '';
+        const params = new URLSearchParams();
+        params.set('name', name);
+        if (q) params.set('q', q);
+        if (regexCb.checked) params.set('regex', 'true');
+        if (levels) params.set('levels', levels);
+        params.set('limit', String(HISTORY_LIMIT));
+        params.set('offset', String(historyOffset));
+        try {
+          statusEl.textContent = 'Searching...';
+          const data = await API.get('/api/logs/search?' + params.toString());
+          const lines = data.lines || [];
+          if (lines.length === 0 && historyOffset === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'lv-empty';
+            empty.textContent = 'No matches.';
+            body.appendChild(empty);
+          }
+          lines.forEach(e => appendLine(e.raw));
+          if (lines.length < HISTORY_LIMIT) { loadMoreBtn.hidden = true; }
+          else { loadMoreBtn.hidden = false; historyOffset += lines.length; }
+          statusEl.textContent = (data.returned || 0) + ' returned (scanned ' + data.scanned_lines + (data.scan_truncated ? ', truncated' : '') + ')';
+        } catch (e) { showError('Search failed: ' + e.message); }
+      }
+
+      loadMoreBtn.addEventListener('click', () => runHistorySearch(false));
+
+      async function loadFileOptions(preselect) {
+        try {
+          const data = await API.get('/api/logs');
+          const logs = (data.logs || []).filter(l => l.compression !== '7z');
+          clearChildren(fileSel);
+          logs.forEach(l => {
+            const opt = document.createElement('option');
+            opt.value = l.name;
+            const sizeKb = Math.round((l.size_bytes || 0) / 1024);
+            opt.textContent = l.name + ' (' + sizeKb + ' KB, ' + l.status + ')';
+            fileSel.appendChild(opt);
+          });
+          if (preselect && logs.find(l => l.name === preselect)) {
+            fileSel.value = preselect;
+          }
+          fileSel.dispatchEvent(new Event('change'));
+        } catch (e) {
+          showError('Failed to load file list: ' + e.message);
+        }
+      }
+
+      function handleFileOrModeChange() {
+        if (!fileSel.value) return;
+        if (modeSel.value === 'live') { startLiveTail(fileSel.value); }
+        else { runHistorySearch(true); }
+      }
+
+      fileSel.addEventListener('change', handleFileOrModeChange);
+      modeSel.addEventListener('change', handleFileOrModeChange);
+
+      applyBtn.addEventListener('click', () => {
+        if (modeSel.value === 'history') runHistorySearch(true);
+        else applyClientFilterToAll();
+      });
+      clearBtn.addEventListener('click', () => {
+        qInp.value = '';
+        regexCb.checked = false;
+        cbDebug.checked = cbInfo.checked = cbWarn.checked = cbErr.checked = true;
+        if (modeSel.value === 'history') runHistorySearch(true);
+        else applyClientFilterToAll();
+      });
+
+      [cbDebug, cbInfo, cbWarn, cbErr].forEach(cb => {
+        cb.addEventListener('change', () => {
+          if (modeSel.value === 'live') applyClientFilterToAll();
+        });
+      });
+      qInp.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') {
+          if (modeSel.value === 'history') runHistorySearch(true);
+          else applyClientFilterToAll();
+        }
+      });
+
+      pauseBtn.addEventListener('click', () => {
+        paused = !paused;
+        pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+        updateStatus();
+      });
+
+      const params = new URLSearchParams(window.location.search);
+      const initialFile = params.get('file') || '';
+      loadFileOptions(initialFile);
+      window.addEventListener('beforeunload', closeSse);
+    })();
+  </script>
+</body>
+</html>

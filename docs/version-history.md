@@ -4,6 +4,183 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.30.1 — Log Management subsystem (admin + viewer) (2026-04-24)
+
+New admin-only subsystem for log observability. Two pages, one
+backend router, two helper modules. No dependencies added; no
+database migration.
+
+### Motivation
+
+The existing `core/log_archiver.py` (v0.22.1) quietly compresses
+rotated logs to `/app/logs/archive/*.gz` every 6 hours. Useful
+infrastructure, completely invisible to operators. This release
+surfaces it — inventory, download, live tail, historical search
+— plus adds on-demand compression triggers and a configurable
+compression-format + retention settings panel.
+
+### Surface area
+
+**`/log-management.html`** (admin nav → Log Management card):
+
+- Inventory table: every file under `/app/logs` + the
+  `archive/` subdir. Columns: checkbox / name / stream
+  (operational/debug/other) / status pill (active/rotated/
+  compressed with format) / size / modified / download link.
+- Toolbar: "Open Live Viewer" (new tab), "Download All" (streams
+  a zip of every file), "Download Selected (N)" (streams a zip
+  of checked rows), "Compress Rotated Now" (synchronous trigger
+  of the compression helper), "Refresh".
+- Collapsed Settings panel: compression format (gz / tar.gz /
+  7z), retention days (1-3650), rotation size MB (10-10240 —
+  takes effect at next restart), "Save Settings", "Apply
+  Retention Now".
+
+**`/log-viewer.html`** (admin nav → Log Management card →
+secondary link, OR per-row filename click from the inventory
+page):
+
+- File dropdown (excludes .7z — those require download +
+  external tooling), Mode dropdown (Live tail / Search history).
+- Live mode: SSE stream from `/api/logs/tail/{name}`. Backfill
+  ~200 lines at connection start, then real-time append. New
+  lines arrive as they're written by structlog; the viewer
+  respects the Pause button and an "Auto-scroll" toggle.
+- History mode: server-side paginated search via
+  `/api/logs/search`. Paginates with a "Load older" button that
+  walks backward through the file in 200-line pages.
+- Level-filter chips (DEBUG / INFO / WARNING / ERROR+CRITICAL)
+  apply client-side in live mode (no round trip), server-side
+  in history mode.
+- Search box with a Regex toggle. Substring search is case-
+  insensitive. Regex failures surface via `showError`.
+- JSON-aware rendering: each line is `JSON.parse`d. structlog
+  output gets pretty colored timestamp / level / logger / event
+  with a green `k=v k=v` tail for the remaining fields.
+  Non-JSON lines render as plain text, still filter-able.
+
+### Backend
+
+**`core/log_manager.py` (new, 250 lines)**:
+- `list_logs()` — walks `LOGS_DIR` and `LOGS_DIR/archive`,
+  returns `list[LogEntry]` with stream classification, status,
+  compression format.
+- `_safe_logs_path(name)` — resolves bare filenames or
+  `archive/<filename>` relative paths to absolute paths inside
+  `LOGS_DIR`. Rejects `..`, backslashes, absolute paths, and
+  anything that `Path.resolve()` puts outside the root.
+- `compress_rotated_logs(format_override=None)` — finds
+  `*.log.N` rotated backups and compresses them using the DB
+  preference (gz / tar.gz / 7z). gz + tar.gz use Python
+  stdlib; 7z shells out to `/usr/bin/7z` with a 10-minute
+  subprocess timeout. All compression work runs in
+  `asyncio.to_thread` so it doesn't block the event loop.
+- `apply_retention(days_override=None)` — deletes compressed
+  logs (`.gz` / `.7z` / `.tgz` only — never touches active or
+  rotated-uncompressed files) older than the configured
+  retention window. Safety-gated to require an explicit
+  compressed-suffix match; no `.log` will ever be purged by
+  this path.
+- `get_settings()` / `set_settings()` — preference-backed
+  accessors with validation. Bounds checks: retention 1-3650
+  days, rotation 10-10240 MB, format in {gz, tar.gz, 7z}.
+
+**`api/routes/log_management.py` (new, 350 lines)** — ADMIN-
+gated throughout:
+
+| Endpoint | Purpose |
+|---|---|
+| GET /api/logs | Inventory + total size + LOGS_DIR path |
+| GET /api/logs/settings | Current settings from prefs |
+| PUT /api/logs/settings | Validated update |
+| POST /api/logs/compress-now | Synchronous trigger |
+| POST /api/logs/apply-retention-now | Synchronous trigger |
+| GET /api/logs/download/{name:path} | File stream |
+| POST /api/logs/download-bundle | Streaming zip |
+| GET /api/logs/tail/{name:path} | SSE live tail |
+| GET /api/logs/search | Paginated historical search |
+
+The `{name:path}` converter is intentional — `archive/foo.gz`
+needs to be passable as the URL path without URL-encoding the
+slash.
+
+### Search endpoint details
+
+`GET /api/logs/search?name=X&q=...&regex=true&levels=ERROR,WARNING&from_iso=...&to_iso=...&limit=200&offset=0`
+
+- `limit` 1-1000, `offset >= 0`. Defaults: 200, 0.
+- `q` pairs with `regex=true/false`. Regex is case-insensitive.
+  Invalid regex returns 400 with the compile error.
+- `levels` is a comma-separated filter on the `level` field of
+  parsed JSON lines. Alternative `min_level=WARNING` selects
+  WARNING + ERROR + CRITICAL via the `_LEVEL_ORDER` mapping.
+- Time range via `from_iso` / `to_iso` — applied against the
+  parsed `timestamp` / `ts` field. Non-JSON lines always pass
+  the time filter (no timestamp to compare).
+- **Scan cap**: 500,000 lines per request. A regex that
+  matches nothing on a 10 GB file won't DoS the server —
+  `scan_truncated: true` in the response surfaces when the cap
+  was hit so the UI can flag it.
+- Gzipped files are read via `gzip.open("rt")`; uncompressed
+  via `path.open("r")`. Both use UTF-8 with `errors="replace"`
+  so corrupt bytes don't crash the reader.
+- Lines stored in a ring buffer sized `limit + offset + 100`,
+  reversed at the end, sliced to `[offset:offset+limit]`. Newest-
+  first output order.
+
+### Security posture
+
+- ADMIN role required for every endpoint (the `/api/logs` tree
+  can carry sensitive PII, error tracebacks with internal file
+  paths, request IDs, user IDs, etc.). MANAGER / OPERATOR are
+  NOT granted access.
+- Every file access routes through `_safe_logs_path` — rejects
+  `..`, backslashes, absolute paths, and anything outside
+  `LOGS_DIR.resolve()`.
+- 7z compression invoked via `subprocess.run` with a fixed
+  argv list (no shell, no interpolation of user input into
+  arguments beyond the validated source path).
+- SSE stream checks `request.is_disconnected()` between each
+  poll tick so disconnects terminate the tail promptly without
+  holding a file handle open.
+- Every mutation (settings update, compress-now, retention-now,
+  download, bundle) is audit-logged via structlog with
+  `user.email`.
+
+### Deliberate non-goals
+
+- **No replacement of `core/log_archiver.py`**. That module
+  runs its own 6-hourly cron with hardcoded gz + 90-day defaults
+  and writes to `/app/logs/archive/`. The new settings panel
+  writes to DB prefs that the new manual-trigger path respects,
+  but the automated scheduler uses the legacy module unchanged.
+  A follow-up release can consolidate; for now, two subsystems
+  coexist peacefully because their file locations and triggers
+  don't overlap.
+- **No time range UI in the viewer** for history search — the
+  backend supports `from_iso` / `to_iso` query params but the
+  frontend doesn't wire them up this release. Follow-up.
+- **No `.7z` live tail / search** — 7z archives need full
+  decompression to inspect, which would OOM the worker on large
+  logs. Users are directed to the Download button for those.
+- **No HEIC / other photo format additions in the preview
+  system** — the earlier v0.29.8 format set is unchanged here.
+
+### Files
+
+- `core/log_manager.py` — new
+- `api/routes/log_management.py` — new
+- `static/log-management.html` — new
+- `static/log-viewer.html` — new
+- `static/admin.html` — new Log Management card in the
+  scheduled-jobs column
+- `main.py` — register `log_management.router`
+- `core/version.py` — bump to 0.30.1
+- `CLAUDE.md` — Current Version block
+- `docs/version-history.md` — this entry
+
+---
+
 ## v0.30.0 — Pause-500 fix + pause-with-duration presets + explicit Resume (2026-04-24)
 
 One urgent bug fix plus a UX polish on the Batch Management page.

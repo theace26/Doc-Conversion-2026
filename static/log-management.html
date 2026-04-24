@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Log Management — MarkFlow</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+  <style>
+    .lm-topbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.85rem 1rem;
+      background: var(--bg-secondary, #1a1a2e);
+      border-radius: var(--radius, 8px);
+      margin-bottom: 1rem;
+    }
+    .lm-topbar .spacer { flex: 1; }
+    .lm-stats { display: flex; flex-wrap: wrap; gap: 0.65rem; font-size: 0.85rem; color: var(--text-muted, #aaa); }
+    .lm-stats strong { color: var(--text, #eee); margin-left: 0.25em; }
+    .lm-card { border: 1px solid var(--border, #2b2b3f); border-radius: var(--radius, 8px); background: var(--surface, #161624); padding: 1rem 1.1rem; margin-bottom: 1rem; }
+    .lm-card h2 { margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 600; }
+    .lm-card .hint { color: var(--text-muted, #aaa); font-size: 0.84rem; margin: 0 0 0.75rem; }
+    .lm-file-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    .lm-file-table th, .lm-file-table td { padding: 0.5rem 0.7rem; text-align: left; border-bottom: 1px solid var(--border, #2b2b3f); vertical-align: middle; }
+    .lm-file-table th { font-size: 0.75rem; color: var(--text-muted, #aaa); text-transform: uppercase; letter-spacing: 0.03em; }
+    .lm-file-table td.name { font-family: ui-monospace, monospace; font-size: 0.84rem; }
+    .lm-file-table td.size, .lm-file-table td.modified { color: var(--text-muted, #aaa); white-space: nowrap; }
+    .lm-pill { display: inline-block; padding: 0.1em 0.6em; border-radius: 999px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+    .lm-pill.active { background: rgba(34,197,94,0.18); color: #86efac; }
+    .lm-pill.rotated { background: rgba(217,119,6,0.18); color: #fbbf24; }
+    .lm-pill.compressed { background: rgba(59,130,246,0.18); color: #93c5fd; }
+    .lm-pill.other { background: rgba(156,163,175,0.18); color: #d1d5db; }
+    .lm-settings-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem; max-width: 520px; }
+    .lm-settings-grid label { align-self: center; color: var(--text-muted, #aaa); font-size: 0.88rem; }
+    .lm-settings-grid input, .lm-settings-grid select { padding: 0.35rem 0.55rem; background: var(--bg-secondary, #1a1a2e); color: var(--text, #eee); border: 1px solid var(--border, #2b2b3f); border-radius: var(--radius-sm, 4px); font-family: inherit; font-size: 0.88rem; }
+    .lm-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="/" class="nav-logo">MarkFlow</a>
+    <div id="main-nav" class="nav-links"></div>
+  </nav>
+  <main class="container page-content">
+    <div id="error-banner" role="alert" hidden></div>
+    <h1>Log Management</h1>
+    <p class="text-muted text-sm">Inventory, download, and inspect MarkFlow's log files. Rotated files are auto-compressed by the log archiver every 6 hours.</p>
+    <div class="lm-topbar">
+      <a href="/log-viewer.html" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Open Live Viewer</a>
+      <button id="lm-download-all" class="btn btn-ghost btn-sm" type="button">Download All</button>
+      <button id="lm-download-selected" class="btn btn-ghost btn-sm" type="button" disabled>Download Selected (0)</button>
+      <button id="lm-compress-now" class="btn btn-ghost btn-sm" type="button">Compress Rotated Now</button>
+      <button id="lm-refresh" class="btn btn-ghost btn-sm" type="button">Refresh</button>
+      <div class="spacer"></div>
+      <div class="lm-stats" id="lm-stats"></div>
+    </div>
+    <div class="lm-card">
+      <h2>Log Files</h2>
+      <p class="hint">Active (currently being written), rotated (produced by RotatingFileHandler, awaiting compression), compressed (archived). Click a filename to open the live viewer focused on that file.</p>
+      <table class="lm-file-table">
+        <thead>
+          <tr>
+            <th style="width:2rem"><input id="lm-select-all" type="checkbox"></th>
+            <th>File</th>
+            <th>Stream</th>
+            <th>Status</th>
+            <th style="width:9rem">Size</th>
+            <th style="width:13rem">Modified</th>
+            <th style="width:10rem">Action</th>
+          </tr>
+        </thead>
+        <tbody id="lm-tbody"><tr><td colspan="7" class="text-muted">Loading...</td></tr></tbody>
+      </table>
+    </div>
+    <details class="lm-card">
+      <summary style="cursor:pointer; font-weight:600">Settings</summary>
+      <p class="hint" style="margin-top:0.75rem">Compression and retention settings for rotated logs. Changes apply on the next scheduled run (every 6 hours) unless you click "Compress Rotated Now".</p>
+      <div class="lm-settings-grid">
+        <label for="lm-format">Compression format</label>
+        <select id="lm-format">
+          <option value="gz">gzip (.gz)</option>
+          <option value="tar.gz">tar + gzip (.tar.gz)</option>
+          <option value="7z">7-Zip (.7z)</option>
+        </select>
+        <label for="lm-retention">Retention (days)</label>
+        <input id="lm-retention" type="number" min="1" max="3650" step="1">
+        <label for="lm-rotmax">Rotation size per log (MB)</label>
+        <input id="lm-rotmax" type="number" min="10" max="10240" step="10">
+        <div></div>
+        <div class="lm-actions">
+          <button id="lm-save-settings" class="btn btn-primary btn-sm" type="button">Save Settings</button>
+          <button id="lm-apply-retention" class="btn btn-ghost btn-sm" type="button">Apply Retention Now</button>
+          <span id="lm-rotmax-note" class="text-muted text-sm" style="align-self:center">Rotation size takes effect on next container restart.</span>
+        </div>
+      </div>
+    </details>
+  </main>
+  <script src="/static/app.js"></script>
+  <script>
+    (function(){
+      'use strict';
+      const tbody = document.getElementById('lm-tbody');
+      const statsEl = document.getElementById('lm-stats');
+      const selectAll = document.getElementById('lm-select-all');
+      const dlSelectedBtn = document.getElementById('lm-download-selected');
+      const dlAllBtn = document.getElementById('lm-download-all');
+      const compressBtn = document.getElementById('lm-compress-now');
+      const applyRetBtn = document.getElementById('lm-apply-retention');
+      const refreshBtn = document.getElementById('lm-refresh');
+      const fmtSel = document.getElementById('lm-format');
+      const retInp = document.getElementById('lm-retention');
+      const rotmaxInp = document.getElementById('lm-rotmax');
+      const saveSettingsBtn = document.getElementById('lm-save-settings');
+      function clearChildren(el) { while (el.firstChild) el.removeChild(el.firstChild); }
+      function fmtBytes(n) { if (n == null) return '-'; if (n < 1024) return n + ' B'; if (n < 1048576) return (n / 1024).toFixed(1) + ' KB'; if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB'; return (n / 1073741824).toFixed(2) + ' GB'; }
+      function fmtDateTime(iso) { if (!iso) return '-'; try { const d = typeof parseUTC === 'function' ? parseUTC(iso) : new Date(iso); return (d && !isNaN(d.getTime())) ? d.toLocaleString() : String(iso); } catch(e) { return String(iso); } }
+      async function loadInventory() {
+        clearChildren(tbody);
+        const loading = document.createElement('tr');
+        const td = document.createElement('td'); td.colSpan = 7; td.className='text-muted'; td.textContent='Loading...'; loading.appendChild(td); tbody.appendChild(loading);
+        try { const data = await API.get('/api/logs'); render(data); }
+        catch (e) {
+          clearChildren(tbody);
+          const err = document.createElement('tr'); const td2 = document.createElement('td');
+          td2.colSpan = 7; td2.className = 'text-muted'; td2.textContent = 'Failed to load logs: ' + e.message;
+          err.appendChild(td2); tbody.appendChild(err);
+        }
+      }
+      function render(data) {
+        const logs = data.logs || [];
+        clearChildren(tbody); clearChildren(statsEl);
+        const total = data.total_size_bytes || 0;
+        const s1 = document.createElement('span'); s1.textContent='Files:';
+        const s1b = document.createElement('strong'); s1b.textContent=String(logs.length); s1.appendChild(s1b); statsEl.appendChild(s1);
+        const s2 = document.createElement('span'); s2.textContent='Total size:';
+        const s2b = document.createElement('strong'); s2b.textContent=fmtBytes(total); s2.appendChild(s2b); statsEl.appendChild(s2);
+        if (logs.length === 0) {
+          const tr = document.createElement('tr'); const td=document.createElement('td');
+          td.colSpan=7; td.className='text-muted'; td.textContent='No log files found.';
+          tr.appendChild(td); tbody.appendChild(tr); updateSelection(); return;
+        }
+        logs.forEach(e => tbody.appendChild(renderRow(e)));
+        updateSelection();
+      }
+      function renderRow(e) {
+        const tr = document.createElement('tr');
+        const cbTd = document.createElement('td');
+        const cb = document.createElement('input');
+        cb.type='checkbox'; cb.className='row-cb'; cb.dataset.name=e.name;
+        cb.addEventListener('change', updateSelection);
+        cbTd.appendChild(cb); tr.appendChild(cbTd);
+        const nameTd = document.createElement('td'); nameTd.className='name';
+        if (e.compression === '7z') {
+          nameTd.textContent = e.name;
+        } else {
+          const a = document.createElement('a');
+          a.href = '/log-viewer.html?file=' + encodeURIComponent(e.name);
+          a.target = '_blank'; a.rel='noopener'; a.textContent = e.name;
+          nameTd.appendChild(a);
+        }
+        tr.appendChild(nameTd);
+        const streamTd = document.createElement('td'); streamTd.textContent = e.stream || '-'; tr.appendChild(streamTd);
+        const statTd = document.createElement('td');
+        const pill = document.createElement('span'); pill.className='lm-pill ' + (e.status || 'other');
+        pill.textContent = e.status + (e.compression ? ' - ' + e.compression : ''); statTd.appendChild(pill); tr.appendChild(statTd);
+        const sizeTd = document.createElement('td'); sizeTd.className='size'; sizeTd.textContent = fmtBytes(e.size_bytes); tr.appendChild(sizeTd);
+        const modTd = document.createElement('td'); modTd.className='modified'; modTd.textContent = fmtDateTime(e.modified); tr.appendChild(modTd);
+        const actTd = document.createElement('td');
+        const dl = document.createElement('a'); dl.className='btn btn-ghost btn-xs';
+        dl.href='/api/logs/download/' + encodeURIComponent(e.name); dl.setAttribute('download','');
+        dl.textContent = 'Download'; actTd.appendChild(dl); tr.appendChild(actTd);
+        return tr;
+      }
+      function updateSelection() {
+        const checked = tbody.querySelectorAll('input.row-cb:checked');
+        dlSelectedBtn.disabled = checked.length === 0;
+        dlSelectedBtn.textContent = 'Download Selected (' + checked.length + ')';
+      }
+      selectAll.addEventListener('change', () => {
+        tbody.querySelectorAll('input.row-cb').forEach(c => { c.checked = selectAll.checked; });
+        updateSelection();
+      });
+      async function downloadBundle(names) {
+        try {
+          const resp = await fetch('/api/logs/download-bundle', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin', body: JSON.stringify({ names: names }),
+          });
+          if (!resp.ok) { const detail = await resp.text().catch(() => ''); throw new Error('HTTP ' + resp.status + ' ' + detail.slice(0, 200)); }
+          const blob = await resp.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a'); a.href = url;
+          const cd = resp.headers.get('Content-Disposition') || '';
+          const m = /filename="([^"]+)"/.exec(cd);
+          a.download = m ? m[1] : 'markflow-logs.zip';
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          if (typeof showToast === 'function') showToast('Bundle downloaded');
+        } catch (e) { showError('Download failed: ' + e.message); }
+      }
+      dlSelectedBtn.addEventListener('click', () => {
+        const names = Array.from(tbody.querySelectorAll('input.row-cb:checked')).map(cb => cb.dataset.name);
+        if (!names.length) return;
+        downloadBundle(names);
+      });
+      dlAllBtn.addEventListener('click', () => { downloadBundle([]); });
+      compressBtn.addEventListener('click', async () => {
+        compressBtn.disabled = true;
+        try {
+          const r = await API.post('/api/logs/compress-now', {});
+          const msg = 'Compressed ' + r.compressed + ' file(s); reclaimed ' + fmtBytes(r.bytes_reclaimed);
+          if (typeof showToast === 'function') showToast(msg);
+          await loadInventory();
+        } catch (e) { showError('Compress failed: ' + e.message); } finally { compressBtn.disabled = false; }
+      });
+      applyRetBtn.addEventListener('click', async () => {
+        if (!confirm('Apply retention now? Compressed logs older than the configured window will be deleted.')) return;
+        applyRetBtn.disabled = true;
+        try {
+          const r = await API.post('/api/logs/apply-retention-now', {});
+          const msg = 'Deleted ' + r.deleted + ' file(s); reclaimed ' + fmtBytes(r.bytes_reclaimed);
+          if (typeof showToast === 'function') showToast(msg);
+          await loadInventory();
+        } catch (e) { showError('Retention failed: ' + e.message); } finally { applyRetBtn.disabled = false; }
+      });
+      refreshBtn.addEventListener('click', loadInventory);
+      async function loadSettings() {
+        try {
+          const s = await API.get('/api/logs/settings');
+          fmtSel.value = s.compression_format || 'gz';
+          retInp.value = String(s.retention_days || 30);
+          rotmaxInp.value = String(s.rotation_max_size_mb || 100);
+        } catch (e) { /* leave defaults */ }
+      }
+      saveSettingsBtn.addEventListener('click', async () => {
+        saveSettingsBtn.disabled = true;
+        try {
+          const body = { compression_format: fmtSel.value, retention_days: parseInt(retInp.value, 10), rotation_max_size_mb: parseInt(rotmaxInp.value, 10) };
+          const s = await fetch('/api/logs/settings', { method:'PUT', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body: JSON.stringify(body) });
+          if (!s.ok) { const detail = await s.text().catch(() => ''); throw new Error('HTTP ' + s.status + ' ' + detail.slice(0, 200)); }
+          if (typeof showToast === 'function') showToast('Settings saved');
+        } catch (e) { showError('Save failed: ' + e.message); } finally { saveSettingsBtn.disabled = false; }
+      });
+      loadInventory();
+      loadSettings();
+    })();
+  </script>
+</body>
+</html>

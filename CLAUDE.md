@@ -91,10 +91,88 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.30.0
+## Current Version — v0.30.1
 
-**Urgent fix: `/api/analysis/pause` 500 under queue load, plus
-pause-with-duration presets and an explicit Resume button.**
+**Log Management subsystem — admin inventory page with download /
+multi-select / bundle, plus a live SSE tail viewer with historical
+search, level filters, and substring / regex queries.**
+
+Two new admin pages under the existing admin.html:
+
+- **`/log-management.html`** — table of every log file under
+  `/app/logs` (including the `archive/` subdir managed by
+  `core/log_archiver`), with status pill (active / rotated /
+  compressed), per-file download link, multi-select + "Download
+  Selected (N)" bundle (zip), "Download All", "Compress Rotated
+  Now" manual trigger, "Apply Retention Now", and a Settings
+  card for compression format / retention days / rotation size.
+- **`/log-viewer.html`** — robust log inspector. File selector
+  dropdown covers every non-7z log (including gzipped archives
+  which are decompressed server-side for read). Two modes:
+  - **Live tail** via SSE stream — each new line appended to the
+    file is pushed to the page in real time. Backfills the last
+    ~200 lines at connection start so you don't open to a blank
+    screen.
+  - **Search history** — server-side paginated search with
+    substring / regex query, per-level filter (DEBUG / INFO /
+    WARNING / ERROR+CRITICAL), Load-older pagination (200 lines
+    per page, ring buffered so memory stays bounded).
+  Client-side goodies: JSON-aware line parsing (structlog lines
+  get pretty colored timestamp / level / logger / event / k=v
+  tail), auto-scroll toggle, Pause button, level-filter chips,
+  all work identically in both modes.
+
+### Backend
+
+- `core/log_manager.py` (new, ~250 lines) — file inventory
+  (LOGS_DIR + archive subdir), path-traversal-safe name resolver,
+  optional on-demand compression (gz / tar.gz / 7z), retention
+  helper, settings DB-pref getter/setter. Does NOT register a
+  scheduler job — `core/log_archiver.py` still handles the
+  6-hourly compression cycle, unchanged. The new compression
+  helper is reachable only via the "Compress Rotated Now"
+  admin-triggered endpoint.
+- `api/routes/log_management.py` (new, ~350 lines) —
+  `GET /api/logs` (inventory), `GET/PUT /api/logs/settings`,
+  `POST /api/logs/compress-now` / `apply-retention-now`,
+  `GET /api/logs/download/{name:path}` (path parameter so
+  `archive/foo.gz` works), `POST /api/logs/download-bundle`
+  (streaming ZIP of selected or all files),
+  `GET /api/logs/tail/{name:path}` (SSE tail with backfill),
+  `GET /api/logs/search` (paginated + level + substring/regex +
+  time range + scan cap). ALL endpoints ADMIN-gated.
+- `main.py` — registers the new router.
+
+### Files
+
+- `core/log_manager.py` (new)
+- `api/routes/log_management.py` (new)
+- `static/log-management.html` (new)
+- `static/log-viewer.html` (new)
+- `static/admin.html` — new "Log Management" card linking to both
+  pages
+- `main.py` — router registration
+- `core/version.py` — bump to 0.30.1
+- `CLAUDE.md`, `docs/version-history.md`
+
+No database migration. No new Python dependency — the SSE tail
+uses stdlib; search uses stdlib + existing `gzip` / `re` / `json`;
+zip bundle uses stdlib `zipfile`. The `7z` CLI was already in
+`Dockerfile.base` for hashcat and is auto-detected at runtime.
+
+Note: `core/log_archiver.py` (v0.22.1+) keeps running on its
+6-hour cron and compresses to `.gz` only. The UI's Settings
+panel writes DB preferences that the new manual-trigger path
+respects (compression format, retention), but **the existing
+scheduler still uses its hardcoded gz + 90-day defaults**. A
+follow-up can consolidate the two subsystems if desired.
+
+---
+
+## v0.30.0 — Pause 500 fix + pause-with-duration presets + explicit Resume
+
+Urgent fix: `/api/analysis/pause` 500 under queue load, plus
+pause-with-duration presets and an explicit Resume button.
 
 ### The 500 (primary fix)
 

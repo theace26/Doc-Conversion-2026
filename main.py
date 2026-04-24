@@ -459,6 +459,10 @@ app.include_router(ai_assist_routes.router)
 from api.routes import analysis as analysis_routes
 app.include_router(analysis_routes.router)
 
+# v0.30.1: Log Management subsystem
+from api.routes import log_management as log_management_routes
+app.include_router(log_management_routes.router)
+
 log.info("markflow.all_routes_registered")
 
 # ── Static files ──────────────────────────────────────────────────────────────
