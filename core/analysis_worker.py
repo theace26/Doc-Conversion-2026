@@ -48,8 +48,36 @@ async def run_analysis_drain() -> None:
 
         paused = await get_preference("analysis_submission_paused") or "false"
         if paused == "true":
-            log.info("analysis_worker.paused_by_user")
-            return
+            # v0.30.0: honor timed-pause deadline. If analysis_pause_until is
+            # set and in the past, auto-resume and proceed. Mirrors the same
+            # logic in /api/analysis/status so the worker doesn't wait for
+            # an operator page visit to clear an expired pause.
+            from datetime import datetime, timezone
+            from core.database import set_preference as _set_preference
+            pu_raw = await get_preference("analysis_pause_until") or ""
+            if pu_raw:
+                try:
+                    pu = datetime.fromisoformat(pu_raw)
+                    if pu.tzinfo is None:
+                        pu = pu.replace(tzinfo=timezone.utc)
+                    if datetime.now(timezone.utc) >= pu:
+                        await _set_preference("analysis_submission_paused", "false")
+                        await _set_preference("analysis_pause_until", "")
+                        log.info("analysis_worker.auto_resumed",
+                                 reason="pause_until_expired",
+                                 pause_until=pu_raw)
+                    else:
+                        log.info("analysis_worker.paused_by_user",
+                                 pause_until=pu_raw)
+                        return
+                except ValueError:
+                    log.warning("analysis_worker.invalid_pause_until",
+                                value=pu_raw)
+                    return
+            else:
+                log.info("analysis_worker.paused_by_user",
+                         pause_until="indefinite")
+                return
 
         batch_size_str = await get_preference("analysis_batch_size") or "10"
         batch_size = max(1, min(int(batch_size_str), 20))

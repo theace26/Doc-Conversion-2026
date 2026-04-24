@@ -156,16 +156,26 @@ async def get_preference(key: str, default: str | None = None) -> str | None:
 
 
 async def set_preference(key: str, value: str) -> None:
-    """Upsert a preference value."""
-    async with get_db() as conn:
-        await conn.execute(
-            """INSERT INTO user_preferences (key, value, updated_at)
-               VALUES (?, ?, CURRENT_TIMESTAMP)
-               ON CONFLICT(key) DO UPDATE SET value=excluded.value,
-               updated_at=CURRENT_TIMESTAMP""",
-            (key, value),
-        )
-        await conn.commit()
+    """Upsert a preference value. v0.30.0: race-safe via
+    db_write_with_retry so concurrent writers (e.g. analysis worker
+    or bulk worker holding a transaction) don't 500 callers with
+    'database is locked'. Prior to this, clicking Pause on the
+    Batch Management page reliably 500'd when the queue was active.
+    """
+    from core.db.connection import db_write_with_retry
+
+    async def _do():
+        async with get_db() as conn:
+            await conn.execute(
+                """INSERT INTO user_preferences (key, value, updated_at)
+                   VALUES (?, ?, CURRENT_TIMESTAMP)
+                   ON CONFLICT(key) DO UPDATE SET value=excluded.value,
+                   updated_at=CURRENT_TIMESTAMP""",
+                (key, value),
+            )
+            await conn.commit()
+
+    await db_write_with_retry(_do)
 
 
 async def get_all_preferences() -> dict[str, str]:

@@ -91,6 +91,49 @@
       display: flex;
       justify-content: center;
     }
+    /* Pause duration menu (v0.30.0) */
+    .bm-pause-wrap { position: relative; display: inline-block; }
+    .bm-pause-menu {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      margin-top: 0.3rem;
+      min-width: 220px;
+      padding: 0.3rem 0;
+      background: var(--surface, #161624);
+      border: 1px solid var(--border, #2b2b3f);
+      border-radius: var(--radius-sm, 4px);
+      box-shadow: var(--shadow-lg, 0 8px 24px rgba(0,0,0,0.5));
+      z-index: 50;
+      font-size: 0.88rem;
+    }
+    .bm-pause-menu[hidden] { display: none; }
+    .bm-pause-menu .item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.45rem 0.85rem;
+      color: var(--text, #eee);
+      cursor: pointer;
+      user-select: none;
+    }
+    .bm-pause-menu .item:hover { background: rgba(96,165,250,0.12); }
+    .bm-pause-menu .item .sub {
+      color: var(--text-muted, #aaa);
+      font-size: 0.78rem;
+      font-family: ui-monospace, monospace;
+    }
+    .bm-pause-menu .sep {
+      height: 1px;
+      margin: 0.3rem 0.3rem;
+      background: var(--border, #2b2b3f);
+    }
+    .bm-pause-until-label {
+      color: var(--text-muted, #aaa);
+      font-size: 0.8rem;
+      margin-left: 0.5rem;
+    }
     /* Circuit-breaker banner (v0.29.9) */
     .bm-cb-banner {
       display: flex;
@@ -358,7 +401,11 @@
         <span class="dot"></span>
         <span id="bm-status-label">Submission: loading...</span>
       </div>
-      <button id="bm-toggle" class="btn btn-sm" type="button">Pause</button>
+      <div class="bm-pause-wrap">
+        <button id="bm-pause" class="btn btn-sm" type="button" aria-haspopup="true">Pause ▾</button>
+        <div id="bm-pause-menu" class="bm-pause-menu" role="menu" hidden></div>
+      </div>
+      <button id="bm-resume" class="btn btn-sm" type="button" hidden>Resume</button>
       <button id="bm-cancel-all" class="btn btn-ghost btn-sm" type="button">Cancel All Pending</button>
       <button id="bm-refresh" class="btn btn-ghost btn-sm" type="button">Refresh</button>
       <div class="bm-counts" id="bm-counts"></div>
@@ -374,13 +421,16 @@
 
       const statusEl = document.getElementById('bm-status');
       const statusLabel = document.getElementById('bm-status-label');
-      const toggleBtn = document.getElementById('bm-toggle');
+      const pauseBtn = document.getElementById('bm-pause');
+      const pauseMenu = document.getElementById('bm-pause-menu');
+      const resumeBtn = document.getElementById('bm-resume');
       const cancelBtn = document.getElementById('bm-cancel-all');
       const refreshBtn = document.getElementById('bm-refresh');
       const countsEl = document.getElementById('bm-counts');
       const batchesEl = document.getElementById('bm-batches');
 
       let paused = false;
+      let pauseUntil = null;  // ISO string or null
       let previewTip = null;
       let previewTimer = null;
       let activeStatusFilter = null;         // null | 'pending' | 'batched' | 'completed' | 'failed' | 'excluded'
@@ -454,11 +504,24 @@
         return i > 0 ? b.substring(i) : '';
       }
 
-      function setStatus(pausedFlag) {
+      function setStatus(pausedFlag, pauseUntilIso) {
         paused = !!pausedFlag;
+        pauseUntil = pauseUntilIso || null;
         statusEl.classList.toggle('paused', paused);
-        statusLabel.textContent = paused ? 'Submission: Paused' : 'Submission: Running';
-        toggleBtn.textContent = paused ? 'Resume' : 'Pause';
+
+        let label;
+        if (!paused) {
+          label = 'Submission: Running';
+        } else if (pauseUntil) {
+          label = 'Submission: Paused until ' + fmtDateTime(pauseUntil);
+        } else {
+          label = 'Submission: Paused (indefinite)';
+        }
+        statusLabel.textContent = label;
+
+        // Pause / Resume button visibility — only one is interactive at a time.
+        pauseBtn.hidden = paused;
+        resumeBtn.hidden = !paused;
       }
 
       function renderCounts(counts) {
@@ -501,7 +564,7 @@
 
       async function refreshStatus() {
         const data = await API.get('/api/analysis/status');
-        setStatus(data.paused);
+        setStatus(data.paused, data.pause_until);
         renderCounts(data.counts);
         // v0.29.9: check circuit breaker state in parallel with /status.
         // Don't await this — breaker state is secondary and we don't want
@@ -1508,19 +1571,94 @@
         previewTip = null;
       }
 
-      toggleBtn.addEventListener('click', async () => {
-        toggleBtn.disabled = true;
+      // ── Pause duration popover (v0.30.0) ───────────────────────────────
+      const PAUSE_PRESETS = [
+        { label: 'Pause for 1 hour',  body: { duration_hours: 1 } },
+        { label: 'Pause for 2 hours', body: { duration_hours: 2 } },
+        { label: 'Pause for 6 hours', body: { duration_hours: 6 } },
+        { label: 'Pause for 8 hours', body: { duration_hours: 8 } },
+        { label: 'Pause until off-hours', body: { until_off_hours: true } },
+        { sep: true },
+        { label: 'Pause indefinitely', body: {} },
+      ];
+
+      function renderPauseMenu() {
+        clearChildren(pauseMenu);
+        PAUSE_PRESETS.forEach(p => {
+          if (p.sep) {
+            const s = document.createElement('div');
+            s.className = 'sep';
+            pauseMenu.appendChild(s);
+            return;
+          }
+          const item = document.createElement('div');
+          item.className = 'item';
+          item.setAttribute('role', 'menuitem');
+          item.setAttribute('tabindex', '0');
+          const lbl = document.createElement('span');
+          lbl.textContent = p.label;
+          item.appendChild(lbl);
+          // Future display of "until X" preview could go in a .sub span
+          const fire = async () => {
+            hidePauseMenu();
+            await doPause(p.body, p.label);
+          };
+          item.addEventListener('click', fire);
+          item.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); fire(); }
+          });
+          pauseMenu.appendChild(item);
+        });
+      }
+      renderPauseMenu();
+
+      function showPauseMenu() {
+        pauseMenu.hidden = false;
+        pauseBtn.setAttribute('aria-expanded', 'true');
+      }
+      function hidePauseMenu() {
+        pauseMenu.hidden = true;
+        pauseBtn.setAttribute('aria-expanded', 'false');
+      }
+
+      pauseBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if (pauseMenu.hidden) { showPauseMenu(); } else { hidePauseMenu(); }
+      });
+      window.addEventListener('click', (ev) => {
+        if (!pauseMenu.hidden && !pauseMenu.contains(ev.target) && ev.target !== pauseBtn) {
+          hidePauseMenu();
+        }
+      });
+      window.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape' && !pauseMenu.hidden) hidePauseMenu();
+      });
+
+      async function doPause(body, label) {
+        pauseBtn.disabled = true;
         try {
-          const ep = paused ? '/api/analysis/resume' : '/api/analysis/pause';
-          await API.post(ep, {});
+          const result = await API.post('/api/analysis/pause', body || {});
           await refreshStatus();
           if (typeof showToast === 'function') {
-            showToast(paused ? 'Analysis paused' : 'Analysis resumed');
+            showToast(label || 'Analysis paused');
           }
         } catch (e) {
-          showError('Failed: ' + e.message);
+          showError('Pause failed: ' + e.message);
         } finally {
-          toggleBtn.disabled = false;
+          pauseBtn.disabled = false;
+        }
+      }
+
+      resumeBtn.addEventListener('click', async () => {
+        resumeBtn.disabled = true;
+        try {
+          await API.post('/api/analysis/resume', {});
+          await refreshStatus();
+          if (typeof showToast === 'function') showToast('Analysis resumed');
+        } catch (e) {
+          showError('Resume failed: ' + e.message);
+        } finally {
+          resumeBtn.disabled = false;
         }
       });
 

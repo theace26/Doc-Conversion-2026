@@ -91,11 +91,79 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.29.9
+## Current Version — v0.30.0
 
-**Financial-best-practices resilience on the Anthropic vision
+**Urgent fix: `/api/analysis/pause` 500 under queue load, plus
+pause-with-duration presets and an explicit Resume button.**
+
+### The 500 (primary fix)
+
+`POST /api/analysis/pause` was reliably 500'ing with
+`sqlite3.OperationalError: database is locked` whenever the
+analysis worker held a write transaction. Root cause: the
+underlying `core/db/preferences.set_preference()` did raw
+`aiosqlite` writes without going through the single-writer retry
+path that everything else in the app uses. Fixed by wrapping the
+body of `set_preference` in `db_write_with_retry` — race-safe
+with exponential backoff, mirroring the pattern in
+`bulk_worker.py` and the migration helpers.
+
+### Pause-with-duration + explicit Resume (UX)
+
+The top bar on the Batch Management page now has two distinct
+buttons: a **Pause ▾** dropdown (six presets) and an always-
+visible **Resume** button.
+
+Pause dropdown options:
+- 1 hour / 2 hours / 6 hours / 8 hours
+- Until off-hours (uses `scanner_business_hours_end` preference
+  to compute the next off-hours boundary)
+- Indefinite (legacy behavior)
+
+Backend additions:
+- New preference `analysis_pause_until` stores the ISO deadline
+  (empty string = indefinite).
+- `POST /api/analysis/pause` accepts optional body with
+  `duration_hours` (float, 0 < h ≤ 168) or `until_off_hours: true`.
+  Empty body keeps the legacy "pause indefinitely" behavior.
+- `POST /api/analysis/resume` now also clears `pause_until` so a
+  future Pause click doesn't inherit a stale deadline.
+- `GET /api/analysis/status` returns `pause_until` and
+  auto-resumes (clears both prefs) when the deadline has passed —
+  so an expired pause self-heals even if no worker tick has
+  occurred.
+- The analysis worker itself also auto-resumes on expired
+  `pause_until` at its next claim cycle (fail-safe if the
+  status endpoint hasn't been polled recently).
+
+UI status label now reads "Submission: Paused until 4/24/2026,
+9:00:00 PM" instead of just "Paused" when a timed pause is
+active.
+
+### Files
+
+- `core/db/preferences.py` — `set_preference` goes through
+  `db_write_with_retry`
+- `api/routes/analysis.py` — pause endpoint takes optional body;
+  new helpers for off-hours computation + auto-resume
+- `core/analysis_worker.py` — honors + auto-clears expired
+  `pause_until` at claim time
+- `static/batch-management.html` — new Pause dropdown + Resume
+  button + CSS; JS wired to the six presets
+- `core/version.py` — bump to 0.30.0
+- `CLAUDE.md` / `docs/version-history.md`
+
+No database migration needed — new preference just starts
+uninitialized (treated as "indefinite" by the code). No new
+Python dependency.
+
+---
+
+## v0.29.9 — Vision API resilience
+
+Financial-best-practices resilience on the Anthropic vision
 pipeline: 5-layer defense against wasted API spend — preflight,
-backoff, bisection, circuit breaker, operator banner.**
+backoff, bisection, circuit breaker, operator banner.
 
 API calls are money. v0.29.9 minimizes wasted requests on known-bad
 inputs and upstream flakiness, and surfaces outages to the operator

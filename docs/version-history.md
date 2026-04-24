@@ -4,6 +4,119 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.30.0 — Pause-500 fix + pause-with-duration presets + explicit Resume (2026-04-24)
+
+One urgent bug fix plus a UX polish on the Batch Management page.
+
+### Bug: `/api/analysis/pause` 500 under queue load
+
+**Symptom:** clicking Pause on Batch Management produced
+`Failed: POST /api/analysis/pause failed (500)`. Container logs
+showed a `sqlite3.OperationalError: database is locked` traceback
+originating in `core/db/preferences.py:160` (`set_preference`).
+
+**Root cause:** `set_preference` was doing raw `aiosqlite` writes
+without going through the single-writer retry machinery
+(`db_write_with_retry`) that v0.23.0 introduced for exactly this
+class of contention. Every other write path in the app — bulk
+worker, migrations, analysis worker — uses the retry helper. The
+preference writer did not, so any overlap with a held write
+transaction hit SQLite's default 5 s `busy_timeout` and 500'd.
+
+**Fix:** wrap the inner `INSERT … ON CONFLICT DO UPDATE` in
+`db_write_with_retry`. Imports are local (no circular import risk)
+and the helper already backs off exponentially on "database is
+locked" with 3 retries at 0.5/1.0/2.0 s. Net: the Pause button now
+succeeds even when the worker is mid-batch.
+
+### Feature: pause-with-duration presets + explicit Resume
+
+The old Pause button was a toggle ("Pause" ↔ "Resume" on a single
+button) that paused indefinitely on click. v0.30.0 replaces it
+with two distinct controls:
+
+1. **Pause ▾** — opens a popover with six preset durations:
+   - 1 hour
+   - 2 hours
+   - 6 hours
+   - 8 hours
+   - Until off-hours (next boundary from
+     `scanner_business_hours_end`, default 22:00)
+   - Indefinitely
+2. **Resume** — always visible when paused, immediately clears
+   both pause prefs and resumes the worker.
+
+**Backend data model.** A new preference
+`analysis_pause_until` stores an ISO-8601 UTC deadline. Empty
+string means indefinite. Combined with the existing
+`analysis_submission_paused` boolean:
+
+| `paused` | `pause_until`     | Meaning                         |
+|----------|-------------------|---------------------------------|
+| `false`  | (ignored)         | Running normally                |
+| `true`   | ""                | Paused indefinitely             |
+| `true`   | future ISO        | Paused with auto-resume         |
+| `true`   | past ISO          | Stale — auto-resumes on read    |
+
+**API.**
+
+- `POST /api/analysis/pause` accepts optional body
+  `PauseRequest { duration_hours?: float, until_off_hours?: bool }`.
+  `duration_hours` bounded by `0 < h ≤ 168` (one week max).
+  Empty body keeps legacy behavior (indefinite pause).
+  Returns `{status: "paused", mode: "1h"|"until_off_hours"|
+  "indefinite", pause_until: ISO | null}`.
+- `POST /api/analysis/resume` now also clears `analysis_pause_until`
+  so a later Pause click doesn't inherit a stale deadline.
+- `GET /api/analysis/status` returns `pause_until` alongside the
+  boolean `paused` flag. The endpoint also auto-resumes (clears
+  both prefs) when it sees a past deadline — the UI's next poll
+  always reflects the correct state without needing the worker
+  to tick first.
+
+**Worker.** `core/analysis_worker.py` now reads
+`analysis_pause_until` at the top of each claim cycle. If set and
+in the past, it auto-clears both prefs and proceeds; if set and
+in the future, it logs and skips; if empty, it stays paused
+indefinitely (legacy). Mirrors the status endpoint's auto-resume
+so a long-idle page doesn't need to be open for a timed pause to
+expire.
+
+**UI.** The status label reads:
+- "Submission: Running" (closed)
+- "Submission: Paused until 4/24/2026, 9:00:00 PM" (timed)
+- "Submission: Paused (indefinite)" (legacy)
+
+The Pause button exposes `aria-haspopup="true"` and
+`aria-expanded`; menu items use `role="menuitem"` with Enter/Space
+activation. Escape closes the menu.
+
+### Files
+
+- `core/version.py` — bump to 0.30.0
+- `core/db/preferences.py` — `set_preference` wraps
+  `db_write_with_retry`
+- `api/routes/analysis.py` — `PauseRequest` model, helper
+  `_compute_off_hours_pause_until`, rewritten `/pause` endpoint,
+  `/status` returns `pause_until` + auto-resume, `/resume` clears
+  deadline
+- `core/analysis_worker.py` — timed-pause awareness + auto-resume
+  at claim time
+- `static/batch-management.html` — dropdown popover CSS/HTML/JS,
+  explicit Resume button, status-label reformat
+- `CLAUDE.md` — Current Version block
+- `docs/version-history.md` — this entry
+
+No database migration. No new dependency.
+
+**Deferred to v0.30.1** (already in flight, not shipping this
+release): Log Management subsystem (auto-compression of rotated
+logs, admin inventory page, live SSE tail view, multi-file
+download bundle). Keeping v0.30.0 tight to unblock the pause
+bug fast.
+
+---
+
 ## v0.29.9 — Vision API resilience: preflight + backoff + bisection + circuit breaker (2026-04-24)
 
 Five coordinated layers of defense against wasted Anthropic vision

@@ -73,24 +73,100 @@ class ExcludeRequest(BaseModel):
     file_ids: list[str]
 
 
+class PauseRequest(BaseModel):
+    """Pause duration options (v0.30.0).
+
+    - `duration_hours`: positive number → pause until (now + duration_hours)
+    - `until_off_hours`: true → pause until the next time we enter off-hours
+      (based on the existing scanner_business_hours_* preferences)
+    - None / empty body → indefinite pause (legacy behaviour)
+    """
+    duration_hours: float | None = None
+    until_off_hours: bool | None = None
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────────
+
+async def _compute_off_hours_pause_until() -> "datetime | None":
+    """Return a UTC datetime for the next business-hours end boundary,
+    or None if the 'until off-hours' option can't be resolved. Uses
+    the same scanner_business_hours_start / _end preferences that
+    govern the scheduler's off-hours behavior.
+    """
+    from datetime import datetime, timedelta, timezone
+    try:
+        end_raw = await get_preference("scanner_business_hours_end") or "22:00"
+        end_hour = int(end_raw.split(":")[0])
+    except (AttributeError, ValueError, IndexError):
+        return None
+    # Build the next local-time boundary at end_hour on today (or tomorrow
+    # if we're already past it). Use system-local time to match scheduler
+    # semantics, then convert to UTC for storage.
+    now_local = datetime.now().astimezone()
+    boundary = now_local.replace(hour=end_hour, minute=0, second=0, microsecond=0)
+    if boundary <= now_local:
+        boundary = boundary + timedelta(days=1)
+    return boundary.astimezone(timezone.utc)
+
 
 @router.post("/pause")
 async def pause_analysis(
+    body: PauseRequest | None = None,
     user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
 ) -> dict:
-    """Set analysis_submission_paused=true."""
+    """Pause analysis submission. v0.30.0: optional duration.
+
+    - No body, or `{}`, or `duration_hours=None until_off_hours=None`
+      → indefinite pause (backward compatible).
+    - `duration_hours=N` → pause until now + N hours.
+    - `until_off_hours=true` → pause until next off-hours boundary.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    body = body or PauseRequest()
+    pause_until: datetime | None = None
+    mode = "indefinite"
+
+    if body.until_off_hours:
+        pause_until = await _compute_off_hours_pause_until()
+        mode = "until_off_hours"
+    elif body.duration_hours is not None:
+        if body.duration_hours <= 0 or body.duration_hours > 168:
+            raise HTTPException(
+                status_code=400,
+                detail="duration_hours must be > 0 and <= 168 (1 week)",
+            )
+        pause_until = datetime.now(timezone.utc) + timedelta(hours=body.duration_hours)
+        mode = f"{body.duration_hours}h"
+
     await set_preference("analysis_submission_paused", "true")
-    log.info("analysis.paused", user=user.email)
-    return {"status": "paused"}
+    await set_preference(
+        "analysis_pause_until",
+        pause_until.isoformat() if pause_until else "",
+    )
+
+    log.info(
+        "analysis.paused",
+        user=user.email,
+        mode=mode,
+        pause_until=pause_until.isoformat() if pause_until else None,
+    )
+    return {
+        "status": "paused",
+        "mode": mode,
+        "pause_until": pause_until.isoformat() if pause_until else None,
+    }
 
 
 @router.post("/resume")
 async def resume_analysis(
     user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
 ) -> dict:
-    """Set analysis_submission_paused=false."""
+    """Resume analysis submission immediately. v0.30.0: also clears
+    any timed-pause deadline so a future Pause click doesn't
+    accidentally inherit an old pause_until value."""
     await set_preference("analysis_submission_paused", "false")
+    await set_preference("analysis_pause_until", "")
     log.info("analysis.resumed", user=user.email)
     return {"status": "running"}
 
@@ -99,8 +175,31 @@ async def resume_analysis(
 async def analysis_status(
     user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
 ) -> dict:
-    """Return pause flag + per-status counts (including excluded)."""
+    """Return pause flag + per-status counts (including excluded).
+    v0.30.0: also returns pause_until + auto-resumes when expired."""
+    from datetime import datetime, timezone
+
     paused = (await get_preference("analysis_submission_paused")) == "true"
+    pause_until_raw = await get_preference("analysis_pause_until") or ""
+    pause_until: datetime | None = None
+    if paused and pause_until_raw:
+        try:
+            pause_until = datetime.fromisoformat(pause_until_raw)
+            if pause_until.tzinfo is None:
+                pause_until = pause_until.replace(tzinfo=timezone.utc)
+        except ValueError:
+            pause_until = None
+
+    # Auto-resume if the deadline has passed. Do it here (a read path) so
+    # the UI's next status poll always reflects the correct state even if
+    # the worker hasn't polled in the meantime.
+    if paused and pause_until is not None and datetime.now(timezone.utc) >= pause_until:
+        await set_preference("analysis_submission_paused", "false")
+        await set_preference("analysis_pause_until", "")
+        paused = False
+        pause_until = None
+        log.info("analysis.auto_resumed", reason="pause_until_expired")
+
     stats = await get_analysis_stats()
 
     # get_analysis_stats only populates the 4 canonical statuses; query
@@ -117,7 +216,11 @@ async def analysis_status(
         "failed": stats.get("failed", 0),
         "excluded": excluded_count,
     }
-    return {"paused": paused, "counts": counts}
+    return {
+        "paused": paused,
+        "pause_until": pause_until.isoformat() if pause_until else None,
+        "counts": counts,
+    }
 
 
 @router.post("/cancel-pending")
