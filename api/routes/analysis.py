@@ -275,13 +275,47 @@ async def download_file(
     )
 
 
-# ── Preview (browser-native + thumbnail fallback, v0.29.7) ───────────────────
+# ── Preview (browser-native + thumbnail fallback, v0.29.7+) ──────────────────
+#
+# v0.29.8: expanded both sets to cover every photo format PIL can decode in the
+# current base image, plus every format mainstream Chromium/Firefox/Safari
+# render natively. Source of truth: `python -c "from PIL import Image;
+# Image.init(); print(Image.EXTENSION)"` inside the container. Must stay in
+# sync with static/batch-management.html `_IMG_EXT`.
 
-# Browser can render these natively — just stream the raw bytes.
-_NATIVE_PREVIEW_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
+# Browser renders these natively — stream the raw bytes unchanged.
+_NATIVE_PREVIEW_EXTS = {
+    # JPEG family
+    ".jpg", ".jpeg", ".jfif", ".jpe",
+    # PNG family
+    ".png", ".apng",
+    # Other native formats
+    ".gif", ".bmp", ".dib", ".webp",
+    # Modern formats supported by all recent browsers
+    ".avif", ".avifs",
+    # Icon / cursor formats
+    ".ico", ".cur",
+}
+
 # Browser CAN'T render these — generate a JPEG thumbnail via PIL.
-# .eps uses PIL's EpsImagePlugin which shells out to Ghostscript (/usr/bin/gs).
-_THUMBNAIL_PREVIEW_EXTS = {".tif", ".tiff", ".eps"}
+# .eps / .ps use PIL's EpsImagePlugin which shells out to Ghostscript
+# (/usr/bin/gs). .psd is read as the flat composite (good enough for preview).
+_THUMBNAIL_PREVIEW_EXTS = {
+    # TIFF family
+    ".tif", ".tiff",
+    # PostScript family (rasterized via Ghostscript)
+    ".eps", ".ps",
+    # JPEG 2000 family
+    ".jp2", ".j2k", ".jpx", ".jpc", ".jpf", ".j2c",
+    # Netpbm family
+    ".ppm", ".pgm", ".pbm", ".pnm",
+    # Targa family (TrueVision TGA)
+    ".tga", ".icb", ".vda", ".vst",
+    # SGI family
+    ".sgi", ".rgb", ".rgba", ".bw",
+    # Other photo/raster formats PIL decodes natively
+    ".pcx", ".dds", ".icns", ".psd",
+}
 _ALL_PREVIEW_EXTS = _NATIVE_PREVIEW_EXTS | _THUMBNAIL_PREVIEW_EXTS
 
 _THUMB_MAX_PX = 400

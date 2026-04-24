@@ -153,6 +153,10 @@ async def lifespan(app: FastAPI):
     from core.db.migrations import run_bulk_files_dedup
     await run_bulk_files_dedup()
 
+    # Clear stale `error` from completed analysis_queue rows (one-time, v0.29.8)
+    from core.db.migrations import clear_stale_analysis_errors
+    await clear_stale_analysis_errors()
+
     # Vision re-queue MIME failures (one-time, best-effort)
     try:
         from core.database import db_execute

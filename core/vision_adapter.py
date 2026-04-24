@@ -322,6 +322,12 @@ class VisionAdapter:
                 "For each image provided (in order), return a JSON array where each element has:\n"
                 "  'description': a factual description of the image content (objects, people, "
                 "scenes, charts, diagrams, any visible text). Be concise.\n"
+                "    If the preceding filename identifies a specific recognizable subject "
+                "(a named building, landmark, event, person, vehicle, or piece of equipment) "
+                "AND the image content is consistent with that identification, name the "
+                "subject in the description (e.g. 'Benaroya Hall, a concert venue in "
+                "Seattle'). If the filename and the image content disagree, describe what "
+                "the image actually shows and ignore the filename.\n"
                 "  'extracted_text': any legible text found in the image verbatim. "
                 "Empty string if none.\n"
                 "Return ONLY the JSON array with no prose before or after."
@@ -463,9 +469,19 @@ class VisionAdapter:
                     )
                     continue
 
+                # v0.29.8: interleave a filename text block before each
+                # image so Claude has filename context when describing
+                # the image. Claude API has no `filename` field on image
+                # blocks; plain-text interleaving is the documented way.
+                # The prompt tells the model how to use it (and how to
+                # disregard it if it disagrees with the actual image).
                 content: list[dict] = []
-                for i in batch_indices:
-                    _, b64, mime, _ = encoded[i]
+                for local_idx, i in enumerate(batch_indices, start=1):
+                    path, b64, mime, _ = encoded[i]
+                    content.append({
+                        "type": "text",
+                        "text": f"Image {local_idx} filename: {path.name}",
+                    })
                     content.append({
                         "type": "image",
                         "source": {"type": "base64", "media_type": mime, "data": b64},

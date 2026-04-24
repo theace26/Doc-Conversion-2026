@@ -1323,10 +1323,28 @@
         return tr;
       }
 
-      // Must match api/routes/analysis.py _ALL_PREVIEW_EXTS.
-      // Native (.jpg/.jpeg/.png/.gif/.bmp/.webp) serve raw; thumbnailed
-      // (.tif/.tiff/.eps) go through PIL on the backend.
-      const _IMG_EXT = new Set(['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tif', '.tiff', '.eps']);
+      // Must match api/routes/analysis.py _ALL_PREVIEW_EXTS (v0.29.8).
+      // Browser-native (.jpg/.jpeg/.jfif/.jpe/.png/.apng/.gif/.bmp/.dib/
+      // .webp/.avif/.avifs/.ico/.cur) stream raw; PIL-thumbnailed (.tif/
+      // .tiff/.eps/.ps/JPEG2000 family/Netpbm family/Targa family/SGI
+      // family/.pcx/.dds/.icns/.psd) go through PIL + Ghostscript on the
+      // backend.
+      const _IMG_EXT = new Set([
+        // Native
+        '.jpg', '.jpeg', '.jfif', '.jpe',
+        '.png', '.apng',
+        '.gif', '.bmp', '.dib', '.webp',
+        '.avif', '.avifs',
+        '.ico', '.cur',
+        // Thumbnail via PIL
+        '.tif', '.tiff',
+        '.eps', '.ps',
+        '.jp2', '.j2k', '.jpx', '.jpc', '.jpf', '.j2c',
+        '.ppm', '.pgm', '.pbm', '.pnm',
+        '.tga', '.icb', '.vda', '.vst',
+        '.sgi', '.rgb', '.rgba', '.bw',
+        '.pcx', '.dds', '.icns', '.psd',
+      ]);
       function isImageExt(p) {
         return _IMG_EXT.has(extOf(p).toLowerCase());
       }

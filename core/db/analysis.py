@@ -147,6 +147,13 @@ async def write_batch_results(results: list[dict[str, Any]]) -> None:
                     (r["error"], r["id"]),
                 )
             else:
+                # v0.29.8: clear `error` and reset `retry_count` on success.
+                # Previously a row that failed, retried, and eventually
+                # succeeded would keep the old error text indefinitely,
+                # which the batch-management UI faithfully displayed
+                # alongside the (actually-successful) description +
+                # extracted_text. This confused operators into thinking
+                # successful analyses were failing.
                 await conn.execute(
                     """UPDATE analysis_queue
                        SET status = 'completed',
@@ -155,7 +162,9 @@ async def write_batch_results(results: list[dict[str, Any]]) -> None:
                            extracted_text = ?,
                            provider_id = ?,
                            model = ?,
-                           tokens_used = ?
+                           tokens_used = ?,
+                           error = NULL,
+                           retry_count = 0
                        WHERE id = ?""",
                     (
                         now,

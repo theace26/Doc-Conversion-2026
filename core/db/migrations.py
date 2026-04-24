@@ -7,6 +7,39 @@ from core.db.preferences import get_preference, set_preference
 log = structlog.get_logger(__name__)
 
 
+async def clear_stale_analysis_errors():
+    """One-time cleanup of analysis_queue rows where status='completed'
+    still carries an old `error` blob from a prior failed attempt
+    (v0.29.8). The bug was in write_batch_results: the success branch
+    never cleared `error`, so a row that failed, retried, and
+    eventually succeeded kept the stale error string indefinitely.
+
+    Gated by preference 'analysis_stale_errors_cleared_v0_29_8'.
+    """
+    done = await get_preference("analysis_stale_errors_cleared_v0_29_8")
+    if done == "true":
+        return
+
+    row = await db_fetch_one(
+        "SELECT COUNT(*) AS cnt FROM analysis_queue "
+        "WHERE status = 'completed' AND error IS NOT NULL"
+    )
+    before = row["cnt"] if row else 0
+
+    if before > 0:
+        log.info("migration.clear_stale_analysis_errors_starting", rows=before)
+        await db_execute(
+            "UPDATE analysis_queue "
+            "SET error = NULL, retry_count = 0 "
+            "WHERE status = 'completed' AND error IS NOT NULL"
+        )
+        log.info("migration.clear_stale_analysis_errors_complete", cleared=before)
+    else:
+        log.info("migration.clear_stale_analysis_errors_noop")
+
+    await set_preference("analysis_stale_errors_cleared_v0_29_8", "true")
+
+
 async def run_bulk_files_dedup():
     """One-time dedup of bulk_files: keep latest row per source_path.
 

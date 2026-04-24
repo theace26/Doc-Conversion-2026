@@ -91,10 +91,56 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.29.7
+## Current Version — v0.29.8
 
-**Hover preview now works for TIFF, EPS, and WebP — PIL thumbnail
-fallback with LRU cache, no more silent `onerror` flickers.**
+**Three-in-one follow-up: stale-error cleanup on the analysis
+queue, filenames now inform Claude's image descriptions, and the
+hover-preview format set is widened to every photo format PIL
+recognizes (no new dependencies).**
+
+- **Stale `error` on completed rows** — `write_batch_results`
+  success branch did not clear `error` or reset `retry_count`.
+  Rows that failed, retried, and eventually succeeded kept the old
+  error string forever, which the batch-management UI faithfully
+  showed alongside a correct `description` + `extracted_text`.
+  Fixed by adding `error = NULL, retry_count = 0` to the success
+  UPDATE, plus a one-time migration `clear_stale_analysis_errors()`
+  (gated `analysis_stale_errors_cleared_v0_29_8` preference) that
+  cleans existing rows on startup.
+- **Filename context for Claude** — the Anthropic vision call now
+  prepends a `{"type": "text", "text": "Image N filename: foo.jpg"}`
+  block before each image block. The default prompt instructs Claude
+  to name recognizable subjects (buildings, landmarks, etc.) when
+  the filename identifies them AND the image content agrees —
+  fallback to a generic description if they disagree. Fixes the
+  "Benaroya_Hall,_Seattle,_Washington,_USA.jpg → 'a large modern
+  building' without ever identifying Benaroya Hall" case.
+- **Wider preview format coverage** — every photo format PIL can
+  decode in the current base image is now previewable, split the
+  same way as v0.29.7:
+  - **Browser-native** (14 total): `.jpg`, `.jpeg`, `.jfif`, `.jpe`,
+    `.png`, `.apng`, `.gif`, `.bmp`, `.dib`, `.webp`, `.avif`,
+    `.avifs`, `.ico`, `.cur`
+  - **PIL-thumbnailed** (23 total): `.tif`, `.tiff`, `.eps`, `.ps`,
+    JPEG 2000 family (`.jp2`, `.j2k`, `.jpx`, `.jpc`, `.jpf`, `.j2c`),
+    Netpbm family (`.ppm`, `.pgm`, `.pbm`, `.pnm`), Targa family
+    (`.tga`, `.icb`, `.vda`, `.vst`), SGI family (`.sgi`, `.rgb`,
+    `.rgba`, `.bw`), plus `.pcx`, `.dds`, `.icns`, `.psd`
+  - **Still deferred**: `.svg` (needs XSS sanitization), `.heic` /
+    `.heif` (needs `pillow-heif` dep), RAW camera formats (need
+    `rawpy` dep).
+
+Files: `core/version.py`, `core/db/analysis.py`,
+`core/db/migrations.py`, `core/vision_adapter.py`, `main.py`,
+`api/routes/analysis.py`, `static/batch-management.html`,
+`CLAUDE.md`, `docs/version-history.md`.
+
+---
+
+## v0.29.7 — Thumbnail preview for TIFF, EPS, and WebP
+
+Hover preview now works for TIFF, EPS, and WebP — PIL thumbnail
+fallback with LRU cache, no more silent `onerror` flickers.
 
 - **Before:** hovering a `.tif`/`.tiff` row fired `/preview`, the
   endpoint served the raw bytes, and the browser's `<img>` tag

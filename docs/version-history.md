@@ -4,6 +4,144 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.29.8 — Stale-error cleanup + filename context + wider preview formats (2026-04-24)
+
+Three follow-ups sparked by a single real-world incident: an operator
+opened the v0.29.5 "View analysis result" modal on a Benaroya Hall
+photo and saw **both** a clean description ("A large modern
+building with a curved glass facade in an urban downtown setting...")
+**and** a stale Anthropic 400 Bad Request error from a prior attempt.
+Three problems fell out of that one screenshot:
+
+### 1. Stale `error` on completed rows
+
+**Root cause:** `write_batch_results()` in `core/db/analysis.py`
+had asymmetric success/failure UPDATE clauses. The failure branch
+correctly set `error = ?`; the success branch set
+`description`, `extracted_text`, `provider_id`, `model`,
+`tokens_used` but didn't touch `error`. A row that failed, retried,
+and eventually succeeded kept the old error blob forever.
+
+**Fix:** success UPDATE now includes `error = NULL, retry_count = 0`.
+
+**Migration:** `clear_stale_analysis_errors()` gated by preference
+`analysis_stale_errors_cleared_v0_29_8`. Counts and clears rows
+matching `status = 'completed' AND error IS NOT NULL` once on
+startup. Logged as `migration.clear_stale_analysis_errors_starting`
+/ `_complete` / `_noop`. Runs before bulk_files dedup so the UI
+reflects correct data immediately after the restart.
+
+### 2. Filename context in Anthropic vision calls
+
+**Root cause:** the Claude API image block (`{"type": "image", ...}`)
+has no `filename` field. `_batch_anthropic()` in
+`core/vision_adapter.py` was sending just the raw image bytes. The
+filename `Benaroya_Hall,_Seattle,_Washington,_USA.creativecommons.jpg`
+carried rich context (named building, city, state, license) that the
+model never saw.
+
+**Fix:** interleave a plain text block before each image:
+```
+{"type": "text", "text": "Image 1 filename: Benaroya_Hall,_Seattle,_Washington,_USA.creativecommons.jpg"}
+{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "..."}}
+{"type": "text", "text": "Image 2 filename: ..."}
+{"type": "image", ...}
+...
+{"type": "text", "text": <prompt>}
+```
+
+**Updated prompt:**
+> If the preceding filename identifies a specific recognizable
+> subject (a named building, landmark, event, person, vehicle, or
+> piece of equipment) AND the image content is consistent with that
+> identification, name the subject in the description (e.g.
+> "Benaroya Hall, a concert venue in Seattle"). If the filename and
+> the image content disagree, describe what the image actually shows
+> and ignore the filename.
+
+The "filename disagrees with image content" escape hatch is
+important — filenames can be wrong, stale, or adversarial. The
+model is instructed to trust the pixels over the text when they
+conflict.
+
+**Scope caveat:** applied only to the Anthropic provider handler
+(`_batch_anthropic`). OpenAI, Gemini, and Ollama handlers still
+receive the updated prompt text but don't yet interleave per-image
+filenames. Follow-up: extend `_batch_openai` / `_batch_gemini` /
+`_batch_ollama` to inject filename `text` parts before each
+image block.
+
+### 3. Wider preview format coverage
+
+v0.29.7 added TIFF/EPS/WebP. v0.29.8 extends to every photo format
+PIL can decode in the base image — zero new dependencies. Source
+of truth was a live introspection inside the container:
+
+```python
+from PIL import Image; Image.init()
+sorted({e for e in Image.EXTENSION if Image.EXTENSION[e] in Image.OPEN})
+```
+
+Narrowed that list down to formats operators actually encounter as
+photos (dropped video `.mpg`, scientific `.fit/.fits/.hdf`, obscure
+`.blp/.mic/.pcd`, Windows-metafile vector `.wmf/.emf`).
+
+**Native (14)**: `.jpg`, `.jpeg`, `.jfif`, `.jpe`, `.png`, `.apng`,
+`.gif`, `.bmp`, `.dib`, `.webp`, `.avif`, `.avifs`, `.ico`, `.cur`
+
+**Thumbnail via PIL (23)**: `.tif`, `.tiff`, `.eps`, `.ps`,
+`.jp2`, `.j2k`, `.jpx`, `.jpc`, `.jpf`, `.j2c`,
+`.ppm`, `.pgm`, `.pbm`, `.pnm`,
+`.tga`, `.icb`, `.vda`, `.vst`,
+`.sgi`, `.rgb`, `.rgba`, `.bw`,
+`.pcx`, `.dds`, `.icns`, `.psd`
+
+(23 thumbnail exts + 14 native = 37 total; some overlaps like
+`.icb/.vda/.vst` are Targa aliases so the user-visible distinct
+format count is lower.)
+
+The frontend `_IMG_EXT` Set in `static/batch-management.html` was
+widened to match — must stay in sync with
+`api/routes/analysis.py _ALL_PREVIEW_EXTS`. Both files now carry
+comments pointing at each other.
+
+**Still deferred:**
+- `.svg` — needs XSS sanitization (SVG can carry inline
+  `<script>` and external entity references). Non-trivial —
+  requires an SVG sanitizer or a rasterize-to-PNG pass.
+- `.heic` / `.heif` — needs `pillow-heif` in `requirements.txt`,
+  which triggers an app-layer rebuild and adds a transitive
+  dependency on `libheif`. Worth doing but scoped separately.
+- `.cr2`, `.cr3`, `.nef`, `.nrw`, `.arw`, `.raf`, `.orf`, `.rw2`,
+  `.pef`, `.srw`, `.dng` — RAW camera formats, need `rawpy` or
+  `imageio` + a RAW codec. Large dep, uncommon in a document
+  conversion pipeline.
+- `.psd` multi-layer access — PIL reads the flat composite (good
+  enough for preview); `psd-tools` is already installed for Adobe
+  L2 indexing and could be used here for layered rendering if ever
+  needed.
+
+### Files changed
+
+- `core/version.py` — bump to 0.29.8
+- `core/db/analysis.py` — success branch clears `error` +
+  `retry_count`
+- `core/db/migrations.py` — new `clear_stale_analysis_errors()`
+- `main.py` — lifespan calls the new migration
+- `core/vision_adapter.py` — default prompt + `_batch_anthropic`
+  filename interleaving
+- `api/routes/analysis.py` — `_NATIVE_PREVIEW_EXTS` and
+  `_THUMBNAIL_PREVIEW_EXTS` expanded with source-of-truth comment
+- `static/batch-management.html` — `_IMG_EXT` expanded to match
+- `CLAUDE.md` — Current Version block
+- `docs/version-history.md` — this entry
+
+No new Python dependencies. No Dockerfile changes. Preview
+thumbnailing reuses the v0.29.7 LRU cache + asyncio.to_thread
+machinery unchanged.
+
+---
+
 ## v0.29.7 — Thumbnail preview for TIFF, EPS, and WebP (2026-04-24)
 
 The hover preview feature (inherited with the batch-management page in
