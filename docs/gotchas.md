@@ -1242,6 +1242,17 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 ## Container & Dependencies
 
+- **Drive mounts are writable (v0.29.2+)**: `/host/c` and `/host/d` in
+  `docker-compose.yml` are no longer `:ro`. Writes are restricted by
+  the app-level write guard (`core/storage_manager.is_write_allowed`),
+  which allows writes only inside the configured output directory.
+  Same enforcement model as `/host/rw` (v0.25.0). If you see writes
+  landing somewhere unexpected after a configuration mistake, check
+  `is_write_allowed` coverage (enforced by
+  `tests/test_write_guard_coverage.py`) — the mount flags are not the
+  backstop. Volume-flag changes require
+  `docker-compose up -d --force-recreate`.
+
 - **Base image rebuild trigger**: Any change to `Dockerfile.base` —
   new apt packages, torch version bump, system-lib swap — requires
   a full base rebuild (`docker build -f Dockerfile.base -t markflow-base:latest .`).

@@ -16,8 +16,14 @@ services:
       - ./logs:/app/logs                                  # Structured JSON logs
       - ${SOURCE_DIR:-/tmp/markflow-nosource}:/mnt/source:ro                        # Input — READ ONLY
       - ${OUTPUT_DIR:-./output}:/mnt/output-repo                    # Bulk conversion output
-      - ${DRIVE_C:-C:/}:/host/c:ro                        # Drive browser — C:
-      - ${DRIVE_D:-D:/}:/host/d:ro                        # Drive browser — D:
+      # v0.29.2: drive mounts are writable. The app-level write guard
+      # (core/storage_manager.is_write_allowed) is the sole barrier — same
+      # enforcement model as /host/rw above. Previously `:ro`, which blocked
+      # users from picking a drive path (e.g. /host/d/Doc-Conv_Test) as the
+      # configured output directory even though the write guard would have
+      # permitted it.
+      - ${DRIVE_C:-C:/}:/host/c                           # Drive — C:
+      - ${DRIVE_D:-D:/}:/host/d                           # Drive — D:
       - ${HASHCAT_QUEUE_DIR:-./hashcat-queue}:/mnt/hashcat-queue  # GPU cracking job queue
       - ./config:/app/config:ro                              # Config files (archive passwords, etc.)
       - whisper-cache:/root/.cache/whisper                     # Whisper model cache — persistent

@@ -91,10 +91,38 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.29.1
+## Current Version — v0.29.2
 
-**Storage page polish — folder-picker output-drive regression fix +
-inline path verification after Save/Add.**
+**Drive mounts made writable so a drive path can be used as the output
+directory.**
+
+- **`/host/c` and `/host/d` were mounted `:ro`** in `docker-compose.yml`
+  — a pre-v0.25.0 leftover. Picking `/host/d/Doc-Conv_Test` (or any
+  drive-letter path) as the output directory failed the write check
+  inside `validate_path`, producing "MarkFlow can't write to this
+  folder — check permissions" — even though the filesystem on the host
+  itself was writable.
+- **Fix:** removed `:ro` from the two drive-browser lines. The
+  app-level write guard in `core/storage_manager.is_write_allowed` is
+  now the sole barrier — same enforcement model already used for the
+  broad `/host/rw` mount (v0.25.0). Drive paths and `/host/rw` paths
+  now behave consistently, and users can pick whatever destination is
+  intuitive in the folder-picker without a mental translation step.
+- **Requires `docker-compose up -d --force-recreate`** to take effect
+  (volume flag changes are only applied on container recreate).
+- **Docs updated:** `docs/drive-setup.md` drops the `:ro` from the
+  walkthrough + adds a v0.29.2 note; CLAUDE.md this block; new
+  gotcha in `docs/gotchas.md` → Container & Dependencies.
+
+Files: `core/version.py`, `docker-compose.yml`, `CLAUDE.md`,
+`docs/drive-setup.md`, `docs/gotchas.md`, `docs/version-history.md`.
+
+---
+
+## v0.29.1 — Folder-picker fix + inline path verification
+
+Storage page polish — folder-picker output-drive regression fix +
+inline path verification after Save/Add.
 
 - **Folder-picker `output` mode hid drives** (`static/js/folder-picker.js`).
   `_renderDrives` early-returned in output mode and rendered only the

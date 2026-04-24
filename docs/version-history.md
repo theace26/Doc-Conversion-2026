@@ -4,6 +4,124 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.29.2 — Drive mounts writable for output paths (2026-04-24)
+
+Tiny compose change with outsized UX impact. Makes drive-letter paths
+(e.g. `/host/d/markflow-output`) valid output destinations instead of
+only source destinations, removing a mount-flag vs. write-guard
+inconsistency that dates back to pre-v0.25.0.
+
+### What was broken
+
+After v0.29.1 landed the inline path-verification pill, the first thing
+it surfaced on a real test machine was: picking `/host/d/Doc-Conv_Test`
+as the output directory fails with "MarkFlow can't write to this
+folder — check permissions" — even though D:\Doc-Conv_Test on the
+Windows host is a perfectly writable folder.
+
+### Root cause
+
+`docker-compose.yml` mounted the drive-browser volumes as read-only:
+
+```yaml
+- ${DRIVE_C:-C:/}:/host/c:ro    # Drive browser — C:
+- ${DRIVE_D:-D:/}:/host/d:ro    # Drive browser — D:
+```
+
+That was correct in the pre-v0.25.0 model where the container layer
+itself was the enforcement barrier. v0.25.0 introduced the Universal
+Storage Manager + the broad `/host/rw` mount (also in
+`docker-compose.yml`), with the app-level write guard
+(`core/storage_manager.is_write_allowed`) as the sole enforcement
+mechanism — documented as such in the compose file's DANGER comment.
+
+The `:ro` on the drive-browser mounts was not updated to match the
+new model, so drive paths went through the *old* enforcement path
+(kernel-level `:ro`) while `/host/rw/...` paths went through the new
+path (app-level write guard). Two mounts, two policies, for the same
+underlying filesystem on the host.
+
+Empirical confirmation (from the test machine):
+
+```
+touch /host/d/.markflow-write-test           → Read-only file system
+touch /host/rw/mnt/host/d/.markflow-write-test → OK
+```
+
+Both paths map to the same `D:\...` location on Windows.
+
+### Fix
+
+Drop `:ro` from the two drive-browser volume lines in
+`docker-compose.yml`. The app-level write guard now governs writes to
+`/host/c` and `/host/d` just as it already does for `/host/rw` — there
+is now a single enforcement model across all host mounts, with
+`tests/test_write_guard_coverage.py` enforcing that no converter or
+bulk_worker write site bypasses the guard.
+
+```yaml
+# v0.29.2: drive mounts are writable. The app-level write guard
+# (core/storage_manager.is_write_allowed) is the sole barrier — same
+# enforcement model as /host/rw above. Previously `:ro`, which blocked
+# users from picking a drive path (e.g. /host/d/Doc-Conv_Test) as the
+# configured output directory even though the write guard would have
+# permitted it.
+- ${DRIVE_C:-C:/}:/host/c     # Drive — C:
+- ${DRIVE_D:-D:/}:/host/d     # Drive — D:
+```
+
+### Activation
+
+Volume-flag changes don't take effect on a plain `docker-compose up
+-d` — the existing container still has the old mount flags frozen
+until recreate. Correct command:
+
+```bash
+docker-compose up -d --force-recreate markflow
+```
+
+### Security posture
+
+Unchanged in practice. The `:ro` flag was functionally redundant once
+v0.25.0 shipped `is_write_allowed`, since any write attempt on a read-
+only FS would fail whether the app guard approved it or not. Removing
+`:ro` does not expand the set of writes the app performs — only the
+set of *targets a user can configure as the output directory*. The
+write guard still allows writes only inside that configured directory.
+
+If an operator configures an outright dangerous output path (e.g.
+`/host/d/Windows/System32`), the write guard will dutifully allow
+writes there — this was already true for `/host/rw/...` paths and is
+accepted as the tradeoff of the v0.25.0 model. The hardening required
+to catch that class of mistake (allowed-root allowlist, path-prefix
+denylist, etc.) would be a separate effort against
+`core/storage_manager.py` and would apply to both mount families.
+
+### Docs
+
+- `docs/drive-setup.md` — walkthrough now shows writable volumes; new
+  "As of v0.29.2 you can pick an output folder directly on a mounted
+  drive" note under Output Folder
+- `docs/gotchas.md` → Container & Dependencies — new first bullet
+  calling out that mount flags are no longer the backstop
+- `CLAUDE.md` — Current Version block, v0.29.1 demoted to secondary
+  section
+
+### Files changed
+
+- `core/version.py` — bump to 0.29.2
+- `docker-compose.yml` — `:ro` removed from `/host/c` and `/host/d`;
+  commentary explaining why
+- `docs/drive-setup.md` — walkthrough + Output Folder note
+- `docs/gotchas.md` — Container & Dependencies gotcha
+- `CLAUDE.md` — Current Version block
+- `docs/version-history.md` — this entry
+
+No code change. No migration. No new dependency. One-line compose
+change + paperwork.
+
+---
+
 ## v0.29.1 — Folder-picker fix + inline path verification (2026-04-24)
 
 Small but high-value UX polish on the Storage page. Two related pieces
