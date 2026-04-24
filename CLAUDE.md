@@ -91,11 +91,46 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.29.4
+## Current Version — v0.29.5
 
-**Batch Management page: status counters are clickable filters, with
+**Right-click context menu on Batch Management file rows —
+per-file actions without hunting for the right button.**
+
+- **Right-click any file row** on `/batch-management.html` to open a
+  7-item context menu: Open in new tab · Download · Save as… · Copy
+  path · Copy source directory · View analysis result · Exclude from
+  analysis. Escape / click-outside / scroll / resize all close the
+  menu. Keyboard-accessible (Enter/Space on focused items).
+- **Open in new tab** uses the existing `/api/analysis/files/:id/preview`
+  (for images) or `/download` URL. The browser's back button restores
+  the batch page at the same scroll position.
+- **Save as…** uses `showSaveFilePicker()` where available
+  (Chrome/Edge). Non-Chromium browsers fall back to the normal
+  download with a toast nudging the user to enable their browser's
+  "ask where to save each file" preference.
+- **View analysis result** opens a modal showing the analysis
+  `description` + `extracted_text` (for completed rows), the error
+  message (for failed), or a status note (pending/batched/excluded).
+  Modal fetches from the new `GET /api/analysis/queue/:id` endpoint.
+- **Copy path / Copy source directory** use the Clipboard API with
+  a `document.execCommand('copy')` fallback for non-secure contexts.
+  Toast confirms the copy.
+- **Exclude from analysis** matches the existing Action-column
+  button but is duplicated into the menu so operators don't have to
+  hunt across columns for a single action.
+
+Files: `core/version.py`, `api/routes/analysis.py` (new
+`/queue/{entry_id}` endpoint), `static/batch-management.html`
+(context-menu CSS, modal CSS, ~260 lines of new JS),
+`CLAUDE.md`, `docs/version-history.md`.
+
+---
+
+## v0.29.4 — Clickable status filters on Batch Management
+
+Batch Management page: status counters are clickable filters, with
 a pending pseudo-batch so the 4000+ unbatched files are actually
-browsable.**
+browsable.
 
 - **Status counters** (Pending / Batched / Completed / Failed /
   Excluded) in the top bar are now buttons. Clicking one filters the

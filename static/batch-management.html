@@ -91,6 +91,125 @@
       display: flex;
       justify-content: center;
     }
+    /* Context menu (v0.29.5) */
+    .bm-ctx {
+      position: fixed;
+      z-index: 200;
+      min-width: 220px;
+      padding: 0.3rem 0;
+      background: var(--surface, #161624);
+      border: 1px solid var(--border, #2b2b3f);
+      border-radius: var(--radius-sm, 4px);
+      box-shadow: var(--shadow-lg, 0 8px 24px rgba(0,0,0,0.5));
+      font-size: 0.88rem;
+      animation: bm-ctx-in 0.08s ease-out;
+    }
+    @keyframes bm-ctx-in {
+      from { opacity: 0; transform: translateY(-3px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .bm-ctx-item {
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+      padding: 0.4rem 0.85rem;
+      color: var(--text, #eee);
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    .bm-ctx-item:hover,
+    .bm-ctx-item.active {
+      background: rgba(96,165,250,0.12);
+    }
+    .bm-ctx-item[aria-disabled="true"] {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .bm-ctx-icon {
+      width: 1.1rem;
+      text-align: center;
+      color: var(--text-muted, #aaa);
+      font-size: 0.95rem;
+    }
+    .bm-ctx-sep {
+      height: 1px;
+      margin: 0.3rem 0.3rem;
+      background: var(--border, #2b2b3f);
+    }
+    /* Analysis-result modal (v0.29.5) */
+    .bm-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      z-index: 150;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .bm-modal {
+      background: var(--surface, #161624);
+      border: 1px solid var(--border, #2b2b3f);
+      border-radius: var(--radius, 8px);
+      max-width: min(720px, 92vw);
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .bm-modal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border, #2b2b3f);
+    }
+    .bm-modal-head strong { font-size: 1rem; }
+    .bm-modal-body {
+      padding: 1rem;
+      overflow-y: auto;
+      font-size: 0.9rem;
+    }
+    .bm-modal-section {
+      margin-bottom: 1rem;
+    }
+    .bm-modal-section h4 {
+      margin: 0 0 0.35rem 0;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted, #aaa);
+    }
+    .bm-modal-kv {
+      font-family: ui-monospace, monospace;
+      font-size: 0.82rem;
+      word-break: break-all;
+      color: var(--text-muted, #aaa);
+    }
+    .bm-modal-text {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: rgba(255,255,255,0.03);
+      padding: 0.55rem 0.7rem;
+      border-radius: var(--radius-sm, 4px);
+      line-height: 1.45;
+    }
+    .bm-modal-err {
+      background: rgba(220,38,38,0.1);
+      border: 1px solid rgba(220,38,38,0.35);
+      color: #fca5a5;
+      padding: 0.55rem 0.7rem;
+      border-radius: var(--radius-sm, 4px);
+      white-space: pre-wrap;
+    }
+    .bm-modal-close {
+      background: none;
+      border: none;
+      color: var(--text-muted, #aaa);
+      font-size: 1.3rem;
+      cursor: pointer;
+      padding: 0 0.3rem;
+    }
     .bm-card {
       border: 1px solid var(--border, #2b2b3f);
       border-radius: var(--radius, 8px);
@@ -676,8 +795,370 @@
         });
       }
 
+      // ── Context menu (v0.29.5) ────────────────────────────────────────
+      let openCtxMenu = null;
+
+      function closeCtxMenu() {
+        if (openCtxMenu && openCtxMenu.parentNode) {
+          openCtxMenu.parentNode.removeChild(openCtxMenu);
+        }
+        openCtxMenu = null;
+      }
+
+      window.addEventListener('click', (ev) => {
+        if (openCtxMenu && !openCtxMenu.contains(ev.target)) closeCtxMenu();
+      });
+      window.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape') closeCtxMenu();
+      });
+      window.addEventListener('scroll', closeCtxMenu, true);
+      window.addEventListener('resize', closeCtxMenu);
+
+      function ctxItem(opts) {
+        const item = document.createElement('div');
+        item.className = 'bm-ctx-item';
+        item.setAttribute('role', 'menuitem');
+        item.setAttribute('tabindex', '0');
+        if (opts.disabled) item.setAttribute('aria-disabled', 'true');
+
+        const icon = document.createElement('span');
+        icon.className = 'bm-ctx-icon';
+        icon.textContent = opts.icon || '';
+        item.appendChild(icon);
+
+        const label = document.createElement('span');
+        label.textContent = opts.label;
+        item.appendChild(label);
+
+        if (!opts.disabled && opts.onClick) {
+          const fire = (ev) => {
+            ev.stopPropagation();
+            closeCtxMenu();
+            opts.onClick();
+          };
+          item.addEventListener('click', fire);
+          item.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter' || ev.key === ' ') fire(ev);
+          });
+        }
+        return item;
+      }
+
+      function ctxSep() {
+        const s = document.createElement('div');
+        s.className = 'bm-ctx-sep';
+        return s;
+      }
+
+      async function copyToClipboard(text, toastMsg) {
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+          } else {
+            // Fallback for non-secure / old browsers
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+          }
+          if (typeof showToast === 'function') showToast(toastMsg || 'Copied');
+        } catch (e) {
+          showError('Copy failed: ' + e.message);
+        }
+      }
+
+      function triggerDownload(url, filename) {
+        const a = document.createElement('a');
+        a.href = url;
+        a.setAttribute('download', filename || '');
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+
+      async function saveAsViaPicker(url, filename) {
+        // Chromium-only File System Access API. Fires the host "Save as"
+        // dialog. On Firefox / Safari we fall back to a normal download
+        // and let the browser's "Always ask where to save" preference
+        // (if enabled) show the dialog.
+        if (!('showSaveFilePicker' in window)) {
+          triggerDownload(url, filename);
+          if (typeof showToast === 'function') {
+            showToast("Save-as dialog needs Chrome/Edge; downloaded to default location. Enable 'Ask where to save each file' in your browser for Save-as everywhere.");
+          }
+          return;
+        }
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: filename || 'download',
+          });
+          const resp = await fetch(url, { credentials: 'same-origin' });
+          if (!resp.ok) throw new Error('HTTP ' + resp.status);
+          const writable = await handle.createWritable();
+          await resp.body.pipeTo(writable);
+          if (typeof showToast === 'function') showToast('Saved: ' + filename);
+        } catch (e) {
+          if (e && e.name === 'AbortError') return; // user cancelled
+          showError('Save As failed: ' + e.message);
+        }
+      }
+
+      function openAnalysisResultModal(f) {
+        // Fetch the full queue row (description / extracted_text / error)
+        // and render a modal. Uses f.id (analysis_queue.id), not
+        // source_file_id.
+        const backdrop = document.createElement('div');
+        backdrop.className = 'bm-modal-backdrop';
+        const modal = document.createElement('div');
+        modal.className = 'bm-modal';
+
+        const head = document.createElement('div');
+        head.className = 'bm-modal-head';
+        const title = document.createElement('strong');
+        title.textContent = basename(f.source_path);
+        head.appendChild(title);
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'bm-modal-close';
+        closeBtn.type = 'button';
+        closeBtn.setAttribute('aria-label', 'Close');
+        closeBtn.textContent = '×';
+        closeBtn.addEventListener('click', () => document.body.removeChild(backdrop));
+        head.appendChild(closeBtn);
+
+        const body = document.createElement('div');
+        body.className = 'bm-modal-body';
+        setLoadingText(body, 'Loading analysis result...');
+
+        modal.appendChild(head);
+        modal.appendChild(body);
+        backdrop.appendChild(modal);
+
+        backdrop.addEventListener('click', (ev) => {
+          if (ev.target === backdrop) document.body.removeChild(backdrop);
+        });
+        const escHandler = (ev) => {
+          if (ev.key === 'Escape' && backdrop.parentNode) {
+            document.body.removeChild(backdrop);
+            window.removeEventListener('keydown', escHandler);
+          }
+        };
+        window.addEventListener('keydown', escHandler);
+
+        document.body.appendChild(backdrop);
+
+        API.get('/api/analysis/queue/' + encodeURIComponent(f.id))
+          .then(row => renderAnalysisResultBody(body, row))
+          .catch(e => {
+            clearChildren(body);
+            const err = document.createElement('div');
+            err.className = 'bm-modal-err';
+            err.textContent = 'Failed to load result: ' + (e.message || e);
+            body.appendChild(err);
+          });
+      }
+
+      function renderAnalysisResultBody(body, row) {
+        clearChildren(body);
+
+        // Status section
+        const sStatus = document.createElement('div');
+        sStatus.className = 'bm-modal-section';
+        const sh = document.createElement('h4');
+        sh.textContent = 'Status';
+        sStatus.appendChild(sh);
+        const pill = document.createElement('span');
+        pill.className = 'bm-pill ' + safeStatus(row.status);
+        pill.textContent = row.status || 'unknown';
+        sStatus.appendChild(pill);
+        if (row.retry_count && Number(row.retry_count) > 0) {
+          const retry = document.createElement('span');
+          retry.className = 'text-muted';
+          retry.style.marginLeft = '0.55rem';
+          retry.textContent = 'retry ' + row.retry_count + '/3';
+          sStatus.appendChild(retry);
+        }
+        body.appendChild(sStatus);
+
+        // Path
+        const sPath = document.createElement('div');
+        sPath.className = 'bm-modal-section';
+        const ph = document.createElement('h4');
+        ph.textContent = 'Path';
+        sPath.appendChild(ph);
+        const pv = document.createElement('div');
+        pv.className = 'bm-modal-kv';
+        pv.textContent = row.source_path || '';
+        sPath.appendChild(pv);
+        body.appendChild(sPath);
+
+        // Provider / model / tokens (if completed)
+        if (row.status === 'completed' && (row.model || row.provider_id)) {
+          const sMeta = document.createElement('div');
+          sMeta.className = 'bm-modal-section';
+          const mh = document.createElement('h4');
+          mh.textContent = 'Analysis Metadata';
+          sMeta.appendChild(mh);
+          const parts = [];
+          if (row.provider_id) parts.push('Provider: ' + row.provider_id);
+          if (row.model) parts.push('Model: ' + row.model);
+          if (row.tokens_used != null) parts.push(row.tokens_used + ' tokens');
+          if (row.analyzed_at) parts.push('at ' + fmtDateTime(row.analyzed_at));
+          const mv = document.createElement('div');
+          mv.className = 'bm-modal-kv';
+          mv.textContent = parts.join(' · ');
+          sMeta.appendChild(mv);
+          body.appendChild(sMeta);
+        }
+
+        // Description
+        if (row.description) {
+          const sDesc = document.createElement('div');
+          sDesc.className = 'bm-modal-section';
+          const dh = document.createElement('h4');
+          dh.textContent = 'Description';
+          sDesc.appendChild(dh);
+          const dv = document.createElement('div');
+          dv.className = 'bm-modal-text';
+          dv.textContent = row.description;
+          sDesc.appendChild(dv);
+          body.appendChild(sDesc);
+        }
+
+        // Extracted text
+        if (row.extracted_text) {
+          const sText = document.createElement('div');
+          sText.className = 'bm-modal-section';
+          const th = document.createElement('h4');
+          th.textContent = 'Extracted Text';
+          sText.appendChild(th);
+          const tv = document.createElement('div');
+          tv.className = 'bm-modal-text';
+          tv.textContent = row.extracted_text;
+          sText.appendChild(tv);
+          body.appendChild(sText);
+        }
+
+        // Error
+        if (row.error) {
+          const sErr = document.createElement('div');
+          sErr.className = 'bm-modal-section';
+          const eh = document.createElement('h4');
+          eh.textContent = 'Error';
+          sErr.appendChild(eh);
+          const ev = document.createElement('div');
+          ev.className = 'bm-modal-err';
+          ev.textContent = row.error;
+          sErr.appendChild(ev);
+          body.appendChild(sErr);
+        }
+
+        // Nothing-yet case
+        if (!row.description && !row.extracted_text && !row.error) {
+          const s = document.createElement('div');
+          s.className = 'bm-modal-section';
+          const note = document.createElement('p');
+          note.className = 'text-muted';
+          note.textContent =
+            row.status === 'pending' ? 'This file has not been analyzed yet.' :
+            row.status === 'batched' ? 'This file is in-flight with the LLM.' :
+            row.status === 'excluded' ? 'This file was excluded from analysis.' :
+            'No analysis output recorded.';
+          s.appendChild(note);
+          body.appendChild(s);
+        }
+      }
+
+      function showContextMenu(x, y, f, onAfterExclude) {
+        closeCtxMenu();
+        const menu = document.createElement('div');
+        menu.className = 'bm-ctx';
+        menu.setAttribute('role', 'menu');
+
+        const fileName = basename(f.source_path);
+        const dir = dirname(f.source_path);
+        const hasSourceFileId = !!f.source_file_id;
+        const downloadUrl = hasSourceFileId
+          ? '/api/analysis/files/' + encodeURIComponent(f.source_file_id) + '/download'
+          : null;
+        const previewUrl = hasSourceFileId
+          ? '/api/analysis/files/' + encodeURIComponent(f.source_file_id) + '/preview'
+          : null;
+        const openUrl = (previewUrl && isImageExt(f.source_path)) ? previewUrl : downloadUrl;
+
+        menu.appendChild(ctxItem({
+          icon: '↗', label: 'Open in new tab',
+          disabled: !openUrl,
+          onClick: () => { window.open(openUrl, '_blank', 'noopener'); },
+        }));
+        menu.appendChild(ctxItem({
+          icon: '↓', label: 'Download',
+          disabled: !downloadUrl,
+          onClick: () => triggerDownload(downloadUrl, fileName),
+        }));
+        menu.appendChild(ctxItem({
+          icon: '…', label: 'Save as…',
+          disabled: !downloadUrl,
+          onClick: () => saveAsViaPicker(downloadUrl, fileName),
+        }));
+        menu.appendChild(ctxSep());
+        menu.appendChild(ctxItem({
+          icon: '⎘', label: 'Copy path',
+          onClick: () => copyToClipboard(f.source_path || '', 'Path copied'),
+        }));
+        menu.appendChild(ctxItem({
+          icon: '⎘', label: 'Copy source directory',
+          disabled: !dir,
+          onClick: () => copyToClipboard(dir, 'Directory copied'),
+        }));
+        menu.appendChild(ctxSep());
+        menu.appendChild(ctxItem({
+          icon: '□', label: 'View analysis result',
+          onClick: () => openAnalysisResultModal(f),
+        }));
+        menu.appendChild(ctxSep());
+        menu.appendChild(ctxItem({
+          icon: '✕', label: 'Exclude from analysis',
+          disabled: f.status === 'excluded',
+          onClick: async () => {
+            if (!confirm('Exclude "' + fileName + '" from analysis?')) return;
+            try {
+              await API.post('/api/analysis/exclude', { file_ids: [f.id] });
+              if (typeof showToast === 'function') showToast('Excluded 1 file');
+              if (onAfterExclude) onAfterExclude();
+            } catch (e) {
+              showError('Exclude failed: ' + e.message);
+            }
+          },
+        }));
+
+        // Position — keep menu inside viewport
+        document.body.appendChild(menu);
+        const w = menu.offsetWidth || 240;
+        const h = menu.offsetHeight || 260;
+        let px = x, py = y;
+        if (px + w > window.innerWidth - 8) px = window.innerWidth - w - 8;
+        if (py + h > window.innerHeight - 8) py = window.innerHeight - h - 8;
+        if (px < 4) px = 4;
+        if (py < 4) py = 4;
+        menu.style.left = px + 'px';
+        menu.style.top = py + 'px';
+        openCtxMenu = menu;
+      }
+
       function renderFileRow(f, updateSel) {
         const tr = document.createElement('tr');
+        tr.addEventListener('contextmenu', (ev) => {
+          ev.preventDefault();
+          showContextMenu(ev.clientX, ev.clientY, f, async () => {
+            await refreshStatus();
+            await loadBatches();
+          });
+        });
 
         const cbTd = document.createElement('td');
         const cb = document.createElement('input');

@@ -196,6 +196,32 @@ async def exclude(
     return {"excluded": count}
 
 
+@router.get("/queue/{entry_id}")
+async def queue_entry(
+    entry_id: str,
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+) -> dict:
+    """Return the full analysis_queue row for one id (v0.29.5).
+
+    Powers the "View analysis result" context-menu item on the Batch
+    Management page. `description` + `extracted_text` are populated for
+    completed rows, `error` for failed rows; pending / batched rows
+    return status-only info.
+    """
+    row = await db_fetch_one(
+        """SELECT id, source_path, status, batch_id, content_hash,
+                  enqueued_at, batched_at, analyzed_at,
+                  description, extracted_text, error,
+                  provider_id, model, tokens_used, retry_count
+           FROM analysis_queue
+           WHERE id = ?""",
+        (entry_id,),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Analysis entry not found")
+    return dict(row)
+
+
 async def _lookup_source_path(source_file_id: str) -> Path:
     """
     Return the absolute Path for a source_files.id, or raise 404.

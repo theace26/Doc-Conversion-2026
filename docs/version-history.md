@@ -4,6 +4,76 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.29.5 — File-row context menu on Batch Management (2026-04-24)
+
+Builds on the v0.29.4 clickable-counter filters. Right-click any file
+row to reach per-file actions inline, without hunting across columns
+or leaving the page.
+
+### Menu items
+
+| Item | Action | Notes |
+|------|--------|-------|
+| Open in new tab | Opens the preview URL (images) or download URL (other types) in a new tab | Browser back button returns to the Batch Management page at the same scroll position |
+| Download | Triggers a default-location download | Uses existing `/api/analysis/files/:id/download` |
+| Save as… | Chromium File System Access API `showSaveFilePicker()` | Non-Chromium browsers fall back to Download + a toast explaining the fallback |
+| Copy path | Full `source_path` to clipboard | Clipboard API with `execCommand('copy')` fallback for non-secure contexts |
+| Copy source directory | Parent directory path to clipboard | Same copy path |
+| View analysis result | Modal showing `description` + `extracted_text` + model metadata (completed), error text (failed), or status note | Fetches `/api/analysis/queue/:id` |
+| Exclude from analysis | Same as the existing Action-column button | Duplicated here for flow; confirms via `confirm()` then refreshes counts + batch list |
+
+### Implementation notes
+
+- **One new backend endpoint**: `GET /api/analysis/queue/{entry_id}`
+  returns the full `analysis_queue` row (description, extracted_text,
+  error, model metadata, retry_count). OPERATOR role required. 404 on
+  unknown id.
+- **CSS** (`static/batch-management.html`): `.bm-ctx` (the menu
+  container), `.bm-ctx-item` / `.bm-ctx-sep` / `.bm-ctx-icon` (menu
+  rows + separator + icon slot), plus a full modal stack
+  (`.bm-modal-backdrop`, `.bm-modal`, `.bm-modal-head`, `.bm-modal-body`,
+  `.bm-modal-section`, `.bm-modal-text`, `.bm-modal-err`,
+  `.bm-modal-kv`, `.bm-modal-close`).
+- **JS**: `showContextMenu(x, y, f, onAfterExclude)` builds the menu
+  and positions it inside the viewport (clamps to 4px from each
+  edge). Global listeners close the menu on `click`, `scroll`
+  (capture), `resize`, and `Escape`. `ctxItem` is a small factory
+  that handles icon + label + disabled state + click/keyboard
+  activation. `openAnalysisResultModal(f)` renders a section-based
+  modal with Esc + backdrop-click-to-close.
+- **Design deviations from the original ask**: "View markdown
+  directory/files" was replaced with "View analysis result." The
+  Batch Management page is for the image-analysis queue
+  specifically, which stores its output in DB fields
+  (`description`, `extracted_text`), not standalone `.md` files.
+  Renaming the menu item matches the actual data model; users
+  looking for the *converted-document* markdown would be on a
+  different page.
+- **XSS-safety**: all user-supplied values (`source_path`, `error`,
+  `description`, `extracted_text`) go through `textContent`. No
+  `innerHTML` interpolation on fetched data — consistent with the
+  XSS-hardening guidance applied in v0.24.0's batch-management
+  original and v0.29.1's folder-picker rewrite.
+- **Row event**: `renderFileRow` attaches a single `contextmenu`
+  listener per `<tr>` that calls `ev.preventDefault()` and opens the
+  menu at `ev.clientX/clientY`. The context menu also works on the
+  pending pseudo-batch's file rows (v0.29.4 shares `renderFileRow`
+  across all file-table contexts).
+
+### Files changed
+
+- `core/version.py` — bump to 0.29.5
+- `api/routes/analysis.py` — new `GET /api/analysis/queue/{entry_id}`
+- `static/batch-management.html` — menu CSS, modal CSS, ~260 lines
+  of new JS
+- `CLAUDE.md` — Current Version block
+- `docs/version-history.md` — this entry
+
+No database migration. No new dependency. No Python business-logic
+change — the endpoint just SELECTs an existing row by id.
+
+---
+
 ## v0.29.4 — Clickable status filters on Batch Management (2026-04-24)
 
 Batch Management was a decent operator view as shipped in v0.24.0 —
