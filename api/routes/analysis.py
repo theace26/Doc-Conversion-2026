@@ -23,12 +23,15 @@ them out.
 
 from __future__ import annotations
 
+import asyncio
 import mimetypes
+from collections import OrderedDict
+from io import BytesIO
 from pathlib import Path
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from core.auth import AuthenticatedUser, UserRole, require_role
@@ -272,26 +275,146 @@ async def download_file(
     )
 
 
+# ── Preview (browser-native + thumbnail fallback, v0.29.7) ───────────────────
+
+# Browser can render these natively — just stream the raw bytes.
+_NATIVE_PREVIEW_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
+# Browser CAN'T render these — generate a JPEG thumbnail via PIL.
+# .eps uses PIL's EpsImagePlugin which shells out to Ghostscript (/usr/bin/gs).
+_THUMBNAIL_PREVIEW_EXTS = {".tif", ".tiff", ".eps"}
+_ALL_PREVIEW_EXTS = _NATIVE_PREVIEW_EXTS | _THUMBNAIL_PREVIEW_EXTS
+
+_THUMB_MAX_PX = 400
+_THUMB_JPEG_QUALITY = 78
+_THUMB_CACHE_SIZE = 64  # ~13 MB at 200 KB avg per thumb — bounded and small
+_thumb_cache: "OrderedDict[tuple, bytes]" = OrderedDict()
+
+
+def _ext_lower(ext: str) -> str:
+    return ("." + ext.lstrip(".")).lower()
+
+
+def _is_previewable(ext: str) -> bool:
+    return _ext_lower(ext) in _ALL_PREVIEW_EXTS
+
+
+def _needs_thumbnail(ext: str) -> bool:
+    return _ext_lower(ext) in _THUMBNAIL_PREVIEW_EXTS
+
+
+def _generate_thumbnail_sync(path: Path) -> bytes:
+    """Open `path` with PIL, thumbnail to _THUMB_MAX_PX on the longest edge,
+    return JPEG bytes. Runs in a worker thread via asyncio.to_thread; must
+    not touch async state."""
+    # Import lazily so module load doesn't block on PIL for non-preview
+    # requests (PIL pulls in C extensions and can be slow to first-import).
+    from PIL import Image
+
+    with Image.open(str(path)) as img:
+        img.load()
+        # Convert to a JPEG-safe mode. EPS can arrive as CMYK; TIFF may be
+        # LA/P/I;16 etc. RGB is the safe common denominator for JPEG.
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        img.thumbnail((_THUMB_MAX_PX, _THUMB_MAX_PX), Image.LANCZOS)
+        buf = BytesIO()
+        img.save(buf, format="JPEG", quality=_THUMB_JPEG_QUALITY, optimize=True)
+        return buf.getvalue()
+
+
+async def _get_cached_thumbnail(path: Path, source_file_id: str) -> bytes:
+    """Return cached or freshly-rendered JPEG thumbnail bytes.
+
+    Cache key = (source_file_id, st_mtime_ns, st_size). Any edit to the
+    file changes the key so stale thumbs are never served. LRU eviction
+    with _THUMB_CACHE_SIZE entries.
+    """
+    try:
+        stat = path.stat()
+    except OSError as exc:
+        raise HTTPException(
+            status_code=404, detail=f"File not accessible: {exc}"
+        ) from exc
+
+    cache_key = (source_file_id, stat.st_mtime_ns, stat.st_size)
+    hit = _thumb_cache.get(cache_key)
+    if hit is not None:
+        _thumb_cache.move_to_end(cache_key)
+        return hit
+
+    try:
+        thumb_bytes = await asyncio.to_thread(_generate_thumbnail_sync, path)
+    except Exception as exc:
+        # PIL errors bubble up as generic Exception; surface as 500 with
+        # the error class + message so operators can diagnose from the
+        # browser's network tab without log-diving.
+        log.warning(
+            "analysis.thumbnail_generation_failed",
+            source_file_id=source_file_id,
+            path=str(path),
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Thumbnail generation failed: {type(exc).__name__}: {exc}",
+        ) from exc
+
+    _thumb_cache[cache_key] = thumb_bytes
+    _thumb_cache.move_to_end(cache_key)
+    while len(_thumb_cache) > _THUMB_CACHE_SIZE:
+        _thumb_cache.popitem(last=False)
+    return thumb_bytes
+
+
 @router.get("/files/{source_file_id}/preview")
 async def preview_file(
     source_file_id: str,
     user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
-) -> FileResponse:
+):
     """
-    Return an inline preview for image files.
+    Inline preview for image files, with automatic thumbnailing for
+    formats browsers can't render natively.
 
-    v1: serves the raw image file with proper Content-Type. Non-image files
-    return 404. A future enhancement could generate a PIL thumbnail here.
+    Native serve (raw bytes, correct Content-Type):
+      .jpg / .jpeg / .png / .gif / .bmp / .webp
+
+    Thumbnail generation (PIL → 400px JPEG, LRU-cached):
+      .tif / .tiff   (PIL native)
+      .eps           (PIL EpsImagePlugin → Ghostscript /usr/bin/gs)
+
+    Any other extension returns 404. The (source_file_id, mtime, size)
+    cache key means unchanged files serve instantly after the first hit
+    and edits invalidate automatically.
     """
     path = await _lookup_source_path(source_file_id)
-    if not is_image_extension(path.suffix):
-        raise HTTPException(status_code=404, detail="Preview not available for this file type")
+    if not _is_previewable(path.suffix):
+        raise HTTPException(
+            status_code=404,
+            detail="Preview not available for this file type",
+        )
+
     log.info(
         "analysis.file_access",
         user=user.email,
         source_file_id=source_file_id,
         mode="preview",
+        needs_thumbnail=_needs_thumbnail(path.suffix),
     )
+
+    if _needs_thumbnail(path.suffix):
+        thumb_bytes = await _get_cached_thumbnail(path, source_file_id)
+        return Response(
+            content=thumb_bytes,
+            media_type="image/jpeg",
+            headers={
+                # Tell the browser it can safely cache the thumbnail for
+                # a short window — the server-side cache key already
+                # accounts for mtime so there's no risk of stale data.
+                "Cache-Control": "private, max-age=300",
+            },
+        )
+
+    # Browser-native format: stream raw file.
     media_type, _ = mimetypes.guess_type(str(path))
     return FileResponse(
         path=str(path),

@@ -91,10 +91,51 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.29.6
+## Current Version — v0.29.7
 
-**Multi-file download on Batch Management — "Download selected (N)"
-in the context menu + a Download Selected button in the bulk bar.**
+**Hover preview now works for TIFF, EPS, and WebP — PIL thumbnail
+fallback with LRU cache, no more silent `onerror` flickers.**
+
+- **Before:** hovering a `.tif`/`.tiff` row fired `/preview`, the
+  endpoint served the raw bytes, and the browser's `<img>` tag
+  couldn't decode TIFF (every mainstream browser except Safari/macOS
+  rejects it) → `img.onerror` hid the tooltip silently. `.eps` was
+  worse: the endpoint 404'd outright because `is_image_extension()`
+  didn't include vector formats. Both looked like "is the preview
+  broken?" to users.
+- **After:** `/api/analysis/files/:id/preview` now splits its file
+  types two ways:
+  - **Native** (`.jpg`, `.jpeg`, `.png`, `.gif`, `.bmp`, `.webp`):
+    streamed as `FileResponse`, same as before.
+  - **Thumbnailed** (`.tif`, `.tiff`, `.eps`): opened with PIL,
+    thumbnailed to 400px on the longest edge via `Image.LANCZOS`,
+    saved as JPEG (quality 78) and returned as an
+    `image/jpeg` response. PIL's `EpsImagePlugin` shells out to
+    Ghostscript (`/usr/bin/gs`, 10.05 in the base image) to
+    rasterize PostScript. All PIL work runs in
+    `asyncio.to_thread` so it never blocks the event loop.
+- **LRU cache** (64 entries, ~13 MB ceiling) keyed on
+  `(source_file_id, mtime_ns, size)` so unchanged files serve from
+  memory on subsequent hovers and any edit to the file invalidates
+  automatically. Response carries `Cache-Control: private,
+  max-age=300` so the browser also caches short-term.
+- **Failure path**: thumbnail errors surface as HTTP 500 with the
+  PIL/Ghostscript error class + message (easy to diagnose in the
+  browser network tab) and log as `analysis.thumbnail_generation_failed`.
+- **Frontend**: `_IMG_EXT` now includes `.webp` for symmetry with
+  the backend's native list. `.tif/.tiff/.eps` were already there;
+  they used to silently fail, now they actually work.
+
+Files: `core/version.py`, `api/routes/analysis.py`,
+`static/batch-management.html`, `CLAUDE.md`,
+`docs/version-history.md`.
+
+---
+
+## v0.29.6 — Multi-file download on Batch Management
+
+Multi-file download on Batch Management — "Download selected (N)"
+in the context menu + a Download Selected button in the bulk bar.
 
 - **Bulk toolbar**: the existing "Exclude Selected" bar above each
   file table now also has a "Download Selected (N)" button that

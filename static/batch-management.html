@@ -1323,7 +1323,10 @@
         return tr;
       }
 
-      const _IMG_EXT = new Set(['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.gif', '.eps']);
+      // Must match api/routes/analysis.py _ALL_PREVIEW_EXTS.
+      // Native (.jpg/.jpeg/.png/.gif/.bmp/.webp) serve raw; thumbnailed
+      // (.tif/.tiff/.eps) go through PIL on the backend.
+      const _IMG_EXT = new Set(['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tif', '.tiff', '.eps']);
       function isImageExt(p) {
         return _IMG_EXT.has(extOf(p).toLowerCase());
       }

@@ -4,6 +4,114 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.29.7 — Thumbnail preview for TIFF, EPS, and WebP (2026-04-24)
+
+The hover preview feature (inherited with the batch-management page in
+v0.24.0 Spec B) silently lied about its format support. The
+frontend `_IMG_EXT` whitelist included `.tif/.tiff/.eps`, so hovering
+a row with those extensions fired the 250ms open timer and
+dispatched a `/preview` request — but every mainstream browser except
+Safari on macOS rejects TIFF in `<img>` tags, and EPS was never
+decodable by anything. Both appeared as a brief flicker and then
+nothing, since `img.onerror = hidePreview` swallowed the failure.
+
+### Fix: split the preview path
+
+`api/routes/analysis.py` now has two code paths keyed on the file
+extension:
+
+```python
+_NATIVE_PREVIEW_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
+_THUMBNAIL_PREVIEW_EXTS = {".tif", ".tiff", ".eps"}
+```
+
+**Native** extensions stream as `FileResponse` the same way they did
+before — no regression, no added compute.
+
+**Thumbnailed** extensions open the file with PIL, thumbnail to 400px
+on the longest edge via `Image.LANCZOS`, convert to JPEG-safe mode
+(RGB — EPS can arrive as CMYK, TIFF often as LA/P/I;16), and save as
+a quality-78 optimized JPEG. EPS support is free: PIL's
+`EpsImagePlugin` shells out to `/usr/bin/gs` which is already in
+`Dockerfile.base` (Ghostscript 10.05.1 verified).
+
+All PIL work runs in `asyncio.to_thread(_generate_thumbnail_sync, path)`
+so a slow render (large TIFF, complex EPS) never blocks the event
+loop. First-import of `PIL.Image` is also deferred so module load
+cost only hits the first preview request, not every startup.
+
+### LRU cache
+
+A module-level `OrderedDict` keyed on
+`(source_file_id, stat.st_mtime_ns, stat.st_size)` holds the last 64
+generated thumbnails (roughly 13 MB ceiling at 200 KB average).
+Hits use `move_to_end` (standard LRU dance); evictions
+`popitem(last=False)`. Rationale for a plain dict rather than
+`functools.lru_cache`: the async call path can't decorate easily, and
+the key needs to invalidate on file edit — which the explicit tuple
+captures. Also any edit to the file bumps `st_mtime_ns` and the key
+changes, so stale thumbs are never served.
+
+Response carries `Cache-Control: private, max-age=300` so browsers
+also cache short-term, cutting even the backend round-trip for the
+common "hover the same file three times in a minute" case.
+
+### Failure path
+
+Thumbnail exceptions are caught and re-raised as HTTP 500 with the
+original class + message embedded, plus a
+`analysis.thumbnail_generation_failed` structlog line with path and
+`source_file_id`. No silent `500` with nothing in logs — the root
+cause shows up in both places.
+
+### Frontend
+
+`_IMG_EXT` was widened to include `.webp` so the hover symmetry with
+the backend is preserved. TIFF/EPS were already in the set; they
+used to silently fail, now they actually work. No new UI state — the
+existing `<img>` approach just now gets JPEG bytes for previously
+broken formats.
+
+### Security / resource posture
+
+No new attack surface. PIL's default decompression-bomb thresholds
+(89 MP warn, 178 MP error) still apply. The 400px thumbnail ceiling
+bounds output size at ~200 KB worst case. The LRU cache is
+memory-only, scoped per-process, and bounded. Ghostscript runs as
+the container's app user (same privileges as the rest of MarkFlow)
+and only processes files already validated by
+`is_path_under_allowed_root` in the existing `_lookup_source_path`
+helper.
+
+### Why not SVG / HEIC / PSD too
+
+- **SVG**: browsers render natively, but SVGs can contain `<script>`
+  or XXE payloads — safely serving them inline wants an SVG
+  sanitizer (`lxml` + allowlist) or a rasterization pass. Out of
+  scope for v0.29.7; revisit if SVG sources start showing up in
+  the analysis queue.
+- **HEIC/HEIF**: requires `pillow-heif` in `requirements.txt` —
+  adds a dependency and base-image rebuild. Defer until actual
+  HEIC sources land.
+- **PSD/AI/INDD**: already handled by the Adobe L2 indexing
+  pipeline with its own rasterizer. The analysis-queue preview is
+  for image-analysis items only, which by design are raster
+  formats.
+
+### Files changed
+
+- `core/version.py` — bump to 0.29.7
+- `api/routes/analysis.py` — new preview helpers + LRU cache +
+  rewritten `preview_file` endpoint (~95 lines added)
+- `static/batch-management.html` — added `.webp` to `_IMG_EXT`;
+  comment now cross-references the backend constant
+- `CLAUDE.md` — Current Version block
+- `docs/version-history.md` — this entry
+
+No database migration. No new Python dependency. No Dockerfile change.
+
+---
+
 ## v0.29.6 — Multi-file download on Batch Management (2026-04-24)
 
 Closes the obvious gap in v0.29.5: the per-row context menu didn't
