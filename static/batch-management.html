@@ -91,6 +91,44 @@
       display: flex;
       justify-content: center;
     }
+    /* Circuit-breaker banner (v0.29.9) */
+    .bm-cb-banner {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.7rem 1rem;
+      margin-bottom: 0.75rem;
+      background: rgba(220,38,38,0.12);
+      border: 1px solid rgba(220,38,38,0.45);
+      border-radius: var(--radius, 8px);
+      color: #fca5a5;
+      font-size: 0.9rem;
+    }
+    .bm-cb-banner[data-status="half_open"] {
+      background: rgba(217,119,6,0.12);
+      border-color: rgba(217,119,6,0.45);
+      color: #fcd34d;
+    }
+    .bm-cb-banner strong { color: inherit; }
+    .bm-cb-banner .bm-cb-detail {
+      flex: 1;
+      min-width: 260px;
+      opacity: 0.9;
+      font-family: ui-monospace, monospace;
+      font-size: 0.82rem;
+    }
+    .bm-cb-banner button {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid currentColor;
+      color: inherit;
+      padding: 0.3rem 0.75rem;
+      border-radius: var(--radius-sm, 4px);
+      cursor: pointer;
+      font: inherit;
+      font-size: 0.85rem;
+    }
+    .bm-cb-banner button:hover { background: rgba(255,255,255,0.15); }
     /* Context menu (v0.29.5) */
     .bm-ctx {
       position: fixed;
@@ -313,6 +351,8 @@
     <h1>Batch Management</h1>
     <p class="text-muted text-sm">Review and manage analysis queue batches. Pause batch submission, cancel pending rows, or exclude individual files from analysis.</p>
 
+    <div id="bm-cb-banner-slot"></div>
+
     <div class="bm-topbar">
       <div id="bm-status" class="bm-status">
         <span class="dot"></span>
@@ -463,6 +503,75 @@
         const data = await API.get('/api/analysis/status');
         setStatus(data.paused);
         renderCounts(data.counts);
+        // v0.29.9: check circuit breaker state in parallel with /status.
+        // Don't await this — breaker state is secondary and we don't want
+        // a 503 here to block the main counts refresh.
+        refreshCircuitBreaker().catch(() => { /* silent — handled in fn */ });
+      }
+
+      async function refreshCircuitBreaker() {
+        try {
+          const cb = await API.get('/api/analysis/circuit-breaker');
+          renderCircuitBreakerBanner(cb);
+        } catch (e) {
+          // If the endpoint itself is unreachable, hide the banner
+          // rather than show stale state.
+          const slot = document.getElementById('bm-cb-banner-slot');
+          if (slot) clearChildren(slot);
+        }
+      }
+
+      function renderCircuitBreakerBanner(cb) {
+        const slot = document.getElementById('bm-cb-banner-slot');
+        if (!slot) return;
+        clearChildren(slot);
+
+        const status = cb && cb.status;
+        if (status !== 'open' && status !== 'half_open') return;
+
+        const banner = document.createElement('div');
+        banner.className = 'bm-cb-banner';
+        banner.setAttribute('data-status', status);
+        banner.setAttribute('role', 'alert');
+
+        const label = document.createElement('strong');
+        label.textContent = status === 'half_open'
+          ? 'Vision API: half-open (trial call in flight)'
+          : 'Vision API circuit breaker: open';
+        banner.appendChild(label);
+
+        const detail = document.createElement('div');
+        detail.className = 'bm-cb-detail';
+        const parts = [];
+        if (cb.last_error_class) parts.push('Last error: ' + cb.last_error_class);
+        if (cb.consecutive_failures != null && cb.consecutive_failures > 0) {
+          parts.push(cb.consecutive_failures + ' consecutive upstream failures');
+        }
+        if (status === 'open' && cb.cooldown_remaining_s != null && cb.cooldown_remaining_s > 0) {
+          parts.push('Retrying in ' + Math.ceil(cb.cooldown_remaining_s) + 's');
+        }
+        detail.textContent = parts.join(' · ') || 'Analysis submission paused automatically until cooldown elapses.';
+        banner.appendChild(detail);
+
+        const resetBtn = document.createElement('button');
+        resetBtn.type = 'button';
+        resetBtn.textContent = 'Reset breaker';
+        resetBtn.addEventListener('click', async () => {
+          if (!confirm('Manually reset the vision-API circuit breaker? New batches will be attempted on the next cycle.')) return;
+          resetBtn.disabled = true;
+          try {
+            await API.post('/api/analysis/circuit-breaker/reset', {});
+            if (typeof showToast === 'function') showToast('Circuit breaker reset');
+            await refreshCircuitBreaker();
+          } catch (e) {
+            showError('Reset failed: ' + e.message);
+          } finally {
+            resetBtn.disabled = false;
+          }
+        });
+        banner.appendChild(resetBtn);
+
+        slot.appendChild(banner);
       }
 
       function hideError() {

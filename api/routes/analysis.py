@@ -199,6 +199,34 @@ async def exclude(
     return {"excluded": count}
 
 
+@router.get("/circuit-breaker")
+async def circuit_breaker_state(
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+) -> dict:
+    """Return the vision-API circuit breaker state (v0.29.9).
+
+    Used by the batch-management page to render a banner when the
+    breaker is open. Status values: closed / open / half_open.
+    """
+    from core.vision_circuit_breaker import state_snapshot
+    return state_snapshot()
+
+
+@router.post("/circuit-breaker/reset")
+async def circuit_breaker_reset(
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+) -> dict:
+    """Manually reset the vision-API circuit breaker to closed.
+
+    Useful when an operator has fixed an upstream issue and wants to
+    retry immediately without waiting out the cooldown.
+    """
+    from core.vision_circuit_breaker import reset as cb_reset
+    cb_reset()
+    log.info("analysis.circuit_breaker_manually_reset", user=user.email)
+    return {"status": "closed"}
+
+
 @router.get("/queue/{entry_id}")
 async def queue_entry(
     entry_id: str,

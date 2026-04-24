@@ -91,12 +91,97 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.29.8
+## Current Version — v0.29.9
 
-**Three-in-one follow-up: stale-error cleanup on the analysis
+**Financial-best-practices resilience on the Anthropic vision
+pipeline: 5-layer defense against wasted API spend — preflight,
+backoff, bisection, circuit breaker, operator banner.**
+
+API calls are money. v0.29.9 minimizes wasted requests on known-bad
+inputs and upstream flakiness, and surfaces outages to the operator
+before the quota drains.
+
+### Five layers (in order of request life-cycle)
+
+1. **Preflight validation** (`core/vision_preflight.py` — new):
+   every image is run through PIL `verify()` + dimension sanity
+   (100-8000px per edge) + MIME allow-list check *before* encoding
+   to base64. Failures are recorded as `[preflight] ...` errors with
+   zero API cost. Catches corrupt bytes, truncated uploads,
+   micro-thumbnails, and out-of-range-dimension files.
+2. **Exponential backoff + Retry-After** — 429 / 500 / 502 / 503 /
+   504 / 529 trigger a retry with exponential delay (1/2/4/8 s with
+   ±15% jitter, cap 30 s) across up to 4 attempts. If Anthropic
+   sends a `Retry-After` header (seconds or HTTP-date), it's
+   honored verbatim (capped at 30 s). Idle during backoff, not
+   spinning.
+3. **Per-image bisection on 400** — if a sub-batch of N images
+   returns 400 (payload error), the batch is split in half and each
+   half retried. Recursion continues until the bad image is isolated
+   in a solo sub-batch (~log2 N extra calls worst case). The other
+   N-1 files complete cleanly instead of being tossed with the bad
+   one. Financial impact: one malformed file in a batch of 10 no
+   longer costs 10 failed requests.
+4. **Circuit breaker** (`core/vision_circuit_breaker.py` — new):
+   process-local state machine (closed → open → half-open). 5
+   consecutive upstream failures open the circuit; short-circuit
+   rejects new calls for a cooldown window (60 s → 2 min → 4 min
+   → 8 min, cap 15 min). 400s don't count toward the threshold —
+   those are payload issues, not upstream outages. After cooldown
+   one trial call is permitted; success closes the circuit, failure
+   doubles the cooldown.
+5. **Operator banner** — `/api/analysis/circuit-breaker` (new
+   endpoint) exposes breaker state to the Batch Management page.
+   When open or half-open, a red/amber banner appears above the
+   top bar with the error class, consecutive-failure count,
+   countdown to next trial, and a "Reset breaker" button
+   (MANAGER+ only) for operators who've fixed the upstream issue
+   manually.
+
+### What still 400s
+
+Intentionally scoped out: 400s that preflight can't predict
+(policy violations in image content, unusually-formatted JPEG
+variants Anthropic sometimes rejects, rare token-count overruns).
+Those feed into bisection (isolate to a single file, mark failed,
+move on) rather than block the whole queue.
+
+### Scope: Anthropic only this pass
+
+All 5 layers apply to `_batch_anthropic`. OpenAI / Gemini / Ollama
+handlers get no new resilience this release — the primary Anthropic
+user traffic was the motivator. Extending the same machinery to the
+other three providers is a straightforward follow-up (the backoff
+helpers + circuit breaker are provider-agnostic; each handler just
+needs the same try/except shape).
+
+### Files
+
+- `core/vision_preflight.py` — NEW, 100 lines
+- `core/vision_circuit_breaker.py` — NEW, 150 lines
+- `core/vision_adapter.py` — `_batch_anthropic` rewritten with
+  preflight + split into `_anthropic_sub_batch` helper supporting
+  backoff + bisection + circuit-breaker gate
+- `api/routes/analysis.py` — GET `/circuit-breaker` +
+  POST `/circuit-breaker/reset`
+- `static/batch-management.html` — banner slot + CSS + poller +
+  reset handler
+- `core/version.py`, `CLAUDE.md`, `docs/version-history.md`
+
+No new dependencies. No database migration. Per-image
+`retry_count` cap in `analysis_queue` (max 3 per row) still applies
+as the outer safety net — the 5-layer pipeline just ensures each
+retry is qualitatively different from the last rather than a
+pointless re-send of the same failing request.
+
+---
+
+## v0.29.8 — Stale-error cleanup + filename context + wider preview formats
+
+Three-in-one follow-up: stale-error cleanup on the analysis
 queue, filenames now inform Claude's image descriptions, and the
 hover-preview format set is widened to every photo format PIL
-recognizes (no new dependencies).**
+recognizes (no new dependencies).
 
 - **Stale `error` on completed rows** — `write_batch_results`
   success branch did not clear `error` or reset `retry_count`.

@@ -4,6 +4,164 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.29.9 — Vision API resilience: preflight + backoff + bisection + circuit breaker (2026-04-24)
+
+Five coordinated layers of defense against wasted Anthropic vision
+API spend. Framed explicitly around financial best practices: API
+calls are real dollars, every avoidable 400 is waste, and an
+operator should never silently burn quota during an upstream
+outage.
+
+### Layer 1 — Preflight validation (`core/vision_preflight.py`)
+
+New module, ~100 lines. Every image is validated before encoding:
+
+1. Non-empty bytes
+2. MIME in the Anthropic allow-list (`image/jpeg`, `image/png`,
+   `image/gif`, `image/webp`)
+3. PIL `Image.verify()` on the header (catches truncation /
+   corruption without decoding pixels)
+4. PIL `Image.open().size` inside sane bounds: `100 ≤ min_edge`
+   and `max_edge ≤ 8000` pixels
+
+Returns a structured `PreflightResult(ok, error, width, height,
+detected_mime)`. On failure the analysis_queue row gets a
+descriptive `[preflight] ...` error and the API call is skipped
+entirely — zero cost on known-bad inputs. The PIL import is lazy
+so callers that never use vision don't pay the C-extension load
+cost.
+
+### Layer 2 — Exponential backoff + `Retry-After`
+
+Module-level helpers `_parse_retry_after()` and `_backoff_delay()`
+in `core/vision_adapter.py`. Retryable status codes:
+
+```python
+_RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504, 529})
+```
+
+`_parse_retry_after()` handles both numeric-seconds and
+HTTP-date forms of the header. If present, the server-suggested
+delay wins (capped at `_BACKOFF_MAX_S = 30 s`). Otherwise the
+fallback is exponential 1/2/4/8 s with ±15 % jitter (prevents
+concurrent callers thundering-herd after a common failure).
+
+Per sub-batch: up to `_BACKOFF_MAX_ATTEMPTS = 4` tries. Worst-case
+wall-clock under sustained failure is ~255 s per sub-batch (15 s
+sleep + 4 × 60 s request timeout). Network / timeout exceptions
+follow the same loop.
+
+400 Bad Request is NOT in `_RETRYABLE_STATUS_CODES` — retrying a
+400 is always waste. 400s feed Layer 3 instead.
+
+### Layer 3 — Per-image bisection on 400
+
+When a sub-batch of N images returns 400, `_anthropic_sub_batch`
+splits `batch_indices` in half and recursively retries each half.
+At N=1, the 400 is recorded as that specific image's error with
+the Anthropic response body for debugging.
+
+Worst case for one malformed file in a batch of 16:
+- 1 call × 16 → 400
+- 2 calls × 8 → one 400, one success
+- 2 calls × 4 → one 400, one success
+- 2 calls × 2 → one 400, one success
+- 2 calls × 1 → one 400 (isolated), one success
+- Total: 9 calls for 15 successful analyses + 1 isolated failure.
+
+Without bisection: 1 call → all 16 tossed. With bisection: 15 of
+16 saved, and the operator learns exactly which file was bad.
+Recursion guard caps at depth 20 (never hit in practice; log2 of
+the 24 MB payload over minimum image size is ~11).
+
+### Layer 4 — Circuit breaker (`core/vision_circuit_breaker.py`)
+
+New module, ~150 lines. Process-local state machine:
+
+```
+closed   ─(5 consecutive upstream failures)→ open
+open     ─(cooldown elapses)→ half-open (one trial allowed)
+half-open ─(trial succeeds)→ closed
+half-open ─(trial fails)→ open (cooldown doubles, cap 15 min)
+```
+
+Cooldown starts at 60 s and doubles on repeated re-open:
+`60 → 120 → 240 → 480 → 900 s (cap)`. Exponential to give
+Anthropic time to recover from genuine outages without us
+hammering.
+
+**Only UPSTREAM failures count toward the threshold** — 400s feed
+bisection and don't trip the breaker (otherwise one bad image
+could pause the whole queue). 429 / 5xx / 529 / network/timeout
+all count.
+
+**Process-local, not DB-persisted**: intentional. Restart resets
+the breaker — an operator who just restarted presumably wants to
+try again, and Anthropic may have recovered while we were down.
+
+Thread-safe via `threading.Lock` since the breaker is called from
+multiple concurrent async tasks.
+
+### Layer 5 — Operator banner
+
+Two new endpoints on `api/routes/analysis.py`:
+
+- `GET /api/analysis/circuit-breaker` (OPERATOR+): returns
+  `{status, consecutive_failures, threshold, cooldown_s,
+  cooldown_remaining_s, opened_at_epoch, last_error_class,
+  last_error_detail}`. Polled every 5 s by the Batch Management
+  page's existing `pollTick` (added as a parallel fetch to
+  `/status`; silent-fail on error so a network blip doesn't show a
+  stale banner).
+- `POST /api/analysis/circuit-breaker/reset` (MANAGER+):
+  force-closes the breaker for operators who've manually fixed the
+  upstream issue.
+
+The Batch Management page renders a red banner (or amber for
+half-open) above the top bar when the status is not `closed`.
+Banner shows error class, consecutive-failure count, cooldown
+countdown, and a "Reset breaker" button gated on confirmation.
+
+### Out of scope
+
+Intentionally deferred:
+
+- **OpenAI / Gemini / Ollama resilience** — same 5 layers can be
+  applied to the three other provider handlers
+  (`_batch_openai` / `_batch_gemini` / `_batch_ollama`) but the
+  current traffic is almost entirely Anthropic on this install.
+  Follow-up.
+- **Token-estimate pre-flight** — we could reject images whose
+  combined `max_tokens` request would exceed the model context.
+  The current `400 * len(batch_indices)` heuristic is safe for
+  Claude Opus 4.6/4.7 but not airtight.
+- **Per-hour spend cap** — a hard dollar ceiling that pauses the
+  queue regardless of success rate. Nice-to-have, not shipped.
+- **Cost attribution to batches** — `tokens_used` is already
+  recorded; a provider-rate table multiplied by token counts would
+  surface per-batch cost in the UI. Separate PR.
+
+### Files
+
+- `core/vision_preflight.py` — NEW
+- `core/vision_circuit_breaker.py` — NEW
+- `core/vision_adapter.py` — imports + constants + helpers +
+  rewritten `_batch_anthropic` + new `_anthropic_sub_batch` method
+- `api/routes/analysis.py` — two new endpoints
+- `static/batch-management.html` — banner slot + CSS + poller +
+  reset handler
+- `core/version.py` — bump to 0.29.9
+- `CLAUDE.md` — Current Version block
+- `docs/version-history.md` — this entry
+
+No new dependencies. No database migration. No Dockerfile change.
+Per-image `retry_count < 3` cap in `analysis_queue` still applies
+as the outermost safety net — the 5 layers ensure each of those 3
+retries is qualitatively different from the last instead of a
+pointless re-send.
+
+---
+
 ## v0.29.8 — Stale-error cleanup + filename context + wider preview formats (2026-04-24)
 
 Three follow-ups sparked by a single real-world incident: an operator

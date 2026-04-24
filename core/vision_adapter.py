@@ -9,9 +9,13 @@ Per Conflict Analysis: this single file replaces the entire core/vision_provider
 package. Vision uses whatever provider is already active in the LLM provider system.
 """
 
+import asyncio
 import base64
 import io
+import random
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 import mimetypes
@@ -19,10 +23,81 @@ import mimetypes
 import httpx
 import structlog
 
+from core.vision_preflight import validate_image_for_vision
+from core.vision_circuit_breaker import (
+    allow_call as _cb_allow_call,
+    record_failure as _cb_record_failure,
+    record_success as _cb_record_success,
+)
+
 log = structlog.get_logger(__name__)
 
 _VISION_PROVIDERS = {"anthropic", "openai", "gemini", "ollama"}
 _TIMEOUT = 60.0
+
+# v0.29.9: retry/backoff + bisection tuning for Anthropic vision calls.
+# Total worst-case wall-clock per sub-batch under sustained failure:
+# sum of backoff delays (1 + 2 + 4 + 8 = 15 s of sleep) + per-attempt
+# request timeout (4 x _TIMEOUT = 240 s) = 255 s. Bisection recursion
+# is bounded by log2(batch size) ~= 5 levels for a full 24 MB batch,
+# but each level skips retry on the half that already succeeded.
+_BACKOFF_INITIAL_S = 1.0
+_BACKOFF_MAX_S = 30.0
+_BACKOFF_MAX_ATTEMPTS = 4
+_BACKOFF_JITTER = 0.30  # ±15% around the nominal delay
+# Rate-limit + server-side-failure classes worth retrying. 400 is
+# NOT here — 400s feed the bisection path instead.
+_RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504, 529})
+
+
+def _parse_retry_after(resp: "httpx.Response") -> float | None:
+    """Parse the Retry-After header. Returns seconds to wait, or None."""
+    raw = resp.headers.get("retry-after")
+    if not raw:
+        return None
+    # Numeric seconds form (most common for APIs).
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        pass
+    # HTTP-date form.
+    try:
+        when = parsedate_to_datetime(raw)
+        if when is None:
+            return None
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        delta = (when - datetime.now(when.tzinfo)).total_seconds()
+        return max(0.0, delta)
+    except (TypeError, ValueError):
+        return None
+
+
+async def _backoff_delay(attempt: int, retry_after: float | None) -> None:
+    """Sleep before the next retry.
+
+    If the server provided Retry-After, honor it (capped at
+    _BACKOFF_MAX_S). Otherwise exponential backoff 1/2/4/8 s with
+    ±15% jitter to stop concurrent callers thundering-herd after a
+    common failure. `attempt` is 0-indexed.
+    """
+    if retry_after is not None:
+        delay = min(retry_after, _BACKOFF_MAX_S)
+    else:
+        base = min(_BACKOFF_INITIAL_S * (2 ** attempt), _BACKOFF_MAX_S)
+        jitter = 1.0 + (random.random() - 0.5) * _BACKOFF_JITTER
+        delay = base * jitter
+    if delay > 0:
+        await asyncio.sleep(delay)
+
+
+def _safe_body(resp: "httpx.Response") -> str:
+    """Return the response body as a short debuggable string. Never raises."""
+    try:
+        body = resp.text
+    except Exception:
+        return f"<unreadable response body, status {resp.status_code}>"
+    return body or f"<empty body, status {resp.status_code}>"
 
 # Anthropic API hard limit is 32 MB per request. Stay well under to leave room
 # for JSON envelope, headers, and the prompt text.
@@ -416,31 +491,66 @@ class VisionAdapter:
         ]
 
     async def _batch_anthropic(self, image_paths: list[Path], prompt: str) -> list["BatchImageResult"]:
-        # Pre-encode all images and group into sub-batches that stay under
-        # Anthropic's 32 MB request limit. Each sub-batch hits the API once.
-        encoded: list[tuple[Path, str, str, int]] = []  # (path, b64, mime, size)
+        """v0.29.9 rewrite: pre-flight validation + circuit breaker +
+        exponential backoff + per-image bisection on 400s.
+
+        Financial framing: API calls are money. Four mechanisms minimize
+        wasted spend:
+
+        1. Pre-flight (`vision_preflight.validate_image_for_vision`)
+           catches corrupt / wrong-mime / out-of-range-dimension bytes
+           before we encode or transmit. Zero API cost on known-bad
+           inputs.
+        2. Exponential backoff with Retry-After honored for 429/5xx/529.
+           Respects Anthropic's published `retry-after` header when
+           present; falls back to 1/2/4/8s with ±15% jitter.
+        3. Bisection on 400. When a multi-image sub-batch returns 400,
+           the bad image is isolated by halving the batch recursively.
+           Worst case: ~2N extra single-image calls for one bad file in
+           a batch of N, but the other N-1 files finish cleanly instead
+           of being tossed.
+        4. Circuit breaker (`vision_circuit_breaker`) short-circuits all
+           calls after 5 consecutive upstream failures, with exponential
+           cooldown (60s → 2min → 4min … cap 15min). Operators see a
+           banner on the batch-management page.
+        """
+        encoded: list[tuple[Path, str, str, int, str | None]] = []  # (path, b64, mime, size, preflight_error)
+
         for path in image_paths:
             try:
                 raw = path.read_bytes()
             except OSError as exc:
                 log.warning("vision_adapter.image_read_failed", path=str(path), error=str(exc))
-                encoded.append((path, "", "", 0))
+                encoded.append((path, "", "", 0, f"[image read failed: {exc}]"))
                 continue
-            # Per-image cap enforcement (Anthropic 5 MB hard limit). Compresses
-            # only oversized images; small images pass through untouched.
-            # Use magic-byte detection (not extension) so mislabeled files
-            # (e.g. a GIF saved as .png) get the correct MIME type.
+
+            # Normalize to an allowed MIME (rasterize EPS → JPEG etc.) and
+            # cap size at 5 MB encoded.
             raw, mime = _compress_image_for_vision(raw, detect_mime(path))
+
+            # Pre-flight: catch PIL-unreadable or out-of-range dimensions
+            # before we spend the bytes on a base64 encode.
+            pf = validate_image_for_vision(raw, filename=path.name, detected_mime=mime)
+            if not pf.ok:
+                log.info(
+                    "vision_adapter.preflight_rejected",
+                    path=str(path), error=pf.error,
+                    width=pf.width, height=pf.height,
+                )
+                encoded.append((path, "", "", 0, pf.error))
+                continue
+
             b64 = base64.b64encode(raw).decode()
-            encoded.append((path, b64, mime, len(b64)))
+            encoded.append((path, b64, mime, len(b64), None))
 
         # Greedy split into size-bounded sub-batches (preserve original index order).
         sub_batches: list[list[int]] = []
         current: list[int] = []
         current_size = 0
-        for idx, (_, b64, _, size) in enumerate(encoded):
+        for idx, (_, b64, _, size, _) in enumerate(encoded):
             if not b64:
-                # Failed to read; place into its own slot so the index is preserved
+                # No bytes to send (read or preflight failed). Reserve a
+                # solo slot so the per-image error surfaces cleanly.
                 if current:
                     sub_batches.append(current)
                     current, current_size = [], 0
@@ -460,67 +570,33 @@ class VisionAdapter:
         base = self._base_url or "https://api.anthropic.com"
         async with httpx.AsyncClient(timeout=_TIMEOUT * 4) as client:
             for batch_indices in sub_batches:
-                # Skip slots that failed to read (single-index batches with empty b64).
-                if len(batch_indices) == 1 and not encoded[batch_indices[0]][1]:
-                    i = batch_indices[0]
-                    results[i] = BatchImageResult(
-                        index=i, description="", extracted_text="",
-                        error="[image read failed]",
-                    )
+                # Pre-flight / read failures: record the recorded error
+                # for each index and skip the API call entirely.
+                preflight_errs = [
+                    (i, encoded[i][4]) for i in batch_indices if encoded[i][4] is not None
+                ]
+                if preflight_errs and all(encoded[i][4] for i in batch_indices):
+                    for i, err in preflight_errs:
+                        results[i] = BatchImageResult(
+                            index=i, description="", extracted_text="",
+                            error=err,
+                        )
                     continue
+                # Mixed preflight failures should never happen (preflight
+                # failures go into solo sub-batches above), but guard
+                # anyway so a surprise doesn't poison the rest.
+                if preflight_errs:
+                    for i, err in preflight_errs:
+                        results[i] = BatchImageResult(
+                            index=i, description="", extracted_text="", error=err,
+                        )
+                    batch_indices = [i for i in batch_indices if encoded[i][4] is None]
+                    if not batch_indices:
+                        continue
 
-                # v0.29.8: interleave a filename text block before each
-                # image so Claude has filename context when describing
-                # the image. Claude API has no `filename` field on image
-                # blocks; plain-text interleaving is the documented way.
-                # The prompt tells the model how to use it (and how to
-                # disregard it if it disagrees with the actual image).
-                content: list[dict] = []
-                for local_idx, i in enumerate(batch_indices, start=1):
-                    path, b64, mime, _ = encoded[i]
-                    content.append({
-                        "type": "text",
-                        "text": f"Image {local_idx} filename: {path.name}",
-                    })
-                    content.append({
-                        "type": "image",
-                        "source": {"type": "base64", "media_type": mime, "data": b64},
-                    })
-                content.append({"type": "text", "text": prompt})
-
-                resp = await client.post(
-                    f"{base}/v1/messages",
-                    headers={
-                        "x-api-key": self._api_key,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json",
-                    },
-                    json={
-                        "model": self._model,
-                        "max_tokens": 400 * len(batch_indices),
-                        "messages": [{"role": "user", "content": content}],
-                    },
+                await self._anthropic_sub_batch(
+                    client, base, encoded, batch_indices, prompt, results,
                 )
-                resp.raise_for_status()
-                data = resp.json()
-                text = "".join(
-                    block.get("text", "")
-                    for block in data.get("content", [])
-                    if block.get("type") == "text"
-                )
-                usage = data.get("usage", {})
-                tokens = (usage.get("input_tokens", 0) or 0) + (usage.get("output_tokens", 0) or 0)
-
-                parsed = self._parse_batch_response(text, len(batch_indices))
-                per_image = (tokens // len(batch_indices)) if tokens else None
-                for slot, item in zip(batch_indices, parsed):
-                    results[slot] = BatchImageResult(
-                        index=slot,
-                        description=item.get("description", ""),
-                        extracted_text=item.get("extracted_text", ""),
-                        error=item.get("error"),
-                        tokens_used=per_image,
-                    )
 
         # Fill any remaining None slots (defensive — shouldn't happen).
         for i, r in enumerate(results):
@@ -530,6 +606,206 @@ class VisionAdapter:
                     error="[no result returned]",
                 )
         return results  # type: ignore[return-value]
+
+    async def _anthropic_sub_batch(
+        self,
+        client: "httpx.AsyncClient",
+        base: str,
+        encoded: list[tuple],
+        batch_indices: list[int],
+        prompt: str,
+        results: list,
+        recursion_depth: int = 0,
+    ) -> None:
+        """Execute ONE sub-batch against Anthropic with full resilience.
+        Populates `results[i]` for each i in `batch_indices`.
+
+        - Circuit-breaker gate: short-circuit if the breaker is open.
+        - Retry loop: 429/5xx/529 triggers exponential backoff with
+          Retry-After honored, up to _BACKOFF_MAX_ATTEMPTS tries.
+        - 400: bisect into two halves and recurse. When down to one
+          image, record the 400 as that image's error and stop
+          recursing.
+        - Other 4xx (auth/etc.): record all as failures; don't bisect.
+        - Network / timeout: count as upstream failure; back off; retry.
+        """
+        # Guard against pathological recursion (shouldn't be hit in
+        # practice — log2(24 MB / 10 KB) ~ 11).
+        if recursion_depth > 20:
+            log.error("vision_adapter.bisect_recursion_exceeded",
+                      depth=recursion_depth, batch_size=len(batch_indices))
+            for i in batch_indices:
+                results[i] = BatchImageResult(
+                    index=i, description="", extracted_text="",
+                    error=f"[bisection recursion exceeded at depth {recursion_depth}]",
+                )
+            return
+
+        # --- Circuit breaker gate ---
+        allowed, reason = _cb_allow_call()
+        if not allowed:
+            log.warning(
+                "vision_adapter.circuit_breaker_blocked",
+                reason=reason, batch_size=len(batch_indices),
+            )
+            for i in batch_indices:
+                results[i] = BatchImageResult(
+                    index=i, description="", extracted_text="",
+                    error=f"[vision unavailable — circuit breaker {reason}]",
+                )
+            return
+
+        # --- Build request content ---
+        content: list[dict] = []
+        for local_idx, i in enumerate(batch_indices, start=1):
+            path, b64, mime, _, _ = encoded[i]
+            content.append({
+                "type": "text",
+                "text": f"Image {local_idx} filename: {path.name}",
+            })
+            content.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": mime, "data": b64},
+            })
+        content.append({"type": "text", "text": prompt})
+
+        payload = {
+            "model": self._model,
+            "max_tokens": 400 * len(batch_indices),
+            "messages": [{"role": "user", "content": content}],
+        }
+
+        # --- Retry loop ---
+        for attempt in range(_BACKOFF_MAX_ATTEMPTS):
+            try:
+                resp = await client.post(
+                    f"{base}/v1/messages",
+                    headers={
+                        "x-api-key": self._api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json=payload,
+                )
+            except (httpx.TimeoutException, httpx.NetworkError, httpx.TransportError) as exc:
+                _cb_record_failure("network", f"{type(exc).__name__}: {exc}")
+                log.warning(
+                    "vision_adapter.anthropic_network_failure",
+                    attempt=attempt, error=f"{type(exc).__name__}: {exc}",
+                )
+                if attempt == _BACKOFF_MAX_ATTEMPTS - 1:
+                    for i in batch_indices:
+                        results[i] = BatchImageResult(
+                            index=i, description="", extracted_text="",
+                            error=f"[network error after {_BACKOFF_MAX_ATTEMPTS} attempts: {type(exc).__name__}: {exc}]",
+                        )
+                    return
+                await _backoff_delay(attempt, None)
+                continue
+
+            status = resp.status_code
+
+            # Retryable upstream failures
+            if status in _RETRYABLE_STATUS_CODES:
+                body = _safe_body(resp)
+                _cb_record_failure(f"http_{status}", body[:200])
+                log.warning(
+                    "vision_adapter.anthropic_retryable",
+                    status=status, attempt=attempt, body=body[:200],
+                )
+                if attempt == _BACKOFF_MAX_ATTEMPTS - 1:
+                    for i in batch_indices:
+                        results[i] = BatchImageResult(
+                            index=i, description="", extracted_text="",
+                            error=f"[HTTP {status} after {_BACKOFF_MAX_ATTEMPTS} attempts: {body[:500]}]",
+                        )
+                    return
+                retry_after = _parse_retry_after(resp)
+                await _backoff_delay(attempt, retry_after)
+                continue
+
+            # 400 Bad Request: bisect to isolate the offending image
+            if status == 400:
+                body = _safe_body(resp)
+                if len(batch_indices) == 1:
+                    # Isolated — this is THE bad image.
+                    i = batch_indices[0]
+                    path = encoded[i][0]
+                    log.warning(
+                        "vision_adapter.anthropic_400_isolated",
+                        path=str(path), body=body[:500],
+                    )
+                    results[i] = BatchImageResult(
+                        index=i, description="", extracted_text="",
+                        error=f"[HTTP 400 (isolated by bisection): {body[:500]}]",
+                    )
+                    return
+                mid = len(batch_indices) // 2
+                left, right = batch_indices[:mid], batch_indices[mid:]
+                log.info(
+                    "vision_adapter.anthropic_400_bisecting",
+                    batch_size=len(batch_indices),
+                    left_size=len(left), right_size=len(right),
+                    body=body[:200],
+                )
+                await self._anthropic_sub_batch(
+                    client, base, encoded, left, prompt, results, recursion_depth + 1,
+                )
+                await self._anthropic_sub_batch(
+                    client, base, encoded, right, prompt, results, recursion_depth + 1,
+                )
+                return
+
+            # Other 4xx (401/403/etc.): not retryable, not bisectable
+            if 400 <= status < 500:
+                body = _safe_body(resp)
+                _cb_record_failure(f"http_{status}", body[:200])
+                log.error(
+                    "vision_adapter.anthropic_client_error",
+                    status=status, body=body[:500],
+                )
+                for i in batch_indices:
+                    results[i] = BatchImageResult(
+                        index=i, description="", extracted_text="",
+                        error=f"[HTTP {status}: {body[:500]}]",
+                    )
+                return
+
+            # Success (2xx)
+            _cb_record_success()
+            try:
+                data = resp.json()
+            except Exception as exc:
+                log.warning(
+                    "vision_adapter.anthropic_parse_failure",
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+                for i in batch_indices:
+                    results[i] = BatchImageResult(
+                        index=i, description="", extracted_text="",
+                        error=f"[response parse failed: {type(exc).__name__}: {exc}]",
+                    )
+                return
+
+            text = "".join(
+                block.get("text", "")
+                for block in data.get("content", [])
+                if block.get("type") == "text"
+            )
+            usage = data.get("usage", {})
+            tokens = (usage.get("input_tokens", 0) or 0) + (usage.get("output_tokens", 0) or 0)
+
+            parsed = self._parse_batch_response(text, len(batch_indices))
+            per_image = (tokens // len(batch_indices)) if tokens else None
+            for slot, item in zip(batch_indices, parsed):
+                results[slot] = BatchImageResult(
+                    index=slot,
+                    description=item.get("description", ""),
+                    extracted_text=item.get("extracted_text", ""),
+                    error=item.get("error"),
+                    tokens_used=per_image,
+                )
+            return
 
     async def _batch_openai(self, image_paths: list[Path], prompt: str) -> list["BatchImageResult"]:
         content: list[dict] = [{"type": "text", "text": prompt}]
