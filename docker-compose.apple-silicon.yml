@@ -1,0 +1,35 @@
+# docker-compose.apple-silicon.yml — Apple Silicon / no-NVIDIA sample override.
+#
+# This file is NOT auto-loaded. It is a SAMPLE; copy it into place as
+# `docker-compose.override.yml` on machines that need it:
+#
+#     cp docker-compose.apple-silicon.yml docker-compose.override.yml
+#
+# `docker-compose.override.yml` is gitignored (per the Docker convention
+# for per-machine configuration), so your local copy will persist across
+# `git pull` without being overwritten or committed back.
+#
+# What it does: zeroes out the parent `deploy:` block on the two services
+# that declared an NVIDIA GPU reservation, so `docker-compose up` doesn't
+# fail on hosts without the NVIDIA Container Toolkit (e.g., macOS on
+# M-series chips, Linux VMs without passthrough).
+#
+# On hosts WITH a GPU (Linux + nvidia-container-toolkit, or Windows Docker
+# Desktop with WSL2 GPU support), DO NOT copy this file — the base compose
+# GPU reservation is what you want.
+#
+# History: v0.28.0 committed this as `docker-compose.override.yml` directly,
+# which silently stripped the GPU reservation on every GPU host that pulled
+# main (caught on 2026-04-24). v0.29.3 renamed it to .apple-silicon.yml +
+# gitignored the override path to restore per-machine control.
+
+services:
+  markflow:
+    # `!reset null` explicitly zeros out the parent's deploy block — this is
+    # the documented way to remove a key via an override. Empty dicts and
+    # empty lists are treated as "unchanged" by docker-compose's merge, so
+    # a plain `deploy: {}` or `devices: []` would NOT clear the parent's
+    # NVIDIA GPU reservation. Requires docker-compose >= 2.24.
+    deploy: !reset null
+  markflow-mcp:
+    deploy: !reset null

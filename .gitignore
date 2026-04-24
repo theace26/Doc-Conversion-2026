@@ -44,6 +44,12 @@ hashcat-queue/worker_capabilities.json
 # Overnight rebuild rollback sidecar (per-machine; tracks last-good image IDs)
 Scripts/work/overnight/last-good.json
 
+# docker-compose.override.yml is per-machine by Docker convention.
+# Apple Silicon / no-GPU dev machines: copy docker-compose.apple-silicon.yml
+# into place as docker-compose.override.yml locally. GPU hosts leave it absent
+# so the base compose GPU reservation applies. See the sample file header.
+docker-compose.override.yml
+
 # OS
 .DS_Store
 Thumbs.db

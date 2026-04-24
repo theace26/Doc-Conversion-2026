@@ -4,6 +4,100 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.29.3 — GPU reservation restored on NVIDIA hosts (2026-04-24)
+
+**Bug class:** silent multi-platform regression. v0.28.0 committed
+`docker-compose.override.yml` — intended as a convenience for Apple
+Silicon devs who don't have `nvidia-container-toolkit` — but because
+Docker Compose auto-merges any file with that exact name, *every host
+that pulled main* had its GPU `deploy:` reservation zeroed out via the
+override's `deploy: !reset null`. GPU-equipped Windows + Linux hosts
+ran on CPU with no warning, and `/api/health` reported
+`gpu.ok=false` / `execution_path: container_cpu` despite
+`docker run --gpus all nvidia-smi` showing the GPU was fully visible
+to Docker.
+
+### Root cause
+
+The v0.28.0 plan at `docs/superpowers/plans/2026-04-22-v0.28.0-polish.md:191`
+actually proposed the correct pattern — *"commit a sample as
+`docker-compose.override.yml.sample` and gitignore the real one."*
+The executor deviated and committed the real file under its auto-loaded
+name. No user-visible failure on Apple Silicon (the override was doing
+its job there) and no test coverage for "GPU reservation is not
+stripped on GPU hosts," so the regression lived through v0.29.0,
+v0.29.1, and v0.29.2.
+
+### Fix
+
+- **Renamed** `docker-compose.override.yml` → `docker-compose.apple-silicon.yml`
+  via `git mv`. The renamed file is *not* auto-loaded by Docker Compose
+  under its new name, so GPU hosts pulling the new main see the base
+  compose's GPU reservation only.
+- **Gitignored** `docker-compose.override.yml` (added to `.gitignore`
+  under a new section documenting the per-machine convention).
+- **Updated the three macOS helper scripts** (`Scripts/macos/{refresh,reset,switch-branch}.sh`)
+  to auto-seed `docker-compose.override.yml` from the sample if it
+  doesn't already exist. Idempotent — existing customized local
+  copies are preserved across runs.
+- **Sample file header** rewritten to explain the new workflow and
+  reference this v0.29.3 regression + fix, so future maintainers don't
+  re-make the mistake.
+
+### Activation (per machine)
+
+| Host type | Action needed |
+|---|---|
+| Apple Silicon / no-GPU | Run any `Scripts/macos/*.sh` script once — it auto-seeds the override. Or manually: `cp docker-compose.apple-silicon.yml docker-compose.override.yml`. |
+| Linux + nvidia-container-toolkit | Nothing. Pull, then `docker-compose up -d --force-recreate markflow markflow-mcp`. |
+| Windows Docker Desktop + WSL2 GPU | Same as Linux+NVIDIA: just recreate. |
+
+A `docker-compose up -d` alone is **not** sufficient on a host whose
+currently-running container was created with the stale (overridden)
+compose config — volume/deploy changes require `--force-recreate`.
+
+### Verification recipe
+
+```bash
+# Confirm GPU is visible to Docker at the host level
+docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi
+
+# Confirm compose config now includes the deploy block for markflow
+docker-compose config | grep -A 10 "^  markflow:" | grep -A 6 deploy
+#   -> should show reservations / devices / driver: nvidia / count: 1 / capabilities: [gpu]
+
+# Recreate and verify
+docker-compose up -d --force-recreate markflow markflow-mcp
+curl -sS http://localhost:8000/api/health | python -c 'import sys,json;d=json.load(sys.stdin);print(d["components"]["gpu"])'
+#   -> should show ok=true / execution_path=container_gpu / vendor=nvidia
+```
+
+### Gotcha added
+
+`docs/gotchas.md` → Container & Dependencies: first bullet now calls
+out that `docker-compose.override.yml` is per-machine and that a stray
+committed override is the first suspect when GPU reservations go
+missing. Includes the `docker-compose config | grep -A 8 deploy:`
+verification command.
+
+### Files changed
+
+- `core/version.py` — bump to 0.29.3
+- `docker-compose.override.yml` → `docker-compose.apple-silicon.yml`
+  (renamed; new header explains the sample workflow)
+- `.gitignore` — adds `docker-compose.override.yml`
+- `Scripts/macos/refresh-markflow.sh`, `reset-markflow.sh`,
+  `switch-branch.sh` — auto-seed the override from the sample
+- `CLAUDE.md` — Current Version block
+- `docs/gotchas.md` — new Container & Dependencies bullet
+- `docs/version-history.md` — this entry
+
+No Python code changed. No database migration. The fix is a rename + a
+gitignore entry + three shell-script edits, but the impact is every
+NVIDIA host in this project's installed base getting its GPU back.
+
+---
+
 ## v0.29.2 — Drive mounts writable for output paths (2026-04-24)
 
 Tiny compose change with outsized UX impact. Makes drive-letter paths

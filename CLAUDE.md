@@ -91,10 +91,50 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.29.2
+## Current Version — v0.29.3
 
-**Drive mounts made writable so a drive path can be used as the output
-directory.**
+**`docker-compose.override.yml` un-committed + gitignored so GPU hosts
+get their `deploy:` reservation back.**
+
+- **Bug:** v0.28.0 committed `docker-compose.override.yml` for Apple
+  Silicon developers. Because Docker Compose auto-merges any file with
+  that exact name, every GPU-equipped host that pulled `main` silently
+  lost its NVIDIA `deploy.resources.reservations` block — the override's
+  `deploy: !reset null` wiped it out. Result: containers started
+  without a GPU even when the host had one, and `/api/health` reported
+  `gpu.ok=false` / `execution_path: container_cpu`.
+- **Fix:** renamed the checked-in file to
+  `docker-compose.apple-silicon.yml` (NOT auto-loaded under that name —
+  it's now a sample). Added `docker-compose.override.yml` to
+  `.gitignore` so it's truly per-machine, per the Docker convention.
+- **Apple Silicon / no-GPU dev machines**: the three macOS scripts
+  (`Scripts/macos/{refresh,reset,switch-branch}.sh`) now auto-seed
+  `docker-compose.override.yml` from the sample on first run. Idempotent
+  — won't clobber a customized local copy.
+- **GPU hosts (Linux + nvidia-container-toolkit, Windows Docker Desktop
+  with WSL2 GPU support)**: nothing to do. No override file means the
+  base compose's GPU reservation takes effect. A `docker-compose up -d
+  --force-recreate` after pulling is required to drop the stale
+  overridden deploy config from the running container.
+
+**Prerequisite for GPU passthrough** (unchanged): NVIDIA driver on the
+host and nvidia-container-toolkit visible to Docker. Verified working
+on this machine via `docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi`
+showing the GTX 1660 Ti with 6 GB VRAM.
+
+Files: `core/version.py`, `.gitignore`,
+`docker-compose.override.yml` → `docker-compose.apple-silicon.yml`
+(git rename with updated header comment),
+`Scripts/macos/refresh-markflow.sh`, `Scripts/macos/reset-markflow.sh`,
+`Scripts/macos/switch-branch.sh`, `CLAUDE.md`, `docs/gotchas.md`,
+`docs/version-history.md`.
+
+---
+
+## v0.29.2 — Drive mounts writable for output paths
+
+Drive mounts made writable so a drive path can be used as the output
+directory.
 
 - **`/host/c` and `/host/d` were mounted `:ro`** in `docker-compose.yml`
   — a pre-v0.25.0 leftover. Picking `/host/d/Doc-Conv_Test` (or any

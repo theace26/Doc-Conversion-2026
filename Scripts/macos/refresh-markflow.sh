@@ -193,10 +193,15 @@ fi
 # ==============================================================
 #  Compose args (no NVIDIA overlay on macOS)
 # ==============================================================
-# Leave COMPOSE_ARGS empty so docker-compose auto-merges any
-# docker-compose.override.yml in the repo. On macOS / Apple Silicon the
-# override nulls out the NVIDIA GPU deploy block; passing `-f docker-compose.yml`
-# explicitly here would suppress that merge and the stack would fail to start.
+# docker-compose.override.yml is gitignored (per-machine by Docker
+# convention). On macOS / Apple Silicon we seed it from the sample so
+# docker-compose auto-merges it and the NVIDIA GPU deploy block gets
+# zeroed out — otherwise `up` fails on hosts without nvidia-container-toolkit.
+if [[ ! -f docker-compose.override.yml && -f docker-compose.apple-silicon.yml ]]; then
+    echo -e "${YELLOW}  Seeding docker-compose.override.yml from docker-compose.apple-silicon.yml (Apple Silicon / no-GPU)${NC}"
+    cp docker-compose.apple-silicon.yml docker-compose.override.yml
+fi
+# Leave COMPOSE_ARGS empty so the override auto-merges.
 COMPOSE_ARGS=()
 
 # ==============================================================

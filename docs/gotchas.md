@@ -1242,6 +1242,17 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 ## Container & Dependencies
 
+- **`docker-compose.override.yml` is per-machine, not committed (v0.29.3+)**:
+  The file is gitignored. Apple Silicon / no-GPU hosts seed it from
+  `docker-compose.apple-silicon.yml` (automated by the three macOS
+  scripts in `Scripts/macos/`). GPU hosts leave it absent so the base
+  compose NVIDIA `deploy:` reservation applies. Committing an override
+  silently breaks GPU hosts — this bit v0.28.0–v0.29.2 on NVIDIA
+  machines that pulled main until the file was renamed in v0.29.3.
+  Verify effective config with `docker-compose config | grep -A 8 deploy:`
+  — if GPU reservations are missing on a host that should have them,
+  a stray `docker-compose.override.yml` is the first place to look.
+
 - **Drive mounts are writable (v0.29.2+)**: `/host/c` and `/host/d` in
   `docker-compose.yml` are no longer `:ro`. Writes are restricted by
   the app-level write guard (`core/storage_manager.is_write_allowed`),
