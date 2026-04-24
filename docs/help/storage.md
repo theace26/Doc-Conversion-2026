@@ -26,13 +26,15 @@ You can re-open the wizard anytime by clicking **Setup Wizard** in the page head
 
 ## Changing the source or output directory
 
-Use the **Sources** section to add or remove source folders. Each source is validated when you add it — MarkFlow checks that it exists, is readable, and has at least one file (you'll get a warning but not an error if the folder is empty).
+Use the **Sources** section to add or remove source folders. Each source is validated when you add it — MarkFlow checks that it exists, is readable, and has at least one file (you'll get a warning but not an error if the folder is empty). After clicking **Add**, a green **✓** pill appears below the form showing the path MarkFlow actually sees plus the item count, so you can confirm at a glance that the folder is the right one and is accessible.
 
 Use the **Output Directory** section to set where converted files go. Output is validated for:
 
 - Existence and readability
 - Writability (the MarkFlow process needs write permission)
 - At least 1 GB of free disk space (warning only; not a hard failure)
+
+After clicking **Save**, a green **✓** pill appears below the path input showing the path MarkFlow sees, "Writable", and a free-space summary. On page load, the currently-saved output path is re-validated and shown the same way — if a share was unmounted or permissions changed, you'll see a red **✗** with the specific reason.
 
 **Changing the output directory requires a restart** to fully take effect. MarkFlow posts an amber banner at the top of every page reminding you. Click **Remind me later** to hide it for 1 hour, or restart the container (`docker-compose restart markflow`) to clear it immediately.
 

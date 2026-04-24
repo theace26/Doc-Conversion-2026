@@ -277,6 +277,58 @@ small, .text-sm { font-size: 0.85rem; }
   .badge-md   { background: rgba(156,163,175,.2);color: #d1d5db; }
 }
 
+/* Storage verification pill (source/output path access confirmation, v0.29.1) */
+.storage-verify { margin-top: 0.5rem; }
+.storage-verify:empty { display: none; }
+.storage-verify .sv-line {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+.storage-verify .sv-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+.storage-verify .sv-ok  { background: #dcfce7; color: #15803d; }
+.storage-verify .sv-bad { background: #fee2e2; color: #b91c1c; }
+.storage-verify .sv-path {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.85rem;
+  word-break: break-all;
+  background: var(--surface-alt, #f0f1f5);
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+}
+.storage-verify .sv-sub {
+  font-size: 0.82rem;
+  margin-top: 0.15rem;
+  padding-left: 1.65rem;
+}
+.storage-verify .sv-ok-sub  { color: #15803d; }
+.storage-verify .sv-bad-sub { color: #b91c1c; }
+.storage-verify .sv-warn {
+  font-size: 0.82rem;
+  margin-top: 0.15rem;
+  padding-left: 1.65rem;
+  color: #a16207;
+}
+@media (prefers-color-scheme: dark) {
+  .storage-verify .sv-ok     { background: rgba(34,197,94,.22); color: #86efac; }
+  .storage-verify .sv-bad    { background: rgba(239,68,68,.22); color: #fca5a5; }
+  .storage-verify .sv-ok-sub { color: #86efac; }
+  .storage-verify .sv-bad-sub{ color: #fca5a5; }
+  .storage-verify .sv-warn   { color: #fcd34d; }
+}
+
 /* ── Progress Bar ───────────────────────────────────────────────────────────── */
 .progress-bar {
   width: 100%;

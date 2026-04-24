@@ -211,9 +211,10 @@
       });
       if ($('source-path-input')) $('source-path-input').value = '';
       if ($('source-label-input')) $('source-label-input').value = '';
+      await renderVerificationAt($('source-add-verify'), path, 'source');
       loadSources();
     } catch (e) {
-      showError(e.message);
+      await renderVerificationAt($('source-add-verify'), path, 'source', extractErrors(e));
     }
   }
 
@@ -226,15 +227,93 @@
     }
   }
 
+  // ── Path verification (shared by Output + Sources) ───────────────────────
+
+  function formatBytes(n) {
+    if (n == null) return '';
+    if (n < 1024) return n + ' B';
+    const units = ['KB', 'MB', 'GB', 'TB'];
+    let v = n / 1024;
+    let i = 0;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    return v.toFixed(v < 10 ? 1 : 0) + ' ' + units[i];
+  }
+
+  function extractErrors(err) {
+    try {
+      const parsed = typeof err.detail === 'string' ? JSON.parse(err.detail) : null;
+      const d = parsed && parsed.detail ? parsed.detail : parsed;
+      if (d && Array.isArray(d.errors) && d.errors.length) return d.errors;
+      if (d && Array.isArray(d.warnings) && d.warnings.length) return d.warnings;
+    } catch { /* fall through */ }
+    return [err.message || 'Unknown error.'];
+  }
+
+  async function renderVerificationAt(container, path, role, forcedErrors) {
+    if (!container) return;
+    clearChildren(container);
+
+    // If caller knows validation already failed (e.g. save returned 400),
+    // render immediately without a second round-trip.
+    let result;
+    if (forcedErrors) {
+      result = { ok: false, errors: forcedErrors, warnings: [], stats: {} };
+    } else {
+      try {
+        result = await api('/api/storage/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path, role }),
+        });
+      } catch (e) {
+        result = { ok: false, errors: [e.message || 'Validation failed.'], warnings: [], stats: {} };
+      }
+    }
+
+    const ok = !!result.ok;
+    const iconCls = 'sv-icon ' + (ok ? 'sv-ok' : 'sv-bad');
+    const icon = el('span', { cls: iconCls, text: ok ? '✓' : '✗', attrs: { 'aria-hidden': 'true' } });
+    const pathCode = el('code', { cls: 'sv-path', text: path });
+
+    const details = [];
+    if (ok) {
+      details.push(role === 'output' ? 'Writable' : 'Readable');
+      if (result.stats && result.stats.item_count != null) {
+        details.push(result.stats.item_count + ' item' + (result.stats.item_count === 1 ? '' : 's'));
+      }
+      if (result.stats && result.stats.free_space_bytes != null) {
+        details.push(formatBytes(result.stats.free_space_bytes) + ' free');
+      }
+    } else {
+      details.push((result.errors && result.errors.join(' · ')) || 'Unavailable');
+    }
+
+    const line1 = el('div', { cls: 'sv-line' }, [icon, document.createTextNode(' '), pathCode]);
+    const line2 = el('div', { cls: 'sv-sub' + (ok ? ' sv-ok-sub' : ' sv-bad-sub'), text: details.join(' · ') });
+    container.appendChild(line1);
+    container.appendChild(line2);
+
+    if (ok && result.warnings && result.warnings.length) {
+      container.appendChild(el('div', { cls: 'sv-warn', text: '⚠ ' + result.warnings.join(' · ') }));
+    }
+  }
+
   // ── Output ───────────────────────────────────────────────────────────────
 
   async function loadOutput() {
     try {
       const { path } = await api('/api/storage/output');
       $('output-path-input').value = path || '';
-      $('output-current').textContent = path
-        ? `Currently: ${path}`
-        : 'No output directory configured. MarkFlow will refuse to write until one is set.';
+      const verifyEl = $('output-verify');
+      clearChildren(verifyEl);
+      if (path) {
+        await renderVerificationAt(verifyEl, path, 'output');
+      } else {
+        verifyEl.appendChild(el('p', {
+          cls: 'text-sm text-muted',
+          text: 'No output directory configured. MarkFlow will refuse to write until one is set.',
+        }));
+      }
     } catch (e) {
       showError(`Failed to load output: ${e.message}`);
     }
@@ -249,9 +328,9 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path })
       });
-      loadOutput();
+      await renderVerificationAt($('output-verify'), path, 'output');
     } catch (e) {
-      showError(e.message);
+      await renderVerificationAt($('output-verify'), path, 'output', extractErrors(e));
     }
   }
 

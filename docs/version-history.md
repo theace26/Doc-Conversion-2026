@@ -4,6 +4,116 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.29.1 — Folder-picker fix + inline path verification (2026-04-24)
+
+Small but high-value UX polish on the Storage page. Two related pieces
+of the "can I actually use MarkFlow's output?" feedback loop were
+broken or missing — both fixed in this release.
+
+### Folder-picker: `output` mode now shows drives
+
+**Bug:** On the output-folder picker, the `DRIVES` sidebar (C:, D:) was
+hidden entirely, leaving only a single "Output Repo" shortcut. Users
+could not navigate to a local filesystem drive to pick it as the output
+directory.
+
+**Root cause:** `_renderDrives()` in `static/js/folder-picker.js`
+short-circuited for `mode === 'output'` and rendered the Output Repo
+button alone, returning before the drives loop ran. The existing `any`
+mode already rendered drives + an Output Repo shortcut; output mode
+just needed the same treatment.
+
+**Fix:** Removed the output-mode early return. `_renderDrives` now
+always renders the Drives section and appends the Output Repo shortcut
+when `mode === 'any' || mode === 'output'`. Source mode shows drives
+only (unchanged). `open()` still handles mode-based initial navigation
+(output mode still lands at `/mnt/output-repo` by default), so nothing
+about the default destination changes — users just have a way to leave
+it now. Also rewrote the rendering function to use
+`document.createElement` + `textContent` instead of `innerHTML` — same
+XSS-safety convention used elsewhere in `storage.js`.
+
+**File:** `static/js/folder-picker.js`.
+
+### Inline path verification on Save / Add
+
+**User ask:** "Once the user clicks Save, show the directory as
+MarkFlow sees it, below the Path entry box, with a green checkmark
+indicating MarkFlow can write / access the selected directory. Do the
+same verification for source directories — green checkmark = readable."
+
+**Implementation:** New `renderVerificationAt(container, path, role)`
+helper in `static/js/storage.js` that calls the existing
+`POST /api/storage/validate` endpoint and renders a verification pill:
+
+```
+[✓] /host/d/Doc-Conv_Test
+    Writable · 12 items · 42.3 GB free
+```
+
+On error (path doesn't exist / not writable / permission denied):
+
+```
+[✗] /host/x/missing
+    This folder doesn't exist: /host/x/missing
+```
+
+Warnings (low disk space, empty source folder, long-path risk) render
+in amber below the green-check line.
+
+**Wired into three flows:**
+1. `setOutput()` — after the PUT succeeds (or fails with a 400), the
+   verification pill renders inline. On HTTP 400, the backend's
+   `{errors, warnings}` detail is surfaced as the failure reason — no
+   toast/alert needed.
+2. `addSource()` — same pattern in the Sources Add form. Result
+   persists below the Add form until the next Add.
+3. `loadOutput()` — on page load, if an output path is already saved,
+   the same verification runs automatically so operators can confirm
+   nothing has drifted (share unmounted, permissions changed, etc.).
+
+**Backend:** unchanged. `POST /api/storage/validate` with body
+`{path, role: "source" | "output"}` already existed and returns
+`{ok, warnings, errors, stats: {item_count, free_space_bytes}}` — the
+client just needed to render it.
+
+**Files:** `static/storage.html` (two `<div class="storage-verify">`
+slots replacing the old `<p id="output-current">` + a new one under
+the Sources Add form), `static/js/storage.js` (helper +
+`setOutput` / `loadOutput` / `addSource` updates), `static/markflow.css`
+(scoped styles for `.storage-verify` with light + dark variants using
+the existing badge-color palette).
+
+### Docs-only piggyback
+
+Parallel to the two Storage fixes, CLAUDE.md's "Running the App"
+section was updated to clarify that `Dockerfile.base` changes require
+a full base rebuild — the previous wording ("first time only") was
+correct-by-omission and bit the v0.28.0 rollout when `cifs-utils` +
+`smbclient` additions weren't picked up by an app-layer-only build.
+Matching gotcha added to `docs/gotchas.md` → **Container &
+Dependencies → Base image rebuild trigger**. Commits: `d934321`
+(docs), `4696abd` (folder-picker fix).
+
+### Files changed
+
+- `core/version.py` — bump to 0.29.1
+- `static/js/folder-picker.js` — output-mode drive visibility fix
+- `static/js/storage.js` — verification helper + wiring
+- `static/storage.html` — verification slots
+- `static/markflow.css` — `.storage-verify` styles
+- `CLAUDE.md` — Current Version block, Running the App clarification
+- `docs/gotchas.md` — base-rebuild-trigger gotcha
+- `docs/version-history.md` — this entry
+
+No schema migration, no new dependency, no test additions (the bug was
+a pure UI regression with no backend surface). Manual browser
+verification: the output picker now shows C: + D: alongside Output
+Repo; the verification pill renders green for valid paths and red with
+the backend's error text for invalid ones.
+
+---
+
 ## v0.29.0 — Storage page polish + security hardening pass (2026-04-22)
 
 **Same-day follow-up to v0.28.0.** Polish pass on the Universal Storage

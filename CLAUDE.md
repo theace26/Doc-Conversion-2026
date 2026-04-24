@@ -91,21 +91,54 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.29.0
+## Current Version — v0.29.1
 
-**Same-day polish follow-up to v0.28.0 plus a security hardening pass.**
-Storage page gets proper Add-Share / Discovery modal forms (replacing the
-prompt() chains), a host-OS override dropdown, folder-picker integration
-on source/output path inputs, and a migrated Cloud Prefetch section.
-Legacy "Storage Connections" and "Cloud Prefetch" sections deleted from
-`static/settings.html`. **Eight security-audit items addressed** — most
-notably ZIP path-traversal (SEC-C08 Critical), security response headers
-on every request (SEC-H12), the long-standing dead guard in
-`password_handler.cleanup_temp_file` (SEC-H16), and a hardened
-SECRET_KEY validation in lifespan (SEC-H13). **105 storage tests + 22
-integration tests pass** in Docker; live-probed endpoints confirm the
-security headers land, Pydantic rejects `../evil` share names (422), and
-dash-prefixed servers are blocked (400).
+**Storage page polish — folder-picker output-drive regression fix +
+inline path verification after Save/Add.**
+
+- **Folder-picker `output` mode hid drives** (`static/js/folder-picker.js`).
+  `_renderDrives` early-returned in output mode and rendered only the
+  Output Repo shortcut, making it impossible to pick C:/D: as the
+  output directory. Unified the sidebar: always show Drives, append
+  Output Repo for modes that write output (`any` + `output`). Mode
+  still controls initial navigation (output mode still lands at
+  `/mnt/output-repo` by default). Rewrote `_renderDrives` to use
+  `createElement` + `textContent` instead of `innerHTML` while at it
+  — aligns with the XSS-hardening guidance.
+- **Inline path verification** on the Storage page. After clicking
+  **Save** on Output Directory or **Add** on Sources, the UI now
+  renders a verification pill right below the input showing the path
+  as markflow sees it, a green ✓ (or red ✗), and the access-status
+  summary: Writable/Readable, item count, free space, warnings. On
+  page load, the currently-saved output path is also re-validated so
+  users can confirm nothing has drifted. Backend unchanged — the
+  existing `POST /api/storage/validate` endpoint serves this.
+- **Docs-only change in parallel:** CLAUDE.md's "Running the App"
+  section now clarifies that `Dockerfile.base` changes require a
+  full base rebuild (not just "first time only"). Matching gotcha
+  added to `docs/gotchas.md` → Container & Dependencies. Caught when
+  v0.28.0's `cifs-utils` + `smbclient` additions didn't land until a
+  base rebuild was run.
+
+Files: `core/version.py`, `static/js/folder-picker.js`,
+`static/js/storage.js`, `static/storage.html`, `static/markflow.css`,
+`CLAUDE.md`, `docs/gotchas.md`, `docs/version-history.md`.
+
+---
+
+## v0.29.0 — Storage polish + security hardening pass
+
+Same-day polish follow-up to v0.28.0 plus a security hardening pass.
+Storage page got proper Add-Share / Discovery modal forms (replacing
+the prompt() chains), a host-OS override dropdown, folder-picker
+integration on source/output path inputs, and a migrated Cloud Prefetch
+section. Legacy "Storage Connections" and "Cloud Prefetch" sections
+deleted from `static/settings.html`. **Eight security-audit items
+addressed** — most notably ZIP path-traversal (SEC-C08 Critical),
+security response headers on every request (SEC-H12), the long-standing
+dead guard in `password_handler.cleanup_temp_file` (SEC-H16), and a
+hardened SECRET_KEY validation in lifespan (SEC-H13). **105 storage
+tests + 22 integration tests pass** in Docker.
 
 Full context: [`docs/version-history.md`](docs/version-history.md). Plan
 executed autonomously from
