@@ -37,11 +37,60 @@
       margin-left: auto;
       display: flex;
       flex-wrap: wrap;
-      gap: 0.65rem;
+      gap: 0.5rem;
       font-size: 0.85rem;
       color: var(--text-muted, #aaa);
+      align-items: center;
     }
-    .bm-counts span strong { color: var(--text, #eee); margin-left: 0.25em; }
+    .bm-count-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3em;
+      padding: 0.3em 0.65em;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: background 0.1s, border-color 0.1s;
+    }
+    .bm-count-btn:hover { background: rgba(255,255,255,0.05); border-color: var(--border, #2b2b3f); }
+    .bm-count-btn strong { color: var(--text, #eee); margin-left: 0.25em; }
+    .bm-count-btn.active {
+      background: rgba(96,165,250,0.15);
+      border-color: rgba(96,165,250,0.45);
+      color: var(--text, #eee);
+    }
+    .bm-count-btn.active strong { color: #bfdbfe; }
+    .bm-clear-filter {
+      padding: 0.3em 0.65em;
+      font-size: 0.78rem;
+      background: transparent;
+      color: var(--text-muted, #aaa);
+      border: 1px dashed var(--border, #2b2b3f);
+      border-radius: 999px;
+      cursor: pointer;
+    }
+    .bm-clear-filter:hover { color: var(--text, #eee); border-style: solid; }
+    .bm-filter-banner {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.55rem 0.9rem;
+      margin-bottom: 0.75rem;
+      background: rgba(96,165,250,0.08);
+      border: 1px solid rgba(96,165,250,0.25);
+      border-radius: var(--radius, 8px);
+      font-size: 0.85rem;
+      color: var(--text, #eee);
+    }
+    .bm-loadmore {
+      margin-top: 0.75rem;
+      display: flex;
+      justify-content: center;
+    }
     .bm-card {
       border: 1px solid var(--border, #2b2b3f);
       border-radius: var(--radius, 8px);
@@ -175,6 +224,10 @@
       let paused = false;
       let previewTip = null;
       let previewTimer = null;
+      let activeStatusFilter = null;         // null | 'pending' | 'batched' | 'completed' | 'failed' | 'excluded'
+      let lastCounts = {};                   // keeps the most recent /status counts for re-render
+      const PENDING_BATCH_SENTINEL = '__pending__';
+      const PENDING_PAGE_SIZE = 100;
 
       function clearChildren(el) {
         while (el.firstChild) el.removeChild(el.firstChild);
@@ -251,6 +304,7 @@
 
       function renderCounts(counts) {
         counts = counts || {};
+        lastCounts = counts;
         clearChildren(countsEl);
         const order = ['pending', 'batched', 'completed', 'failed', 'excluded'];
         const labels = {
@@ -258,13 +312,32 @@
           completed: 'Completed', failed: 'Failed', excluded: 'Excluded'
         };
         order.forEach(k => {
-          const span = document.createElement('span');
-          span.textContent = labels[k] + ':';
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'bm-count-btn' + (activeStatusFilter === k ? ' active' : '');
+          btn.setAttribute('aria-pressed', activeStatusFilter === k ? 'true' : 'false');
+          btn.title = 'Click to filter by ' + labels[k].toLowerCase();
+          btn.appendChild(document.createTextNode(labels[k] + ':'));
           const strong = document.createElement('strong');
           strong.textContent = String(counts[k] != null ? counts[k] : 0);
-          span.appendChild(strong);
-          countsEl.appendChild(span);
+          btn.appendChild(strong);
+          btn.addEventListener('click', () => setStatusFilter(k === activeStatusFilter ? null : k));
+          countsEl.appendChild(btn);
         });
+        if (activeStatusFilter) {
+          const clr = document.createElement('button');
+          clr.type = 'button';
+          clr.className = 'bm-clear-filter';
+          clr.textContent = 'Show all';
+          clr.addEventListener('click', () => setStatusFilter(null));
+          countsEl.appendChild(clr);
+        }
+      }
+
+      function setStatusFilter(status) {
+        activeStatusFilter = status;
+        renderCounts(lastCounts);
+        loadBatches();
       }
 
       async function refreshStatus() {
@@ -304,16 +377,41 @@
         }
       }
 
+      function renderFilterBanner() {
+        if (!activeStatusFilter) return null;
+        const banner = document.createElement('div');
+        banner.className = 'bm-filter-banner';
+        const label = document.createElement('span');
+        const total = lastCounts[activeStatusFilter] || 0;
+        label.textContent = 'Filtering to ' + activeStatusFilter + ' files (' + total + ' total). Batches shown are those containing at least one ' + activeStatusFilter + ' file; file lists inside each batch are filtered the same way.';
+        banner.appendChild(label);
+        return banner;
+      }
+
       async function loadBatches() {
         setLoadingText(batchesEl, 'Loading batches...');
         try {
-          const data = await API.get('/api/analysis/batches');
-          const batches = (data && data.batches) || [];
           clearChildren(batchesEl);
+          const banner = renderFilterBanner();
+          if (banner) batchesEl.appendChild(banner);
+
+          // 'Pending' files have batch_id=NULL so they're invisible to
+          // /batches. Render them as a synthetic pseudo-batch card when
+          // the pending filter is active.
+          if (activeStatusFilter === 'pending') {
+            batchesEl.appendChild(renderPendingPseudoBatch());
+            return;
+          }
+
+          const qs = activeStatusFilter ? '?status=' + encodeURIComponent(activeStatusFilter) : '';
+          const data = await API.get('/api/analysis/batches' + qs);
+          const batches = (data && data.batches) || [];
           if (batches.length === 0) {
             const empty = document.createElement('div');
             empty.className = 'bm-empty';
-            empty.textContent = 'No analysis batches. Batches are created automatically after bulk conversion scans complete.';
+            empty.textContent = activeStatusFilter
+              ? 'No batches contain any ' + activeStatusFilter + ' files right now.'
+              : 'No analysis batches. Batches are created automatically after bulk conversion scans complete.';
             batchesEl.appendChild(empty);
             return;
           }
@@ -326,6 +424,104 @@
         } catch (e) {
           clearChildren(batchesEl);
           showError('Failed to load batches: ' + e.message);
+        }
+      }
+
+      function renderPendingPseudoBatch() {
+        const total = lastCounts.pending || 0;
+        const card = document.createElement('div');
+        card.className = 'bm-card';
+        card.dataset.batchId = PENDING_BATCH_SENTINEL;
+
+        const header = document.createElement('div');
+        header.className = 'bm-card-header';
+
+        const caret = document.createElement('span');
+        caret.className = 'caret';
+        caret.textContent = '▶';
+        header.appendChild(caret);
+
+        const idSpan = document.createElement('strong');
+        idSpan.textContent = 'Pending (not yet batched)';
+        header.appendChild(idSpan);
+
+        const countSpan = document.createElement('span');
+        countSpan.textContent = total + ' file' + (total === 1 ? '' : 's');
+        countSpan.className = 'text-muted';
+        header.appendChild(countSpan);
+
+        const pill = document.createElement('span');
+        pill.className = 'bm-pill batched';
+        pill.textContent = 'pending';
+        header.appendChild(pill);
+
+        const body = document.createElement('div');
+        body.className = 'bm-card-body';
+
+        header.addEventListener('click', () => {
+          const wasOpen = card.classList.toggle('open');
+          if (wasOpen && !body.dataset.loaded) {
+            loadPendingFiles(body, 0);
+          }
+        });
+
+        card.appendChild(header);
+        card.appendChild(body);
+        return card;
+      }
+
+      async function loadPendingFiles(container, offset) {
+        if (offset === 0) {
+          clearChildren(container);
+          setLoadingText(container, 'Loading pending files...');
+        }
+        try {
+          const url = '/api/analysis/pending-files?limit=' + PENDING_PAGE_SIZE + '&offset=' + offset;
+          const data = await API.get(url);
+          const files = (data && data.files) || [];
+          const total = (data && data.total) || 0;
+          const loaded = offset + files.length;
+
+          if (offset === 0) {
+            clearChildren(container);
+            renderFileTable(PENDING_BATCH_SENTINEL, files, container);
+            container.dataset.loaded = '1';
+          } else {
+            const tbody = container.querySelector('table.bm-file-table tbody');
+            if (tbody) {
+              // Drop the stale "No files" placeholder if present
+              const placeholder = tbody.querySelector('tr td[colspan]');
+              if (placeholder) tbody.removeChild(placeholder.parentNode);
+              files.forEach(f => tbody.appendChild(renderFileRow(f, () => {})));
+            }
+          }
+          container.dataset.loadedCount = String(loaded);
+
+          // (Re)render the Load-more footer
+          const oldMore = container.querySelector('.bm-loadmore');
+          if (oldMore) oldMore.parentNode.removeChild(oldMore);
+          if (loaded < total) {
+            const more = document.createElement('div');
+            more.className = 'bm-loadmore';
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-ghost btn-sm';
+            btn.type = 'button';
+            btn.textContent = 'Load more (' + loaded + ' of ' + total + ')';
+            btn.addEventListener('click', () => loadPendingFiles(container, loaded));
+            more.appendChild(btn);
+            container.appendChild(more);
+          } else if (total > 0) {
+            const done = document.createElement('div');
+            done.className = 'bm-loadmore text-muted text-sm';
+            done.textContent = 'All ' + total + ' pending file' + (total === 1 ? '' : 's') + ' loaded.';
+            container.appendChild(done);
+          }
+        } catch (e) {
+          clearChildren(container);
+          const err = document.createElement('p');
+          err.className = 'text-muted';
+          err.textContent = 'Failed to load pending files: ' + e.message;
+          container.appendChild(err);
         }
       }
 
@@ -387,7 +583,9 @@
       async function loadBatchFiles(batchId, container) {
         setLoadingText(container, 'Loading files...');
         try {
-          const data = await API.get('/api/analysis/batches/' + encodeURIComponent(batchId) + '/files');
+          const qs = (activeStatusFilter && activeStatusFilter !== 'pending')
+            ? '?status=' + encodeURIComponent(activeStatusFilter) : '';
+          const data = await API.get('/api/analysis/batches/' + encodeURIComponent(batchId) + '/files' + qs);
           clearChildren(container);
           const files = (data && data.files) || [];
           renderFileTable(batchId, files, container);

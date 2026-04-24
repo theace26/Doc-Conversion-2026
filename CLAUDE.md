@@ -91,10 +91,47 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.29.3
+## Current Version — v0.29.4
 
-**`docker-compose.override.yml` un-committed + gitignored so GPU hosts
-get their `deploy:` reservation back.**
+**Batch Management page: status counters are clickable filters, with
+a pending pseudo-batch so the 4000+ unbatched files are actually
+browsable.**
+
+- **Status counters** (Pending / Batched / Completed / Failed /
+  Excluded) in the top bar are now buttons. Clicking one filters the
+  batch list below to only batches containing files of that status.
+  Per-card counts + sizes reflect the filtered rows only, so the sum
+  across all cards equals the clicked counter. Click the same counter
+  again (or the "Show all" pill) to clear the filter. A banner at the
+  top of the filtered view calls out what's being shown.
+- **Pending pseudo-batch**: `analysis_queue` rows in `status='pending'`
+  have `batch_id=NULL`, so the existing `/api/analysis/batches`
+  endpoint never saw them — they were effectively invisible. Added
+  `GET /api/analysis/pending-files?limit=&offset=` (paginated at
+  100 per page), and the Pending filter renders a single "Pending
+  (not yet batched)" card that expands to show the full paginated
+  list.
+- **Expanded file lists are filtered too**: clicking into a batch
+  while the Completed filter is active shows only that batch's
+  completed files — no need to scan a wall of rows to find the ones
+  relevant to the counter you clicked.
+- **Backend additions**: `get_batches(status_filter)`,
+  `get_batch_files(batch_id, status_filter)`, `get_pending_files()`
+  in `core/db/analysis.py`; API routes validate the filter against
+  the canonical `{pending, batched, completed, failed, excluded}`
+  set (400 on bad input).
+
+Files: `core/version.py`, `core/db/analysis.py`,
+`api/routes/analysis.py`, `static/batch-management.html`,
+`CLAUDE.md`, `docs/version-history.md`, `docs/help/whats-new.md` (if
+present).
+
+---
+
+## v0.29.3 — Restored GPU reservation on NVIDIA hosts
+
+`docker-compose.override.yml` un-committed + gitignored so GPU hosts
+get their `deploy:` reservation back.
 
 - **Bug:** v0.28.0 committed `docker-compose.override.yml` for Apple
   Silicon developers. Because Docker Compose auto-merges any file with

@@ -217,17 +217,30 @@ async def get_analysis_result(source_path: str) -> dict[str, Any] | None:
     )
 
 
-async def get_batches() -> list[dict[str, Any]]:
+_VALID_STATUS_FILTERS = {"pending", "batched", "completed", "failed", "excluded"}
+
+
+async def get_batches(status_filter: str | None = None) -> list[dict[str, Any]]:
     """
     List all analysis batches grouped by batch_id.
 
     Batches where ALL rows are 'excluded' are hidden.
-    Status derivation (first match wins):
+    Status derivation (first match wins, computed from non-excluded rows):
       any 'failed'    -> 'failed'
       any 'batched'   -> 'batched'
       all 'completed' -> 'completed'
       otherwise       -> 'mixed'
+
+    v0.29.4: optional `status_filter` restricts the set of rows that
+    contribute to file_count / total_size_bytes / earliest_batched_at
+    to rows matching that status. Batches with zero matching rows are
+    omitted. The derived 'status' field is computed from all rows in
+    the batch, not the filtered subset, so users still see the real
+    shape of each batch.
     """
+    if status_filter and status_filter not in _VALID_STATUS_FILTERS:
+        raise ValueError(f"invalid status_filter: {status_filter}")
+
     rows = await db_fetch_all(
         """SELECT aq.batch_id, aq.status,
                   aq.batched_at,
@@ -248,19 +261,27 @@ async def get_batches() -> list[dict[str, Any]]:
             "batched_ats": [],
         })
         g["statuses"].append(r["status"])
-        g["file_count"] += 1
-        g["total_size_bytes"] += r["file_size_bytes"] or 0
-        if r["batched_at"]:
-            g["batched_ats"].append(r["batched_at"])
+        # When filtering, only count rows matching the filter toward
+        # file_count / total_size_bytes / batched_ats. The full status
+        # list is still tracked for the derivation below.
+        if status_filter is None or r["status"] == status_filter:
+            g["file_count"] += 1
+            g["total_size_bytes"] += r["file_size_bytes"] or 0
+            if r["batched_at"]:
+                g["batched_ats"].append(r["batched_at"])
 
     result = []
     for bid, g in groups.items():
         statuses = g["statuses"]
-        # Hide batches where ALL rows are excluded
-        if all(s == "excluded" for s in statuses):
+        # Hide batches where ALL rows are excluded (unless explicitly
+        # filtering for 'excluded' — then the user wants to see them).
+        if status_filter != "excluded" and all(s == "excluded" for s in statuses):
             continue
-        # Derive status (ignore excluded rows for derivation decisions
-        # except as part of the "not-all-completed" fallback)
+        # Skip batches with zero rows matching the filter.
+        if status_filter is not None and g["file_count"] == 0:
+            continue
+
+        # Derive status from all non-excluded rows (independent of filter).
         non_excluded = [s for s in statuses if s != "excluded"]
         if any(s == "failed" for s in non_excluded):
             derived = "failed"
@@ -283,19 +304,76 @@ async def get_batches() -> list[dict[str, Any]]:
     return result
 
 
-async def get_batch_files(batch_id: str) -> list[dict[str, Any]]:
-    """Return files in a batch joined with source_files metadata."""
-    rows = await db_fetch_all(
+async def get_batch_files(
+    batch_id: str,
+    status_filter: str | None = None,
+) -> list[dict[str, Any]]:
+    """Return files in a batch joined with source_files metadata.
+
+    v0.29.4: optional `status_filter` restricts results to rows with
+    that status. None = all statuses (previous behaviour).
+    """
+    if status_filter and status_filter not in _VALID_STATUS_FILTERS:
+        raise ValueError(f"invalid status_filter: {status_filter}")
+
+    params: list[Any] = [batch_id]
+    sql = (
         """SELECT aq.id, aq.source_path, aq.status, aq.enqueued_at, aq.batched_at,
                   sf.id AS source_file_id,
                   sf.file_size_bytes, sf.source_mtime
            FROM analysis_queue aq
            LEFT JOIN source_files sf ON sf.source_path = aq.source_path
-           WHERE aq.batch_id = ?
-           ORDER BY aq.enqueued_at ASC""",
-        (batch_id,),
+           WHERE aq.batch_id = ?"""
     )
+    if status_filter:
+        sql += " AND aq.status = ?"
+        params.append(status_filter)
+    sql += " ORDER BY aq.enqueued_at ASC"
+
+    rows = await db_fetch_all(sql, tuple(params))
     return [dict(r) for r in rows]
+
+
+async def get_pending_files(
+    limit: int = 100,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """Return files with status='pending' and no batch_id, paginated.
+
+    Pending rows haven't been assigned to a batch yet, so they are
+    invisible to get_batches(). This helper surfaces them for the
+    batch-management UI's status-filter drill-down (v0.29.4).
+
+    Returns: {files: [...], total: int, limit: int, offset: int}
+    """
+    if limit < 1 or limit > 500:
+        raise ValueError("limit must be between 1 and 500")
+    if offset < 0:
+        raise ValueError("offset must be >= 0")
+
+    total_row = await db_fetch_one(
+        "SELECT COUNT(*) AS cnt FROM analysis_queue "
+        "WHERE status = 'pending' AND batch_id IS NULL"
+    )
+    total = total_row["cnt"] if total_row else 0
+
+    rows = await db_fetch_all(
+        """SELECT aq.id, aq.source_path, aq.status, aq.enqueued_at,
+                  sf.id AS source_file_id,
+                  sf.file_size_bytes, sf.source_mtime
+           FROM analysis_queue aq
+           LEFT JOIN source_files sf ON sf.source_path = aq.source_path
+           WHERE aq.status = 'pending' AND aq.batch_id IS NULL
+           ORDER BY aq.enqueued_at ASC
+           LIMIT ? OFFSET ?""",
+        (limit, offset),
+    )
+    return {
+        "files": [dict(r) for r in rows],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 async def exclude_files(file_ids: list[str]) -> int:

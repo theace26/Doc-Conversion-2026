@@ -4,6 +4,103 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.29.4 — Clickable status filters on Batch Management (2026-04-24)
+
+Batch Management was a decent operator view as shipped in v0.24.0 —
+you could see every batch, expand for files, exclude individual rows.
+But the five status counters at the top (Pending / Batched / Completed
+/ Failed / Excluded) were plain text: you could *see* that 4542 files
+were pending but couldn't *click through* to browse them. On this
+install the pending bucket was the largest one and had no UI surface
+at all, because pending rows have `batch_id = NULL` and the existing
+`/batches` endpoint only returned batched-or-later rows.
+
+### Backend additions
+
+**`core/db/analysis.py`:**
+
+- `get_batches(status_filter: str | None = None)` — when `status_filter`
+  is set, the returned `file_count`, `total_size_bytes`, and
+  `earliest_batched_at` reflect only rows matching that status, and
+  batches with zero matching rows are omitted. The derived `status`
+  field on each batch still comes from the full row set so operators
+  see the real shape of the batch (a batch with 7 completed + 3 failed
+  will still be labeled 'failed' even when the Completed filter is
+  active).
+- `get_batch_files(batch_id, status_filter: str | None = None)` —
+  same filter semantics.
+- `get_pending_files(limit=100, offset=0)` — NEW. Returns a paginated
+  flat list of rows with `status='pending' AND batch_id IS NULL`,
+  plus a `total` for UI pagination. Validates `1 ≤ limit ≤ 500` and
+  `offset ≥ 0`.
+
+**`api/routes/analysis.py`:**
+
+- `GET /api/analysis/batches?status=X` — optional status param,
+  validated against the canonical `{pending, batched, completed,
+  failed, excluded}` set (400 on bad input).
+- `GET /api/analysis/batches/{batch_id}/files?status=X` — same
+  param, same validation.
+- `GET /api/analysis/pending-files?limit=&offset=` — NEW endpoint.
+  Both params bounds-checked at the route layer too.
+
+### Frontend (`static/batch-management.html`)
+
+- Counters in the top bar are now `<button class="bm-count-btn">`.
+  Each has an `aria-pressed` state and a "Click to filter by X" title.
+  Click once → filter active + page reloads; click the same counter
+  again → filter cleared. A "Show all" pill appears when any filter
+  is active.
+- Active-filter state is a single JS variable (`activeStatusFilter`);
+  the counters re-render on every `/status` poll so the count numbers
+  stay live even while a filter is applied.
+- When filtering, a banner above the batch list explains what's being
+  shown ("Filtering to completed files (1209 total). Batches shown
+  are those containing at least one completed file; file lists inside
+  each batch are filtered the same way.").
+- **Pending pseudo-batch**: when `activeStatusFilter === 'pending'`,
+  the batch list is replaced by a single synthetic card titled
+  "Pending (not yet batched)". Expanding it calls `/pending-files`
+  with `limit=100 offset=0`, renders the first page, and appends a
+  "Load more (N of M)" footer that paginates through the rest. The
+  existing `renderFileTable` / `renderFileRow` / preview /
+  exclude logic is reused unchanged.
+- Expanded batch file lists honor the filter too: opening a batch
+  while the Failed filter is active calls `/batches/:id/files?status=failed`,
+  so operators only see the rows they care about.
+
+### Why these semantics
+
+Numbers that match when you follow them: the five status counters sum
+to the `analysis_queue` row count, and when you click one, the
+per-batch counts in the filtered view also sum to that counter. No
+arithmetic surprises, no "where did the other 40 files go?" moments.
+
+The derived batch status (`failed` / `batched` / `completed` / `mixed`)
+is intentionally NOT recomputed on the filtered subset — if a batch
+has 7 completed + 3 failed rows, showing 'completed' next to the
+filtered-to-7-completed-rows view would misrepresent the batch's
+actual state. Keeping the derivation on the full row set matches the
+"show me the real shape" instinct operators need when deciding whether
+to cancel or retry.
+
+### Files changed
+
+- `core/version.py` — bump to 0.29.4
+- `core/db/analysis.py` — three helpers extended/added
+- `api/routes/analysis.py` — two endpoints extended, one new
+- `static/batch-management.html` — counter buttons, filter banner,
+  pending pseudo-batch, paginated `/pending-files` call, filtered
+  batch-file load
+- `CLAUDE.md` — Current Version block
+- `docs/version-history.md` — this entry
+
+No database migration. No new dependency. No changes to the analysis
+worker or the batching queue itself — this release is purely a visibility
+and navigation improvement on top of existing data.
+
+---
+
 ## v0.29.3 — GPU reservation restored on NVIDIA hosts (2026-04-24)
 
 **Bug class:** silent multi-platform regression. v0.28.0 committed

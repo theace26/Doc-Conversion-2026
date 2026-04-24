@@ -1,3 +1,3 @@
 """Single source of truth for the MarkFlow version string."""
 
-__version__ = "0.29.3"
+__version__ = "0.29.4"

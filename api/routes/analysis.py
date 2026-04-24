@@ -39,8 +39,23 @@ from core.db.analysis import (
     get_analysis_stats,
     get_batch_files,
     get_batches,
+    get_pending_files,
     is_image_extension,
 )
+
+_VALID_STATUS_FILTERS = {"pending", "batched", "completed", "failed", "excluded"}
+
+
+def _parse_status_filter(status: str | None) -> str | None:
+    """Return a validated status filter or raise 400."""
+    if status is None or status == "":
+        return None
+    if status not in _VALID_STATUS_FILTERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"invalid status; must be one of {sorted(_VALID_STATUS_FILTERS)}",
+        )
+    return status
 from core.db.connection import db_fetch_one, db_fetch_all
 from core.path_utils import is_path_under_allowed_root
 
@@ -114,21 +129,55 @@ async def cancel_pending(
 
 @router.get("/batches")
 async def list_batches(
+    status: str | None = None,
     user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
 ) -> dict:
-    """List all analysis batches."""
-    batches = await get_batches()
+    """List all analysis batches.
+
+    Optional `?status=` filter restricts per-batch counts/sizes to
+    rows with that status (v0.29.4). Batches with zero matching rows
+    are omitted. Derived batch status is unaffected by the filter.
+    """
+    filt = _parse_status_filter(status)
+    batches = await get_batches(status_filter=filt)
     return {"batches": batches}
 
 
 @router.get("/batches/{batch_id}/files")
 async def batch_files(
     batch_id: str,
+    status: str | None = None,
     user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
 ) -> dict:
-    """Return files in a batch."""
-    files = await get_batch_files(batch_id)
+    """Return files in a batch.
+
+    Optional `?status=` filter restricts to rows with that status.
+    """
+    filt = _parse_status_filter(status)
+    files = await get_batch_files(batch_id, status_filter=filt)
     return {"files": files}
+
+
+@router.get("/pending-files")
+async def pending_files(
+    limit: int = 100,
+    offset: int = 0,
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+) -> dict:
+    """Return unbatched pending files, paginated (v0.29.4).
+
+    Pending rows have `batch_id IS NULL` so they're invisible to
+    /batches. The batch-management page renders them as a synthetic
+    "Pending (not yet batched)" pseudo-batch when the Pending counter
+    is clicked.
+    """
+    if limit < 1 or limit > 500:
+        raise HTTPException(
+            status_code=400, detail="limit must be between 1 and 500"
+        )
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="offset must be >= 0")
+    return await get_pending_files(limit=limit, offset=offset)
 
 
 @router.post("/exclude")
