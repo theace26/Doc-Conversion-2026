@@ -611,7 +611,13 @@
               // Drop the stale "No files" placeholder if present
               const placeholder = tbody.querySelector('tr td[colspan]');
               if (placeholder) tbody.removeChild(placeholder.parentNode);
-              files.forEach(f => tbody.appendChild(renderFileRow(f, () => {})));
+              // Also extend the fileMap so newly-appended rows participate
+              // in multi-select lookups.
+              if (!tbody.__fileMap) tbody.__fileMap = new Map();
+              files.forEach(f => {
+                tbody.__fileMap.set(f.id, f);
+                tbody.appendChild(renderFileRow(f, () => {}, tbody));
+              });
             }
           }
           container.dataset.loadedCount = String(loaded);
@@ -727,6 +733,12 @@
         bulkBtn.textContent = 'Exclude Selected';
         bulkBtn.disabled = true;
         bar.appendChild(bulkBtn);
+        const dlBtn = document.createElement('button');
+        dlBtn.className = 'btn btn-ghost btn-sm';
+        dlBtn.type = 'button';
+        dlBtn.textContent = 'Download Selected';
+        dlBtn.disabled = true;
+        bar.appendChild(dlBtn);
         const selInfo = document.createElement('span');
         selInfo.textContent = '0 selected';
         bar.appendChild(selInfo);
@@ -756,6 +768,12 @@
         table.appendChild(thead);
 
         const tbody = document.createElement('tbody');
+        // Stash a Map on the tbody so contextmenu handlers can recover the
+        // full file object from a checkbox's entryId without passing the
+        // whole array through every closure.
+        tbody.__fileMap = new Map();
+        files.forEach(f => tbody.__fileMap.set(f.id, f));
+
         if (files.length === 0) {
           const tr = document.createElement('tr');
           const td = document.createElement('td');
@@ -767,7 +785,7 @@
           tr.appendChild(td);
           tbody.appendChild(tr);
         } else {
-          files.forEach(f => tbody.appendChild(renderFileRow(f, updateSel)));
+          files.forEach(f => tbody.appendChild(renderFileRow(f, updateSel, tbody)));
         }
         table.appendChild(tbody);
         container.appendChild(table);
@@ -776,7 +794,20 @@
           const checked = tbody.querySelectorAll('input.row-cb:checked');
           selInfo.textContent = checked.length + ' selected';
           bulkBtn.disabled = checked.length === 0;
+          // Only enable Download Selected if every selected row has a
+          // source_file_id (rows without one can't be downloaded).
+          const selFiles = getSelectedFilesFromTbody(tbody);
+          const downloadable = selFiles.filter(f => !!f.source_file_id);
+          dlBtn.disabled = downloadable.length === 0;
+          dlBtn.textContent = checked.length > 0
+            ? 'Download Selected (' + downloadable.length + ')'
+            : 'Download Selected';
         }
+
+        dlBtn.addEventListener('click', () => {
+          const sel = getSelectedFilesFromTbody(tbody).filter(f => !!f.source_file_id);
+          downloadSelectedFiles(sel);
+        });
 
         bulkBtn.addEventListener('click', async () => {
           const ids = Array.from(tbody.querySelectorAll('input.row-cb:checked'))
@@ -793,6 +824,50 @@
             showError('Exclude failed: ' + e.message);
           }
         });
+      }
+
+      // ── Multi-select helpers (v0.29.6) ───────────────────────────────
+      const DOWNLOAD_ALL_CAP = 100;
+      const DOWNLOAD_STAGGER_MS = 120;  // small gap between synthetic clicks
+
+      function getSelectedFilesFromTbody(tbody) {
+        if (!tbody || !tbody.__fileMap) return [];
+        const out = [];
+        tbody.querySelectorAll('input.row-cb:checked').forEach(cb => {
+          const f = tbody.__fileMap.get(cb.dataset.entryId);
+          if (f) out.push(f);
+        });
+        return out;
+      }
+
+      async function downloadSelectedFiles(files) {
+        const downloadable = files.filter(f => !!f.source_file_id);
+        if (downloadable.length === 0) {
+          showError('None of the selected files are downloadable (source_file_id missing).');
+          return;
+        }
+        if (downloadable.length > DOWNLOAD_ALL_CAP) {
+          showError('Too many files selected (' + downloadable.length + '). Please select ' + DOWNLOAD_ALL_CAP + ' or fewer at a time.');
+          return;
+        }
+        const msg =
+          'Download ' + downloadable.length + ' file' +
+          (downloadable.length === 1 ? '' : 's') +
+          ' to your default downloads folder?\n\n' +
+          'Your browser may ask for permission to allow multiple downloads the first time.';
+        if (!confirm(msg)) return;
+
+        for (let i = 0; i < downloadable.length; i++) {
+          const f = downloadable[i];
+          const url = '/api/analysis/files/' + encodeURIComponent(f.source_file_id) + '/download';
+          triggerDownload(url, basename(f.source_path));
+          if (i < downloadable.length - 1) {
+            await new Promise(r => setTimeout(r, DOWNLOAD_STAGGER_MS));
+          }
+        }
+        if (typeof showToast === 'function') {
+          showToast('Started ' + downloadable.length + ' download' + (downloadable.length === 1 ? '' : 's'));
+        }
       }
 
       // ── Context menu (v0.29.5) ────────────────────────────────────────
@@ -1073,7 +1148,7 @@
         }
       }
 
-      function showContextMenu(x, y, f, onAfterExclude) {
+      function showContextMenu(x, y, f, onAfterExclude, tbody) {
         closeCtxMenu();
         const menu = document.createElement('div');
         menu.className = 'bm-ctx';
@@ -1089,6 +1164,20 @@
           ? '/api/analysis/files/' + encodeURIComponent(f.source_file_id) + '/preview'
           : null;
         const openUrl = (previewUrl && isImageExt(f.source_path)) ? previewUrl : downloadUrl;
+
+        // v0.29.6: if any rows are currently selected in this tbody, show a
+        // multi-download item at the top. Standard file-explorer behavior:
+        // if a selection exists, the context menu can operate on it.
+        const selected = getSelectedFilesFromTbody(tbody);
+        const downloadableSelected = selected.filter(x => !!x.source_file_id);
+        if (downloadableSelected.length > 0) {
+          menu.appendChild(ctxItem({
+            icon: '⇓',
+            label: 'Download selected (' + downloadableSelected.length + ')',
+            onClick: () => downloadSelectedFiles(selected),
+          }));
+          menu.appendChild(ctxSep());
+        }
 
         menu.appendChild(ctxItem({
           icon: '↗', label: 'Open in new tab',
@@ -1150,14 +1239,14 @@
         openCtxMenu = menu;
       }
 
-      function renderFileRow(f, updateSel) {
+      function renderFileRow(f, updateSel, tbody) {
         const tr = document.createElement('tr');
         tr.addEventListener('contextmenu', (ev) => {
           ev.preventDefault();
           showContextMenu(ev.clientX, ev.clientY, f, async () => {
             await refreshStatus();
             await loadBatches();
-          });
+          }, tbody);
         });
 
         const cbTd = document.createElement('td');

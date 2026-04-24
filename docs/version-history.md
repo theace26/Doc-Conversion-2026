@@ -4,6 +4,87 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.29.6 — Multi-file download on Batch Management (2026-04-24)
+
+Closes the obvious gap in v0.29.5: the per-row context menu didn't
+account for the fact that the page already has a multi-select
+checkbox column. You could bulk-exclude but not bulk-download — even
+though operators reviewing a batch are usually triaging multiple
+images at once, not one.
+
+### What's new
+
+- **Bulk toolbar button**: the "Exclude Selected" row above each
+  file table now also has a **Download Selected (N)** button.
+  Activates once any checkboxes are checked; the count in parens
+  reflects only rows that have a valid `source_file_id` (rows
+  without one can't hit the download endpoint — usually because the
+  corresponding `source_files` row was purged).
+- **Context menu (v0.29.5) integration**: right-clicking any file
+  row while 1+ rows are selected prepends a "Download selected (N)"
+  item at the top of the menu with its own separator group. This
+  mirrors standard file-explorer convention — a context menu opened
+  over a multi-select operates on the selection, not just the
+  right-clicked row.
+- **Cap + stagger**: each triggered download is a synthetic
+  `<a download>` click. To avoid saturating the browser's download
+  manager, the click loop `await`s 120 ms between each trigger. Hard
+  cap at **100 files per invocation**; exceeding it surfaces an
+  error toast asking the user to narrow the selection.
+- **Pending pseudo-batch** rows participate: the `__fileMap` on the
+  tbody is extended on every "Load more" paginator so that rows
+  loaded after the initial 100 still resolve to their full file
+  object for the multi-download lookup.
+
+### Why synthetic clicks instead of a server-side zip
+
+The minimal path. A server-side zip endpoint would be cleaner UX
+(single downloaded archive), but:
+
+- It requires streaming to avoid buffering many GB in memory for a
+  large selection.
+- It adds a second file-serving path to security-review
+  (path-safety, auth scoping, rate limits).
+- It duplicates the download endpoint's MIME + content-disposition
+  handling.
+
+For v1 the client-side approach is enough — browsers handle it
+natively, the first download triggers a "allow multiple?" permission
+prompt that then grants the rest, and the existing `/download`
+endpoint is already audit-logged per request. If the operator
+workload ever shifts to "download 500+ files at once," a server-side
+zip endpoint is a reasonable v2.
+
+### Implementation notes
+
+- **`getSelectedFilesFromTbody(tbody)`** — walks `tbody.__fileMap`
+  against `:checked` checkboxes and returns the full file-object
+  array. Avoids re-querying the backend for selection state.
+- **`downloadSelectedFiles(files)`** — filters to rows with
+  `source_file_id`, applies the 100-file cap, confirms with the user
+  (message calls out the browser's multi-download prompt), then
+  iterates with `await new Promise(r => setTimeout(r, 120))` between
+  clicks.
+- **`showContextMenu(x, y, f, onAfterExclude, tbody)`** — new
+  `tbody` parameter. When non-null and selection > 0, prepends the
+  download-selected menu item.
+- **`renderFileRow(f, updateSel, tbody)`** — new `tbody` parameter,
+  threaded through to the contextmenu handler. Both call sites
+  updated (`renderFileTable` + `loadPendingFiles` Load-more path).
+
+### Files changed
+
+- `core/version.py` — bump to 0.29.6
+- `static/batch-management.html` — two new helpers, three updated
+  functions, one new toolbar button (~65 lines of JS + a tiny
+  flex-gap tweak)
+- `CLAUDE.md` — Current Version block
+- `docs/version-history.md` — this entry
+
+No backend change. No database migration. No new dependency.
+
+---
+
 ## v0.29.5 — File-row context menu on Batch Management (2026-04-24)
 
 Builds on the v0.29.4 clickable-counter filters. Right-click any file

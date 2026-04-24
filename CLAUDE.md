@@ -91,10 +91,40 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.29.5
+## Current Version — v0.29.6
 
-**Right-click context menu on Batch Management file rows —
-per-file actions without hunting for the right button.**
+**Multi-file download on Batch Management — "Download selected (N)"
+in the context menu + a Download Selected button in the bulk bar.**
+
+- **Bulk toolbar**: the existing "Exclude Selected" bar above each
+  file table now also has a "Download Selected (N)" button that
+  activates once any checkboxes are checked. N counts only rows with
+  a `source_file_id` (rows without one can't be downloaded —
+  usually because `source_files` lost the row).
+- **Context menu**: right-clicking any file row with 1+ rows
+  checkbox-selected shows "Download selected (N)" at the top of the
+  menu with its own separator. Matches standard file-explorer
+  convention — if a selection exists, the context menu can operate
+  on it.
+- **Execution**: sequential synthetic-anchor clicks with a 120 ms
+  stagger between each. Browsers will usually prompt once on the
+  first attempt ("allow this site to download multiple files?")
+  and then batch the rest. Hard cap at **100 files per trigger** —
+  above that, the user is asked to select fewer and try again.
+  Rationale: 100+ simultaneous downloads reliably exhaust the browser's
+  download manager and rate-limits on most sites.
+- **No backend change**. Reuses the existing
+  `/api/analysis/files/:id/download` endpoint once per selected file.
+
+Files: `core/version.py`, `static/batch-management.html`,
+`CLAUDE.md`, `docs/version-history.md`.
+
+---
+
+## v0.29.5 — Right-click context menu on Batch Management file rows
+
+Right-click context menu on Batch Management file rows — per-file
+actions without hunting for the right button.
 
 - **Right-click any file row** on `/batch-management.html` to open a
   7-item context menu: Open in new tab · Download · Save as… · Copy
