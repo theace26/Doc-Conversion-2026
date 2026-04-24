@@ -585,7 +585,8 @@ images, fonts, code, config, and binary metadata.
 ## Running the App
 
 ```bash
-# First time only — build the base image (slow, ~25 min HDD / ~5 min SSD):
+# First time — or whenever Dockerfile.base changes (apt packages,
+# torch version, etc.) — rebuild the base (~25 min HDD / ~5 min SSD):
 docker build -f Dockerfile.base -t markflow-base:latest .
 
 # Normal operation:
@@ -597,3 +598,14 @@ docker-compose down           # stop
 
 After code changes: `docker-compose build && docker-compose up -d`
 (Only rebuilds pip + code layer — base image is cached.)
+
+**When does the base need rebuilding?** Anytime `Dockerfile.base`
+changes — new apt packages, a torch version bump, etc. The app-layer
+build (`docker-compose build`) reuses the cached base, so system-level
+additions won't land without a fresh base build. To check after
+pulling a branch:
+```bash
+git diff <last-known-good-sha>..HEAD -- Dockerfile.base requirements.txt
+```
+If non-empty and touching apt packages, do the full sequence: base
+build → `docker-compose build` → `docker-compose up -d`.

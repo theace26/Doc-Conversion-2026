@@ -1242,6 +1242,20 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 ## Container & Dependencies
 
+- **Base image rebuild trigger**: Any change to `Dockerfile.base` —
+  new apt packages, torch version bump, system-lib swap — requires
+  a full base rebuild (`docker build -f Dockerfile.base -t markflow-base:latest .`).
+  The app-layer build (`docker-compose build`) reuses the cached base,
+  so system-level additions silently won't land. Caught
+  2026-04-24 when v0.28.0 added `cifs-utils` + `smbclient` to
+  `Dockerfile.base` for the Universal Storage Manager — without a
+  base rebuild, `mount.cifs` wouldn't exist in the container and every
+  SMB share added via the new Storage UI would fail. Always diff
+  `Dockerfile.base` after switching branches:
+  `git diff <old-sha>..HEAD -- Dockerfile.base requirements.txt`.
+  The overnight rebuild script (`Scripts/work/overnight/rebuild.ps1`)
+  handles this automatically; manual rebuilds must remember it.
+
 - **Debian trixie package name**: `libgdk-pixbuf-2.0-0` (not `libgdk-pixbuf2.0-0`).
 
 - **No Pico CSS**: All pages use `markflow.css`. Dark mode via `@media (prefers-color-scheme: dark)`.
