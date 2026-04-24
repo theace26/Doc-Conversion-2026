@@ -576,7 +576,7 @@
 
       try {
         const d = await API.get('/api/admin/stats');
-        renderStats(d);
+        await renderStats(d);
         document.getElementById('stats-generated-at').textContent =
           `Updated ${formatRelativeTime(d.generated_at)}`;
       } catch (e) {
@@ -588,7 +588,7 @@
       loadPipelineFunnel();
     }
 
-    function renderStats(d) {
+    async function renderStats(d) {
       const bf = d.bulk_files || {};
       const ch = d.conversion_history || {};
       const ocr = d.ocr_queue || {};
@@ -601,7 +601,10 @@
       setText('kpi-ocr-pending',   fmt(ocr.pending));
       setText('kpi-pending',       fmt(bf.by_status?.pending));
 
-      // Load flag stats
+      // Load flag stats (v0.30.2: function was non-async, causing a parse error
+      // that blanked the entire Admin panel — every card stuck at '--' + every
+      // async loader at 'Loading...'. Declaring the function async fixes the
+      // parser-level failure so the whole file loads again.)
       try {
         var flagStats = await API.get('/api/flags/stats');
         setText('kpi-flagged', fmt((flagStats.active || 0) + (flagStats.extended || 0)));

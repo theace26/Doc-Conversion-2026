@@ -91,11 +91,39 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.30.1
+## Current Version — v0.30.2
 
-**Log Management subsystem — admin inventory page with download /
+**Hot fix: Admin panel was stuck on all-`--` / "Loading…" because
+`renderStats` used `await` without being `async`. Single-character
+JavaScript parse error blanked the entire `/admin.html` script block,
+so no listeners ever attached, no stats ever rendered. Pre-existing
+bug surfaced when the user refreshed the page against a healthy
+v0.30.1 container. Fix is three characters: add `async ` in front of
+`function renderStats(d)`.**
+
+Why it looked like everything broke: the `<script>` tag's parse
+failure means ZERO client-side JS runs — `loadStats()` never fires,
+`loadPipelineFunnel()` never fires, `Refresh` button never gets a
+click handler. The browser just renders the initial HTML skeleton,
+which hardcodes "—" in every counter cell and "Loading…" in every
+async section. Looks like "the backend is broken," but every endpoint
+was actually responding in <200 ms — the client-side just never
+asked.
+
+Also made the caller `await renderStats(d)` so exceptions inside the
+flag-stats fetch propagate up to the existing catch and trip the
+"Failed to load stats" toast instead of silently failing.
+
+Files: `core/version.py`, `static/admin.html`, `CLAUDE.md`,
+`docs/version-history.md`.
+
+---
+
+## v0.30.1 — Log Management subsystem
+
+Log Management subsystem — admin inventory page with download /
 multi-select / bundle, plus a live SSE tail viewer with historical
-search, level filters, and substring / regex queries.**
+search, level filters, and substring / regex queries.
 
 Two new admin pages under the existing admin.html:
 

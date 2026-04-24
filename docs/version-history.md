@@ -4,6 +4,72 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.30.2 — Admin panel hot fix: async/await parse error in renderStats (2026-04-24)
+
+Hot three-character patch. Admin panel was visibly broken — every
+KPI card stuck at "--", every async section at "Loading...", every
+table empty. User reported it after pulling v0.30.1.
+
+### Root cause
+
+`static/admin.html:591` declared `function renderStats(d)` as a
+plain (non-async) function, then on line 606 used
+`await API.get('/api/flags/stats')` inside it. That's a SyntaxError
+at parse time:
+
+```
+SyntaxError: Unexpected reserved word 'await' (at admin.html:606)
+```
+
+When a `<script>` block fails to parse, NONE of its code runs —
+not `loadStats()`, not `loadPipelineFunnel()`, not the
+event-listener hookup for the Refresh button. The browser just
+renders the initial HTML skeleton, which hardcodes `--` in every
+counter and "Loading..." in every async panel. To an operator it
+looks identical to "all backend endpoints are timing out," but
+`curl` against the same endpoints returned 200 in <200 ms.
+
+The bug was pre-existing (not introduced by v0.30.1). It likely
+crept in during an earlier iteration on the stats-rendering path
+that didn't get hit at load time on the test machine where it was
+edited.
+
+### Fix
+
+1. `function renderStats(d)` -> `async function renderStats(d)`.
+2. `loadStats` now does `await renderStats(d)` so exceptions
+   inside the `/api/flags/stats` fetch propagate to the existing
+   try/catch (they were previously swallowed silently).
+
+### Verification recipe
+
+```bash
+# Confirm the endpoints are already fast (they always were):
+time curl -sS http://localhost:8000/api/admin/stats | head -c 200
+# After rebuild, hard-refresh /admin.html - all KPI cards populate
+# within ~200 ms, Pipeline Funnel loads, Recent Errors table
+# populates.
+```
+
+### Files
+
+- `core/version.py` - bump to 0.30.2
+- `static/admin.html` - two single-line edits (async keyword,
+  await on caller)
+- `CLAUDE.md` - Current Version block
+- `docs/version-history.md` - this entry
+
+### Deferred
+
+`/api/admin/disk-usage` is genuinely slow (>60 s on the current
+install) because it walks the output-repo with Python's
+`rglob("*")` over ~100 K files. That's orthogonal to the
+renderStats bug - it wouldn't have blocked the KPI cards from
+populating. A follow-up can swap the walker to `du -sb`
+subprocess + 5-min TTL cache.
+
+---
+
 ## v0.30.1 — Log Management subsystem (admin + viewer) (2026-04-24)
 
 New admin-only subsystem for log observability. Two pages, one
