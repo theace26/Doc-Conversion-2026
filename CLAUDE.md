@@ -91,15 +91,83 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.30.2
+## Current Version — v0.30.3
 
-**Hot fix: Admin panel was stuck on all-`--` / "Loading…" because
+**Four-in-one operations release: real source/output paths shown on
+Active Jobs, stuck-scanning auto-cleanup, disk-usage 100×-faster
+via `du` + 5-min TTL cache, and a Force Transcribe / Convert Pending
+button on the History page.**
+
+### 1. Active Jobs shows the actual configured paths
+
+The Active Jobs card displayed `/mnt/source → /mnt/output-repo` —
+the legacy container mount points the bulk worker uses internally.
+Operators want to see the user-facing Storage-Manager paths
+(`/host/d/k_drv_test → /host/d/Doc-Conv_Test`). Backend
+`/api/admin/active-jobs` now enriches each job with
+`display_source_path` (from `storage_sources_json` preference) and
+`display_output_path` (from `storage_manager.get_output_path()`).
+Frontend prefers them with a graceful fallback to the raw paths so
+nothing breaks if the Storage Manager isn't configured yet.
+
+### 2. Stuck-scanning auto-cleanup
+
+A scan that started under one container and finished after the
+container was recreated would leave a zombie job displayed forever
+(status='scanning', no scanner running to update it, no stale-job
+sweep covering 'scanning'). Extended `cleanup_stale_jobs` migration
+to catch BOTH 'running' and 'scanning' with stale heartbeat. Also
+stamps `completed_at` and writes a descriptive `error_msg` so
+operators see what happened. The current zombie was cleared
+manually via one-shot SQL.
+
+### 3. `/api/admin/disk-usage` 100× faster
+
+Was hanging past 60 s — Python's `rglob("*")` over ~100 K files in
+the output repo. Replaced with `du -sb` subprocess (orders of
+magnitude faster — sub-second on the same tree). Wrapped the whole
+`_compute_disk_usage` result in a 5-minute TTL cache so repeat
+admin-page loads return instantly. `?refresh=true` query param
+bypasses the cache when the operator clicks Refresh.
+
+### 4. Force Transcribe / Convert Pending button
+
+History page → Pending Files card → new "Force Transcribe / Convert
+Pending" button. Hits the existing `/api/pipeline/run-now` endpoint
+which triggers an immediate scan + convert cycle. The bulk worker
+picks up every pending file in priority order, including audio /
+video → Whisper transcription. Confirmation dialog warns about
+LLM/transcription quota consumption.
+
+### Files
+
+- `core/version.py` — bump to 0.30.3
+- `core/db/migrations.py` — `cleanup_stale_jobs` covers
+  'scanning', stamps `completed_at` + descriptive `error_msg`
+- `api/routes/admin.py` — `_resolve_display_source_path` /
+  `_resolve_display_output_path` helpers; `/active-jobs` enriches
+  each job; `_walk_dir` prefers `du -sb` (with fallback);
+  `_compute_disk_usage` TTL-cached; `/disk-usage` accepts
+  `?refresh=true`
+- `static/status.html` — Active Jobs card prefers
+  `display_*_path`, falls back to raw `*_path`
+- `static/history.html` — Force Transcribe button + handler
+- `CLAUDE.md`, `docs/version-history.md`
+
+No DB migration needed — `cleanup_stale_jobs` runs on lifespan
+startup and handles existing rows. No new dependencies.
+
+---
+
+## v0.30.2 — Hot fix: async/await parse error in admin.html renderStats
+
+Admin panel was stuck on all-`--` / "Loading…" because
 `renderStats` used `await` without being `async`. Single-character
 JavaScript parse error blanked the entire `/admin.html` script block,
 so no listeners ever attached, no stats ever rendered. Pre-existing
 bug surfaced when the user refreshed the page against a healthy
 v0.30.1 container. Fix is three characters: add `async ` in front of
-`function renderStats(d)`.**
+`function renderStats(d)`.
 
 Why it looked like everything broke: the `<script>` tag's parse
 failure means ZERO client-side JS runs — `loadStats()` never fires,

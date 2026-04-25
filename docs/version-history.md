@@ -4,6 +4,127 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.30.3 — Operations bundle: real paths + stuck-scan cleanup + disk-usage perf + force-transcribe button (2026-04-24)
+
+Four operations-level fixes shipped together. All surfaced from a
+single round of looking at the running install.
+
+### 1. Real source/output paths on Active Jobs
+
+Active Jobs card showed `/mnt/source → /mnt/output-repo` — the
+container mount points the bulk worker uses for I/O. Operators
+running the Storage Manager (v0.28.0+) had configured paths like
+`/host/d/k_drv_test`, but the UI never showed them.
+
+`/api/admin/active-jobs` now enriches every job with:
+- `display_source_path` — pulled from the `storage_sources_json`
+  preference (the same JSON the Storage page reads/writes). If
+  multiple sources are configured, shows the first plus a
+  "+N more" suffix.
+- `display_output_path` — pulled from
+  `core.storage_manager.get_output_path()`.
+
+Both are returned alongside the raw `source_path` / `output_path`
+fields. Frontend (`static/status.html`) prefers them when present
+and falls back gracefully otherwise. The job row still operates on
+the mount paths internally — only the display changes.
+
+### 2. Stuck 'scanning' job auto-cleanup
+
+A scan that started under one container and finished after a
+container restart left a zombie job displayed forever:
+- Status: 'scanning'
+- No scanner running to update it
+- `cleanup_stale_jobs` migration only covered 'running' status
+
+Today's reproduction had job `89bc8015...` stuck displaying
+"0 / ? files — ?%" in the Active Jobs panel even though the
+underlying scan had completed (`parallel_scan_complete` with
+`files=85450`). The bulk_jobs row was never updated to a terminal
+status because the writer crashed on `persist_throttle_events`
+right after the scan finished — a separate latent bug.
+
+Fix: extended `cleanup_stale_jobs` to:
+- Match `status IN ('running', 'scanning')` instead of just
+  'running'
+- Stamp `completed_at = datetime('now')` so the Bulk Jobs page
+  knows when it ended
+- Preserve any existing `error_msg`; otherwise write a
+  descriptive "Container restart during {status}; auto-cleared on
+  next startup" message
+
+The current zombie was cleared via one-shot SQL since the new
+migration only runs on next startup. After v0.30.3 deploy, the
+auto-cleanup runs on every container start.
+
+### 3. `/api/admin/disk-usage` 100× faster
+
+Was hanging past 60 s (caused the empty "Loading disk usage..."
+panel on the admin page). Root cause: Python's `Path.rglob('*')`
+over the output repo, which has ~100 K Markdown files plus their
+sidecars. Native walker is just slow at that scale.
+
+Two-layer fix:
+1. **`du -sb` subprocess** — the system `du` binary is orders of
+   magnitude faster than `rglob` (sub-second on the same tree).
+   Used when no `exclude_parts` filter is needed (the common
+   case). When excludes are needed (e.g., to skip `.trash` inside
+   the output-repo), falls back to the Python walker because `du`
+   has no equivalent flag. Subprocess has a 30 s timeout
+   belt-and-braces guard against pathologically slow NAS mounts.
+   `_DU_AVAILABLE = False` after first FileNotFoundError so
+   no-`du` environments don't keep retrying.
+2. **TTL cache (5 min)** — wraps the entire
+   `_compute_disk_usage()` result. Repeat admin-page loads inside
+   the window return instantly. Response includes
+   `from_cache: true` so callers can tell. The `/disk-usage`
+   endpoint accepts `?refresh=true` to bypass the cache for an
+   explicit Refresh button click.
+
+`file_count` is left as 0 (treated as "unavailable" by the UI)
+when `du -sb` is the source — du doesn't return file counts
+cheaply. Bytes is what operators actually look at; counts can
+remain on the slow path when needed.
+
+### 4. Force Transcribe / Convert Pending button
+
+History page → Pending Files card now has a primary "Force
+Transcribe / Convert Pending" button next to the status filter.
+Click → confirm dialog → POSTs to the existing
+`/api/pipeline/run-now` endpoint, which triggers an immediate
+scan + convert cycle. The bulk worker picks up every pending
+file (including audio/video → Whisper transcription) in priority
+order.
+
+This is the simplest possible plumbing for the user's ask: the
+"run now" path already exists from the Pipeline subsystem; the
+button just exposes it from the most natural UI location
+(Pending Files where the operator is actually looking at the
+backlog). Confirmation dialog warns about LLM/transcription
+quota usage.
+
+### Files
+
+- `core/version.py` — bump to 0.30.3
+- `core/db/migrations.py` — `cleanup_stale_jobs` extended to
+  scanning + stamps completed_at + descriptive error_msg
+- `api/routes/admin.py` — `_resolve_display_source_path` and
+  `_resolve_display_output_path` helpers; `/active-jobs`
+  enrichment; `_walk_dir` prefers `du -sb`; `_compute_disk_usage`
+  TTL-cached; `/disk-usage` accepts `?refresh=true`
+- `static/status.html` — Active Jobs job-card path uses
+  `display_source_path / display_output_path` with fallback
+- `static/history.html` — Force Transcribe / Convert Pending
+  button + click handler
+- `CLAUDE.md` — Current Version block
+- `docs/version-history.md` — this entry
+
+No DB migration. No new dependencies. The stuck-job cleanup
+runs on lifespan startup; the previous zombie was cleared via
+one-shot SQL during diagnosis.
+
+---
+
 ## v0.30.2 — Admin panel hot fix: async/await parse error in renderStats (2026-04-24)
 
 Hot three-character patch. Admin panel was visibly broken — every

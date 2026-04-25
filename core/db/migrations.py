@@ -90,17 +90,27 @@ async def add_heartbeat_column():
 
 
 async def cleanup_stale_jobs():
-    """Mark jobs stuck in 'running' with stale heartbeat as 'interrupted'."""
+    """Mark jobs stuck in 'running' OR 'scanning' with stale heartbeat
+    as 'interrupted'. v0.30.3: 'scanning' added — without it, a
+    container restart mid-scan would leave a zombie job displayed in
+    the Active Jobs UI forever (no scanner running to update it,
+    status never moves off 'scanning'). Also stamps `completed_at` so
+    the Bulk Jobs page knows when it stopped."""
     stale = await db_fetch_all("""
-        SELECT id FROM bulk_jobs
-        WHERE status = 'running'
+        SELECT id, status FROM bulk_jobs
+        WHERE status IN ('running', 'scanning')
           AND (last_heartbeat IS NULL OR last_heartbeat < datetime('now', '-30 minutes'))
     """)
     for row in stale:
         await db_execute(
-            "UPDATE bulk_jobs SET status = 'interrupted' WHERE id = ?",
-            (row["id"],),
+            "UPDATE bulk_jobs "
+            "SET status = 'interrupted', "
+            "    completed_at = datetime('now'), "
+            "    error_msg = COALESCE(error_msg, 'Container restart during ' || ? || '; auto-cleared on next startup') "
+            "WHERE id = ?",
+            (row["status"], row["id"]),
         )
-        log.warning("migration.stale_job_interrupted", job_id=row["id"])
+        log.warning("migration.stale_job_interrupted",
+                    job_id=row["id"], prior_status=row["status"])
     if stale:
         log.info("migration.stale_jobs_cleaned", count=len(stale))

@@ -443,6 +443,26 @@ async def active_jobs(
     lifecycle = get_scan_state()
     stop = get_stop_state()
 
+    # v0.30.3: enrich each bulk job with display_source_path /
+    # display_output_path that reflect the user-configured Storage
+    # Manager paths (e.g. /host/d/k_drv_test) instead of the legacy
+    # container mount points (/mnt/source, /mnt/output-repo). The job
+    # itself still operates on the mount paths for I/O.
+    try:
+        display_source = await _resolve_display_source_path()
+        display_output = await _resolve_display_output_path()
+        for j in bulk_jobs:
+            src = j.get("source_path") or ""
+            out = j.get("output_path") or ""
+            j["display_source_path"] = (
+                display_source if src in ("/mnt/source", "") and display_source else src
+            )
+            j["display_output_path"] = (
+                display_output if out in ("/mnt/output-repo", "") and display_output else out
+            )
+    except Exception as exc:
+        log.debug("active_jobs.display_path_resolve_failed", error=str(exc))
+
     running_count = (
         sum(1 for j in bulk_jobs if j["status"] in ("scanning", "running", "paused"))
         + (1 if lifecycle["running"] else 0)
@@ -454,6 +474,39 @@ async def active_jobs(
         "bulk_jobs": bulk_jobs,
         "lifecycle_scan": lifecycle,
     }
+
+
+async def _resolve_display_source_path() -> str:
+    """Resolve the user-friendly display source path. If the user has
+    configured one or more sources via the Storage page, return them
+    joined; otherwise return empty string (caller falls back to the
+    container mount path)."""
+    try:
+        from core.database import get_preference
+        import json as _json
+        raw = await get_preference("storage_sources_json") or "[]"
+        sources = _json.loads(raw)
+        if isinstance(sources, list) and sources:
+            paths = [s.get("path") for s in sources if isinstance(s, dict) and s.get("path")]
+            if paths:
+                if len(paths) == 1:
+                    return paths[0]
+                # Multiple sources — show first + count for brevity
+                return f"{paths[0]}  (+{len(paths) - 1} more)"
+    except Exception:
+        pass
+    return ""
+
+
+async def _resolve_display_output_path() -> str:
+    """Resolve the user-friendly display output path from
+    storage_manager (the same value that the Storage page shows
+    under Output Directory)."""
+    try:
+        from core.storage_manager import get_output_path
+        return get_output_path() or ""
+    except Exception:
+        return ""
 
 
 # ── GET /api/admin/stats ─────────────────────────────────────────────────
@@ -516,12 +569,54 @@ def _human_bytes(n: int) -> str:
     return f"{n:.2f} PB"
 
 
+_DU_AVAILABLE: bool | None = None
+
+
+def _du_subprocess_bytes(path: Path) -> int | None:
+    """Use the system `du -sb` (Linux) for fast directory-size totals.
+    Native walker is dramatically faster than Python's `rglob('*')` on
+    100K+ file trees — the difference between sub-second and minutes.
+    Returns None on any failure (caller falls back to Python walker)."""
+    global _DU_AVAILABLE
+    if _DU_AVAILABLE is False:
+        return None
+    try:
+        import subprocess
+        # `--bytes` (-b) returns raw bytes, no rounding. Timeout is a
+        # belt-and-braces guard against a NAS that's slow even for du.
+        res = subprocess.run(
+            ["du", "-sb", str(path)],
+            capture_output=True, text=True, timeout=30,
+        )
+        if res.returncode != 0:
+            return None
+        # Output: "<bytes>\t<path>\n"
+        return int(res.stdout.split("\t", 1)[0].strip())
+    except FileNotFoundError:
+        _DU_AVAILABLE = False
+        return None
+    except (subprocess.TimeoutExpired, ValueError, OSError):
+        return None
+
+
 def _walk_dir(path: Path, exclude_parts: set[str] | None = None) -> tuple[int, int]:
-    """Walk directory tree, return (total_bytes, file_count). Runs in a thread."""
-    total = 0
-    count = 0
+    """Walk directory tree, return (total_bytes, file_count). Runs in a thread.
+
+    v0.30.3: when no exclude filter is in play, prefer the native `du -sb`
+    binary — orders of magnitude faster than Python's `rglob` on the
+    100K+ file trees we now routinely walk. file_count is left as None in
+    that path because `du` doesn't return it cheaply; UI treats None as
+    "unavailable" not "zero". When exclude_parts is supplied (e.g. to
+    skip .trash inside output-repo), we have to use the Python walker
+    because `du` doesn't have a directly equivalent flag."""
     if not path.exists() or not path.is_dir():
         return 0, 0
+    if exclude_parts is None:
+        du_bytes = _du_subprocess_bytes(path)
+        if du_bytes is not None:
+            return du_bytes, 0  # 0 == "count unavailable" (callers ignore zero)
+    total = 0
+    count = 0
     try:
         for f in path.rglob("*"):
             if not f.is_file():
@@ -536,6 +631,30 @@ def _walk_dir(path: Path, exclude_parts: set[str] | None = None) -> tuple[int, i
     except OSError:
         pass
     return total, count
+
+
+# v0.30.3: TTL cache around the disk-usage compute. The full report
+# walks several large directories; even with `du -sb` it takes seconds
+# on cold filesystems. Cache for 5 min so repeat admin-page loads
+# return instantly.
+_disk_usage_cache: tuple[float, dict] | None = None
+_DISK_USAGE_TTL_S = 300
+
+
+def _get_cached_disk_usage() -> dict | None:
+    if _disk_usage_cache is None:
+        return None
+    cached_at, value = _disk_usage_cache
+    import time as _time
+    if _time.time() - cached_at > _DISK_USAGE_TTL_S:
+        return None
+    return value
+
+
+def _set_cached_disk_usage(value: dict) -> None:
+    global _disk_usage_cache
+    import time as _time
+    _disk_usage_cache = (_time.time(), value)
 
 
 def _stat_file(path: Path) -> tuple[int, int]:
@@ -671,11 +790,25 @@ def _compute_disk_usage() -> dict:
 
 @router.get("/disk-usage")
 async def disk_usage(
+    refresh: bool = False,
     user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
 ):
-    """Disk usage breakdown for all MarkFlow directories."""
+    """Disk usage breakdown for all MarkFlow directories.
+
+    v0.30.3: result is TTL-cached for 5 minutes so repeat admin
+    visits don't re-walk the output repo. Pass `?refresh=true` to
+    bypass the cache (used by the manual Refresh button).
+    """
+    if not refresh:
+        cached = _get_cached_disk_usage()
+        if cached is not None:
+            cached_with_meta = dict(cached)
+            cached_with_meta["from_cache"] = True
+            return cached_with_meta
     try:
-        return await asyncio.to_thread(_compute_disk_usage)
+        result = await asyncio.to_thread(_compute_disk_usage)
+        _set_cached_disk_usage(result)
+        return result
     except Exception as exc:
         log.error("admin.disk_usage_failed", error=str(exc))
         return {

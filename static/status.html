@@ -279,7 +279,7 @@
               '<span class="status-pill status-pill--' + job.status + '">' + job.status.toUpperCase() + '</span>' +
               ' <span class="text-muted text-sm mono">' + job.job_id.slice(0, 8) + '\u2026</span>' +
             '</div>' +
-            '<div class="job-card__path">' + esc(job.source_path) + ' \u2192 ' + esc(job.output_path) + '</div>' +
+            '<div class="job-card__path">' + esc(job.display_source_path || job.source_path) + ' \u2192 ' + esc(job.display_output_path || job.output_path) + '</div>' +
           '</div>' +
           actions +
         '</div>' +
