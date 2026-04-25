@@ -36,6 +36,21 @@
     .lm-settings-grid label { align-self: center; color: var(--text-muted, #aaa); font-size: 0.88rem; }
     .lm-settings-grid input, .lm-settings-grid select { padding: 0.35rem 0.55rem; background: var(--bg-secondary, #1a1a2e); color: var(--text, #eee); border: 1px solid var(--border, #2b2b3f); border-radius: var(--radius-sm, 4px); font-family: inherit; font-size: 0.88rem; }
     .lm-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    /* v0.31.1: 7z cap warning + system snapshot styling */
+    .lm-cap-warn { font-size: 0.78rem; padding: 0.2rem 0; }
+    .lm-cap-warn.warn { color: #fbbf24; }
+    .lm-cap-warn.error { color: #f87171; }
+    .lm-cap-warn.ok { color: var(--text-muted, #aaa); }
+    .lm-system-row {
+      margin-top: 0.85rem; padding: 0.55rem 0.7rem;
+      background: rgba(96,165,250,0.06);
+      border: 1px solid rgba(96,165,250,0.18);
+      border-radius: var(--radius-sm, 4px);
+      font-size: 0.82rem; color: var(--text-muted, #ccd);
+      max-width: 760px; line-height: 1.45;
+    }
+    .lm-system-row strong { color: var(--text, #eee); }
+    .lm-system-row .lm-warn-bad { color: #fbbf24; }
   </style>
 </head>
 <body>
@@ -88,6 +103,11 @@
         <input id="lm-retention" type="number" min="1" max="3650" step="1">
         <label for="lm-rotmax">Rotation size per log (MB)</label>
         <input id="lm-rotmax" type="number" min="10" max="10240" step="10">
+        <label for="lm-7zmax">7z search byte cap (MB)</label>
+        <div>
+          <input id="lm-7zmax" type="number" min="1" max="4096" step="10" style="width: 8rem">
+          <div id="lm-7zmax-warn" class="lm-cap-warn ok">Default 200 MB. Caps how much of a `.7z` log the search reads before truncating.</div>
+        </div>
         <div></div>
         <div class="lm-actions">
           <button id="lm-save-settings" class="btn btn-primary btn-sm" type="button">Save Settings</button>
@@ -95,6 +115,7 @@
           <span id="lm-rotmax-note" class="text-muted text-sm" style="align-self:center">Rotation size takes effect on next container restart.</span>
         </div>
       </div>
+      <div id="lm-system-row" class="lm-system-row" hidden></div>
     </details>
   </main>
   <script src="/static/app.js"></script>
@@ -112,7 +133,13 @@
       const fmtSel = document.getElementById('lm-format');
       const retInp = document.getElementById('lm-retention');
       const rotmaxInp = document.getElementById('lm-rotmax');
+      const sevenZInp = document.getElementById('lm-7zmax');
+      const sevenZWarn = document.getElementById('lm-7zmax-warn');
+      const systemRow = document.getElementById('lm-system-row');
       const saveSettingsBtn = document.getElementById('lm-save-settings');
+      // Local mirror of the system snapshot (memory + thresholds) so the
+      // cap-input validator can react without re-fetching settings.
+      let sysState = { memory_mb_free: null, warn_mb: 1024, hard_mb: 4096 };
       function clearChildren(el) { while (el.firstChild) el.removeChild(el.firstChild); }
       function fmtBytes(n) { if (n == null) return '-'; if (n < 1024) return n + ' B'; if (n < 1048576) return (n / 1024).toFixed(1) + ' KB'; if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB'; return (n / 1073741824).toFixed(2) + ' GB'; }
       function fmtDateTime(iso) { if (!iso) return '-'; try { const d = typeof parseUTC === 'function' ? parseUTC(iso) : new Date(iso); return (d && !isNaN(d.getTime())) ? d.toLocaleString() : String(iso); } catch(e) { return String(iso); } }
@@ -226,21 +253,85 @@
         } catch (e) { showError('Retention failed: ' + e.message); } finally { applyRetBtn.disabled = false; }
       });
       refreshBtn.addEventListener('click', loadInventory);
+      function fmtMb(mb) { if (mb == null) return '-'; if (mb < 1024) return mb + ' MB'; return (mb / 1024).toFixed(1) + ' GB'; }
+      function renderSystemSnapshot(sys) {
+        if (!sys) { systemRow.hidden = true; return; }
+        systemRow.hidden = false;
+        clearChildren(systemRow);
+        const lead = document.createElement('span'); lead.textContent = 'Host: '; systemRow.appendChild(lead);
+        const cpu = document.createElement('strong');
+        cpu.textContent = sys.cpu_model || 'unknown CPU';
+        if (sys.cpu_count) cpu.textContent += ' (' + sys.cpu_count + ' cores)';
+        systemRow.appendChild(cpu);
+        const mem = document.createElement('span');
+        mem.textContent = ' - ' + fmtMb(sys.memory_mb_total) + ' total / ' + fmtMb(sys.memory_mb_free) + ' free';
+        systemRow.appendChild(mem);
+        if (typeof sys.load_1min === 'number') {
+          const load = document.createElement('span');
+          load.textContent = ' - load ' + sys.load_1min + ' / ' + (sys.load_5min ?? '-') + ' / ' + (sys.load_15min ?? '-');
+          systemRow.appendChild(load);
+        }
+        // Validate the current cap against the live snapshot.
+        validateCap();
+      }
+      function validateCap() {
+        const v = parseInt(sevenZInp.value, 10);
+        sevenZWarn.classList.remove('ok','warn','error');
+        if (isNaN(v) || v < 1) {
+          sevenZWarn.classList.add('error');
+          sevenZWarn.textContent = 'Enter a value between 1 and ' + sysState.hard_mb + ' MB.';
+          return;
+        }
+        if (v > sysState.hard_mb) {
+          sevenZWarn.classList.add('error');
+          sevenZWarn.textContent = 'Above hard limit of ' + sysState.hard_mb + ' MB - the API will reject this.';
+          return;
+        }
+        const reasons = [];
+        if (v > sysState.warn_mb) {
+          reasons.push('above ' + sysState.warn_mb + ' MB threshold');
+        }
+        if (sysState.memory_mb_free && v > sysState.memory_mb_free * 0.5) {
+          reasons.push('exceeds 50% of currently-free RAM (' + fmtMb(sysState.memory_mb_free) + ')');
+        }
+        if (reasons.length) {
+          sevenZWarn.classList.add('warn');
+          sevenZWarn.textContent = 'Caution: ' + reasons.join('; ') + '. Set this only if you know your host has the headroom.';
+          return;
+        }
+        sevenZWarn.classList.add('ok');
+        sevenZWarn.textContent = 'Cap reads as: truncate `.7z` log search at ~' + v + ' MB decompressed.';
+      }
       async function loadSettings() {
         try {
           const s = await API.get('/api/logs/settings');
           fmtSel.value = s.compression_format || 'gz';
           retInp.value = String(s.retention_days || 30);
           rotmaxInp.value = String(s.rotation_max_size_mb || 100);
+          sevenZInp.value = String(s.seven_z_max_mb || 200);
+          sysState.warn_mb = s.seven_z_warn_threshold_mb || 1024;
+          sysState.hard_mb = s.seven_z_hard_max_mb || 4096;
+          sysState.memory_mb_free = (s.system && s.system.memory_mb_free) || null;
+          sevenZInp.max = String(sysState.hard_mb);
+          renderSystemSnapshot(s.system);
         } catch (e) { /* leave defaults */ }
       }
+      sevenZInp.addEventListener('input', validateCap);
       saveSettingsBtn.addEventListener('click', async () => {
         saveSettingsBtn.disabled = true;
         try {
-          const body = { compression_format: fmtSel.value, retention_days: parseInt(retInp.value, 10), rotation_max_size_mb: parseInt(rotmaxInp.value, 10) };
+          const body = {
+            compression_format: fmtSel.value,
+            retention_days: parseInt(retInp.value, 10),
+            rotation_max_size_mb: parseInt(rotmaxInp.value, 10),
+            seven_z_max_mb: parseInt(sevenZInp.value, 10),
+          };
           const s = await fetch('/api/logs/settings', { method:'PUT', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body: JSON.stringify(body) });
           if (!s.ok) { const detail = await s.text().catch(() => ''); throw new Error('HTTP ' + s.status + ' ' + detail.slice(0, 200)); }
           if (typeof showToast === 'function') showToast('Settings saved');
+          // Re-fetch so the snapshot row stays in sync with any backend
+          // clamping that ran on the new value.
+          await loadSettings();
         } catch (e) { showError('Save failed: ' + e.message); } finally { saveSettingsBtn.disabled = false; }
       });
       loadInventory();

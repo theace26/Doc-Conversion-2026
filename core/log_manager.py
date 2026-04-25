@@ -50,10 +50,16 @@ _TAR_COMPRESSED_SUFFIXES = {".tar.gz", ".tgz"}
 PREF_COMPRESSION_FORMAT = "log_compression_format"        # 'gz' | 'tar.gz' | '7z'
 PREF_RETENTION_DAYS = "log_retention_days"                # int
 PREF_ROTATION_MAX_SIZE_MB = "log_rotation_max_size_mb"    # int (takes effect on restart)
+PREF_SEVEN_Z_MAX_MB = "log_seven_z_max_mb"                # int — per-reader decompressed cap
 
 DEFAULT_COMPRESSION_FORMAT = "gz"
 DEFAULT_RETENTION_DAYS = 30
 DEFAULT_ROTATION_MAX_SIZE_MB = 100
+DEFAULT_SEVEN_Z_MAX_MB = 200
+
+# UI surfaces a warning above this; backend rejects above the hard max.
+SEVEN_Z_WARN_THRESHOLD_MB = 1024
+SEVEN_Z_HARD_MAX_MB = 4096
 
 _VALID_COMPRESSION_FORMATS = {"gz", "tar.gz", "7z"}
 
@@ -391,8 +397,99 @@ async def get_archive_stats() -> dict:
     }
 
 
+async def get_seven_z_max_mb() -> int:
+    """Read + clamp the operator-configured per-reader `.7z` byte cap.
+
+    Returns a value in the range [1, SEVEN_Z_HARD_MAX_MB]. Falls back to
+    DEFAULT_SEVEN_Z_MAX_MB if the pref is unset or non-numeric.
+    """
+    from core.database import get_preference
+    raw = await get_preference(PREF_SEVEN_Z_MAX_MB)
+    try:
+        mb = int(raw) if raw else DEFAULT_SEVEN_Z_MAX_MB
+    except (TypeError, ValueError):
+        mb = DEFAULT_SEVEN_Z_MAX_MB
+    if mb < 1:
+        mb = 1
+    elif mb > SEVEN_Z_HARD_MAX_MB:
+        mb = SEVEN_Z_HARD_MAX_MB
+    return mb
+
+
+def get_system_resource_snapshot() -> dict:
+    """One-shot snapshot of host CPU / memory / load. Linux-only paths
+    (`/proc/meminfo`, `/proc/cpuinfo`); the container is Debian so this
+    is the right surface. Each field is best-effort — returns None for
+    anything that fails to read rather than raising.
+
+    Returned dict keys (any may be None):
+      cpu_model: str           — first "model name" line in cpuinfo
+      cpu_count: int           — `os.cpu_count()` (logical cores)
+      memory_mb_total: int     — MemTotal in MiB
+      memory_mb_free: int      — MemAvailable in MiB (preferred over MemFree)
+      load_1min: float         — first value of os.getloadavg()
+      load_5min: float
+      load_15min: float
+    """
+    snap: dict = {
+        "cpu_model": None, "cpu_count": None,
+        "memory_mb_total": None, "memory_mb_free": None,
+        "load_1min": None, "load_5min": None, "load_15min": None,
+    }
+    try:
+        snap["cpu_count"] = os.cpu_count()
+    except Exception:
+        pass
+    try:
+        with open("/proc/cpuinfo", "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if line.startswith("model name"):
+                    parts = line.split(":", 1)
+                    if len(parts) == 2:
+                        snap["cpu_model"] = parts[1].strip()
+                        break
+    except OSError:
+        pass
+    try:
+        meminfo: dict[str, int] = {}
+        with open("/proc/meminfo", "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                key, _, rest = line.partition(":")
+                if not rest:
+                    continue
+                # rest looks like "  16384000 kB"
+                tokens = rest.strip().split()
+                if tokens and tokens[0].isdigit():
+                    meminfo[key] = int(tokens[0])  # values are kB
+        if "MemTotal" in meminfo:
+            snap["memory_mb_total"] = meminfo["MemTotal"] // 1024
+        # Prefer MemAvailable (accounts for reclaimable cache) over MemFree.
+        if "MemAvailable" in meminfo:
+            snap["memory_mb_free"] = meminfo["MemAvailable"] // 1024
+        elif "MemFree" in meminfo:
+            snap["memory_mb_free"] = meminfo["MemFree"] // 1024
+    except OSError:
+        pass
+    try:
+        load = os.getloadavg()
+        snap["load_1min"] = round(load[0], 2)
+        snap["load_5min"] = round(load[1], 2)
+        snap["load_15min"] = round(load[2], 2)
+    except (OSError, AttributeError):
+        # getloadavg is POSIX — Windows host (devs running pytest natively)
+        # would land here. Container is Linux so this is mainly defensive.
+        pass
+    return snap
+
+
 async def get_settings() -> dict:
-    """Fetch current log management settings from DB prefs (with defaults)."""
+    """Fetch current log management settings from DB prefs (with defaults).
+
+    Also includes a one-shot `system` resource snapshot so the UI can
+    show free RAM / CPU model alongside the .7z byte cap. The snapshot
+    is read at call time — no caching, no scheduler job — so a page
+    refresh always reflects current host state.
+    """
     from core.database import get_preference
     fmt = await get_preference(PREF_COMPRESSION_FORMAT) or DEFAULT_COMPRESSION_FORMAT
     retention_raw = await get_preference(PREF_RETENTION_DAYS)
@@ -405,11 +502,16 @@ async def get_settings() -> dict:
         max_size_mb = int(max_size_raw) if max_size_raw else DEFAULT_ROTATION_MAX_SIZE_MB
     except (TypeError, ValueError):
         max_size_mb = DEFAULT_ROTATION_MAX_SIZE_MB
+    seven_z_max_mb = await get_seven_z_max_mb()
     return {
         "compression_format": fmt if fmt in _VALID_COMPRESSION_FORMATS else DEFAULT_COMPRESSION_FORMAT,
         "retention_days": retention_days,
         "rotation_max_size_mb": max_size_mb,
+        "seven_z_max_mb": seven_z_max_mb,
+        "seven_z_warn_threshold_mb": SEVEN_Z_WARN_THRESHOLD_MB,
+        "seven_z_hard_max_mb": SEVEN_Z_HARD_MAX_MB,
         "valid_formats": sorted(_VALID_COMPRESSION_FORMATS),
+        "system": get_system_resource_snapshot(),
     }
 
 
@@ -417,14 +519,15 @@ async def set_settings(
     compression_format: str | None = None,
     retention_days: int | None = None,
     rotation_max_size_mb: int | None = None,
+    seven_z_max_mb: int | None = None,
 ) -> dict:
     """Update log management settings. Caller is responsible for auth
     (ADMIN-gated at the route layer). Returns the new settings dict.
 
     Note: `rotation_max_size_mb` takes effect on the next container
     restart — the RotatingFileHandler's `maxBytes` is set once at
-    handler construction in logging_config. The other two apply on the
-    next scheduler run.
+    handler construction in logging_config. The other settings apply on
+    the next scheduler run / next reader open.
     """
     from core.database import set_preference
     if compression_format is not None:
@@ -441,4 +544,10 @@ async def set_settings(
         if rotation_max_size_mb < 10 or rotation_max_size_mb > 10240:
             raise ValueError("rotation_max_size_mb must be between 10 and 10240")
         await set_preference(PREF_ROTATION_MAX_SIZE_MB, str(rotation_max_size_mb))
+    if seven_z_max_mb is not None:
+        if seven_z_max_mb < 1 or seven_z_max_mb > SEVEN_Z_HARD_MAX_MB:
+            raise ValueError(
+                f"seven_z_max_mb must be between 1 and {SEVEN_Z_HARD_MAX_MB}"
+            )
+        await set_preference(PREF_SEVEN_Z_MAX_MB, str(seven_z_max_mb))
     return await get_settings()

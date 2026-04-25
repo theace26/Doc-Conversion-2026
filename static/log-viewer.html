@@ -45,6 +45,18 @@
     }
     .lv-controls .chip.preset:hover { background: rgba(255,255,255,0.06); }
     .lv-controls .spacer { flex: 1; }
+    /* v0.31.1: in-flight history-search spinner. Sits next to the
+     * status line; visible only while a search is awaiting a response. */
+    .lv-spinner {
+      display: inline-block; width: 0.85rem; height: 0.85rem;
+      border: 2px solid rgba(255,255,255,0.18);
+      border-top-color: #60a5fa;
+      border-radius: 50%;
+      animation: lv-spin 0.7s linear infinite;
+      vertical-align: middle; margin-right: 0.45rem;
+    }
+    .lv-spinner[hidden] { display: none; }
+    @keyframes lv-spin { to { transform: rotate(360deg); } }
     .lv-time-row {
       display: none; flex-wrap: wrap; align-items: center; gap: 0.5rem;
       padding: 0.5rem 1rem;
@@ -146,6 +158,7 @@
       <button id="lv-pause" class="btn btn-ghost btn-sm" type="button">Pause</button>
       <button id="lv-load-more" class="btn btn-ghost btn-sm" type="button" hidden>Load older</button>
       <div class="spacer"></div>
+      <span id="lv-spinner" class="lv-spinner" hidden aria-hidden="true"></span>
       <span id="lv-status" class="lv-status">-</span>
     </div>
     <div id="lv-time-row" class="lv-time-row">
@@ -191,7 +204,38 @@
       const pauseBtn = document.getElementById('lv-pause');
       const loadMoreBtn = document.getElementById('lv-load-more');
       const statusEl = document.getElementById('lv-status');
+      const spinnerEl = document.getElementById('lv-spinner');
       const tabsBar = document.getElementById('lv-tabs');
+
+      // v0.31.1: in-flight search spinner. The history-search request
+      // is non-streaming, so until v0.31.5 ships per-progress events
+      // we just show "Searching <file> ... 1.4s" with a CSS spinner so
+      // the operator knows work is happening (especially relevant for
+      // `.7z` archives, which can take many seconds even at the
+      // 200 MB cap).
+      let searchTickerHandle = null;
+      let searchStartTs = 0;
+      function startSearchSpinner(label) {
+        searchStartTs = (typeof performance !== 'undefined' && performance.now)
+          ? performance.now() : Date.now();
+        spinnerEl.hidden = false;
+        if (searchTickerHandle) clearInterval(searchTickerHandle);
+        function tick() {
+          const nowTs = (typeof performance !== 'undefined' && performance.now)
+            ? performance.now() : Date.now();
+          const elapsed = ((nowTs - searchStartTs) / 1000).toFixed(1);
+          statusEl.textContent = 'Searching ' + (label || 'log') + ' ... ' + elapsed + 's';
+        }
+        tick();
+        searchTickerHandle = setInterval(tick, 200);
+      }
+      function stopSearchSpinner() {
+        if (searchTickerHandle) {
+          clearInterval(searchTickerHandle);
+          searchTickerHandle = null;
+        }
+        spinnerEl.hidden = true;
+      }
       const bodiesEl = document.getElementById('lv-bodies');
       const timeRow = document.getElementById('lv-time-row');
       const fromInp = document.getElementById('lv-from');
@@ -491,9 +535,15 @@
           if (this.toIso) params.set('to_iso', this.toIso);
           params.set('limit', String(HISTORY_LIMIT));
           params.set('offset', String(this.historyOffset));
+          // v0.31.1: only show the spinner if WE are the active tab when
+          // the search starts. If activeTab changes mid-flight, the
+          // spinner stays attached to whichever tab actually started it
+          // (so we don't leave a stale spinner behind).
+          const startedSpinner = (this === activeTab);
+          if (startedSpinner) startSearchSpinner(this.name);
           try {
-            if (this === activeTab) statusEl.textContent = 'Searching...';
             const data = await API.get('/api/logs/search?' + params.toString());
+            if (startedSpinner) stopSearchSpinner();
             const lines = data.lines || [];
             if (lines.length === 0 && this.historyOffset === 0) {
               const empty = document.createElement('div');
@@ -516,7 +566,10 @@
               }
               statusEl.textContent = parts.join(' · ');
             }
-          } catch (e) { showError('Search failed: ' + e.message); }
+          } catch (e) {
+            if (startedSpinner) stopSearchSpinner();
+            showError('Search failed: ' + e.message);
+          }
         }
 
         closeSse() {

@@ -243,6 +243,50 @@ Settings card on the same page:
 | Compression format | `gz` (default), `tar.gz`, or `7z`. As of v0.31.0 the cron honours this — earlier versions ignored it for the automated cycle. |
 | Retention days | Compressed logs older than this are auto-purged on the cron. |
 | Rotation max size MB | Active log file size at which the stdlib RotatingFileHandler triggers a rotation. Takes effect on next container restart. |
+| 7z search byte cap (MB) | (v0.31.1) Per-reader decompressed-byte cap when searching `.7z` archives. Default 200 MB. Range 1-4096. Bounds how much of a `.7z` log the history search reads before truncating. **Examples** below. |
+
+#### Sizing the `.7z` search byte cap
+
+The cap exists to keep a runaway search from pinning a worker
+thread for hours on a deliberately-pathological archive. The
+default 200 MB is conservative; raise it if you regularly
+investigate large archives.
+
+| Host & archive shape | Recommended cap |
+|---|---|
+| Workstation with 64 GB RAM, typical archive < 200 MB | 200 (default) |
+| Same workstation, archives 500-800 MB compressed | 1024 |
+| VM with 8 GB RAM, occasional small archives | 200 |
+| VM with 4 GB RAM, search competes with bulk worker | 100 |
+| One-time deep dive into one huge archive | 4096 (then drop back) |
+
+The UI gives live feedback as you type:
+
+- **Below 1024 MB** → neutral hint with the value-as-applied
+- **Above 1024 MB** OR **above 50% of currently-free RAM** → amber
+  warning with the reasons
+- **Above 4096 MB** → red "above hard limit" error (the backend
+  rejects this with HTTP 400)
+
+When a search truncates because the cap fired, the viewer's
+status line reads `reader: 7z stream truncated at NNN MB` so
+you know exactly what knob to turn next.
+
+#### Host resource snapshot
+
+Below the Settings inputs, a one-shot snapshot row shows your
+host's actual specs. Refresh the page to refresh the numbers.
+
+```
+Host: Intel(R) Xeon(R) Silver 4214R (24 cores) - 32.0 GB total / 14.7 GB free - load 0.42 / 0.51 / 0.48
+```
+
+The fields are read from `/proc/cpuinfo`, `/proc/meminfo`, and
+`os.getloadavg()`. The CPU model + total/free RAM are the most
+load-bearing for sizing the byte cap; the load averages are
+informational. (A future release will poll the snapshot
+periodically and use it to estimate ETA on long-running
+searches and bulk jobs.)
 
 > **Tip:** The 6-hourly cron runs `compress_rotated_logs()` then
 > `apply_retention()` automatically. If a rotated log is sitting
@@ -298,12 +342,13 @@ plus a status line indicator. You'll see:
   or shrink the time range.
 - `time cap hit` — same advice; also consider opening the
   uncompressed counterpart if you're searching an archive.
-- `7z stream truncated at 200 MB` — the archive is bigger than
-  the in-process decompression budget; download it instead and
-  use a desktop tool for full-file work. (A future release will
-  let you tune this cap from the Settings card and add a live
-  progress indicator while a search is in flight — see
-  `docs/superpowers/plans/2026-04-25-v0.31.0-7z-safety-controls.md`.)
+- `7z stream truncated at NNN MB` — the archive is bigger than
+  the in-process decompression budget. As of **v0.31.1** the cap
+  is operator-tunable from the Settings card (default 200 MB,
+  hard max 4096 MB; see "Sizing the .7z search byte cap" below).
+  If you've already set the cap to its hard max and still hit
+  this, download the archive and use a desktop tool for
+  full-file work.
 
 #### Tabbed view (new in v0.31.0)
 
@@ -374,6 +419,14 @@ parsing — naive timestamps are treated as UTC.
 - **Substring + regex search.** Toggle the **Regex** chip to
   switch from case-insensitive substring match to a regex.
   Invalid regex shows an error banner without breaking the page.
+- **Live search spinner** (v0.31.1). When you click **Apply** in
+  history mode, the status line shows a spinning indicator + the
+  ticking elapsed time (e.g. `⟳ Searching markflow.log.5.7z ...
+  3.2s`). Once the response lands the spinner clears and the
+  existing returned/scanned/wall-clock summary takes over. This
+  is most useful on `.7z` archives, which can take 10+ seconds
+  on multi-hundred-megabyte files because the entire stream
+  flows through `7z e -so` before the search filter pass begins.
 
 ---
 

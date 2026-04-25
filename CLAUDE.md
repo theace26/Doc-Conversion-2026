@@ -91,7 +91,93 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.31.0
+## Current Version — v0.31.1
+
+**`.7z` viewer safety controls + system-resource snapshot —
+operator-tunable byte cap on `.7z` log search, host CPU/RAM/load
+panel right next to the cap, and a live spinner + ticking elapsed
+time on the log viewer while a search is in flight.**
+
+The v0.31.0 release made `.7z` archives readable in the log
+viewer's history search via a `7z e -so` subprocess wrapper, with
+a hardcoded 200 MB per-reader byte cap as headless-safety
+defense. v0.31.1 surfaces that cap to operators (so they can size
+it for their hardware), shows them what hardware they're actually
+running on, and gives them a visible "yes, work is happening"
+signal during the multi-second searches a `.7z` archive can
+produce.
+
+### Item A — User-tunable `.7z` byte cap
+
+New DB pref `log_seven_z_max_mb`. Default 200 MB (matches the
+prior hardcoded value), warning threshold 1024 MB (UI shows
+amber), hard backend max 4096 MB (`PUT /api/logs/settings` returns
+400 above). The Log Management Settings card has a new "7z search
+byte cap" input with inline live validation:
+
+- Below 1024 MB → neutral hint with the cap-as-applied summary
+- Above 1024 MB OR above 50% of currently-free RAM → amber warning
+- Above 4096 MB → red "above hard limit" error
+
+`get_seven_z_max_mb()` clamps reads to `[1, SEVEN_Z_HARD_MAX_MB]`
+so a malformed pref can never lift the cap. `_SevenZReader`
+constructor now takes an optional `max_bytes`; the legacy
+`_SEVENZ_DEFAULT_MAX_BYTES` constant remains as the fall-through
+default so any new call site that forgets to pass `max_bytes`
+still gets a safety cap.
+
+### Item B — Host resource snapshot
+
+`get_system_resource_snapshot()` reads `/proc/cpuinfo` (model
+name), `/proc/meminfo` (MemTotal + MemAvailable), and
+`os.getloadavg()`. Best-effort — each field returns None on
+read failure rather than raising, so a malformed `/proc` entry
+doesn't 500 the settings page. Snapshot embeds in the
+`GET /api/logs/settings` response under the `system` key.
+
+The Log Management Settings card now renders a snapshot row right
+below the controls: "Host: <CPU model> (N cores) — X GB total /
+Y GB free — load 1m / 5m / 15m". One-shot read at page load (no
+polling, no scheduler job). A dynamic ETA framework that uses
+24-hour spec polling + a benchmark routine is its own deferred
+follow-up — see v0.31.5 in the roadmap.
+
+### Item C — Live search spinner on the log viewer
+
+`runHistorySearch` now starts a CSS spinner + ticking elapsed
+time when the request leaves the page, ticking every 200 ms.
+Stops on response (or error) before the existing
+`returned · scanned · …` status line takes over. The spinner is
+attached to whichever tab fired the search, not whichever tab is
+currently active — so switching tabs mid-search doesn't strand a
+spinner against the wrong status line.
+
+No protocol change. The search endpoint is still single-blob
+JSON; for true server-pushed progress events the deferred
+v0.31.5 ETA framework is the natural place.
+
+### Files
+
+- `core/version.py` — bump to 0.31.1
+- `core/log_manager.py` — `PREF_SEVEN_Z_MAX_MB` constant +
+  `get_seven_z_max_mb()` + `get_system_resource_snapshot()` +
+  augmented `get_settings()` / `set_settings()`
+- `api/routes/log_management.py` — `seven_z_max_mb` field on
+  `SettingsUpdate`; `_SevenZReader.__init__` accepts optional
+  `max_bytes`; `_do_search` reads pref + passes it through;
+  truncation warning text uses the actual cap MB
+- `static/log-management.html` — Settings card 7z cap input +
+  inline warn/error/ok hint, system snapshot row, JS validation
+- `static/log-viewer.html` — CSS spinner, in-flight elapsed-time
+  ticker, spinner ownership tied to the requesting tab
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`, `docs/help/admin-tools.md`
+
+No DB migration. No new dependencies. No new scheduler jobs.
+
+---
+
+## v0.31.0 — Five-item deferred-items bundle
 
 **Five-item bundle release encompassing every deferred item from
 the v0.31.x plan: multi-provider filename interleaving, log-viewer

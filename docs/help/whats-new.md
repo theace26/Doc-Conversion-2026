@@ -6,6 +6,78 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.31.1 — `.7z` viewer safety controls: tunable cap, host snapshot, live search spinner
+
+### Operator-tunable `.7z` byte cap
+
+The 200 MB safety cap on `.7z` log search (introduced in v0.31.0)
+is now configurable from the Log Management → Settings card.
+Default still 200 MB; you can set it anywhere from **1 MB up to
+4096 MB**. This bounds how much of a `.7z` archive the search
+actually decompresses before truncating, which keeps a runaway
+search from pinning a worker thread for hours on a giant archive.
+
+**Why change it?** Two scenarios drive this:
+
+- **You routinely search `.7z` archives bigger than 200 MB** —
+  raise the cap so the search returns full results instead of
+  the truncation warning. Useful when investigating an incident
+  that spans a long time window the archive covers.
+- **You have a tight-RAM host and want a smaller blast radius**
+  — lower the cap to 50 or 100 MB.
+
+**Examples:**
+
+| Host | Typical archive | Suggested cap |
+|------|-----------------|---------------|
+| Workstation with 64 GB RAM, archives < 200 MB | leave at default | 200 MB |
+| Same host but archives are 500-800 MB compressed | bump up | 1024 MB |
+| VM with 8 GB RAM, mostly small/medium archives | conservative | 200 MB |
+| VM with 4 GB RAM and the search worker is competing with the bulk worker | tighten | 100 MB |
+| Investigating a single huge archive once (one-shot) | crank, search, then drop back | 4096 MB → re-run → 200 MB |
+
+The UI shows an **amber warning** above 1024 MB OR if your cap
+would consume more than 50% of currently-free RAM, and a **red
+error** above 4096 MB (the backend hard limit). When the search
+truncates because the cap fired, the status line reads
+`reader: 7z stream truncated at NNN MB` with the cap value, so
+you know exactly what knob to turn next.
+
+### Host system snapshot in Log Management Settings
+
+A new row below the settings inputs shows your **host's actual
+specs** at page-load time:
+
+`Host: Intel Xeon Silver 4214R (24 cores) — 32.0 GB total / 14.7 GB free — load 0.42 / 0.51 / 0.48`
+
+This is a one-shot read — refresh the page to refresh the
+numbers. It exists specifically so you can size the byte cap
+above sensibly: if "free" RAM looks tight, you'll see it before
+you accidentally set the cap to 4 GB. The CPU/load fields are
+informational; we use the same readings to ground the cap
+warning thresholds. (A future release will sample the snapshot
+periodically and use it to estimate ETA on long-running searches
+and bulk jobs — see roadmap v0.31.5.)
+
+### Live search spinner on the Log Viewer
+
+When you click **Apply** in **Search history** mode, the status
+line now shows a spinning indicator + ticking elapsed time:
+
+`⟳ Searching markflow.log.5.7z ... 3.2s`
+
+Once the response lands, the spinner clears and the existing
+`200 returned · scanned 50000 · 3.4s` summary takes over.
+
+This matters most for `.7z` archives — they can take 10+ seconds
+on multi-hundred-megabyte archives because every byte has to flow
+through the `7z e -so` subprocess before the search even begins
+its filter pass. Before this release, operators saw a static
+"Searching..." with no way to tell whether the page was working
+or stuck.
+
+---
+
 ## v0.31.0 — Five-item bundle: provider parity, log-viewer polish, bulk re-analyze, multi-log tabs, log subsystem consolidation, .7z viewing
 
 ### Filenames now help OpenAI / Gemini / Ollama too

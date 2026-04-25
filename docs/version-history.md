@@ -4,6 +4,147 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.31.1 — `.7z` viewer safety controls + system-resource snapshot (2026-04-25)
+
+Operator-tunable byte cap on `.7z` log search, a host CPU/RAM/load
+snapshot panel right next to the cap, and a live spinner + ticking
+elapsed time on the log viewer's history search while a request
+is in flight.
+
+The v0.31.0 release made `.7z` archives readable via a `7z e -so`
+subprocess wrapper with a hardcoded 200 MB per-reader byte cap.
+v0.31.1 surfaces that cap to operators (so they can size it for
+their hardware), shows them what hardware the container is
+actually running on, and gives them a visible "yes, work is
+happening" signal during the multi-second searches a `.7z` can
+produce.
+
+Plan executed:
+[`docs/superpowers/plans/2026-04-25-v0.31.0-7z-safety-controls.md`](superpowers/plans/2026-04-25-v0.31.0-7z-safety-controls.md).
+The "v0.31.0" prefix in the plan filename is historical — the
+plan was written during the v0.31.0 session but scoped out to a
+follow-up, which became this release.
+
+### Item A — User-tunable `.7z` byte cap
+
+`core/log_manager.py`:
+- New constant `PREF_SEVEN_Z_MAX_MB = "log_seven_z_max_mb"`.
+- `DEFAULT_SEVEN_Z_MAX_MB = 200` (matches the prior hardcoded
+  value so existing deployments see no behavioral change).
+- `SEVEN_Z_WARN_THRESHOLD_MB = 1024` (UI shows amber).
+- `SEVEN_Z_HARD_MAX_MB = 4096` (backend rejects above this).
+- `get_seven_z_max_mb()` reads + clamps. Out-of-range, missing,
+  or non-numeric values fall back to the default — so a corrupted
+  pref can never accidentally lift the cap.
+- `get_settings()` returns `seven_z_max_mb`, `seven_z_warn_threshold_mb`,
+  and `seven_z_hard_max_mb` so the UI can render warnings without
+  hardcoding the same constants.
+- `set_settings(... seven_z_max_mb=)` persists the new value;
+  validation error is a clean `ValueError` that the route surfaces
+  as HTTP 400.
+
+`api/routes/log_management.py`:
+- `SettingsUpdate.seven_z_max_mb: int | None = Field(None, ge=1, le=SEVEN_Z_HARD_MAX_MB)`.
+- `_SevenZReader.__init__(path, max_bytes=None)`. The legacy
+  module-level `_SEVENZ_DEFAULT_MAX_BYTES` (renamed from
+  `_SEVENZ_MAX_BYTES`) remains as the fallback so any new call
+  site that forgets to pass `max_bytes` still gets a safety cap.
+- `_check_cap` and `read` now reference `self._max_bytes` instead
+  of the module constant — every reader carries its own cap.
+- The async `search_log` resolves `seven_z_max_mb` once via
+  `await get_seven_z_max_mb()` BEFORE entering the worker thread
+  (the thread can't `await`), then closure-captures the byte
+  budget into `_do_search`.
+- The reader-truncation warning string now reads
+  `f"7z stream truncated at {seven_z_max_mb} MB"` using the
+  actual operator-configured value.
+
+### Item B — Host resource snapshot
+
+`get_system_resource_snapshot()` is a synchronous best-effort
+read of:
+- `/proc/cpuinfo` "model name" line → `cpu_model`
+- `os.cpu_count()` → `cpu_count`
+- `/proc/meminfo` MemTotal → `memory_mb_total`
+- `/proc/meminfo` MemAvailable (preferred) or MemFree → `memory_mb_free`
+- `os.getloadavg()` → `load_1min`, `load_5min`, `load_15min`
+
+Each field returns `None` on read failure (file missing,
+permission denied, parse error) rather than raising. The
+container is Debian so the `/proc` paths are correct; the same
+helper degrades gracefully on a Windows dev host running pytest
+natively (`getloadavg` is POSIX).
+
+The snapshot is one-shot per page load — no caching, no scheduler
+job, no historical tracking. The dynamic ETA framework that adds
+24-hour spec polling + a benchmark routine is the explicit
+follow-up at v0.31.5 in the roadmap.
+
+`get_settings()` includes the snapshot under a `system` sub-dict
+so the existing settings GET response is sufficient — no new
+endpoint.
+
+### Item C — Live search spinner
+
+The `GET /api/logs/search` endpoint is non-streaming. Until the
+v0.31.5 ETA framework lands and converts it to SSE, operators
+need some kind of "work is happening" signal during the
+multi-second searches a `.7z` archive can produce.
+
+`static/log-viewer.html`:
+- New `.lv-spinner` CSS class — `border + animation` rotating
+  ring, 0.85 rem, accent-blue top.
+- New `<span id="lv-spinner" hidden>` inserted before the existing
+  `lv-status` span in the controls row.
+- New `startSearchSpinner(label) / stopSearchSpinner()` helpers.
+  The start helper sets a `setInterval(tick, 200)` that updates
+  `statusEl.textContent` to `"Searching <name> ... 1.4s"` —
+  ticking the elapsed time so the operator sees the request is
+  actually in flight, not stuck.
+- The `runHistorySearch` method captures `startedSpinner =
+  (this === activeTab)` BEFORE the await. On response (or error)
+  it stops only the spinner it itself started — so if the user
+  switches tabs mid-search, neither this tab's nor the new
+  active tab's spinner state gets corrupted.
+
+### Frontend — Settings page details
+
+`static/log-management.html`:
+- New CSS classes `.lm-cap-warn` (ok / warn / error) and
+  `.lm-system-row` (boxed snapshot panel).
+- New "7z search byte cap (MB)" input row in the Settings card,
+  with inline `<div id="lm-7zmax-warn">` for live validation.
+- New `<div id="lm-system-row">` below the settings grid that
+  renders the snapshot ("Host: <CPU> (N cores) — X GB total / Y
+  GB free — load 1m / 5m / 15m").
+- `validateCap()` runs on every keystroke + on `loadSettings()`:
+  - `< 1` or non-numeric → red "Enter a value..." error
+  - `> SEVEN_Z_HARD_MAX_MB` → red "Above hard limit" error
+  - `> SEVEN_Z_WARN_THRESHOLD_MB` OR `> 50% of free RAM` → amber
+    "Caution: <reasons>" warning
+  - Otherwise → neutral "Cap reads as: truncate at ~N MB" hint.
+- Save handler includes `seven_z_max_mb` in the PUT body.
+  After save, `loadSettings()` is re-invoked so any backend
+  clamping is reflected immediately.
+
+### Files
+
+- `core/version.py` — bump to 0.31.1
+- `core/log_manager.py` — pref + helpers + augmented settings
+- `api/routes/log_management.py` — Pydantic field, reader cap,
+  pref read in async outer
+- `static/log-management.html` — settings UI + snapshot
+- `static/log-viewer.html` — search spinner
+- `CLAUDE.md` — Current Version block + v0.31.0 demoted to summary
+- `docs/version-history.md` — this entry
+- `docs/help/whats-new.md` — user-visible bullet
+- `docs/help/admin-tools.md` — refresh "future release will let
+  you tune this" sentence to "this is now tunable"
+
+No DB migration. No new dependencies. No new scheduler jobs.
+
+---
+
 ## v0.31.0 — Deferred-items bundle (2026-04-25)
 
 Five-item bundle release executing the entire

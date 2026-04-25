@@ -28,12 +28,15 @@ from pydantic import BaseModel, Field
 
 from core.auth import AuthenticatedUser, UserRole, require_role
 from core.log_manager import (
+    DEFAULT_SEVEN_Z_MAX_MB,
+    SEVEN_Z_HARD_MAX_MB,
     LogEntry,
     LOGS_DIR,
     _safe_logs_path,
     apply_retention,
     compress_rotated_logs,
     get_settings,
+    get_seven_z_max_mb,
     list_logs,
     set_settings,
 )
@@ -76,6 +79,10 @@ class SettingsUpdate(BaseModel):
     compression_format: str | None = Field(None, description="'gz' | 'tar.gz' | '7z'")
     retention_days: int | None = Field(None, ge=1, le=3650)
     rotation_max_size_mb: int | None = Field(None, ge=10, le=10240)
+    seven_z_max_mb: int | None = Field(
+        None, ge=1, le=SEVEN_Z_HARD_MAX_MB,
+        description="Per-reader decompressed-byte cap for `.7z` log search",
+    )
 
 
 @router.get("/settings")
@@ -95,6 +102,7 @@ async def write_settings(
             compression_format=body.compression_format,
             retention_days=body.retention_days,
             rotation_max_size_mb=body.rotation_max_size_mb,
+            seven_z_max_mb=body.seven_z_max_mb,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -104,6 +112,7 @@ async def write_settings(
         compression_format=body.compression_format,
         retention_days=body.retention_days,
         rotation_max_size_mb=body.rotation_max_size_mb,
+        seven_z_max_mb=body.seven_z_max_mb,
     )
     return result
 
@@ -321,9 +330,14 @@ from datetime import datetime as _datetime, timezone as _timezone
 
 # v0.31.0: hard caps on `.7z` read to defend against hangs / runaway
 # processes. The search wall-clock cap below ALSO applies; this byte
-# cap is a per-reader belt-and-suspenders. v0.31.x will make the byte
-# cap operator-tunable (see plans/2026-04-25-v0.31.0-7z-safety-controls.md).
-_SEVENZ_MAX_BYTES = 200 * 1024 * 1024           # 200 MB decompressed
+# cap is a per-reader belt-and-suspenders.
+#
+# v0.31.1: the byte cap is now operator-tunable via the
+# `log_seven_z_max_mb` DB pref. The legacy module-level constant below
+# stays as the defense-in-depth fallback for callers that didn't
+# resolve the pref (e.g. unit tests, future call sites). Callers that
+# do read the pref pass it in via `_SevenZReader(path, max_bytes=...)`.
+_SEVENZ_DEFAULT_MAX_BYTES = DEFAULT_SEVEN_Z_MAX_MB * 1024 * 1024
 _SEVENZ_TERMINATE_GRACE_S = 5.0
 _SEVENZ_KILL_GRACE_S = 2.0
 
@@ -340,18 +354,26 @@ class _SevenZReader:
 
     - `start_new_session=True` so `close()` can kill the whole
       process group if 7z spawned children.
-    - Per-reader byte cap (`_SEVENZ_MAX_BYTES`, 200 MB decompressed)
-      to bound the worst-case worker-thread wall time on a malicious
-      or pathological archive.
+    - Per-reader byte cap (default 200 MB decompressed; v0.31.1 made
+      this operator-tunable via the `log_seven_z_max_mb` DB pref) to
+      bound the worst-case worker-thread wall time on a malicious or
+      pathological archive.
     - `stderr=PIPE` + drain on close so 7z error output doesn't
       block its stdout pipe (rare but possible on damaged archives).
     """
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, max_bytes: int | None = None):
         self._path = path
         self._proc: "_subprocess.Popen | None" = None
         self._bytes_read = 0
         self._cap_hit = False
+        # v0.31.1: caller-supplied cap wins; otherwise fall back to the
+        # legacy default so a new code path can't accidentally remove
+        # the safety net just by forgetting to pass max_bytes.
+        self._max_bytes = (
+            max_bytes if max_bytes is not None and max_bytes > 0
+            else _SEVENZ_DEFAULT_MAX_BYTES
+        )
 
     def _ensure_started(self) -> None:
         if self._proc is not None:
@@ -377,7 +399,7 @@ class _SevenZReader:
         return empty so the caller sees clean EOF."""
         if self._cap_hit:
             return b""
-        room = _SEVENZ_MAX_BYTES - self._bytes_read
+        room = self._max_bytes - self._bytes_read
         if room <= 0:
             self._cap_hit = True
             return b""
@@ -394,8 +416,8 @@ class _SevenZReader:
         # When n=-1, cap the read at our remaining budget so we don't
         # buffer the whole archive into memory if the caller asked
         # for "all of it".
-        if n == -1 or n > _SEVENZ_MAX_BYTES - self._bytes_read:
-            n = _SEVENZ_MAX_BYTES - self._bytes_read
+        if n == -1 or n > self._max_bytes - self._bytes_read:
+            n = self._max_bytes - self._bytes_read
             if n <= 0:
                 self._cap_hit = True
                 return b""
@@ -598,6 +620,12 @@ async def search_log(
     from_epoch = _parse_epoch(from_iso)
     to_epoch = _parse_epoch(to_iso)
 
+    # v0.31.1: resolve the operator-configured `.7z` byte cap once
+    # before entering the worker thread (the thread can't `await`).
+    # Closure-captured by `_do_search` below.
+    seven_z_max_mb = await get_seven_z_max_mb()
+    seven_z_max_bytes = seven_z_max_mb * 1024 * 1024
+
     # Read + filter. Run in a worker thread to keep the event loop free.
     def _do_search() -> dict:
         # v0.31.0: triple-barrier protection so an unattended/headless
@@ -630,7 +658,7 @@ async def search_log(
                 fh = _gzip.open(path, "rt", encoding="utf-8", errors="replace")
             elif is_7z:
                 import io as _io
-                sevenz_reader = _SevenZReader(path)
+                sevenz_reader = _SevenZReader(path, max_bytes=seven_z_max_bytes)
                 fh = _io.TextIOWrapper(
                     sevenz_reader, encoding="utf-8", errors="replace",
                 )
@@ -701,7 +729,7 @@ async def search_log(
             # If we read a 7z, also surface its byte-cap status.
             if sevenz_reader is not None and sevenz_reader._cap_hit:
                 reader_warning = (
-                    f"7z stream truncated at {_SEVENZ_MAX_BYTES // (1024*1024)} MB"
+                    f"7z stream truncated at {seven_z_max_mb} MB"
                 )
         except Exception as exc:
             # Defensive: any I/O error from the underlying stream
