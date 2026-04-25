@@ -808,148 +808,791 @@ class VisionAdapter:
             return
 
     async def _batch_openai(self, image_paths: list[Path], prompt: str) -> list["BatchImageResult"]:
-        # v0.31.0: filename interleaving — prepend a text block per image
-        # so the model can ground descriptions in the filename when the
-        # subject is recognizable. Mirrors `_batch_anthropic`.
-        content: list[dict] = []
-        for local_idx, path in enumerate(image_paths, start=1):
-            raw = path.read_bytes()
+        """v0.31.2: same five-layer resilience pattern as `_batch_anthropic`.
+
+        - Pre-flight (`vision_preflight.validate_image_for_vision`).
+        - Exponential backoff with Retry-After honored for 429/5xx/529.
+        - Bisection on 400 to isolate the bad file.
+        - Circuit breaker shared with Anthropic (process-wide).
+        - Operator banner via the existing `/api/analysis/circuit-breaker`.
+        """
+        encoded: list[tuple[Path, str, str, int, str | None]] = []
+        for path in image_paths:
+            try:
+                raw = path.read_bytes()
+            except OSError as exc:
+                log.warning("vision_adapter.image_read_failed", path=str(path), error=str(exc))
+                encoded.append((path, "", "", 0, f"[image read failed: {exc}]"))
+                continue
             raw, mime = _compress_image_for_vision(raw, detect_mime(path))
-            image_b64 = base64.b64encode(raw).decode()
+            pf = validate_image_for_vision(raw, filename=path.name, detected_mime=mime)
+            if not pf.ok:
+                log.info(
+                    "vision_adapter.preflight_rejected",
+                    provider="openai", path=str(path), error=pf.error,
+                    width=pf.width, height=pf.height,
+                )
+                encoded.append((path, "", "", 0, pf.error))
+                continue
+            b64 = base64.b64encode(raw).decode()
+            encoded.append((path, b64, mime, len(b64), None))
+
+        max_payload = _PROVIDER_LIMITS["openai"]["max_request_bytes"]
+        sub_batches: list[list[int]] = []
+        current: list[int] = []
+        current_size = 0
+        for idx, (_, b64, _, size, _) in enumerate(encoded):
+            if not b64:
+                if current:
+                    sub_batches.append(current); current, current_size = [], 0
+                sub_batches.append([idx]); continue
+            if current and current_size + size > max_payload:
+                sub_batches.append(current); current, current_size = [], 0
+            current.append(idx); current_size += size
+        if current:
+            sub_batches.append(current)
+
+        results: list[BatchImageResult | None] = [None] * len(image_paths)
+        async with httpx.AsyncClient(timeout=_TIMEOUT * 4) as client:
+            for batch_indices in sub_batches:
+                preflight_errs = [
+                    (i, encoded[i][4]) for i in batch_indices if encoded[i][4] is not None
+                ]
+                if preflight_errs and all(encoded[i][4] for i in batch_indices):
+                    for i, err in preflight_errs:
+                        results[i] = BatchImageResult(
+                            index=i, description="", extracted_text="", error=err,
+                        )
+                    continue
+                if preflight_errs:
+                    for i, err in preflight_errs:
+                        results[i] = BatchImageResult(
+                            index=i, description="", extracted_text="", error=err,
+                        )
+                    batch_indices = [i for i in batch_indices if encoded[i][4] is None]
+                    if not batch_indices:
+                        continue
+                await self._openai_sub_batch(
+                    client, encoded, batch_indices, prompt, results,
+                )
+
+        for i, r in enumerate(results):
+            if r is None:
+                results[i] = BatchImageResult(
+                    index=i, description="", extracted_text="",
+                    error="[no result returned]",
+                )
+        return results  # type: ignore[return-value]
+
+    async def _openai_sub_batch(
+        self,
+        client: "httpx.AsyncClient",
+        encoded: list[tuple],
+        batch_indices: list[int],
+        prompt: str,
+        results: list,
+        recursion_depth: int = 0,
+    ) -> None:
+        """Single OpenAI sub-batch with breaker + retry + bisection.
+        Mirrors `_anthropic_sub_batch`. See that method's docstring for the
+        full state-machine description."""
+        if recursion_depth > 20:
+            log.error("vision_adapter.bisect_recursion_exceeded",
+                      provider="openai", depth=recursion_depth, batch_size=len(batch_indices))
+            for i in batch_indices:
+                results[i] = BatchImageResult(
+                    index=i, description="", extracted_text="",
+                    error=f"[bisection recursion exceeded at depth {recursion_depth}]",
+                )
+            return
+
+        allowed, reason = _cb_allow_call()
+        if not allowed:
+            log.warning(
+                "vision_adapter.circuit_breaker_blocked",
+                provider="openai", reason=reason, batch_size=len(batch_indices),
+            )
+            for i in batch_indices:
+                results[i] = BatchImageResult(
+                    index=i, description="", extracted_text="",
+                    error=f"[vision unavailable — circuit breaker {reason}]",
+                )
+            return
+
+        # Build OpenAI chat-completions payload with filename interleaving.
+        content: list[dict] = []
+        for local_idx, i in enumerate(batch_indices, start=1):
+            path, b64, mime, _, _ = encoded[i]
             content.append({"type": "text", "text": f"Image {local_idx} filename: {path.name}"})
             content.append({
                 "type": "image_url",
-                "image_url": {"url": f"data:{mime};base64,{image_b64}", "detail": "low"},
+                "image_url": {"url": f"data:{mime};base64,{b64}", "detail": "low"},
             })
         content.append({"type": "text", "text": prompt})
 
-        timeout = max(_TIMEOUT, _TIMEOUT * len(image_paths) / 3)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": self._model or "gpt-4o",
-                    "max_tokens": 400 * len(image_paths),
-                    "messages": [{"role": "user", "content": content}],
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            text = data["choices"][0]["message"]["content"]
-            usage = data.get("usage", {})
-            tokens = usage.get("total_tokens") or 0
+        payload = {
+            "model": self._model or "gpt-4o",
+            "max_tokens": 400 * len(batch_indices),
+            "messages": [{"role": "user", "content": content}],
+        }
 
-        parsed = self._parse_batch_response(text, len(image_paths))
-        per_image = (tokens // len(image_paths)) if tokens and len(image_paths) > 0 else None
-        return [
-            BatchImageResult(
-                index=i,
-                description=item.get("description", ""),
-                extracted_text=item.get("extracted_text", ""),
-                error=item.get("error"),
-                tokens_used=per_image,
-            )
-            for i, item in enumerate(parsed)
-        ]
+        for attempt in range(_BACKOFF_MAX_ATTEMPTS):
+            try:
+                resp = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self._api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+            except (httpx.TimeoutException, httpx.NetworkError, httpx.TransportError) as exc:
+                _cb_record_failure("openai_network", f"{type(exc).__name__}: {exc}")
+                log.warning(
+                    "vision_adapter.openai_network_failure",
+                    attempt=attempt, error=f"{type(exc).__name__}: {exc}",
+                )
+                if attempt == _BACKOFF_MAX_ATTEMPTS - 1:
+                    for i in batch_indices:
+                        results[i] = BatchImageResult(
+                            index=i, description="", extracted_text="",
+                            error=f"[network error after {_BACKOFF_MAX_ATTEMPTS} attempts: {type(exc).__name__}: {exc}]",
+                        )
+                    return
+                await _backoff_delay(attempt, None)
+                continue
+
+            status = resp.status_code
+
+            if status in _RETRYABLE_STATUS_CODES:
+                body = _safe_body(resp)
+                _cb_record_failure(f"openai_http_{status}", body[:200])
+                log.warning(
+                    "vision_adapter.openai_retryable",
+                    status=status, attempt=attempt, body=body[:200],
+                )
+                if attempt == _BACKOFF_MAX_ATTEMPTS - 1:
+                    for i in batch_indices:
+                        results[i] = BatchImageResult(
+                            index=i, description="", extracted_text="",
+                            error=f"[HTTP {status} after {_BACKOFF_MAX_ATTEMPTS} attempts: {body[:500]}]",
+                        )
+                    return
+                retry_after = _parse_retry_after(resp)
+                await _backoff_delay(attempt, retry_after)
+                continue
+
+            if status == 400:
+                body = _safe_body(resp)
+                if len(batch_indices) == 1:
+                    i = batch_indices[0]
+                    path = encoded[i][0]
+                    log.warning(
+                        "vision_adapter.openai_400_isolated",
+                        path=str(path), body=body[:500],
+                    )
+                    results[i] = BatchImageResult(
+                        index=i, description="", extracted_text="",
+                        error=f"[HTTP 400 (isolated by bisection): {body[:500]}]",
+                    )
+                    return
+                mid = len(batch_indices) // 2
+                left, right = batch_indices[:mid], batch_indices[mid:]
+                log.info(
+                    "vision_adapter.openai_400_bisecting",
+                    batch_size=len(batch_indices),
+                    left_size=len(left), right_size=len(right),
+                    body=body[:200],
+                )
+                await self._openai_sub_batch(
+                    client, encoded, left, prompt, results, recursion_depth + 1,
+                )
+                await self._openai_sub_batch(
+                    client, encoded, right, prompt, results, recursion_depth + 1,
+                )
+                return
+
+            if 400 <= status < 500:
+                body = _safe_body(resp)
+                _cb_record_failure(f"openai_http_{status}", body[:200])
+                log.error(
+                    "vision_adapter.openai_client_error",
+                    status=status, body=body[:500],
+                )
+                for i in batch_indices:
+                    results[i] = BatchImageResult(
+                        index=i, description="", extracted_text="",
+                        error=f"[HTTP {status}: {body[:500]}]",
+                    )
+                return
+
+            # 2xx success
+            _cb_record_success()
+            try:
+                data = resp.json()
+            except Exception as exc:
+                log.warning(
+                    "vision_adapter.openai_parse_failure",
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+                for i in batch_indices:
+                    results[i] = BatchImageResult(
+                        index=i, description="", extracted_text="",
+                        error=f"[response parse failed: {type(exc).__name__}: {exc}]",
+                    )
+                return
+
+            try:
+                text = data["choices"][0]["message"]["content"]
+            except (KeyError, IndexError, TypeError) as exc:
+                log.warning(
+                    "vision_adapter.openai_response_shape",
+                    error=f"{type(exc).__name__}: {exc}",
+                    keys=list(data.keys()) if isinstance(data, dict) else None,
+                )
+                for i in batch_indices:
+                    results[i] = BatchImageResult(
+                        index=i, description="", extracted_text="",
+                        error=f"[unexpected response shape: {exc}]",
+                    )
+                return
+            usage = data.get("usage", {}) or {}
+            tokens = usage.get("total_tokens", 0) or 0
+
+            parsed = self._parse_batch_response(text, len(batch_indices))
+            per_image = (tokens // len(batch_indices)) if tokens else None
+            for slot, item in zip(batch_indices, parsed):
+                results[slot] = BatchImageResult(
+                    index=slot,
+                    description=item.get("description", ""),
+                    extracted_text=item.get("extracted_text", ""),
+                    error=item.get("error"),
+                    tokens_used=per_image,
+                )
+            return
 
     async def _batch_gemini(self, image_paths: list[Path], prompt: str) -> list["BatchImageResult"]:
-        base = self._base_url or "https://generativelanguage.googleapis.com"
-        # v0.31.0: filename interleaving — prepend a text part per image.
-        parts: list[dict] = []
-        for local_idx, path in enumerate(image_paths, start=1):
-            raw = path.read_bytes()
+        """v0.31.2: same five-layer resilience pattern as `_batch_anthropic`."""
+        encoded: list[tuple[Path, str, str, int, str | None]] = []
+        for path in image_paths:
+            try:
+                raw = path.read_bytes()
+            except OSError as exc:
+                log.warning("vision_adapter.image_read_failed", path=str(path), error=str(exc))
+                encoded.append((path, "", "", 0, f"[image read failed: {exc}]"))
+                continue
             raw, mime = _compress_image_for_vision(raw, detect_mime(path))
-            image_b64 = base64.b64encode(raw).decode()
+            pf = validate_image_for_vision(raw, filename=path.name, detected_mime=mime)
+            if not pf.ok:
+                log.info(
+                    "vision_adapter.preflight_rejected",
+                    provider="gemini", path=str(path), error=pf.error,
+                    width=pf.width, height=pf.height,
+                )
+                encoded.append((path, "", "", 0, pf.error))
+                continue
+            b64 = base64.b64encode(raw).decode()
+            encoded.append((path, b64, mime, len(b64), None))
+
+        max_payload = _PROVIDER_LIMITS["gemini"]["max_request_bytes"]
+        sub_batches: list[list[int]] = []
+        current: list[int] = []
+        current_size = 0
+        for idx, (_, b64, _, size, _) in enumerate(encoded):
+            if not b64:
+                if current:
+                    sub_batches.append(current); current, current_size = [], 0
+                sub_batches.append([idx]); continue
+            if current and current_size + size > max_payload:
+                sub_batches.append(current); current, current_size = [], 0
+            current.append(idx); current_size += size
+        if current:
+            sub_batches.append(current)
+
+        results: list[BatchImageResult | None] = [None] * len(image_paths)
+        base = self._base_url or "https://generativelanguage.googleapis.com"
+        async with httpx.AsyncClient(timeout=_TIMEOUT * 4) as client:
+            for batch_indices in sub_batches:
+                preflight_errs = [
+                    (i, encoded[i][4]) for i in batch_indices if encoded[i][4] is not None
+                ]
+                if preflight_errs and all(encoded[i][4] for i in batch_indices):
+                    for i, err in preflight_errs:
+                        results[i] = BatchImageResult(
+                            index=i, description="", extracted_text="", error=err,
+                        )
+                    continue
+                if preflight_errs:
+                    for i, err in preflight_errs:
+                        results[i] = BatchImageResult(
+                            index=i, description="", extracted_text="", error=err,
+                        )
+                    batch_indices = [i for i in batch_indices if encoded[i][4] is None]
+                    if not batch_indices:
+                        continue
+                await self._gemini_sub_batch(
+                    client, base, encoded, batch_indices, prompt, results,
+                )
+
+        for i, r in enumerate(results):
+            if r is None:
+                results[i] = BatchImageResult(
+                    index=i, description="", extracted_text="",
+                    error="[no result returned]",
+                )
+        return results  # type: ignore[return-value]
+
+    async def _gemini_sub_batch(
+        self,
+        client: "httpx.AsyncClient",
+        base: str,
+        encoded: list[tuple],
+        batch_indices: list[int],
+        prompt: str,
+        results: list,
+        recursion_depth: int = 0,
+    ) -> None:
+        """Single Gemini sub-batch with breaker + retry + bisection."""
+        if recursion_depth > 20:
+            log.error("vision_adapter.bisect_recursion_exceeded",
+                      provider="gemini", depth=recursion_depth, batch_size=len(batch_indices))
+            for i in batch_indices:
+                results[i] = BatchImageResult(
+                    index=i, description="", extracted_text="",
+                    error=f"[bisection recursion exceeded at depth {recursion_depth}]",
+                )
+            return
+
+        allowed, reason = _cb_allow_call()
+        if not allowed:
+            log.warning(
+                "vision_adapter.circuit_breaker_blocked",
+                provider="gemini", reason=reason, batch_size=len(batch_indices),
+            )
+            for i in batch_indices:
+                results[i] = BatchImageResult(
+                    index=i, description="", extracted_text="",
+                    error=f"[vision unavailable — circuit breaker {reason}]",
+                )
+            return
+
+        # Build Gemini generateContent payload.
+        parts: list[dict] = []
+        for local_idx, i in enumerate(batch_indices, start=1):
+            path, b64, mime, _, _ = encoded[i]
             parts.append({"text": f"Image {local_idx} filename: {path.name}"})
-            parts.append({"inline_data": {"mime_type": mime, "data": image_b64}})
+            parts.append({"inline_data": {"mime_type": mime, "data": b64}})
         parts.append({"text": prompt})
 
-        timeout = max(_TIMEOUT, _TIMEOUT * len(image_paths) / 3)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(
-                f"{base}/v1beta/models/{self._model}:generateContent",
-                params={"key": self._api_key},
-                headers={"Content-Type": "application/json"},
-                json={
-                    "contents": [{"parts": parts}],
-                    "generationConfig": {"maxOutputTokens": 400 * len(image_paths)},
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        payload = {
+            "contents": [{"parts": parts}],
+            "generationConfig": {"maxOutputTokens": 400 * len(batch_indices)},
+        }
+
+        for attempt in range(_BACKOFF_MAX_ATTEMPTS):
+            try:
+                resp = await client.post(
+                    f"{base}/v1beta/models/{self._model}:generateContent",
+                    params={"key": self._api_key},
+                    headers={"Content-Type": "application/json"},
+                    json=payload,
+                )
+            except (httpx.TimeoutException, httpx.NetworkError, httpx.TransportError) as exc:
+                _cb_record_failure("gemini_network", f"{type(exc).__name__}: {exc}")
+                log.warning(
+                    "vision_adapter.gemini_network_failure",
+                    attempt=attempt, error=f"{type(exc).__name__}: {exc}",
+                )
+                if attempt == _BACKOFF_MAX_ATTEMPTS - 1:
+                    for i in batch_indices:
+                        results[i] = BatchImageResult(
+                            index=i, description="", extracted_text="",
+                            error=f"[network error after {_BACKOFF_MAX_ATTEMPTS} attempts: {type(exc).__name__}: {exc}]",
+                        )
+                    return
+                await _backoff_delay(attempt, None)
+                continue
+
+            status = resp.status_code
+
+            if status in _RETRYABLE_STATUS_CODES:
+                body = _safe_body(resp)
+                _cb_record_failure(f"gemini_http_{status}", body[:200])
+                log.warning(
+                    "vision_adapter.gemini_retryable",
+                    status=status, attempt=attempt, body=body[:200],
+                )
+                if attempt == _BACKOFF_MAX_ATTEMPTS - 1:
+                    for i in batch_indices:
+                        results[i] = BatchImageResult(
+                            index=i, description="", extracted_text="",
+                            error=f"[HTTP {status} after {_BACKOFF_MAX_ATTEMPTS} attempts: {body[:500]}]",
+                        )
+                    return
+                retry_after = _parse_retry_after(resp)
+                await _backoff_delay(attempt, retry_after)
+                continue
+
+            if status == 400:
+                body = _safe_body(resp)
+                if len(batch_indices) == 1:
+                    i = batch_indices[0]
+                    path = encoded[i][0]
+                    log.warning(
+                        "vision_adapter.gemini_400_isolated",
+                        path=str(path), body=body[:500],
+                    )
+                    results[i] = BatchImageResult(
+                        index=i, description="", extracted_text="",
+                        error=f"[HTTP 400 (isolated by bisection): {body[:500]}]",
+                    )
+                    return
+                mid = len(batch_indices) // 2
+                left, right = batch_indices[:mid], batch_indices[mid:]
+                log.info(
+                    "vision_adapter.gemini_400_bisecting",
+                    batch_size=len(batch_indices),
+                    left_size=len(left), right_size=len(right),
+                    body=body[:200],
+                )
+                await self._gemini_sub_batch(
+                    client, base, encoded, left, prompt, results, recursion_depth + 1,
+                )
+                await self._gemini_sub_batch(
+                    client, base, encoded, right, prompt, results, recursion_depth + 1,
+                )
+                return
+
+            if 400 <= status < 500:
+                body = _safe_body(resp)
+                _cb_record_failure(f"gemini_http_{status}", body[:200])
+                log.error(
+                    "vision_adapter.gemini_client_error",
+                    status=status, body=body[:500],
+                )
+                for i in batch_indices:
+                    results[i] = BatchImageResult(
+                        index=i, description="", extracted_text="",
+                        error=f"[HTTP {status}: {body[:500]}]",
+                    )
+                return
+
+            # 2xx success
+            _cb_record_success()
+            try:
+                data = resp.json()
+            except Exception as exc:
+                log.warning(
+                    "vision_adapter.gemini_parse_failure",
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+                for i in batch_indices:
+                    results[i] = BatchImageResult(
+                        index=i, description="", extracted_text="",
+                        error=f"[response parse failed: {type(exc).__name__}: {exc}]",
+                    )
+                return
+
             text = "".join(
                 part.get("text", "")
                 for candidate in data.get("candidates", [])
                 for part in candidate.get("content", {}).get("parts", [])
             )
-            usage_meta = data.get("usageMetadata", {})
-            tokens = (usage_meta.get("promptTokenCount", 0) or 0) + (usage_meta.get("candidatesTokenCount", 0) or 0)
-
-        parsed = self._parse_batch_response(text, len(image_paths))
-        per_image = (tokens // len(image_paths)) if tokens and len(image_paths) > 0 else None
-        return [
-            BatchImageResult(
-                index=i,
-                description=item.get("description", ""),
-                extracted_text=item.get("extracted_text", ""),
-                error=item.get("error"),
-                tokens_used=per_image,
+            usage_meta = data.get("usageMetadata", {}) or {}
+            tokens = (
+                (usage_meta.get("promptTokenCount", 0) or 0)
+                + (usage_meta.get("candidatesTokenCount", 0) or 0)
             )
-            for i, item in enumerate(parsed)
-        ]
+
+            parsed = self._parse_batch_response(text, len(batch_indices))
+            per_image = (tokens // len(batch_indices)) if tokens else None
+            for slot, item in zip(batch_indices, parsed):
+                results[slot] = BatchImageResult(
+                    index=slot,
+                    description=item.get("description", ""),
+                    extracted_text=item.get("extracted_text", ""),
+                    error=item.get("error"),
+                    tokens_used=per_image,
+                )
+            return
 
     async def _batch_ollama(self, image_paths: list[Path], prompt: str) -> list["BatchImageResult"]:
-        """Try multi-image batch; fall back to sequential describe_frame() calls if model rejects it."""
-        base = self._base_url or "http://localhost:11434"
-        images_b64 = [base64.b64encode(p.read_bytes()).decode() for p in image_paths]
+        """v0.31.2: same five-layer resilience pattern as the cloud
+        providers, with one Ollama-specific behavior preserved: if all
+        non-preflight results come back with parser failure (the model
+        spoke but didn't produce JSON we could parse — symptom of a
+        model that doesn't grok the multi-image-batch prompt), fall
+        back to sequential `describe_frame` per image. Bisection
+        already handles HTTP 400 cases, so this fallback is only for
+        the "model returns garbled prose for a multi-image prompt"
+        edge case.
+        """
+        encoded: list[tuple[Path, str, str, int, str | None]] = []
+        for path in image_paths:
+            try:
+                raw = path.read_bytes()
+            except OSError as exc:
+                log.warning("vision_adapter.image_read_failed", path=str(path), error=str(exc))
+                encoded.append((path, "", "", 0, f"[image read failed: {exc}]"))
+                continue
+            raw, mime = _compress_image_for_vision(raw, detect_mime(path))
+            pf = validate_image_for_vision(raw, filename=path.name, detected_mime=mime)
+            if not pf.ok:
+                log.info(
+                    "vision_adapter.preflight_rejected",
+                    provider="ollama", path=str(path), error=pf.error,
+                    width=pf.width, height=pf.height,
+                )
+                encoded.append((path, "", "", 0, pf.error))
+                continue
+            b64 = base64.b64encode(raw).decode()
+            encoded.append((path, b64, mime, len(b64), None))
 
-        # v0.31.0: filename interleaving — Ollama's /api/generate takes a
-        # single prompt + images array (no per-image text blocks), so we
-        # prepend the filename list to the prompt instead.
-        filename_list = ", ".join(f"{i}. {p.name}" for i, p in enumerate(image_paths, start=1))
+        max_payload = _PROVIDER_LIMITS["ollama"]["max_request_bytes"]
+        sub_batches: list[list[int]] = []
+        current: list[int] = []
+        current_size = 0
+        for idx, (_, b64, _, size, _) in enumerate(encoded):
+            if not b64:
+                if current:
+                    sub_batches.append(current); current, current_size = [], 0
+                sub_batches.append([idx]); continue
+            if current and current_size + size > max_payload:
+                sub_batches.append(current); current, current_size = [], 0
+            current.append(idx); current_size += size
+        if current:
+            sub_batches.append(current)
+
+        results: list[BatchImageResult | None] = [None] * len(image_paths)
+        base = self._base_url or "http://localhost:11434"
+        # Ollama runs locally, so per-image timeout can be substantially
+        # longer (CPU/GPU inference is the bottleneck, not network).
+        timeout = max(_TIMEOUT * 4, 120.0 * max(1, len(image_paths)))
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            for batch_indices in sub_batches:
+                preflight_errs = [
+                    (i, encoded[i][4]) for i in batch_indices if encoded[i][4] is not None
+                ]
+                if preflight_errs and all(encoded[i][4] for i in batch_indices):
+                    for i, err in preflight_errs:
+                        results[i] = BatchImageResult(
+                            index=i, description="", extracted_text="", error=err,
+                        )
+                    continue
+                if preflight_errs:
+                    for i, err in preflight_errs:
+                        results[i] = BatchImageResult(
+                            index=i, description="", extracted_text="", error=err,
+                        )
+                    batch_indices = [i for i in batch_indices if encoded[i][4] is None]
+                    if not batch_indices:
+                        continue
+                await self._ollama_sub_batch(
+                    client, base, encoded, batch_indices, prompt, results,
+                )
+
+        # Ollama-specific fallback: if every non-preflight image came
+        # back with the parser-failure marker, the model spoke but its
+        # response wasn't parseable as a JSON array. This typically
+        # means the model doesn't grok the multi-image-batch prompt.
+        # Try sequential per-image calls as a last resort.
+        non_preflight = [
+            i for i, _ in enumerate(image_paths)
+            if encoded[i][4] is None
+        ]
+        parser_failed_marker = "failed to parse LLM response"
+        if non_preflight and all(
+            results[i] is not None and results[i].error == parser_failed_marker  # type: ignore[union-attr]
+            for i in non_preflight
+        ):
+            log.info(
+                "vision_adapter.ollama_batch_fallback_sequential",
+                count=len(non_preflight),
+            )
+            for i in non_preflight:
+                fd = await self.describe_frame(image_paths[i], prompt, scene_index=i)
+                results[i] = BatchImageResult(
+                    index=i, description=fd.description, extracted_text="",
+                    error=fd.error,
+                )
+
+        for i, r in enumerate(results):
+            if r is None:
+                results[i] = BatchImageResult(
+                    index=i, description="", extracted_text="",
+                    error="[no result returned]",
+                )
+        return results  # type: ignore[return-value]
+
+    async def _ollama_sub_batch(
+        self,
+        client: "httpx.AsyncClient",
+        base: str,
+        encoded: list[tuple],
+        batch_indices: list[int],
+        prompt: str,
+        results: list,
+        recursion_depth: int = 0,
+    ) -> None:
+        """Single Ollama sub-batch with breaker + retry + bisection.
+
+        Ollama is local-only, so 'network failure' here typically means
+        the Ollama daemon isn't running, not transient cloud-side
+        flakiness. The breaker still helps — it short-circuits new
+        calls so we don't spam connection-refused errors during a long
+        outage.
+        """
+        if recursion_depth > 20:
+            log.error("vision_adapter.bisect_recursion_exceeded",
+                      provider="ollama", depth=recursion_depth, batch_size=len(batch_indices))
+            for i in batch_indices:
+                results[i] = BatchImageResult(
+                    index=i, description="", extracted_text="",
+                    error=f"[bisection recursion exceeded at depth {recursion_depth}]",
+                )
+            return
+
+        allowed, reason = _cb_allow_call()
+        if not allowed:
+            log.warning(
+                "vision_adapter.circuit_breaker_blocked",
+                provider="ollama", reason=reason, batch_size=len(batch_indices),
+            )
+            for i in batch_indices:
+                results[i] = BatchImageResult(
+                    index=i, description="", extracted_text="",
+                    error=f"[vision unavailable — circuit breaker {reason}]",
+                )
+            return
+
+        # Build Ollama generate payload. Ollama's API doesn't support
+        # per-image text blocks, so we prepend the filename list to
+        # the prompt instead.
+        sub_paths = [encoded[i][0] for i in batch_indices]
+        images_b64 = [encoded[i][1] for i in batch_indices]
+        filename_list = ", ".join(
+            f"{n}. {p.name}" for n, p in enumerate(sub_paths, start=1)
+        )
         prompt_with_filenames = f"Files (in order): {filename_list}\n\n{prompt}"
 
-        try:
-            async with httpx.AsyncClient(timeout=120.0 * len(image_paths)) as client:
-                resp = await client.post(
-                    f"{base}/api/generate",
-                    json={
-                        "model": self._model or "llava",
-                        "prompt": prompt_with_filenames,
-                        "images": images_b64,
-                        "stream": False,
-                    },
-                )
-                resp.raise_for_status()
-                text = resp.json().get("response", "").strip()
+        payload = {
+            "model": self._model or "llava",
+            "prompt": prompt_with_filenames,
+            "images": images_b64,
+            "stream": False,
+        }
 
-            parsed = self._parse_batch_response(text, len(image_paths))
-            results = [
-                BatchImageResult(
-                    index=i,
+        for attempt in range(_BACKOFF_MAX_ATTEMPTS):
+            try:
+                resp = await client.post(f"{base}/api/generate", json=payload)
+            except (httpx.TimeoutException, httpx.NetworkError, httpx.TransportError) as exc:
+                _cb_record_failure("ollama_network", f"{type(exc).__name__}: {exc}")
+                log.warning(
+                    "vision_adapter.ollama_network_failure",
+                    attempt=attempt, error=f"{type(exc).__name__}: {exc}",
+                )
+                if attempt == _BACKOFF_MAX_ATTEMPTS - 1:
+                    for i in batch_indices:
+                        results[i] = BatchImageResult(
+                            index=i, description="", extracted_text="",
+                            error=f"[network error after {_BACKOFF_MAX_ATTEMPTS} attempts: {type(exc).__name__}: {exc}]",
+                        )
+                    return
+                await _backoff_delay(attempt, None)
+                continue
+
+            status = resp.status_code
+
+            if status in _RETRYABLE_STATUS_CODES:
+                body = _safe_body(resp)
+                _cb_record_failure(f"ollama_http_{status}", body[:200])
+                log.warning(
+                    "vision_adapter.ollama_retryable",
+                    status=status, attempt=attempt, body=body[:200],
+                )
+                if attempt == _BACKOFF_MAX_ATTEMPTS - 1:
+                    for i in batch_indices:
+                        results[i] = BatchImageResult(
+                            index=i, description="", extracted_text="",
+                            error=f"[HTTP {status} after {_BACKOFF_MAX_ATTEMPTS} attempts: {body[:500]}]",
+                        )
+                    return
+                retry_after = _parse_retry_after(resp)
+                await _backoff_delay(attempt, retry_after)
+                continue
+
+            if status == 400:
+                body = _safe_body(resp)
+                if len(batch_indices) == 1:
+                    i = batch_indices[0]
+                    path = encoded[i][0]
+                    log.warning(
+                        "vision_adapter.ollama_400_isolated",
+                        path=str(path), body=body[:500],
+                    )
+                    results[i] = BatchImageResult(
+                        index=i, description="", extracted_text="",
+                        error=f"[HTTP 400 (isolated by bisection): {body[:500]}]",
+                    )
+                    return
+                mid = len(batch_indices) // 2
+                left, right = batch_indices[:mid], batch_indices[mid:]
+                log.info(
+                    "vision_adapter.ollama_400_bisecting",
+                    batch_size=len(batch_indices),
+                    left_size=len(left), right_size=len(right),
+                    body=body[:200],
+                )
+                await self._ollama_sub_batch(
+                    client, base, encoded, left, prompt, results, recursion_depth + 1,
+                )
+                await self._ollama_sub_batch(
+                    client, base, encoded, right, prompt, results, recursion_depth + 1,
+                )
+                return
+
+            if 400 <= status < 500:
+                body = _safe_body(resp)
+                _cb_record_failure(f"ollama_http_{status}", body[:200])
+                log.error(
+                    "vision_adapter.ollama_client_error",
+                    status=status, body=body[:500],
+                )
+                for i in batch_indices:
+                    results[i] = BatchImageResult(
+                        index=i, description="", extracted_text="",
+                        error=f"[HTTP {status}: {body[:500]}]",
+                    )
+                return
+
+            # 2xx success
+            _cb_record_success()
+            try:
+                data = resp.json()
+            except Exception as exc:
+                log.warning(
+                    "vision_adapter.ollama_parse_failure",
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+                for i in batch_indices:
+                    results[i] = BatchImageResult(
+                        index=i, description="", extracted_text="",
+                        error=f"[response parse failed: {type(exc).__name__}: {exc}]",
+                    )
+                return
+
+            text = (data.get("response") or "").strip()
+            # Ollama doesn't report token usage in the same shape as
+            # cloud providers — leave per_image as None.
+            parsed = self._parse_batch_response(text, len(batch_indices))
+            for slot, item in zip(batch_indices, parsed):
+                results[slot] = BatchImageResult(
+                    index=slot,
                     description=item.get("description", ""),
                     extracted_text=item.get("extracted_text", ""),
                     error=item.get("error"),
                 )
-                for i, item in enumerate(parsed)
-            ]
-            if all(r.error for r in results):
-                raise ValueError("all results failed — falling back to sequential")
-            return results
-
-        except Exception:
-            log.info("vision_adapter.ollama_batch_fallback_sequential", count=len(image_paths))
-            out = []
-            for i, path in enumerate(image_paths):
-                fd = await self.describe_frame(path, prompt, scene_index=i)
-                out.append(BatchImageResult(
-                    index=i,
-                    description=fd.description,
-                    extracted_text="",
-                    error=fd.error,
-                ))
-            return out
+            return
 
     async def health_check(self) -> tuple[bool, str]:
         """Fast connectivity check (5s timeout). Never raises."""

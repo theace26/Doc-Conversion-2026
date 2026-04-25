@@ -260,6 +260,115 @@ The model name must match what the server expects.
 
 ---
 
+## Resilience and reliability (v0.31.2)
+
+MarkFlow's vision-API code path defends against provider
+flakiness, transient outages, and bad input files using a
+five-layer pipeline. Every layer applies to **all four
+providers** (Anthropic, OpenAI, Gemini, Ollama) regardless
+of which one is active.
+
+### The five layers
+
+| Layer | What it does | When it fires |
+|---|---|---|
+| 1. Pre-flight | PIL header verify + dimension sanity check + MIME allow-list, all locally before encoding to base64 | Always, on every image |
+| 2. Exponential backoff | Up to 4 retries with delays of 1, 2, 4, 8 s (jittered ±15%); honors `Retry-After` header when present | On 429, 500, 502, 503, 504, 529 |
+| 3. Per-image bisection | Halves the failing batch and retries each half until the bad image is in a solo sub-batch | On 400 (payload error) |
+| 4. Circuit breaker | Process-wide state machine; opens after 5 consecutive upstream failures, cooldown 60s → 2min → 4min → 8min → cap 15min | When upstream is genuinely broken |
+| 5. Operator banner | Red banner on Batch Management when breaker is open, with cooldown countdown + Reset button | When the breaker is open or half-open |
+
+### Example: one bad image in a batch of 10
+
+Before v0.29.9 (Anthropic) / v0.31.2 (others):
+
+```
+Batch of 10 images → POST → HTTP 400 "image at index 4 is corrupt"
+Result: all 10 rows marked failed
+```
+
+After:
+
+```
+Batch of 10 images → POST → HTTP 400
+  └── Bisect: left half (5 images) → POST → 200 OK ✓
+  └── Bisect: right half (5 images) → POST → HTTP 400
+        └── Bisect: 2 images → POST → 200 OK ✓
+        └── Bisect: 3 images → POST → HTTP 400
+              └── Bisect: 1 image → POST → 200 OK ✓
+              └── Bisect: 2 images → POST → HTTP 400
+                    └── Bisect: 1 image → POST → HTTP 400
+                          ✗ Isolated! Mark this one failed.
+                    └── Bisect: 1 image → POST → 200 OK ✓
+Result: 9 of 10 rows succeed, 1 row marked with the actual 400
+        body so you can see what was wrong with that file.
+```
+
+The worst case is `~2 N` extra calls for one bad file in a
+batch of N. The cost is real, but you save the cost of failing
+the other N − 1 files plus the operator's time.
+
+### Example: provider outage
+
+```
+Batch 1 → POST → 503 → backoff 1s → POST → 503 → backoff 2s → POST → 503 → backoff 4s → POST → 503 → backoff 8s → POST → 503 → mark all failed (after 4 attempts)
+   (4 retries x 5 = 1 cumulative breaker failure)
+Batch 2 → POST → 503 → ... (same pattern, 1 more breaker failure)
+Batch 3 → ...
+Batch 4 → ...
+Batch 5 → After 5 consecutive upstream failures, breaker OPENS.
+Batch 6 → CIRCUIT OPEN → instant fail without any API call.
+   (saves money — no doomed calls go out)
+   ... 60 second cooldown ...
+Batch 7 → CIRCUIT HALF-OPEN → one trial call permitted.
+   If success: breaker closes, normal traffic resumes.
+   If failure: breaker re-opens with 120s cooldown.
+```
+
+### Where to see it
+
+- **Batch Management page** (`/batch-management.html`) — when
+  the breaker opens, a red/amber banner appears above the top
+  bar with the error class, consecutive-failure count,
+  countdown to next trial, and a **Reset breaker** button
+  (Manager+ role required).
+- **API endpoint** — `GET /api/analysis/circuit-breaker`
+  returns the breaker's current state as JSON. Useful for
+  monitoring scripts.
+- **Logs** — search the operational log for
+  `vision_circuit_breaker.opened` / `closed` / `half_open` to
+  see breaker transitions.
+
+### What the breaker does NOT count
+
+Only **upstream** failures count toward the breaker threshold:
+
+- ✓ HTTP 429, 500, 502, 503, 504, 529
+- ✓ network errors, timeouts, connection refused
+
+Specifically NOT counted:
+
+- ✗ HTTP 400 (payload error — feeds bisection instead)
+- ✗ Pre-flight failures (corrupt local file)
+- ✗ Auth errors (401/403 — these still mark all rows failed
+  but don't trip the breaker, because you don't want a single
+  invalid-key incident to block all traffic during the
+  rotation window)
+
+This means a single bad file in a giant batch can never trip
+the breaker — bisection will isolate it cleanly.
+
+### Cross-provider note
+
+The breaker is **process-wide**. If you're mid-experiment
+switching from one provider to another, the first call to the
+new provider may short-circuit if the breaker is still cooling
+down from the old provider. Click **Reset breaker** on the
+banner to bypass the cooldown immediately, or wait it out (60s
+the first time, doubling on each re-trigger up to 15 minutes).
+
+---
+
 ## Security Notes
 
 - API keys are encrypted at rest using Fernet symmetric encryption.

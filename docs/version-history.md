@@ -4,6 +4,108 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.31.2 — Multi-provider 5-layer vision-API resilience (2026-04-25)
+
+**Ports the v0.29.9 Anthropic-only resilience pipeline to
+OpenAI, Gemini, and Ollama. Every operator now gets the same
+financial protection against wasted vision-API spend regardless
+of which provider they've activated.**
+
+### Background
+
+v0.29.9 shipped a five-layer defense pipeline (preflight
+validation, exponential backoff with Retry-After, per-image
+bisection on 400, circuit breaker, operator banner) on Anthropic
+vision calls. The roadmap explicitly noted that the helpers
+(`_parse_retry_after`, `_backoff_delay`, `_safe_body`) and the
+circuit-breaker module were provider-agnostic — porting the
+pattern to the other three providers was a follow-up.
+
+v0.31.0 ported the *filename interleaving* prompt improvement
+to OpenAI / Gemini / Ollama. This release ports the resilience
+machinery.
+
+### What landed
+
+For each of OpenAI, Gemini, and Ollama:
+
+1. `_batch_<provider>` was rewritten to do the same per-image
+   read + compress + preflight + sub-batch-planning loop as
+   `_batch_anthropic`. Pre-flight failures get reserved a solo
+   sub-batch slot so the per-image error surfaces cleanly.
+2. New `_<provider>_sub_batch` helper that mirrors
+   `_anthropic_sub_batch`: circuit-breaker gate, retry loop
+   (4 attempts) with backoff + Retry-After honored on
+   429/5xx/529, recursive bisection on 400, non-retryable
+   classification on other 4xx, success path with token
+   counting and JSON-array parse.
+3. Provider-specific quirks preserved:
+   - **OpenAI**: chat-completions payload, Bearer auth header,
+     `data["choices"][0]["message"]["content"]` parse, 18 MB
+     request budget per `_PROVIDER_LIMITS`.
+   - **Gemini**: `generateContent` URL, API key in query
+     param, `parts` array structure, joined `text` from
+     `candidates[].content.parts[]`, `usageMetadata` token
+     accounting, 18 MB budget.
+   - **Ollama**: `/api/generate` with prompt + images array
+     (no per-image text blocks — filenames prepended to the
+     prompt instead, same shape as v0.31.0), 50 MB budget
+     because the workload is local.
+
+### Ollama-specific fallback preserved
+
+Ollama's existing "if all results fail, fall back to sequential
+`describe_frame` calls" path was rewritten to trigger only when
+ALL non-preflight images came back with the marker error
+`"failed to parse LLM response"`. That marker is the parser's
+signal that the model spoke but didn't produce a JSON array —
+typically a model that doesn't grok the multi-image-batch
+prompt. Bisection on 400 already covers the "model rejects
+multi-image" HTTP case; the parser-failure fallback covers the
+"model returns garbled prose" case where bisection wouldn't
+help (because the per-image solo call would also produce prose,
+just shorter).
+
+### Cross-provider breaker semantics
+
+The circuit breaker module (`core/vision_circuit_breaker.py`)
+is process-wide and provider-agnostic. A 429 storm hitting
+OpenAI will trip the breaker for Anthropic / Gemini calls too.
+This is by design:
+
+- Operators run one active provider at a time. During
+  steady-state operation, breaker state for that provider is
+  what we care about.
+- If the operator is mid-experiment switching providers, a
+  breaker tripped by the previous provider's failures
+  fail-fast on the new provider's first call, which is
+  appropriate caution — the operator can manually Reset from
+  the banner if they want to bypass the cooldown.
+- The cooldown (60s → 2min → 4min → 8min, cap 15min) is
+  short enough that a stale-tripped breaker doesn't
+  permanently block experimentation.
+
+### Files
+
+- `core/version.py` — bump to 0.31.2
+- `core/vision_adapter.py` — three batch functions rewritten +
+  three new sub-batch helpers (~600 LOC additions, ~150 LOC
+  removals net of the simpler old code)
+- `CLAUDE.md` — Current Version block; v0.31.1 demoted to
+  summary
+- `docs/version-history.md` — this entry
+- `docs/help/whats-new.md` — user-visible bullet with
+  example failure scenarios
+- `docs/help/llm-providers.md` — new "Resilience and reliability"
+  section explaining the 5 layers in user-facing terms
+
+No DB migration. No new dependencies. No new scheduler jobs.
+No frontend changes — the operator banner that polls
+`/api/analysis/circuit-breaker` was already provider-agnostic
+because the breaker module never had per-provider state.
+
+---
+
 ## v0.31.1 — `.7z` viewer safety controls + system-resource snapshot (2026-04-25)
 
 Operator-tunable byte cap on `.7z` log search, a host CPU/RAM/load

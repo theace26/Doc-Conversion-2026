@@ -91,7 +91,77 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.31.1
+## Current Version — v0.31.2
+
+**Multi-provider 5-layer vision-API resilience — OpenAI, Gemini,
+and Ollama now get the same financial protection Anthropic
+users got in v0.29.9: preflight validation, exponential backoff
+with Retry-After, per-image bisection on 400, circuit breaker,
+and the operator banner.**
+
+The v0.29.9 release built a five-layer defense pipeline against
+wasted vision-API spend on Anthropic. v0.31.2 ports the entire
+pipeline to the other three providers so every operator —
+regardless of which provider they've activated — gets:
+
+- **Preflight validation** that catches corrupt / wrong-MIME /
+  out-of-range-dimension images before encoding to base64
+- **Exponential backoff** with `Retry-After` honored on
+  429 / 500 / 502 / 503 / 504 / 529
+- **Per-image bisection on 400** that isolates the bad file
+  via recursive halving rather than tossing the whole batch
+- **Circuit breaker** (process-shared with Anthropic) that
+  short-circuits after 5 consecutive upstream failures with
+  exponential cooldown (60s → 2min → 4min → 8min, cap 15min)
+- **Operator banner** on the Batch Management page (already
+  provider-agnostic) that surfaces breaker state + Reset
+
+### Per-provider details
+
+- `_batch_openai` + new `_openai_sub_batch`: 429s carry
+  `Retry-After` in seconds form; bisection halves the
+  messages content array. Honors OpenAI's 18 MB request
+  budget from `_PROVIDER_LIMITS`.
+- `_batch_gemini` + new `_gemini_sub_batch`: error responses
+  are JSON with a `code` / `message` / `status` shape; we
+  capture the body (truncated to 500 chars) into the
+  per-image error. Honors Gemini's 18 MB budget.
+- `_batch_ollama` + new `_ollama_sub_batch`: Ollama is local,
+  so "network failure" usually means the daemon is down —
+  but the breaker still helps short-circuit during a long
+  outage. Bisection on 400 covers "model doesn't accept
+  multi-image prompt." Existing fallback to sequential
+  `describe_frame` is preserved as a last resort for
+  "model returned garbled prose the parser can't extract" —
+  the layered pipeline doesn't catch that case.
+
+The breaker module is process-wide, so a 429 storm on
+OpenAI will pause any other provider's calls too. That's by
+design — operators run one active provider at a time, and
+during cross-provider experimentation, fail-fast is what we
+want.
+
+### Files
+
+- `core/version.py` — bump to 0.31.2
+- `core/vision_adapter.py` — `_batch_openai`, `_batch_gemini`,
+  `_batch_ollama` rewritten + new `_<provider>_sub_batch`
+  helpers (~600 LOC of additions). The shared helpers
+  (`_parse_retry_after`, `_backoff_delay`, `_safe_body`,
+  `_RETRYABLE_STATUS_CODES`, the `_BACKOFF_*` constants) and
+  the circuit_breaker module are unchanged — they were
+  already provider-agnostic.
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`, `docs/help/llm-providers.md`
+
+No DB migration. No new dependencies. No new scheduler jobs.
+The frontend operator banner needs no changes — the
+`/api/analysis/circuit-breaker` endpoint was already
+provider-agnostic.
+
+---
+
+## v0.31.1 — `.7z` viewer safety controls + system-resource snapshot
 
 **`.7z` viewer safety controls + system-resource snapshot —
 operator-tunable byte cap on `.7z` log search, host CPU/RAM/load

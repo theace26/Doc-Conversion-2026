@@ -6,6 +6,64 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.31.2 — OpenAI / Gemini / Ollama get full vision-API resilience
+
+If you're using **OpenAI**, **Gemini**, or **Ollama** as your
+active vision provider, the same five-layer safety net that
+**Anthropic** users have had since v0.29.9 now applies to your
+batches too. You don't need to do anything — switching to any
+of these three providers automatically picks it up.
+
+### What it protects against
+
+| Failure mode | Before | After |
+|---|---|---|
+| One corrupt JPG in a batch of 10 | All 10 fail with HTTP 400 | The corrupt one fails; other 9 succeed |
+| Provider hits a temporary rate-limit (429) | Whole batch fails | Each call is retried up to 4 times with exponential backoff (1, 2, 4, 8 s) |
+| Provider returns 500/502/503/504 transiently | Whole batch fails | Same retry loop, with `Retry-After` honored when present |
+| Provider has an outage | Every batch wastes API spend on doomed calls | After 5 consecutive upstream failures the **circuit breaker** opens for 60s+; subsequent calls short-circuit until the cooldown elapses |
+| File on disk is corrupt or wrong format | Round-trip to provider, 400 back, no useful info | Pre-flight check rejects it locally with a `[preflight]` reason in the analysis row |
+
+### Concrete example
+
+Imagine you're using **OpenAI** to analyze a batch of 8 images,
+and a transient OpenAI outage causes 429 responses for 30
+seconds:
+
+- **Before v0.31.2**: All 8 images fail. The analysis worker
+  records `[HTTP 429: ...]` for each row. You retry manually
+  later.
+- **After v0.31.2**: The first call returns 429. The retry
+  loop waits 1 second (or whatever `Retry-After` says, if
+  OpenAI sent one), then tries again. If it 429s again, wait
+  2 seconds. After up to 4 attempts, success or failure is
+  recorded. Meanwhile the circuit breaker is counting
+  consecutive failures — if you somehow hit 5 in a row,
+  subsequent batches short-circuit so you don't burn a quota
+  budget on 30 more failed calls.
+
+### The operator banner
+
+If the breaker opens, a red banner appears at the top of the
+**Batch Management** page — same banner that's been there
+since v0.29.9 for Anthropic outages. It shows the consecutive
+failure count, the cooldown remaining, and a **Reset breaker**
+button (Manager+ role required). Click Reset after you've
+manually verified the upstream issue is fixed if you don't
+want to wait out the cooldown.
+
+### Cross-provider note
+
+The breaker is **process-wide**. If you're mid-experiment
+switching from OpenAI (which just had an outage) to Anthropic,
+the first Anthropic call may short-circuit because the breaker
+hasn't reset yet. Click **Reset breaker** on the banner to
+bypass the cooldown immediately. (Or wait — the cooldown is
+60 seconds the first time it opens, doubling on each
+re-trigger up to 15 minutes.)
+
+---
+
 ## v0.31.1 — `.7z` viewer safety controls: tunable cap, host snapshot, live search spinner
 
 ### Operator-tunable `.7z` byte cap
