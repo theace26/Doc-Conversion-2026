@@ -1169,6 +1169,36 @@
         const title = document.createElement('strong');
         title.textContent = basename(f.source_path);
         head.appendChild(title);
+        // v0.30.4: Re-analyze button — resets the row to pending so the
+        // worker re-submits it on the next cycle. Use case: rows
+        // analyzed before v0.29.8 (filename context) or v0.29.9
+        // (preflight + bisection) shipped don't benefit from those
+        // prompt/resilience improvements until they're re-analyzed.
+        const reanalyzeBtn = document.createElement('button');
+        reanalyzeBtn.className = 'btn btn-ghost btn-xs';
+        reanalyzeBtn.type = 'button';
+        reanalyzeBtn.style.marginLeft = 'auto';
+        reanalyzeBtn.style.marginRight = '0.5rem';
+        reanalyzeBtn.textContent = 'Re-analyze';
+        reanalyzeBtn.title = 'Reset to pending so the next worker cycle re-submits this image with the current prompt (uses LLM tokens).';
+        reanalyzeBtn.addEventListener('click', async () => {
+          if (!confirm('Re-analyze "' + basename(f.source_path) + '"? The current description and extracted text will be cleared and replaced when the next worker cycle picks it up. Uses LLM tokens.')) return;
+          reanalyzeBtn.disabled = true;
+          reanalyzeBtn.textContent = 'Queueing...';
+          try {
+            await API.post('/api/analysis/queue/' + encodeURIComponent(f.id) + '/reanalyze', {});
+            if (typeof showToast === 'function') showToast('Re-queued for analysis');
+            // Close modal and refresh batch list so status flips to pending
+            if (backdrop.parentNode) document.body.removeChild(backdrop);
+            await refreshStatus();
+            await loadBatches();
+          } catch (e) {
+            showError('Re-analyze failed: ' + e.message);
+            reanalyzeBtn.disabled = false;
+            reanalyzeBtn.textContent = 'Re-analyze';
+          }
+        });
+        head.appendChild(reanalyzeBtn);
         const closeBtn = document.createElement('button');
         closeBtn.className = 'bm-modal-close';
         closeBtn.type = 'button';

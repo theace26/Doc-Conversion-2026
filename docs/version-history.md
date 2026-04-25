@@ -4,6 +4,91 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.30.4 — Re-analyze button for stale analysis results (2026-04-24)
+
+Closes a UX gap exposed by v0.29.8's filename-context prompt
+improvement: rows analyzed before that release have no way to
+benefit from the new prompt without manual SQL.
+
+### Trigger
+
+User opened the analysis-result modal on
+`strike_NY_tailors_1910_dbloc-Edit.tif` and saw a generic
+description ("Same photograph as the previous image but slightly
+cropped...") that didn't reference the strike, NY, or 1910 — even
+though the filename clearly identifies all three. The row was
+analyzed at 12:17:11 PM, before v0.29.8 shipped at ~3:00 PM. The
+row's content_hash matches the file, so `enqueue_for_analysis`
+correctly skips it on subsequent scans. Operators had no path to
+refresh.
+
+### Backend
+
+`POST /api/analysis/queue/{entry_id}/reanalyze` (OPERATOR+):
+
+```sql
+UPDATE analysis_queue
+SET status = 'pending',
+    batch_id = NULL,
+    batched_at = NULL,
+    description = NULL,
+    extracted_text = NULL,
+    error = NULL,
+    analyzed_at = NULL,
+    retry_count = 0,
+    provider_id = NULL,
+    model = NULL,
+    tokens_used = NULL
+WHERE id = ?
+```
+
+Preserves identity columns (source_path, content_hash,
+file_category, scan_run_id, enqueued_at). The next worker claim
+cycle re-submits the image with the current prompt. Goes through
+`db_write_with_retry` so it doesn't 500 if the worker has a write
+lock (v0.30.0 lesson).
+
+404 if `entry_id` isn't in the table.
+
+### Frontend
+
+Analysis-result modal (introduced v0.29.5) now has a "Re-analyze"
+button in the header next to the close ×. Tooltip explains the
+cost. Confirm dialog summarizes:
+
+> Re-analyze "{filename}"? The current description and extracted
+> text will be cleared and replaced when the next worker cycle
+> picks it up. Uses LLM tokens.
+
+On success: closes the modal, calls `refreshStatus()` +
+`loadBatches()` so the row shows status='pending' immediately.
+
+### Why per-row, not bulk
+
+A "re-analyze every completed row" pass would burn LLM quota on
+tens of thousands of files for incremental quality gains.
+Operators can spot the underwhelming descriptions in the modal
+and re-trigger individually, paying ~1 image worth of tokens per
+click. Future v0.30.x release could add a bulk-re-analyze with
+filter (e.g., "all rows analyzed before 2026-04-24") if there's
+demand.
+
+### Files
+
+- `core/version.py` — bump to 0.30.4
+- `api/routes/analysis.py` — new `reanalyze_queue_entry` endpoint
+- `static/batch-management.html` — Re-analyze button + handler
+- `CLAUDE.md` — Current Version block
+- `docs/version-history.md` — this entry
+
+No DB migration. No new dependencies. Reuses the existing
+batched-result-write path (`write_batch_results` in
+`core/db/analysis.py`) which since v0.29.8 also clears `error`
+and resets `retry_count` on success — so re-analyzed rows come
+back clean even if the original had a stale error blob.
+
+---
+
 ## v0.30.3 — Operations bundle: real paths + stuck-scan cleanup + disk-usage perf + force-transcribe button (2026-04-24)
 
 Four operations-level fixes shipped together. All surfaced from a

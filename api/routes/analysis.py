@@ -330,6 +330,59 @@ async def circuit_breaker_reset(
     return {"status": "closed"}
 
 
+@router.post("/queue/{entry_id}/reanalyze")
+async def reanalyze_queue_entry(
+    entry_id: str,
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+) -> dict:
+    """Reset one analysis_queue row to pending so it gets re-submitted
+    on the next worker cycle (v0.30.4).
+
+    Use case: a row was analyzed before v0.29.8 (filename context in
+    the prompt) or v0.29.9 (preflight + bisection + circuit breaker)
+    shipped, and the operator wants to refresh the result with the
+    current prompt. Resets:
+      - status = 'pending'
+      - batch_id = NULL, batched_at = NULL
+      - description / extracted_text / error / analyzed_at = NULL
+      - retry_count = 0
+      - content_hash preserved so future enqueue_for_analysis calls
+        still skip-on-unchanged for OTHER files (not this one)
+    """
+    from core.database import get_db, now_iso  # noqa: F401
+    from core.db.connection import db_write_with_retry
+
+    async def _do():
+        from core.database import get_db
+        async with get_db() as conn:
+            cur = await conn.execute(
+                """UPDATE analysis_queue
+                   SET status = 'pending',
+                       batch_id = NULL,
+                       batched_at = NULL,
+                       description = NULL,
+                       extracted_text = NULL,
+                       error = NULL,
+                       analyzed_at = NULL,
+                       retry_count = 0,
+                       provider_id = NULL,
+                       model = NULL,
+                       tokens_used = NULL
+                   WHERE id = ?""",
+                (entry_id,),
+            )
+            rowcount = cur.rowcount
+            await conn.commit()
+            return rowcount
+
+    rowcount = await db_write_with_retry(_do)
+    if not rowcount:
+        raise HTTPException(status_code=404, detail="Analysis entry not found")
+
+    log.info("analysis.reanalyze_queued", user=user.email, entry_id=entry_id)
+    return {"status": "queued", "entry_id": entry_id}
+
+
 @router.get("/queue/{entry_id}")
 async def queue_entry(
     entry_id: str,

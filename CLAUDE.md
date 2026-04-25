@@ -91,12 +91,63 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.30.3
+## Current Version — v0.30.4
 
-**Four-in-one operations release: real source/output paths shown on
+**Re-analyze button on the analysis-result modal — refresh stale
+analyses that pre-date v0.29.8's filename-context prompt or
+v0.29.9's resilience improvements.**
+
+User found a row analyzed at 12:17:11 PM with a generic
+description ("Same photograph as the previous image but slightly
+cropped...") for a file named
+`strike_NY_tailors_1910_dbloc-Edit.tif`. The filename clearly
+identifies a 1910 NY tailors strike — context that v0.29.8's
+prompt would have used to ground the description. But the row was
+analyzed before the v0.29.8 prompt shipped, and there was no way
+to re-trigger.
+
+### What's new
+
+- **`POST /api/analysis/queue/{entry_id}/reanalyze`** (OPERATOR+)
+  resets a single row to `pending` and clears
+  description / extracted_text / error / analyzed_at /
+  retry_count / provider_id / model / tokens_used. Preserves
+  source_path, content_hash, and other identity columns. Goes
+  through `db_write_with_retry` like every other preference write
+  since v0.30.0.
+- **"Re-analyze" button** added to the analysis-result modal
+  header (next to the close × ). Confirms before triggering
+  ("uses LLM tokens"), closes the modal on success, refreshes
+  status counts + batch list. Status flips to `pending`
+  immediately; the worker picks it up on the next claim cycle.
+
+### Why a button, not an automatic re-analysis
+
+A bulk "re-analyze every completed row" pass would burn LLM quota
+on tens of thousands of files for incremental quality gains.
+Per-row re-analyze keeps the cost decision in the operator's
+hands — open the modal on a row that looks underwhelming, click
+Re-analyze, get a refreshed result. Costs ~1 image-analysis
+worth of tokens.
+
+### Files
+
+- `core/version.py` — bump to 0.30.4
+- `api/routes/analysis.py` — new `reanalyze_queue_entry` endpoint
+- `static/batch-management.html` — Re-analyze button on modal
+  header + click handler
+- `CLAUDE.md`, `docs/version-history.md`
+
+No DB migration. No new dependencies.
+
+---
+
+## v0.30.3 — Operations bundle
+
+Four-in-one operations release: real source/output paths shown on
 Active Jobs, stuck-scanning auto-cleanup, disk-usage 100×-faster
 via `du` + 5-min TTL cache, and a Force Transcribe / Convert Pending
-button on the History page.**
+button on the History page.
 
 ### 1. Active Jobs shows the actual configured paths
 
