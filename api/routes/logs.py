@@ -118,6 +118,12 @@ async def download_archive(
 async def archive_stats(
     user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
 ):
-    """Return summary statistics about the log archive."""
-    from core.log_archiver import get_archive_stats
-    return get_archive_stats()
+    """Return summary statistics about the log archive.
+
+    v0.31.0: now sources from `core.log_manager` (the legacy
+    `core.log_archiver` module was deleted). Retention days are
+    read from DB prefs instead of env var, so the value here
+    matches what the Settings page shows.
+    """
+    from core.log_manager import get_archive_stats
+    return await get_archive_stats()

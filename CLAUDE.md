@@ -91,228 +91,180 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.30.4
+## Current Version — v0.31.0
 
-**Re-analyze button on the analysis-result modal — refresh stale
-analyses that pre-date v0.29.8's filename-context prompt or
-v0.29.9's resilience improvements.**
+**Five-item bundle release encompassing every deferred item from
+the v0.31.x plan: multi-provider filename interleaving, log-viewer
+time-range UI, bulk re-analyze with delete-and-re-insert
+semantics, multi-log tabbed live view, and log subsystem
+consolidation.**
 
-User found a row analyzed at 12:17:11 PM with a generic
-description ("Same photograph as the previous image but slightly
-cropped...") for a file named
-`strike_NY_tailors_1910_dbloc-Edit.tif`. The filename clearly
-identifies a 1910 NY tailors strike — context that v0.29.8's
-prompt would have used to ground the description. But the row was
-analyzed before the v0.29.8 prompt shipped, and there was no way
-to re-trigger.
+### Item 1 — Multi-provider filename interleaving
 
-### What's new
+`_batch_anthropic` got the filename-as-text-block treatment in
+v0.29.8 so Claude could ground descriptions in recognizable
+filenames (e.g. `Benaroya_Hall_Seattle.jpg` → "Benaroya Hall, a
+concert venue in Seattle"). Same pattern now ported to:
 
-- **`POST /api/analysis/queue/{entry_id}/reanalyze`** (OPERATOR+)
-  resets a single row to `pending` and clears
-  description / extracted_text / error / analyzed_at /
-  retry_count / provider_id / model / tokens_used. Preserves
-  source_path, content_hash, and other identity columns. Goes
-  through `db_write_with_retry` like every other preference write
-  since v0.30.0.
-- **"Re-analyze" button** added to the analysis-result modal
-  header (next to the close × ). Confirms before triggering
-  ("uses LLM tokens"), closes the modal on success, refreshes
-  status counts + batch list. Status flips to `pending`
-  immediately; the worker picks it up on the next claim cycle.
+- **OpenAI** (`_batch_openai`): inserts a `{"type": "text", "text":
+  "Image N filename: ..."}` block before each `image_url` block,
+  prompt at the end. Same shape as Anthropic.
+- **Gemini** (`_batch_gemini`): inserts a `{"text": "..."}` part
+  before each `inline_data` part, prompt at the end.
+- **Ollama** (`_batch_ollama`): Ollama's `/api/generate` takes a
+  single prompt + images array (no per-image text blocks), so the
+  filename list is prepended to the prompt
+  (`"Files (in order): 1. foo.jpg, 2. bar.png\n\n<prompt>"`).
 
-### Why a button, not an automatic re-analysis
+### Item 2 — Time-range UI in log viewer historical search
 
-A bulk "re-analyze every completed row" pass would burn LLM quota
-on tens of thousands of files for incremental quality gains.
-Per-row re-analyze keeps the cost decision in the operator's
-hands — open the modal on a row that looks underwhelming, click
-Re-analyze, get a refreshed result. Costs ~1 image-analysis
-worth of tokens.
+Backend has supported `from_iso` / `to_iso` query params on
+`/api/logs/search` since v0.30.1. UI now wires them. New row
+below the main controls:
+- `<input type="datetime-local">` for From + To, dark-themed
+- Preset chips: Last hour / Last 24h / Last 7d / Clear range
+- Visible only in history mode (live tail mode hides the row)
+- Local-time inputs converted to UTC ISO before being sent
+
+### Item 3 — Bulk re-analyze with delete-and-re-insert semantics
+
+The v0.30.4 per-row endpoint did UPDATE-in-place — preserved id,
+enqueued_at, and other identity fields. Per user requirement
+("make sure that the files that get reanalyzed are deleted from
+the database and resubmitted for entry into the database"), v0.31.0
+switches BOTH the per-row and the new bulk endpoint to
+**DELETE + re-INSERT via `enqueue_for_analysis`**. Result: every
+re-analyzed row gets a fresh id / enqueued_at / retry_count and
+all output columns NULL — no carry-over of any prior state.
+
+- **Per-row endpoint** (`POST /api/analysis/queue/{id}/reanalyze`):
+  selects identity columns, deletes the row, re-enqueues via the
+  canonical path. Returns `{old_entry_id, new_entry_id}`.
+- **Bulk endpoint** (`POST /api/analysis/queue/reanalyze-bulk`):
+  Pydantic body with `analyzed_before_iso`, `analyzed_after_iso`,
+  `provider_id`, `model`, `status` (defaults `completed`),
+  `dry_run` (defaults `true`). Hard cap of 10,000 rows per call;
+  400 if exceeded. Refuses empty filter sets (no "match every row").
+- **Filters helper** (`GET /api/analysis/queue/reanalyze-filters`):
+  returns distinct provider_id + model values to populate modal
+  dropdowns from the current DB state.
+- **Frontend modal** on Batch Management with date pickers,
+  provider/model dropdowns pre-populated from the API,
+  status dropdown, Preview button → calls `dry_run=true` to show
+  matched count + sample paths, Run button confirms with explicit
+  "deletes the matching rows and re-submits them as fresh entries"
+  language and exact row count.
+- **Per-row Re-analyze button copy** updated to mention DELETE +
+  re-INSERT explicitly.
+
+### Item 4 — Multi-log tabbed live view
+
+Log viewer became a multi-tab inspector. Single global EventSource
++ filter state replaced with a `LogTab` class — each tab owns its
+own SSE connection, history offset, body DOM, and per-tab filter
+state (level chips, search query/regex, time range, mode).
+
+- Tab strip below the main controls. Each tab shows a
+  green/red/grey dot indicating SSE connection state, the file
+  name, and a × close button.
+- "+ Add tab" button at the end opens a popover listing all
+  available logs (with size + status pill); already-open logs are
+  greyed out.
+- Background tabs keep their EventSource open so events aren't
+  missed; their bodies are capped at 1000 lines (oldest evicted
+  from the head) so memory stays bounded.
+- Switching the active tab syncs the top-bar controls (mode,
+  level chips, search, time range) to that tab's stored state.
+- Open tab list + active tab + per-tab filter state persist to
+  `localStorage` so refresh restores the layout.
+- Falls back to a single auto-opened tab on the most-recent log
+  when no localStorage data + no `?file=` query param.
+
+### Item 5 — Log subsystem consolidation
+
+`core/log_archiver.py` (v0.12.2, ~150 LOC) deleted. Its scheduler
+job replaced by a thin wrapper (`_log_manage_cycle`) that calls
+`core.log_manager.compress_rotated_logs()` +
+`core.log_manager.apply_retention()`. Net effect: the same 6-hour
+cron cadence, but the Settings page preferences (compression
+format, retention days) now actually govern the automated cycle.
+Previously the cron ignored those prefs and used hardcoded gz +
+90-day defaults — only manual "Compress Rotated Now" / "Apply
+Retention Now" admin clicks honored them, surprising operators.
+
+- The legacy `archive/` subdir is left in place for read access
+  to historical files; the inventory endpoint already discovered
+  it (added in v0.30.1) and continues to.
+- `get_archive_stats()` reborn in `log_manager.py` (now reads
+  retention from DB pref, not env var) so the
+  `/api/logs/archives/stats` endpoint keeps working.
+- 18-job scheduler count unchanged.
 
 ### Files
 
-- `core/version.py` — bump to 0.30.4
-- `api/routes/analysis.py` — new `reanalyze_queue_entry` endpoint
-- `static/batch-management.html` — Re-analyze button on modal
-  header + click handler
-- `CLAUDE.md`, `docs/version-history.md`
+- `core/version.py` — bump to 0.31.0
+- `core/vision_adapter.py` — filename interleaving in
+  `_batch_openai`, `_batch_gemini`, `_batch_ollama`
+- `core/db/analysis.py` — `BULK_REANALYZE_CAP`,
+  `find_rows_for_bulk_reanalyze`, `delete_rows_by_ids`,
+  `list_distinct_provider_models`
+- `api/routes/analysis.py` — per-row `reanalyze_queue_entry`
+  switched to delete+re-insert; new `reanalyze_bulk` endpoint
+  + `BulkReanalyzeRequest` Pydantic model + filters helper
+- `static/log-viewer.html` — multi-tab refactor (LogTab class,
+  per-tab state, +/× tab UI, localStorage); time-range row
+- `static/batch-management.html` — Bulk re-analyze top-bar button
+  + modal HTML/CSS/JS; per-row button copy update
+- `core/scheduler.py` — `_log_manage_cycle` replaces
+  `archive_rotated_logs` job
+- `core/log_archiver.py` — DELETED
+- `core/log_manager.py` — added `get_archive_stats()` shim;
+  comment cleanup re: deleted module
+- `api/routes/logs.py` — `/archives/stats` re-imports from
+  `log_manager` (now async)
+- `CLAUDE.md`, `docs/version-history.md`, `docs/gotchas.md`,
+  `docs/key-files.md`
 
 No DB migration. No new dependencies.
 
 ---
 
-## v0.30.3 — Operations bundle
+### v0.30.4 (carried-forward summary) — per-row Re-analyze
 
-Four-in-one operations release: real source/output paths shown on
-Active Jobs, stuck-scanning auto-cleanup, disk-usage 100×-faster
-via `du` + 5-min TTL cache, and a Force Transcribe / Convert Pending
-button on the History page.
+Re-analyze button on the analysis-result modal so operators can
+refresh stale results that pre-date v0.29.8's filename-context
+prompt or v0.29.9's resilience improvements. UPDATE-in-place
+semantics; superseded by v0.31.0's DELETE + re-INSERT. Full
+context: [`docs/version-history.md`](docs/version-history.md).
 
-### 1. Active Jobs shows the actual configured paths
+### v0.30.3 (carried-forward summary) — Operations bundle
 
-The Active Jobs card displayed `/mnt/source → /mnt/output-repo` —
-the legacy container mount points the bulk worker uses internally.
-Operators want to see the user-facing Storage-Manager paths
-(`/host/d/k_drv_test → /host/d/Doc-Conv_Test`). Backend
-`/api/admin/active-jobs` now enriches each job with
-`display_source_path` (from `storage_sources_json` preference) and
-`display_output_path` (from `storage_manager.get_output_path()`).
-Frontend prefers them with a graceful fallback to the raw paths so
-nothing breaks if the Storage Manager isn't configured yet.
+Active Jobs displays user-facing Storage-Manager paths via
+`/api/admin/active-jobs` enrichment, stuck-scanning auto-cleanup
+extends `cleanup_stale_jobs` to status='scanning', `du -sb` makes
+`/api/admin/disk-usage` ~100× faster (with 5-min TTL cache and
+`?refresh=true` bypass), and a Force Transcribe / Convert Pending
+button on the History page. Full context:
+[`docs/version-history.md`](docs/version-history.md).
 
-### 2. Stuck-scanning auto-cleanup
+### v0.30.2 (carried-forward summary) — admin.html parse-error hot fix
 
-A scan that started under one container and finished after the
-container was recreated would leave a zombie job displayed forever
-(status='scanning', no scanner running to update it, no stale-job
-sweep covering 'scanning'). Extended `cleanup_stale_jobs` migration
-to catch BOTH 'running' and 'scanning' with stale heartbeat. Also
-stamps `completed_at` and writes a descriptive `error_msg` so
-operators see what happened. The current zombie was cleared
-manually via one-shot SQL.
+`renderStats` used `await` without being `async`, blanking the
+entire `<script>` block and leaving the admin page on a static
+"Loading..." skeleton. Three-char fix: prepend `async`. Also
+`await renderStats(d)` in the caller so exceptions surface.
+Full context: [`docs/version-history.md`](docs/version-history.md).
 
-### 3. `/api/admin/disk-usage` 100× faster
+### v0.30.1 (carried-forward summary) — Log Management subsystem
 
-Was hanging past 60 s — Python's `rglob("*")` over ~100 K files in
-the output repo. Replaced with `du -sb` subprocess (orders of
-magnitude faster — sub-second on the same tree). Wrapped the whole
-`_compute_disk_usage` result in a 5-minute TTL cache so repeat
-admin-page loads return instantly. `?refresh=true` query param
-bypasses the cache when the operator clicks Refresh.
-
-### 4. Force Transcribe / Convert Pending button
-
-History page → Pending Files card → new "Force Transcribe / Convert
-Pending" button. Hits the existing `/api/pipeline/run-now` endpoint
-which triggers an immediate scan + convert cycle. The bulk worker
-picks up every pending file in priority order, including audio /
-video → Whisper transcription. Confirmation dialog warns about
-LLM/transcription quota consumption.
-
-### Files
-
-- `core/version.py` — bump to 0.30.3
-- `core/db/migrations.py` — `cleanup_stale_jobs` covers
-  'scanning', stamps `completed_at` + descriptive `error_msg`
-- `api/routes/admin.py` — `_resolve_display_source_path` /
-  `_resolve_display_output_path` helpers; `/active-jobs` enriches
-  each job; `_walk_dir` prefers `du -sb` (with fallback);
-  `_compute_disk_usage` TTL-cached; `/disk-usage` accepts
-  `?refresh=true`
-- `static/status.html` — Active Jobs card prefers
-  `display_*_path`, falls back to raw `*_path`
-- `static/history.html` — Force Transcribe button + handler
-- `CLAUDE.md`, `docs/version-history.md`
-
-No DB migration needed — `cleanup_stale_jobs` runs on lifespan
-startup and handles existing rows. No new dependencies.
-
----
-
-## v0.30.2 — Hot fix: async/await parse error in admin.html renderStats
-
-Admin panel was stuck on all-`--` / "Loading…" because
-`renderStats` used `await` without being `async`. Single-character
-JavaScript parse error blanked the entire `/admin.html` script block,
-so no listeners ever attached, no stats ever rendered. Pre-existing
-bug surfaced when the user refreshed the page against a healthy
-v0.30.1 container. Fix is three characters: add `async ` in front of
-`function renderStats(d)`.
-
-Why it looked like everything broke: the `<script>` tag's parse
-failure means ZERO client-side JS runs — `loadStats()` never fires,
-`loadPipelineFunnel()` never fires, `Refresh` button never gets a
-click handler. The browser just renders the initial HTML skeleton,
-which hardcodes "—" in every counter cell and "Loading…" in every
-async section. Looks like "the backend is broken," but every endpoint
-was actually responding in <200 ms — the client-side just never
-asked.
-
-Also made the caller `await renderStats(d)` so exceptions inside the
-flag-stats fetch propagate up to the existing catch and trip the
-"Failed to load stats" toast instead of silently failing.
-
-Files: `core/version.py`, `static/admin.html`, `CLAUDE.md`,
-`docs/version-history.md`.
-
----
-
-## v0.30.1 — Log Management subsystem
-
-Log Management subsystem — admin inventory page with download /
-multi-select / bundle, plus a live SSE tail viewer with historical
-search, level filters, and substring / regex queries.
-
-Two new admin pages under the existing admin.html:
-
-- **`/log-management.html`** — table of every log file under
-  `/app/logs` (including the `archive/` subdir managed by
-  `core/log_archiver`), with status pill (active / rotated /
-  compressed), per-file download link, multi-select + "Download
-  Selected (N)" bundle (zip), "Download All", "Compress Rotated
-  Now" manual trigger, "Apply Retention Now", and a Settings
-  card for compression format / retention days / rotation size.
-- **`/log-viewer.html`** — robust log inspector. File selector
-  dropdown covers every non-7z log (including gzipped archives
-  which are decompressed server-side for read). Two modes:
-  - **Live tail** via SSE stream — each new line appended to the
-    file is pushed to the page in real time. Backfills the last
-    ~200 lines at connection start so you don't open to a blank
-    screen.
-  - **Search history** — server-side paginated search with
-    substring / regex query, per-level filter (DEBUG / INFO /
-    WARNING / ERROR+CRITICAL), Load-older pagination (200 lines
-    per page, ring buffered so memory stays bounded).
-  Client-side goodies: JSON-aware line parsing (structlog lines
-  get pretty colored timestamp / level / logger / event / k=v
-  tail), auto-scroll toggle, Pause button, level-filter chips,
-  all work identically in both modes.
-
-### Backend
-
-- `core/log_manager.py` (new, ~250 lines) — file inventory
-  (LOGS_DIR + archive subdir), path-traversal-safe name resolver,
-  optional on-demand compression (gz / tar.gz / 7z), retention
-  helper, settings DB-pref getter/setter. Does NOT register a
-  scheduler job — `core/log_archiver.py` still handles the
-  6-hourly compression cycle, unchanged. The new compression
-  helper is reachable only via the "Compress Rotated Now"
-  admin-triggered endpoint.
-- `api/routes/log_management.py` (new, ~350 lines) —
-  `GET /api/logs` (inventory), `GET/PUT /api/logs/settings`,
-  `POST /api/logs/compress-now` / `apply-retention-now`,
-  `GET /api/logs/download/{name:path}` (path parameter so
-  `archive/foo.gz` works), `POST /api/logs/download-bundle`
-  (streaming ZIP of selected or all files),
-  `GET /api/logs/tail/{name:path}` (SSE tail with backfill),
-  `GET /api/logs/search` (paginated + level + substring/regex +
-  time range + scan cap). ALL endpoints ADMIN-gated.
-- `main.py` — registers the new router.
-
-### Files
-
-- `core/log_manager.py` (new)
-- `api/routes/log_management.py` (new)
-- `static/log-management.html` (new)
-- `static/log-viewer.html` (new)
-- `static/admin.html` — new "Log Management" card linking to both
-  pages
-- `main.py` — router registration
-- `core/version.py` — bump to 0.30.1
-- `CLAUDE.md`, `docs/version-history.md`
-
-No database migration. No new Python dependency — the SSE tail
-uses stdlib; search uses stdlib + existing `gzip` / `re` / `json`;
-zip bundle uses stdlib `zipfile`. The `7z` CLI was already in
-`Dockerfile.base` for hashcat and is auto-detected at runtime.
-
-Note: `core/log_archiver.py` (v0.22.1+) keeps running on its
-6-hour cron and compresses to `.gz` only. The UI's Settings
-panel writes DB preferences that the new manual-trigger path
-respects (compression format, retention), but **the existing
-scheduler still uses its hardcoded gz + 90-day defaults**. A
-follow-up can consolidate the two subsystems if desired.
+`/log-management.html` (admin inventory + bundle download +
+manual triggers) and `/log-viewer.html` (SSE live tail +
+paginated history search). New `core/log_manager.py` +
+`api/routes/log_management.py` (ADMIN-gated). At v0.30.1 ship,
+the legacy `core/log_archiver.py` still ran the automated
+6-hour cron with hardcoded defaults — consolidated into
+`log_manager` in v0.31.0. Full context:
+[`docs/version-history.md`](docs/version-history.md).
 
 ---
 

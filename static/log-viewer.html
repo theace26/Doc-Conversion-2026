@@ -26,6 +26,12 @@
       border-radius: var(--radius-sm, 4px); font: inherit; font-size: 0.85rem;
     }
     .lv-controls input[type="text"] { min-width: 220px; }
+    .lv-controls input[type="datetime-local"] {
+      padding: 0.25rem 0.5rem; background: var(--surface, #161624);
+      color: var(--text, #eee); border: 1px solid var(--border, #2b2b3f);
+      border-radius: var(--radius-sm, 4px); font: inherit; font-size: 0.85rem;
+      color-scheme: dark;
+    }
     .lv-controls .chip {
       display: inline-flex; align-items: center; gap: 0.3rem;
       padding: 0.2rem 0.55rem; border-radius: 999px;
@@ -33,7 +39,19 @@
       font-size: 0.8rem; cursor: pointer; user-select: none;
     }
     .lv-controls .chip input { margin: 0; }
+    .lv-controls .chip.preset {
+      background: var(--surface, #161624);
+      border-color: var(--border, #2b2b3f);
+    }
+    .lv-controls .chip.preset:hover { background: rgba(255,255,255,0.06); }
     .lv-controls .spacer { flex: 1; }
+    .lv-time-row {
+      display: none; flex-wrap: wrap; align-items: center; gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      background: var(--bg-secondary, #1a1a2e);
+      border-bottom: 1px solid var(--border, #2b2b3f);
+    }
+    .lv-time-row.active { display: flex; }
     .lv-status { font-size: 0.78rem; color: var(--text-muted, #aaa); font-family: ui-monospace, monospace; }
     .lv-body { flex: 1; overflow: auto; background: #0b0b14; padding: 0.5rem 0; font-family: ui-monospace, monospace; font-size: 0.82rem; }
     .lv-line {
@@ -53,6 +71,53 @@
     .lv-line .msg { color: inherit; }
     .lv-line .kv { color: #86efac; margin-left: 0.5rem; }
     .lv-empty { padding: 2rem; text-align: center; color: var(--text-muted, #aaa); }
+    /* v0.31.0: multi-log tabbed live view */
+    .lv-tabs {
+      flex: 0 0 auto; display: flex; align-items: center; gap: 0.25rem;
+      padding: 0.4rem 0.6rem; background: var(--bg-secondary, #1a1a2e);
+      border-bottom: 1px solid var(--border, #2b2b3f); overflow-x: auto;
+    }
+    .lv-tab {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      padding: 0.3rem 0.6rem; background: var(--surface, #161624);
+      border: 1px solid var(--border, #2b2b3f); border-radius: var(--radius-sm, 4px);
+      font-size: 0.82rem; cursor: pointer; user-select: none; white-space: nowrap;
+    }
+    .lv-tab.active { border-color: #60a5fa; background: rgba(96,165,250,0.10); }
+    .lv-tab .lv-tab-dot {
+      width: 0.55rem; height: 0.55rem; border-radius: 50%;
+      background: #6b7280; flex-shrink: 0;
+    }
+    .lv-tab .lv-tab-dot.connected { background: #22c55e; }
+    .lv-tab .lv-tab-dot.disconnected { background: #ef4444; }
+    .lv-tab .lv-tab-close {
+      background: none; border: none; color: var(--text-muted, #aaa);
+      font-size: 0.95rem; cursor: pointer; padding: 0 0.15rem; line-height: 1;
+    }
+    .lv-tab .lv-tab-close:hover { color: #fca5a5; }
+    .lv-tab.add-btn {
+      background: none; border: 1px dashed var(--border, #2b2b3f);
+      color: var(--text-muted, #aaa);
+    }
+    .lv-bodies { flex: 1; position: relative; overflow: hidden; }
+    .lv-tab-body { position: absolute; inset: 0; overflow: auto;
+      background: #0b0b14; padding: 0.5rem 0;
+      font-family: ui-monospace, monospace; font-size: 0.82rem;
+      display: none;
+    }
+    .lv-tab-body.active { display: block; }
+    .lv-add-menu {
+      position: absolute; z-index: 50; background: var(--surface, #161624);
+      border: 1px solid var(--border, #2b2b3f); border-radius: var(--radius-sm, 4px);
+      max-height: 60vh; overflow: auto; padding: 0.3rem; min-width: 280px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+    }
+    .lv-add-menu .item {
+      padding: 0.35rem 0.6rem; cursor: pointer; border-radius: 3px;
+      font-size: 0.82rem;
+    }
+    .lv-add-menu .item:hover { background: rgba(96,165,250,0.12); }
+    .lv-add-menu .item.disabled { opacity: 0.5; cursor: default; }
   </style>
 </head>
 <body>
@@ -63,8 +128,6 @@
     </nav>
     <div id="error-banner" role="alert" hidden></div>
     <div class="lv-controls">
-      <label for="lv-file">Log</label>
-      <select id="lv-file"><option value="">Loading...</option></select>
       <label for="lv-mode">Mode</label>
       <select id="lv-mode">
         <option value="live">Live tail</option>
@@ -85,13 +148,36 @@
       <div class="spacer"></div>
       <span id="lv-status" class="lv-status">-</span>
     </div>
-    <div id="lv-body" class="lv-body"></div>
+    <div id="lv-time-row" class="lv-time-row">
+      <label for="lv-from">From</label>
+      <input id="lv-from" type="datetime-local">
+      <label for="lv-to">To</label>
+      <input id="lv-to" type="datetime-local">
+      <button class="chip preset" data-preset="1h" type="button">Last hour</button>
+      <button class="chip preset" data-preset="24h" type="button">Last 24h</button>
+      <button class="chip preset" data-preset="7d" type="button">Last 7d</button>
+      <button class="chip preset" data-preset="clear" type="button">Clear range</button>
+      <span class="lv-status" id="lv-time-hint"></span>
+    </div>
+    <div id="lv-tabs" class="lv-tabs"></div>
+    <div id="lv-bodies" class="lv-bodies"></div>
   </div>
   <script src="/static/app.js"></script>
   <script>
+    /*
+     * Log Viewer (v0.31.0): multi-log tabbed live view + history
+     * search. Each tab owns its own EventSource, history offset,
+     * filter state, and body DOM. The top control bar reflects and
+     * mutates the ACTIVE tab — switching tabs syncs all controls
+     * to that tab's stored state.
+     *
+     * Memory note: each tab's body div is capped at 1000 lines (older
+     * lines are removed from the head as new ones append). Background
+     * tabs keep their EventSource open so you don't miss events while
+     * watching another tab.
+     */
     (function(){
       'use strict';
-      const fileSel = document.getElementById('lv-file');
       const modeSel = document.getElementById('lv-mode');
       const autoscrollCb = document.getElementById('lv-autoscroll');
       const cbDebug = document.getElementById('lv-lvl-debug');
@@ -105,16 +191,21 @@
       const pauseBtn = document.getElementById('lv-pause');
       const loadMoreBtn = document.getElementById('lv-load-more');
       const statusEl = document.getElementById('lv-status');
-      const body = document.getElementById('lv-body');
+      const tabsBar = document.getElementById('lv-tabs');
+      const bodiesEl = document.getElementById('lv-bodies');
+      const timeRow = document.getElementById('lv-time-row');
+      const fromInp = document.getElementById('lv-from');
+      const toInp = document.getElementById('lv-to');
+      const timeHint = document.getElementById('lv-time-hint');
 
       function clearChildren(el) { while (el.firstChild) el.removeChild(el.firstChild); }
 
-      let evtSource = null;
-      let paused = false;
-      let historyOffset = 0;
       const HISTORY_LIMIT = 200;
-      let totalLines = 0;
-      let filteredLines = 0;
+      const TAB_BODY_LINE_CAP = 1000;     // bound per-tab DOM memory
+      const STORAGE_KEY = 'markflow.logviewer.tabs.v1';
+      let availableLogs = [];             // populated by /api/logs
+      const tabs = [];                    // LogTab instances
+      let activeTab = null;
 
       function activeLevels() {
         const set = new Set();
@@ -130,6 +221,63 @@
         if (!q || !regexCb.checked) return null;
         try { return new RegExp(q, 'i'); }
         catch (e) { showError('Invalid regex: ' + e.message); return null; }
+      }
+
+      // v0.31.0: parse <input type="datetime-local"> values (which are
+      // local time, no zone) into UTC ISO strings the backend accepts.
+      // Empty input -> null. Invalid input -> null (browser already
+      // validates the field, so this is mostly defensive).
+      function localInputToUtcIso(value) {
+        if (!value) return null;
+        try {
+          const d = new Date(value);
+          if (isNaN(d.getTime())) return null;
+          return d.toISOString();
+        } catch (e) { return null; }
+      }
+
+      function getTimeRange() {
+        return {
+          from_iso: localInputToUtcIso(fromInp.value),
+          to_iso: localInputToUtcIso(toInp.value),
+        };
+      }
+
+      // YYYY-MM-DDTHH:MM in LOCAL time, no timezone — what
+      // <input type="datetime-local"> wants. JS Date methods are local
+      // by default which is what we need here.
+      function dateToLocalInput(d) {
+        const pad = (n) => String(n).padStart(2, '0');
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+          + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+      }
+
+      function applyPreset(preset) {
+        if (preset === 'clear') {
+          fromInp.value = '';
+          toInp.value = '';
+          updateTimeHint();
+          return;
+        }
+        const now = new Date();
+        let ms;
+        if (preset === '1h') ms = 60 * 60 * 1000;
+        else if (preset === '24h') ms = 24 * 60 * 60 * 1000;
+        else if (preset === '7d') ms = 7 * 24 * 60 * 60 * 1000;
+        else return;
+        const from = new Date(now.getTime() - ms);
+        fromInp.value = dateToLocalInput(from);
+        toInp.value = dateToLocalInput(now);
+        updateTimeHint();
+      }
+
+      function updateTimeHint() {
+        const r = getTimeRange();
+        if (!r.from_iso && !r.to_iso) { timeHint.textContent = 'No time range'; return; }
+        const parts = [];
+        if (r.from_iso) parts.push('from ' + r.from_iso);
+        if (r.to_iso) parts.push('to ' + r.to_iso);
+        timeHint.textContent = parts.join(' ');
       }
 
       function clientMatches(parsed, raw, levels, qRegex, qLower) {
@@ -184,178 +332,560 @@
         return tr;
       }
 
-      function applyClientFilterToAll() {
-        const levels = activeLevels();
-        const qRegex = buildRegex();
-        const q = qInp.value || '';
-        const qLower = (!regexCb.checked && q) ? q.toLowerCase() : '';
-        const nodes = body.querySelectorAll('.lv-line');
-        let shown = 0;
-        nodes.forEach(n => {
-          let parsed = null;
-          try { if (n.dataset.parsed) parsed = JSON.parse(n.dataset.parsed); }
-          catch (e) { /* ignore */ }
-          const raw = n.dataset.raw || n.textContent;
-          const match = clientMatches(parsed, raw, levels, qRegex, qLower);
-          n.classList.toggle('hidden', !match);
-          if (match) shown++;
-        });
-        filteredLines = shown;
-        updateStatus();
-      }
-
-      function updateStatus() {
-        const parts = [];
-        parts.push(totalLines + ' lines');
-        if (filteredLines !== totalLines) parts.push(filteredLines + ' visible');
-        parts.push(modeSel.value === 'live' ? (paused ? 'paused' : 'live') : 'history');
-        statusEl.textContent = parts.join(' - ');
-      }
-
-      function appendLine(raw) {
-        const el = renderLineEl(raw);
-        body.appendChild(el);
-        totalLines++;
-        const levels = activeLevels();
-        const qRegex = buildRegex();
-        const q = qInp.value || '';
-        const qLower = (!regexCb.checked && q) ? q.toLowerCase() : '';
-        let parsed = null;
-        try { if (el.dataset.parsed) parsed = JSON.parse(el.dataset.parsed); }
-        catch (e) { /* ignore */ }
-        const match = clientMatches(parsed, raw, levels, qRegex, qLower);
-        el.classList.toggle('hidden', !match);
-        if (match) filteredLines++;
-        updateStatus();
-        if (autoscrollCb.checked && !paused) {
-          body.scrollTop = body.scrollHeight;
-        }
-      }
-
-      function clearBody() {
-        clearChildren(body);
-        totalLines = 0;
-        filteredLines = 0;
-        updateStatus();
-      }
-
-      function closeSse() {
-        if (evtSource) { evtSource.close(); evtSource = null; }
-      }
-
-      function startLiveTail(name) {
-        closeSse();
-        clearBody();
-        loadMoreBtn.hidden = true;
-        const url = '/api/logs/tail/' + encodeURIComponent(name);
-        evtSource = new EventSource(url, { withCredentials: true });
-        evtSource.onmessage = (ev) => { if (!paused) appendLine(ev.data); };
-        evtSource.onerror = () => {
-          const msg = document.createElement('div');
-          msg.className = 'lv-empty';
-          msg.textContent = 'Tail stream disconnected. Select a log again to reconnect.';
-          body.appendChild(msg);
-          closeSse();
-        };
-      }
-
-      async function runHistorySearch(resetOffset = true) {
-        closeSse();
-        if (resetOffset) { clearBody(); historyOffset = 0; }
-        const name = fileSel.value;
-        if (!name) return;
-        const levels = Array.from(activeLevels()).join(',');
-        const q = qInp.value || '';
-        const params = new URLSearchParams();
-        params.set('name', name);
-        if (q) params.set('q', q);
-        if (regexCb.checked) params.set('regex', 'true');
-        if (levels) params.set('levels', levels);
-        params.set('limit', String(HISTORY_LIMIT));
-        params.set('offset', String(historyOffset));
+      function localInputToUtcIso(value) {
+        if (!value) return null;
         try {
-          statusEl.textContent = 'Searching...';
-          const data = await API.get('/api/logs/search?' + params.toString());
-          const lines = data.lines || [];
-          if (lines.length === 0 && historyOffset === 0) {
-            const empty = document.createElement('div');
-            empty.className = 'lv-empty';
-            empty.textContent = 'No matches.';
-            body.appendChild(empty);
-          }
-          lines.forEach(e => appendLine(e.raw));
-          if (lines.length < HISTORY_LIMIT) { loadMoreBtn.hidden = true; }
-          else { loadMoreBtn.hidden = false; historyOffset += lines.length; }
-          statusEl.textContent = (data.returned || 0) + ' returned (scanned ' + data.scanned_lines + (data.scan_truncated ? ', truncated' : '') + ')';
-        } catch (e) { showError('Search failed: ' + e.message); }
+          const d = new Date(value);
+          if (isNaN(d.getTime())) return null;
+          return d.toISOString();
+        } catch (e) { return null; }
       }
 
-      loadMoreBtn.addEventListener('click', () => runHistorySearch(false));
+      function dateToLocalInput(d) {
+        const pad = (n) => String(n).padStart(2, '0');
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+          + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+      }
 
-      async function loadFileOptions(preselect) {
-        try {
-          const data = await API.get('/api/logs');
-          const logs = (data.logs || []).filter(l => l.compression !== '7z');
-          clearChildren(fileSel);
-          logs.forEach(l => {
-            const opt = document.createElement('option');
-            opt.value = l.name;
-            const sizeKb = Math.round((l.size_bytes || 0) / 1024);
-            opt.textContent = l.name + ' (' + sizeKb + ' KB, ' + l.status + ')';
-            fileSel.appendChild(opt);
+      // ── Per-tab state ───────────────────────────────────────────
+      // Each LogTab owns its own EventSource, history offset, body
+      // DOM, and per-tab filter state. The top control bar is bound
+      // to the active tab — switching tabs syncs the controls to
+      // that tab's saved settings.
+      class LogTab {
+        constructor(name) {
+          this.name = name;
+          this.mode = 'live';     // 'live' | 'history'
+          this.paused = false;
+          this.evtSource = null;
+          this.connected = false;
+          this.totalLines = 0;
+          this.filteredLines = 0;
+          this.historyOffset = 0;
+          // Per-tab filter state
+          this.q = '';
+          this.regex = false;
+          this.levels = new Set(['DEBUG','INFO','WARNING','ERROR','CRITICAL']);
+          this.fromIso = null;    // already-converted UTC ISO
+          this.toIso = null;
+          this.fromLocal = '';    // for restoring the input value
+          this.toLocal = '';
+
+          this.bodyEl = document.createElement('div');
+          this.bodyEl.className = 'lv-tab-body';
+          bodiesEl.appendChild(this.bodyEl);
+
+          this.tabEl = document.createElement('div');
+          this.tabEl.className = 'lv-tab';
+          this.tabEl.title = name;
+          this.dotEl = document.createElement('span');
+          this.dotEl.className = 'lv-tab-dot';
+          const labelEl = document.createElement('span');
+          labelEl.textContent = name;
+          this.closeEl = document.createElement('button');
+          this.closeEl.className = 'lv-tab-close';
+          this.closeEl.type = 'button';
+          this.closeEl.textContent = '×';
+          this.closeEl.setAttribute('aria-label', 'Close tab');
+          this.closeEl.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            closeTab(this);
           });
-          if (preselect && logs.find(l => l.name === preselect)) {
-            fileSel.value = preselect;
+          this.tabEl.appendChild(this.dotEl);
+          this.tabEl.appendChild(labelEl);
+          this.tabEl.appendChild(this.closeEl);
+          this.tabEl.addEventListener('click', () => activateTab(this));
+        }
+
+        setConnectionState(state) {
+          this.connected = state === 'connected';
+          this.dotEl.classList.toggle('connected', state === 'connected');
+          this.dotEl.classList.toggle('disconnected', state === 'disconnected');
+        }
+
+        appendLine(raw) {
+          const el = renderLineEl(raw);
+          this.bodyEl.appendChild(el);
+          this.totalLines++;
+          const qRegex = (this.q && this.regex) ? safeRegex(this.q) : null;
+          const qLower = (this.q && !this.regex) ? this.q.toLowerCase() : '';
+          let parsed = null;
+          try { if (el.dataset.parsed) parsed = JSON.parse(el.dataset.parsed); }
+          catch (e) { /* ignore */ }
+          const match = clientMatches(parsed, raw, this.levels, qRegex, qLower);
+          el.classList.toggle('hidden', !match);
+          if (match) this.filteredLines++;
+          // Cap the body's line count so memory stays bounded.
+          while (this.bodyEl.childElementCount > TAB_BODY_LINE_CAP) {
+            const head = this.bodyEl.firstElementChild;
+            if (!head) break;
+            if (!head.classList.contains('hidden')) this.filteredLines--;
+            this.totalLines--;
+            this.bodyEl.removeChild(head);
           }
-          fileSel.dispatchEvent(new Event('change'));
-        } catch (e) {
-          showError('Failed to load file list: ' + e.message);
+          if (this === activeTab) {
+            updateStatusForActive();
+            if (autoscrollCb.checked && !this.paused) {
+              this.bodyEl.scrollTop = this.bodyEl.scrollHeight;
+            }
+          }
+        }
+
+        clearBody() {
+          clearChildren(this.bodyEl);
+          this.totalLines = 0;
+          this.filteredLines = 0;
+        }
+
+        applyClientFilter() {
+          const qRegex = (this.q && this.regex) ? safeRegex(this.q) : null;
+          const qLower = (this.q && !this.regex) ? this.q.toLowerCase() : '';
+          const nodes = this.bodyEl.querySelectorAll('.lv-line');
+          let shown = 0;
+          nodes.forEach(n => {
+            let parsed = null;
+            try { if (n.dataset.parsed) parsed = JSON.parse(n.dataset.parsed); }
+            catch (e) { /* ignore */ }
+            const raw = n.dataset.raw || n.textContent;
+            const match = clientMatches(parsed, raw, this.levels, qRegex, qLower);
+            n.classList.toggle('hidden', !match);
+            if (match) shown++;
+          });
+          this.filteredLines = shown;
+          if (this === activeTab) updateStatusForActive();
+        }
+
+        startLiveTail() {
+          this.closeSse();
+          this.clearBody();
+          this.historyOffset = 0;
+          loadMoreBtn.hidden = true;
+          const url = '/api/logs/tail/' + encodeURIComponent(this.name);
+          this.evtSource = new EventSource(url, { withCredentials: true });
+          this.setConnectionState('connecting');
+          this.evtSource.onopen = () => this.setConnectionState('connected');
+          this.evtSource.onmessage = (ev) => {
+            if (!this.paused) this.appendLine(ev.data);
+          };
+          this.evtSource.onerror = () => {
+            this.setConnectionState('disconnected');
+            const msg = document.createElement('div');
+            msg.className = 'lv-empty';
+            msg.textContent = 'Tail stream disconnected. Switch back to this tab to reconnect.';
+            this.bodyEl.appendChild(msg);
+            this.closeSse();
+          };
+        }
+
+        async runHistorySearch(resetOffset) {
+          this.closeSse();
+          this.setConnectionState('disconnected');
+          if (resetOffset) { this.clearBody(); this.historyOffset = 0; }
+          const params = new URLSearchParams();
+          params.set('name', this.name);
+          if (this.q) params.set('q', this.q);
+          if (this.regex) params.set('regex', 'true');
+          const levelsCsv = Array.from(this.levels).join(',');
+          if (levelsCsv) params.set('levels', levelsCsv);
+          if (this.fromIso) params.set('from_iso', this.fromIso);
+          if (this.toIso) params.set('to_iso', this.toIso);
+          params.set('limit', String(HISTORY_LIMIT));
+          params.set('offset', String(this.historyOffset));
+          try {
+            if (this === activeTab) statusEl.textContent = 'Searching...';
+            const data = await API.get('/api/logs/search?' + params.toString());
+            const lines = data.lines || [];
+            if (lines.length === 0 && this.historyOffset === 0) {
+              const empty = document.createElement('div');
+              empty.className = 'lv-empty';
+              empty.textContent = 'No matches.';
+              this.bodyEl.appendChild(empty);
+            }
+            lines.forEach(e => this.appendLine(e.raw));
+            if (lines.length < HISTORY_LIMIT) { loadMoreBtn.hidden = true; }
+            else { loadMoreBtn.hidden = (this !== activeTab); this.historyOffset += lines.length; }
+            if (this === activeTab) {
+              const parts = [];
+              parts.push((data.returned || 0) + ' returned');
+              parts.push('scanned ' + (data.scanned_lines || 0));
+              if (data.scan_truncated) parts.push('line cap hit');
+              if (data.wall_truncated) parts.push('time cap hit');
+              if (data.reader_warning) parts.push('reader: ' + data.reader_warning);
+              if (typeof data.wall_seconds === 'number') {
+                parts.push(data.wall_seconds + 's');
+              }
+              statusEl.textContent = parts.join(' · ');
+            }
+          } catch (e) { showError('Search failed: ' + e.message); }
+        }
+
+        closeSse() {
+          if (this.evtSource) { this.evtSource.close(); this.evtSource = null; }
+        }
+
+        start() {
+          if (this.mode === 'live') this.startLiveTail();
+          else this.runHistorySearch(true);
         }
       }
 
-      function handleFileOrModeChange() {
-        if (!fileSel.value) return;
-        if (modeSel.value === 'live') { startLiveTail(fileSel.value); }
-        else { runHistorySearch(true); }
+      function safeRegex(q) {
+        try { return new RegExp(q, 'i'); }
+        catch (e) { showError('Invalid regex: ' + e.message); return null; }
       }
 
-      fileSel.addEventListener('change', handleFileOrModeChange);
-      modeSel.addEventListener('change', handleFileOrModeChange);
+      function updateStatusForActive() {
+        if (!activeTab) { statusEl.textContent = '-'; return; }
+        const parts = [];
+        parts.push(activeTab.totalLines + ' lines');
+        if (activeTab.filteredLines !== activeTab.totalLines) {
+          parts.push(activeTab.filteredLines + ' visible');
+        }
+        parts.push(activeTab.mode === 'live'
+          ? (activeTab.paused ? 'paused' : 'live')
+          : 'history');
+        statusEl.textContent = parts.join(' · ');
+      }
+
+      function syncControlsFromTab(t) {
+        // When the active tab switches, copy ITS state onto the
+        // shared controls. Setting input values does NOT fire change
+        // events, so this won't ping-pong back to mutate the tab.
+        modeSel.value = t.mode;
+        cbDebug.checked = t.levels.has('DEBUG');
+        cbInfo.checked = t.levels.has('INFO');
+        cbWarn.checked = t.levels.has('WARNING');
+        cbErr.checked = t.levels.has('ERROR') || t.levels.has('CRITICAL');
+        qInp.value = t.q || '';
+        regexCb.checked = !!t.regex;
+        fromInp.value = t.fromLocal || '';
+        toInp.value = t.toLocal || '';
+        pauseBtn.textContent = t.paused ? 'Resume' : 'Pause';
+        timeRow.classList.toggle('active', t.mode === 'history');
+        updateTimeHint();
+        updateStatusForActive();
+      }
+
+      function activateTab(t) {
+        if (activeTab) {
+          activeTab.tabEl.classList.remove('active');
+          activeTab.bodyEl.classList.remove('active');
+        }
+        activeTab = t;
+        if (!t) { updateStatusForActive(); return; }
+        t.tabEl.classList.add('active');
+        t.bodyEl.classList.add('active');
+        syncControlsFromTab(t);
+        // Reconnect SSE if it dropped while this tab was in the
+        // background.
+        if (t.mode === 'live' && !t.evtSource) t.startLiveTail();
+      }
+
+      function persistTabs() {
+        try {
+          const payload = tabs.map(t => ({
+            name: t.name,
+            mode: t.mode,
+            q: t.q,
+            regex: t.regex,
+            levels: Array.from(t.levels),
+            fromLocal: t.fromLocal,
+            toLocal: t.toLocal,
+          }));
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({
+            tabs: payload,
+            activeName: activeTab ? activeTab.name : null,
+          }));
+        } catch (e) { /* localStorage may be unavailable — ignore */ }
+      }
+
+      function restoreTabs() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return null;
+          const data = JSON.parse(raw);
+          if (!data || !Array.isArray(data.tabs)) return null;
+          return data;
+        } catch (e) { return null; }
+      }
+
+      function closeTab(t) {
+        t.closeSse();
+        const idx = tabs.indexOf(t);
+        if (idx >= 0) tabs.splice(idx, 1);
+        if (t.tabEl.parentNode) t.tabEl.parentNode.removeChild(t.tabEl);
+        if (t.bodyEl.parentNode) t.bodyEl.parentNode.removeChild(t.bodyEl);
+        if (activeTab === t) {
+          activeTab = null;
+          if (tabs.length > 0) activateTab(tabs[Math.min(idx, tabs.length - 1)]);
+          else updateStatusForActive();
+        }
+        persistTabs();
+      }
+
+      function addTab(name, opts) {
+        // Don't dupe — switch to it instead.
+        const existing = tabs.find(t => t.name === name);
+        if (existing) { activateTab(existing); return existing; }
+        const t = new LogTab(name);
+        // v0.31.0: compressed files can't be live-tailed (they don't
+        // grow). Force such tabs to history mode regardless of saved
+        // state so users don't see a confusing stream-disconnected
+        // error on a stale localStorage entry.
+        const lower = name.toLowerCase();
+        const isCompressed = lower.endsWith('.gz') || lower.endsWith('.tgz') || lower.endsWith('.7z');
+        if (isCompressed) t.mode = 'history';
+        if (opts) {
+          if (opts.mode && !isCompressed) t.mode = opts.mode;
+          if (typeof opts.q === 'string') t.q = opts.q;
+          if (typeof opts.regex === 'boolean') t.regex = opts.regex;
+          if (Array.isArray(opts.levels) && opts.levels.length) {
+            t.levels = new Set(opts.levels);
+          }
+          if (opts.fromLocal) {
+            t.fromLocal = opts.fromLocal;
+            t.fromIso = localInputToUtcIso(opts.fromLocal);
+          }
+          if (opts.toLocal) {
+            t.toLocal = opts.toLocal;
+            t.toIso = localInputToUtcIso(opts.toLocal);
+          }
+        }
+        tabs.push(t);
+        // Insert before the [+ Add tab] button.
+        tabsBar.insertBefore(t.tabEl, addTabBtn);
+        if (!activeTab) activateTab(t);
+        t.start();
+        persistTabs();
+        return t;
+      }
+
+      // ── [+ Add tab] button + popover ───────────────────────────
+      const addTabBtn = document.createElement('button');
+      addTabBtn.className = 'lv-tab add-btn';
+      addTabBtn.type = 'button';
+      addTabBtn.textContent = '+ Add tab';
+      tabsBar.appendChild(addTabBtn);
+      let addMenu = null;
+      function closeAddMenu() {
+        if (addMenu && addMenu.parentNode) addMenu.parentNode.removeChild(addMenu);
+        addMenu = null;
+      }
+      addTabBtn.addEventListener('click', () => {
+        if (addMenu) { closeAddMenu(); return; }
+        addMenu = document.createElement('div');
+        addMenu.className = 'lv-add-menu';
+        if (availableLogs.length === 0) {
+          const empty = document.createElement('div');
+          empty.className = 'item disabled';
+          empty.textContent = 'No logs available';
+          addMenu.appendChild(empty);
+        } else {
+          availableLogs.forEach(l => {
+            const item = document.createElement('div');
+            item.className = 'item';
+            const sizeKb = Math.round((l.size_bytes || 0) / 1024);
+            item.textContent = l.name + ' (' + sizeKb + ' KB, ' + l.status + ')';
+            const isOpen = !!tabs.find(t => t.name === l.name);
+            if (isOpen) {
+              item.classList.add('disabled');
+              item.textContent += '  ✓ open';
+            } else {
+              item.addEventListener('click', () => {
+                addTab(l.name);
+                closeAddMenu();
+              });
+            }
+            addMenu.appendChild(item);
+          });
+        }
+        const rect = addTabBtn.getBoundingClientRect();
+        addMenu.style.position = 'fixed';
+        addMenu.style.top = (rect.bottom + 4) + 'px';
+        addMenu.style.left = rect.left + 'px';
+        document.body.appendChild(addMenu);
+        // Close on outside click (defer one tick so the current
+        // click doesn't immediately re-close).
+        setTimeout(() => {
+          document.addEventListener('click', function once(ev) {
+            if (addMenu && !addMenu.contains(ev.target) && ev.target !== addTabBtn) {
+              closeAddMenu();
+              document.removeEventListener('click', once);
+            }
+          });
+        }, 0);
+      });
+
+      // ── Top control bar — operates on the active tab ───────────
+      function readControlsIntoTab(t) {
+        t.mode = modeSel.value;
+        t.levels = new Set();
+        if (cbDebug.checked) t.levels.add('DEBUG');
+        if (cbInfo.checked) t.levels.add('INFO');
+        if (cbWarn.checked) t.levels.add('WARNING');
+        if (cbErr.checked) { t.levels.add('ERROR'); t.levels.add('CRITICAL'); }
+        t.q = qInp.value || '';
+        t.regex = regexCb.checked;
+        t.fromLocal = fromInp.value || '';
+        t.toLocal = toInp.value || '';
+        t.fromIso = localInputToUtcIso(t.fromLocal);
+        t.toIso = localInputToUtcIso(t.toLocal);
+      }
+
+      function updateTimeHint() {
+        if (!activeTab) { timeHint.textContent = ''; return; }
+        if (!activeTab.fromIso && !activeTab.toIso) {
+          timeHint.textContent = 'No time range';
+          return;
+        }
+        const parts = [];
+        if (activeTab.fromIso) parts.push('from ' + activeTab.fromIso);
+        if (activeTab.toIso) parts.push('to ' + activeTab.toIso);
+        timeHint.textContent = parts.join(' ');
+      }
+
+      function applyPreset(preset) {
+        if (preset === 'clear') {
+          fromInp.value = '';
+          toInp.value = '';
+          return;
+        }
+        const now = new Date();
+        let ms;
+        if (preset === '1h') ms = 60 * 60 * 1000;
+        else if (preset === '24h') ms = 24 * 60 * 60 * 1000;
+        else if (preset === '7d') ms = 7 * 24 * 60 * 60 * 1000;
+        else return;
+        const from = new Date(now.getTime() - ms);
+        fromInp.value = dateToLocalInput(from);
+        toInp.value = dateToLocalInput(now);
+      }
+
+      modeSel.addEventListener('change', () => {
+        if (!activeTab) return;
+        readControlsIntoTab(activeTab);
+        timeRow.classList.toggle('active', activeTab.mode === 'history');
+        activeTab.start();
+        persistTabs();
+      });
 
       applyBtn.addEventListener('click', () => {
-        if (modeSel.value === 'history') runHistorySearch(true);
-        else applyClientFilterToAll();
+        if (!activeTab) return;
+        readControlsIntoTab(activeTab);
+        if (activeTab.mode === 'history') activeTab.runHistorySearch(true);
+        else activeTab.applyClientFilter();
+        persistTabs();
       });
+
       clearBtn.addEventListener('click', () => {
+        if (!activeTab) return;
         qInp.value = '';
         regexCb.checked = false;
         cbDebug.checked = cbInfo.checked = cbWarn.checked = cbErr.checked = true;
-        if (modeSel.value === 'history') runHistorySearch(true);
-        else applyClientFilterToAll();
+        fromInp.value = '';
+        toInp.value = '';
+        readControlsIntoTab(activeTab);
+        updateTimeHint();
+        if (activeTab.mode === 'history') activeTab.runHistorySearch(true);
+        else activeTab.applyClientFilter();
+        persistTabs();
+      });
+
+      // Time-range preset buttons / pickers feed the active tab.
+      timeRow.querySelectorAll('.chip.preset').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (!activeTab) return;
+          applyPreset(btn.dataset.preset);
+          readControlsIntoTab(activeTab);
+          updateTimeHint();
+          if (activeTab.mode === 'history') activeTab.runHistorySearch(true);
+          persistTabs();
+        });
+      });
+      [fromInp, toInp].forEach(inp => {
+        inp.addEventListener('change', () => {
+          if (!activeTab) return;
+          readControlsIntoTab(activeTab);
+          updateTimeHint();
+          if (activeTab.mode === 'history') activeTab.runHistorySearch(true);
+          persistTabs();
+        });
       });
 
       [cbDebug, cbInfo, cbWarn, cbErr].forEach(cb => {
         cb.addEventListener('change', () => {
-          if (modeSel.value === 'live') applyClientFilterToAll();
+          if (!activeTab) return;
+          readControlsIntoTab(activeTab);
+          if (activeTab.mode === 'live') activeTab.applyClientFilter();
+          else activeTab.runHistorySearch(true);
+          persistTabs();
         });
       });
+
       qInp.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Enter') {
-          if (modeSel.value === 'history') runHistorySearch(true);
-          else applyClientFilterToAll();
-        }
+        if (ev.key !== 'Enter') return;
+        if (!activeTab) return;
+        readControlsIntoTab(activeTab);
+        if (activeTab.mode === 'history') activeTab.runHistorySearch(true);
+        else activeTab.applyClientFilter();
+        persistTabs();
       });
 
       pauseBtn.addEventListener('click', () => {
-        paused = !paused;
-        pauseBtn.textContent = paused ? 'Resume' : 'Pause';
-        updateStatus();
+        if (!activeTab) return;
+        activeTab.paused = !activeTab.paused;
+        pauseBtn.textContent = activeTab.paused ? 'Resume' : 'Pause';
+        updateStatusForActive();
       });
 
-      const params = new URLSearchParams(window.location.search);
-      const initialFile = params.get('file') || '';
-      loadFileOptions(initialFile);
-      window.addEventListener('beforeunload', closeSse);
+      loadMoreBtn.addEventListener('click', () => {
+        if (!activeTab) return;
+        activeTab.runHistorySearch(false);
+      });
+
+      // ── Bootstrap ──────────────────────────────────────────────
+      async function bootstrap() {
+        try {
+          const data = await API.get('/api/logs');
+          // v0.31.0: include `.7z` archives — search-history mode now
+          // reads them via the `_SevenZReader` subprocess wrapper.
+          // (Live tail still rejects compressed files server-side.)
+          availableLogs = data.logs || [];
+        } catch (e) {
+          showError('Failed to load file list: ' + e.message);
+          availableLogs = [];
+        }
+        const restored = restoreTabs();
+        const params = new URLSearchParams(window.location.search);
+        const initialFile = params.get('file') || '';
+
+        if (restored && restored.tabs.length > 0) {
+          // Filter out tabs that no longer exist on disk.
+          const valid = restored.tabs.filter(
+            tt => availableLogs.find(l => l.name === tt.name)
+          );
+          valid.forEach(tt => addTab(tt.name, tt));
+          if (restored.activeName) {
+            const a = tabs.find(t => t.name === restored.activeName);
+            if (a) activateTab(a);
+          }
+        }
+        // If a `?file=` query param is present, ensure that tab exists too.
+        if (initialFile && availableLogs.find(l => l.name === initialFile)) {
+          addTab(initialFile);
+        }
+        // If still no tabs, open the first available log so the page
+        // isn't a blank slate.
+        if (tabs.length === 0 && availableLogs.length > 0) {
+          addTab(availableLogs[0].name);
+        }
+      }
+
+      window.addEventListener('beforeunload', () => {
+        tabs.forEach(t => t.closeSse());
+      });
+
+      bootstrap();
     })();
   </script>
 </body>

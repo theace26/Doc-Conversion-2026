@@ -6,6 +6,131 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.31.0 — Five-item bundle: provider parity, log-viewer polish, bulk re-analyze, multi-log tabs, log subsystem consolidation, .7z viewing
+
+### Filenames now help OpenAI / Gemini / Ollama too
+
+Since v0.29.8 the **Anthropic** vision provider has used image
+filenames as grounding context — so a file named
+`Benaroya_Hall_Seattle.jpg` returns "Benaroya Hall, a concert
+venue in Seattle" rather than a generic "a large modern
+building." That advantage is now extended to **OpenAI**,
+**Gemini**, and **Ollama**.
+
+You don't need to do anything — switch your active provider on
+the Providers page and the next analysis batch automatically
+benefits. The base prompt instructs the model to USE the
+filename when image content agrees, but FALL BACK to a generic
+description when filename and content disagree, so misnamed
+files don't pollute results.
+
+### Bulk Re-analyze on the Batch Management page
+
+The per-row Re-analyze button (added v0.30.4) is great for one
+file at a time, but refreshing thousands of stale rows by hand
+isn't practical. **A new "Bulk re-analyze..." button** appears
+in the Batch Management top bar, opening a modal where you can:
+
+- Pick rows analyzed BEFORE / AFTER specific dates (use case:
+  "all files analyzed before v0.29.8 shipped on April 22nd")
+- Filter by provider (e.g. `anthropic`) and / or model (e.g.
+  `claude-sonnet-4-20250514`)
+- Choose status — defaults to `completed` for the canonical
+  refresh-stale use case, but can target `failed` for
+  retry-everything
+
+**Click Preview first.** It runs a dry-run that returns the
+matched count + the first 5 sample paths without modifying
+anything. Then click **Re-analyze matched rows** to actually
+delete and re-submit them. There is a hard cap of 10,000 rows
+per call — if your filter matches more, narrow it (tighter date
+range typically does it).
+
+### What "re-analyze" now means: DELETE then re-INSERT
+
+Per-row AND bulk re-analyze now use **delete-and-re-insert
+semantics**. The row in the analysis queue is deleted entirely
+and a fresh row is created via the same code path scanning a
+new file uses. Effect:
+
+- New `analysis_queue.id`, fresh `enqueued_at`, `retry_count = 0`
+- All output columns (description, extracted_text, error,
+  analyzed_at, provider, model, tokens_used) start NULL because
+  the row is BRAND NEW — not because we explicitly cleared them
+- Matches the operator's mental model ("treat this as if
+  scanned for the first time")
+
+The previous v0.30.4 behavior was UPDATE-in-place, which
+preserved the id. **If anything you have caches the old id
+between re-analyze invocations, it will get a 404 lookup
+afterwards.** Currently nothing in MarkFlow does this, but
+external integrations (UnionCore, custom scripts) should look up
+by `source_path` instead of caching ids.
+
+### Multi-log tabs on the Log Viewer
+
+The Log Viewer at `/log-viewer.html` now supports watching
+**multiple log files at the same time**. Open `markflow.log`
+and `markflow-debug.log` in separate tabs and flip between them
+without losing live-tail state, search history, or filters.
+
+- Each tab keeps its own SSE connection in the background, so
+  events don't get lost when you switch.
+- Each tab has its own filter state — DEBUG/INFO/WARNING/ERROR
+  chips, search string, regex toggle, time range, mode (live or
+  history). Filtering tab A doesn't affect tab B.
+- Click `+ Add tab` to open a popover with all available logs.
+- Memory bound: each tab body is capped at 1000 lines (older
+  lines drop off the head as new ones arrive).
+- Open tabs + per-tab settings persist to your browser's
+  `localStorage` — refresh the page and your layout is
+  restored.
+
+### Time-range filter for log history search
+
+The Search history mode of the log viewer now has a row of
+**From / To** datetime pickers plus four preset chips:
+**Last hour**, **Last 24h**, **Last 7d**, **Clear range**.
+Clicking a preset fills the inputs to (now − Δ) and (now), then
+re-runs the search. The row only appears in history mode (live
+tail mode hides it). Local-time inputs are converted to UTC ISO
+before being sent to the server.
+
+### `.7z` archives now searchable in-place
+
+Previously you could download `.7z` log archives but couldn't
+open them in the viewer — only `.gz` and `.tar.gz` were
+readable inline. v0.31.0 wires `.7z` through the same search
+code path by streaming `7z e -so` to stdout (the `7z` binary is
+already in the container for hashcat — no new dependencies).
+
+When you open a compressed file the viewer auto-switches to
+history mode since live tail makes no sense for files that
+don't grow.
+
+**Headless safety caps:** because `.7z` decompression can be
+heavy, the search request now has three layers of protection
+against hangs in unattended operation: a 500,000-line cap, a
+60-second wall-clock cap, and (for `.7z` only) a 200 MB
+decompressed-byte cap. The 7z subprocess runs in its own
+process group so the cap-fire path can cleanly terminate it
+along with any helpers.
+
+### Log retention / format settings now actually drive the cron
+
+The Log Management Settings card has had **Compression format**
+(gz / tar.gz / 7z) and **Retention days** options since v0.30.1,
+but until now the **automated 6-hourly compression cycle ignored
+them** — only the manual "Compress Rotated Now" / "Apply
+Retention Now" admin clicks honored the prefs. v0.31.0 unifies
+the subsystem: there is now one log manager driving both manual
+triggers AND the cron, so what you set in Settings actually
+applies. **If you set retention to something different from 90
+days, expect a one-time purge on the next cron tick to bring the
+on-disk state in line with your preference.**
+
+---
+
 ## v0.27.0 — Search is dramatically faster on repeat queries
 
 Without a GPU, MarkFlow's semantic (vector) search layer has to

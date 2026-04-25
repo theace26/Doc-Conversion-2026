@@ -412,3 +412,98 @@ async def cancel_all_batched() -> int:
         )
         await conn.commit()
         return cur.rowcount or 0
+
+
+# v0.31.0: bulk re-analyze.
+# Cap above which the API endpoint refuses to act, to prevent an
+# operator from torching their LLM quota on a single click.
+BULK_REANALYZE_CAP = 10_000
+
+_BULK_FILTER_FIELDS = {"analyzed_before_iso", "analyzed_after_iso",
+                       "provider_id", "model", "status"}
+
+
+async def find_rows_for_bulk_reanalyze(
+    *,
+    analyzed_before_iso: str | None = None,
+    analyzed_after_iso: str | None = None,
+    provider_id: str | None = None,
+    model: str | None = None,
+    status: str | None = "completed",
+    limit: int = BULK_REANALYZE_CAP,
+) -> list[dict[str, Any]]:
+    """Return rows in `analysis_queue` matching the given filters,
+    capturing the columns needed to delete and re-insert them
+    (id, source_path, content_hash, job_id, scan_run_id, file_category).
+
+    Defaults to status='completed' since that is the canonical
+    re-analyze target. Pass status=None to ignore the status filter
+    (e.g. to retry both failed and completed rows).
+    """
+    where: list[str] = []
+    params: list[Any] = []
+    if status is not None and status != "":
+        if status not in _VALID_STATUS_FILTERS:
+            raise ValueError(f"invalid status: {status}")
+        where.append("status = ?")
+        params.append(status)
+    if analyzed_before_iso:
+        where.append("analyzed_at IS NOT NULL AND analyzed_at < ?")
+        params.append(analyzed_before_iso)
+    if analyzed_after_iso:
+        where.append("analyzed_at IS NOT NULL AND analyzed_at > ?")
+        params.append(analyzed_after_iso)
+    if provider_id:
+        where.append("provider_id = ?")
+        params.append(provider_id)
+    if model:
+        where.append("model = ?")
+        params.append(model)
+    if not where:
+        # Refuse "match every row" — operator must specify at least one filter.
+        raise ValueError("at least one filter is required for bulk re-analyze")
+
+    where_sql = " AND ".join(where)
+    sql = (
+        "SELECT id, source_path, content_hash, job_id, scan_run_id, file_category "
+        "FROM analysis_queue "
+        f"WHERE {where_sql} "
+        "ORDER BY enqueued_at ASC LIMIT ?"
+    )
+    params.append(limit + 1)  # fetch one extra so caller can detect "exceeds cap"
+    rows = await db_fetch_all(sql, tuple(params))
+    return [dict(r) for r in rows]
+
+
+async def delete_rows_by_ids(row_ids: list[str]) -> int:
+    """Delete the given analysis_queue rows by id. Returns rowcount."""
+    if not row_ids:
+        return 0
+    placeholders = ",".join("?" * len(row_ids))
+    async with get_db() as conn:
+        cur = await conn.execute(
+            f"DELETE FROM analysis_queue WHERE id IN ({placeholders})",
+            list(row_ids),
+        )
+        await conn.commit()
+        return cur.rowcount or 0
+
+
+async def list_distinct_provider_models() -> dict[str, list[str]]:
+    """Return distinct provider_id + model values seen across the queue.
+    Used to populate the dropdowns on the bulk re-analyze modal."""
+    rows = await db_fetch_all(
+        "SELECT DISTINCT provider_id, model FROM analysis_queue "
+        "WHERE provider_id IS NOT NULL OR model IS NOT NULL"
+    )
+    providers: set[str] = set()
+    models: set[str] = set()
+    for r in rows:
+        if r["provider_id"]:
+            providers.add(r["provider_id"])
+        if r["model"]:
+            models.add(r["model"])
+    return {
+        "providers": sorted(providers),
+        "models": sorted(models),
+    }

@@ -61,7 +61,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `core/flag_manager.py` | Flag business logic, blocklist checks, Meilisearch is_flagged sync, webhooks |
 | `core/auto_metrics_aggregator.py` | Hourly rollup of system_metrics into auto_metrics |
 | `core/progress_tracker.py` | RollingWindowETA, ProgressSnapshot, format_eta for scan/bulk jobs |
-| `core/log_archiver.py` | Compress rotated logs to gzip archives, purge old archives |
+| `core/log_manager.py` | Log inventory + on-demand compression (gz / tar.gz / 7z) + retention. Replaces `core/log_archiver.py` (deleted v0.31.0); the 6-hourly scheduler job (`_log_manage_cycle` in `core/scheduler.py`) calls into here, so Settings-page prefs (compression format, retention days) actually govern the automated cycle. |
 | `core/archive_safety.py` | Zip-bomb protection: ratio, size, depth, quine checks |
 | `core/media_probe.py` | ffprobe wrapper: codec detection, duration, transcode decision |
 | `core/audio_extractor.py` | Extract audio from video, convert to Whisper-compatible WAV |

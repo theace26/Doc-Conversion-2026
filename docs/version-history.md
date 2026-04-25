@@ -4,6 +4,256 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.31.0 — Deferred-items bundle (2026-04-25)
+
+Five-item bundle release executing the entire
+`docs/superpowers/plans/2026-04-24-v0.31-deferred-items.md` plan
+in one shot. Each item is independent — bundled per the user's
+end-of-session "do all updates THEN bump version + commit"
+directive.
+
+### Item 1 — Multi-provider filename interleaving
+
+`_batch_anthropic` got the filename-as-text-block treatment in
+v0.29.8 (operators with the Anthropic provider saw their
+descriptions improve from generic "a large modern building" to
+"Benaroya Hall, a concert venue in Seattle"). Same pattern now
+applies to the three other providers in `core/vision_adapter.py`:
+
+- **OpenAI** (`_batch_openai`): content array now interleaves
+  `{"type": "text", "text": "Image N filename: ..."}` blocks
+  before each `image_url` block. Prompt moved to the END of the
+  array (was at the beginning) — matches Anthropic's order.
+- **Gemini** (`_batch_gemini`): `parts` array interleaves
+  `{"text": "Image N filename: ..."}` parts before each
+  `inline_data` part. Prompt also moved to the end.
+- **Ollama** (`_batch_ollama`): Ollama's `/api/generate` API
+  takes a single string `prompt` + `images: [b64, ...]` array
+  with no per-image text blocks, so the filename list is
+  prepended to the prompt:
+  `"Files (in order): 1. foo.jpg, 2. bar.png\n\n<prompt>"`.
+
+The base prompt (defined in `describe_batch`) already includes
+the "If the preceding filename identifies a specific recognizable
+subject... name the subject" instruction added in v0.29.8, so the
+prompt itself didn't need to change.
+
+### Item 2 — Time-range UI in log viewer historical search
+
+Backend has supported `from_iso` / `to_iso` query params on
+`GET /api/logs/search` since v0.30.1, but the UI didn't expose
+them. v0.31.0 adds:
+
+- A new row below the main controls in `static/log-viewer.html`,
+  visible only in history mode (live tail mode hides the row).
+- Two `<input type="datetime-local">` fields (From / To),
+  dark-themed via `color-scheme: dark`.
+- Preset chips: **Last hour**, **Last 24h**, **Last 7d**,
+  **Clear range**. Clicking a preset fills both inputs to
+  (now − Δ) and (now), then re-runs the search.
+- `localInputToUtcIso(value)` helper converts the local-time
+  input to a UTC ISO string before sending. Empty / invalid
+  inputs degrade to no-param (server's flexible ISO parse
+  treats naive ISO as UTC).
+- Hint text near the row shows the active From/To as ISO so
+  operators know exactly what's being sent to the server.
+
+### Item 3 — Bulk re-analyze with delete-and-re-insert semantics
+
+#### The semantics change
+
+The v0.30.4 per-row endpoint did UPDATE-in-place — preserved id,
+enqueued_at, content_hash, source_path; only cleared the result
+columns. v0.31.0 was written to the user's explicit requirement
+(2026-04-24):
+
+> *"Make sure that the files that get reanalyzed are deleted
+> from the database and resubmitted for entry into the database
+> with the new information."*
+
+Both the per-row and the new bulk endpoints now do **DELETE +
+re-INSERT** via the canonical `enqueue_for_analysis` path. Effect:
+fresh `id`, fresh `enqueued_at`, `retry_count = 0`, all output
+columns NULL because the row is BRAND NEW, not because we
+explicitly cleared them. Defends against future schema additions
+that an UPDATE would have to remember to clear.
+
+#### Per-row endpoint
+
+`POST /api/analysis/queue/{entry_id}/reanalyze` (OPERATOR+) now:
+
+1. SELECTs the row to capture identity columns (source_path,
+   content_hash, job_id, scan_run_id, file_category).
+2. DELETEs the row through `db_write_with_retry`.
+3. Re-INSERTs via `enqueue_for_analysis(...)`.
+4. Returns `{status, old_entry_id, new_entry_id}` so callers can
+   correlate the change.
+
+#### Bulk endpoint
+
+`POST /api/analysis/queue/reanalyze-bulk` (OPERATOR+):
+
+- Pydantic body `BulkReanalyzeRequest`:
+  - `analyzed_before_iso`, `analyzed_after_iso`, `provider_id`,
+    `model`, `status` (default `completed`), `dry_run` (default
+    `true`)
+- Refuses empty filter sets — at least one of (date bound,
+  provider, model, non-empty status) must be supplied.
+- 10,000-row hard cap (`BULK_REANALYZE_CAP` in
+  `core/db/analysis.py`). Above that, dry-run sets
+  `exceeds_cap=true` and a non-dry-run gets a 400.
+- Dry-run returns `{matched, sample (first 5 source_paths),
+  exceeds_cap, cap}`.
+- Confirmed run returns `{deleted, re_enqueued, new_entry_ids,
+  dropped}`. `dropped` is non-zero only in defensive races where
+  `enqueue_for_analysis` declines to re-insert; shouldn't occur
+  since we just deleted the row, but is logged for visibility.
+
+`GET /api/analysis/queue/reanalyze-filters` (OPERATOR+) returns
+`{providers, models}` — distinct values from `analysis_queue` —
+for the modal's dropdown population.
+
+#### DB helpers (`core/db/analysis.py`)
+
+- `BULK_REANALYZE_CAP = 10_000`
+- `find_rows_for_bulk_reanalyze(...)` — composes the filter
+  WHERE clause, returns up to `cap+1` rows so the API can
+  detect "exceeds cap".
+- `delete_rows_by_ids(row_ids)` — single DELETE with `IN (?, ?, ...)`.
+- `list_distinct_provider_models()` — backs the filters helper.
+
+#### Frontend (`static/batch-management.html`)
+
+- Top-bar **"Bulk re-analyze..."** button next to "Cancel All
+  Pending".
+- Modal with date pickers, provider/model dropdowns
+  pre-populated from the filters helper, status dropdown, a
+  Preview button (calls `dry_run=true`), and a Run button
+  (disabled until preview shows >0 matched rows). Run button
+  confirms with explicit "deletes the matching rows and
+  re-submits them as fresh entries" copy plus the exact row
+  count and LLM token caveat.
+- Per-row **"Re-analyze"** button copy + tooltip updated to
+  mention DELETE + re-INSERT explicitly.
+
+### Item 4 — Multi-log tabbed live view
+
+`static/log-viewer.html` got a substantial refactor. Single global
+EventSource + filter state replaced with a **`LogTab` class**
+(~250 LOC of class + helper code). Each tab owns:
+
+- Its own EventSource (kept open in the background so events
+  aren't missed when watching a different tab)
+- Body div (only the active tab's body is `display: block`;
+  others are hidden)
+- History offset, pause flag, line counts (totalLines /
+  filteredLines)
+- Per-tab filter state: levels Set, search query + regex flag,
+  from_iso / to_iso, mode (live / history)
+
+Tab strip at the top of the body area:
+
+- Each tab shows a green/red/grey dot indicating SSE connection
+  state (connected / disconnected / connecting), the file name,
+  and a × close button.
+- **+ Add tab** button at the end opens a popover listing all
+  available logs (with size + status). Already-open logs are
+  greyed out with a ✓ open marker.
+- Switching the active tab syncs the top control bar (mode
+  selector, level chips, search box, time range, pause button)
+  to that tab's stored state.
+
+Memory bound: each tab's body is capped at 1000 lines —
+`appendLine` evicts older nodes from the head once the cap is
+reached. Closed tabs have their EventSource explicitly `.close()`d.
+
+Persistence: open tab list, active tab, and per-tab filter state
+all serialized to `localStorage` under
+`markflow.logviewer.tabs.v1`. On bootstrap, the saved tab set is
+restored (filtered to logs that still exist on disk). If
+localStorage is empty AND no `?file=` query param is present, the
+most-recent log is auto-opened so the page isn't a blank slate.
+
+### Item 5 — Log subsystem consolidation
+
+`core/log_archiver.py` (v0.12.2, ~150 LOC) **deleted**. Its
+6-hour scheduler job replaced by a thin async wrapper in
+`core/scheduler.py`:
+
+```python
+async def _log_manage_cycle():
+    from core.log_manager import compress_rotated_logs, apply_retention
+    try: await compress_rotated_logs()
+    except Exception as exc: log.warning("scheduler.log_compress_failed", error=...)
+    try: await apply_retention()
+    except Exception as exc: log.warning("scheduler.log_retention_failed", error=...)
+```
+
+Net effect: same 6-hour cron cadence, but the **Settings page
+preferences (compression format, retention days) now actually
+govern the automated cycle**. Previously the cron used hardcoded
+gz + 90-day defaults regardless of what the operator set in the
+UI — only manual "Compress Rotated Now" / "Apply Retention Now"
+admin clicks honored the prefs. That divergence is now fixed.
+
+The legacy `archive/` subdir under `LOGS_DIR` is left in place;
+the inventory endpoint already discovered it (added in v0.30.1)
+and continues to. New compressions go to `LOGS_DIR/<name>.gz`
+(in-place rotation), not the `archive/` subdir.
+
+`get_archive_stats()` reborn in `core/log_manager.py` (now reads
+retention from DB pref instead of env var). The
+`/api/logs/archives/stats` route in `api/routes/logs.py` updated
+to import from there. Endpoint shape unchanged.
+
+18-job scheduler count unchanged.
+
+### Cumulative file list
+
+- `core/version.py` — bump to 0.31.0
+- `core/vision_adapter.py` — filename interleaving in
+  `_batch_openai`, `_batch_gemini`, `_batch_ollama`
+- `core/db/analysis.py` — `BULK_REANALYZE_CAP`,
+  `find_rows_for_bulk_reanalyze`, `delete_rows_by_ids`,
+  `list_distinct_provider_models`
+- `api/routes/analysis.py` — per-row `reanalyze_queue_entry`
+  switched to delete+re-insert; new `reanalyze_bulk` +
+  `reanalyze_filters` endpoints + `BulkReanalyzeRequest` model
+- `static/log-viewer.html` — multi-tab refactor + time-range row
+- `static/batch-management.html` — Bulk re-analyze top-bar button
+  + modal HTML/CSS/JS + per-row button copy update
+- `core/scheduler.py` — `_log_manage_cycle` replaces
+  `archive_rotated_logs` job
+- `core/log_archiver.py` — DELETED
+- `core/log_manager.py` — added `get_archive_stats()` shim;
+  comment cleanup re: deleted module
+- `api/routes/logs.py` — `/archives/stats` re-imports from
+  `log_manager` (now async)
+- `CLAUDE.md`, `docs/version-history.md`, `docs/key-files.md`,
+  `docs/gotchas.md`, multiple `docs/help/*.md`
+
+No DB migration. No new dependencies. No new scheduler jobs (the
+existing `log_archive` job's body was rewritten but the slot is
+unchanged).
+
+### Risks / things to watch
+
+- **`analysis_queue.id` is no longer stable across re-analyze.**
+  Documented in `docs/gotchas.md` (Re-analyze section). Future
+  integrations that cache the id need to handle "row not found"
+  by looking up via `source_path` instead.
+- **Operators caching the Settings page from before v0.31.0**
+  may have stale `compression_format` / `retention_days` values
+  in their DB that now get applied to the cron. If they had
+  diverged from the legacy archiver's hardcoded gz+90d, behavior
+  changes on the next cron tick. Visible only on logs that
+  rotate.
+- **Bulk re-analyze can blow LLM quota fast.** The 10k cap +
+  dry-run + confirm dialog with explicit token caveat are the
+  safety net. Operators should always preview first.
+
+---
+
 ## v0.30.4 — Re-analyze button for stale analysis results (2026-04-24)
 
 Closes a UX gap exposed by v0.29.8's filename-context prompt

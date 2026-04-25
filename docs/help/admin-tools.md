@@ -206,6 +206,177 @@ appears briefly to let you know the settings were applied.
 
 ---
 
+## Log Management
+
+Two admin pages, linked from the Admin panel's **Log Management**
+card, give you full control over MarkFlow's structured log files.
+
+### Inventory page (`/log-management.html`)
+
+A table of every log file currently on disk under `/app/logs`,
+including the legacy `archive/` subdir. Each row shows:
+
+- **File name** (active log, rotated backup, or compressed archive)
+- **Size** in KB
+- **Status pill** -- Active (currently being written), Rotated
+  (numbered backup pending compression), or Compressed
+  (`.gz` / `.tar.gz` / `.7z`)
+- **Stream** -- Operational, Debug, or Other
+- **Modified** timestamp
+
+Top-bar actions:
+
+- **Download** any file directly via its row link.
+- **Multi-select + Download Selected (N)** bundles your picks
+  into a single ZIP for offline review.
+- **Download All** zips every log on disk.
+- **Compress Rotated Now** triggers an immediate compression
+  pass using your current Settings format. Useful right after a
+  large bulk job rotates a debug log to dozens of MB.
+- **Apply Retention Now** deletes compressed logs older than
+  your retention window without waiting for the cron.
+
+Settings card on the same page:
+
+| Setting | Effect |
+|---------|--------|
+| Compression format | `gz` (default), `tar.gz`, or `7z`. As of v0.31.0 the cron honours this — earlier versions ignored it for the automated cycle. |
+| Retention days | Compressed logs older than this are auto-purged on the cron. |
+| Rotation max size MB | Active log file size at which the stdlib RotatingFileHandler triggers a rotation. Takes effect on next container restart. |
+
+> **Tip:** The 6-hourly cron runs `compress_rotated_logs()` then
+> `apply_retention()` automatically. If a rotated log is sitting
+> uncompressed for hours and you can't wait, click **Compress
+> Rotated Now**. That call is identical in effect to the cron
+> body — same code path.
+
+### Live viewer (`/log-viewer.html`) — v0.31.0 multi-tab edition
+
+A power-user log inspector with **two modes** and **multiple
+simultaneous tabs**.
+
+#### Modes
+
+- **Live tail** -- Server-Sent Events stream. Each new line
+  appended to the file is pushed to the page in real time.
+  Connection backfills the last ~200 lines so you don't open to
+  a blank screen. The connection-state dot on each tab is green
+  when connected, red when disconnected, grey while connecting.
+  *Active uncompressed `.log` files only — compressed files
+  return HTTP 400 (they don't grow, so tailing makes no sense).*
+- **Search history** -- Server-side paginated search.
+  Substring or regex query, level filter chips
+  (DEBUG / INFO / WARNING / ERROR+CRITICAL), 200 lines per page,
+  **Load older** for pagination.
+  *Works on uncompressed AND `.gz` / `.tar.gz` AND `.7z` files
+  (v0.31.0). Gzip streams are decompressed transparently via
+  Python's stdlib; `.7z` archives are decompressed via the
+  already-installed `7z` system binary streamed to stdout
+  without writing a temp file. When opening a compressed file
+  the viewer auto-switches to history mode (live tail can't
+  follow a file that doesn't grow).*
+
+##### Headless safety caps
+
+The search request has a **triple-barrier defense** so an
+unattended cron-style operation cannot hang on a malicious or
+pathological log:
+
+1. **Line cap** (500,000 lines) — bounds CPU on big files.
+2. **Wall-clock cap** (60 seconds) — bounds time even when
+   reads are cheap-per-line but the file is huge.
+3. **`.7z` byte cap** (200 MB decompressed inside
+   `_SevenZReader`) — bounds the worst-case worker-thread time
+   on a deliberately huge archive. The 7z subprocess is launched
+   in its own session so the cap-fire path can `SIGTERM` the
+   whole process group cleanly.
+
+When any cap fires, the response includes the partial results
+plus a status line indicator. You'll see:
+
+- `line cap hit` — narrow your search, tighten the filter chips,
+  or shrink the time range.
+- `time cap hit` — same advice; also consider opening the
+  uncompressed counterpart if you're searching an archive.
+- `7z stream truncated at 200 MB` — the archive is bigger than
+  the in-process decompression budget; download it instead and
+  use a desktop tool for full-file work. (A future release will
+  let you tune this cap from the Settings card and add a live
+  progress indicator while a search is in flight — see
+  `docs/superpowers/plans/2026-04-25-v0.31.0-7z-safety-controls.md`.)
+
+#### Tabbed view (new in v0.31.0)
+
+The viewer now supports watching **multiple log streams
+side-by-side** without losing state when you switch between them.
+
+- The tab strip below the controls shows every open log, each
+  with a connection-state dot, the file name, and a `×` close
+  button.
+- Click **+ Add tab** to open a popover listing all available
+  logs. Click any one to open it in a new tab. Already-open logs
+  are greyed out with a `✓ open` marker.
+- Each tab keeps its own EventSource open in the background, so
+  events don't get lost while you watch a different tab. (Body
+  contents are capped at 1000 lines per tab so memory stays
+  bounded — older lines drop off the head.)
+- **Filters apply to the active tab only.** Switching tabs
+  syncs the top control bar (mode, level chips, search box,
+  time range, pause button) to that tab's stored state. So you
+  can have a markflow.log tab filtered to ERROR only AND a
+  markflow-debug.log tab showing everything — independently.
+- Open tabs and per-tab filter state persist to `localStorage`.
+  Refresh the page and your layout is restored.
+
+##### Example workflow
+
+1. Open `/log-viewer.html`. The most-recent log auto-opens in
+   the first tab.
+2. Click **+ Add tab**, pick `markflow-debug.log`. Two tabs
+   now run in parallel.
+3. Switch to the markflow.log tab, set mode → **Live tail**,
+   uncheck DEBUG / INFO so you see only WARNING+.
+4. Switch to markflow-debug.log, leave it on Live tail with
+   all levels enabled.
+5. Trigger the operation you're investigating. Both tabs
+   accumulate events. Flip between them as needed — neither
+   loses its state.
+
+#### Time-range filter (history mode, new in v0.31.0)
+
+When the active tab is in **Search history** mode, a second row
+of controls appears with two `<input type="datetime-local">`
+fields (From / To) plus four preset chips:
+
+| Preset | Effect |
+|--------|--------|
+| Last hour | From = now − 1h, To = now |
+| Last 24h | From = now − 24h, To = now |
+| Last 7d | From = now − 7d, To = now |
+| Clear range | Empties both inputs |
+
+The inputs use your local timezone; values are converted to UTC
+ISO before being sent to the server. The hint text next to the
+chips shows the active From/To as ISO so you can verify exactly
+what's being queried. Backend search supports flexible ISO
+parsing — naive timestamps are treated as UTC.
+
+#### Other features
+
+- **Auto-scroll** chip auto-pins to the bottom on new lines.
+  Uncheck to scroll freely without losing your place.
+- **Pause** suspends new-line append on the active tab without
+  closing the SSE stream. Resume picks up from where the buffer
+  left off.
+- **JSON-aware line parsing.** Structlog output (one JSON object
+  per line) is rendered with colored timestamp / level / logger /
+  event / k=v tail. Plain-text lines render verbatim.
+- **Substring + regex search.** Toggle the **Regex** chip to
+  switch from case-insensitive substring match to a regex.
+  Invalid regex shows an error banner without breaking the page.
+
+---
+
 ## System Info
 
 At the bottom of the Admin page, the **System Info** card shows:

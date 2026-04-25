@@ -335,52 +335,255 @@ async def reanalyze_queue_entry(
     entry_id: str,
     user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
 ) -> dict:
-    """Reset one analysis_queue row to pending so it gets re-submitted
-    on the next worker cycle (v0.30.4).
+    """Re-analyze one row by DELETE + re-INSERT (v0.31.0).
 
-    Use case: a row was analyzed before v0.29.8 (filename context in
-    the prompt) or v0.29.9 (preflight + bisection + circuit breaker)
-    shipped, and the operator wants to refresh the result with the
-    current prompt. Resets:
-      - status = 'pending'
-      - batch_id = NULL, batched_at = NULL
-      - description / extracted_text / error / analyzed_at = NULL
-      - retry_count = 0
-      - content_hash preserved so future enqueue_for_analysis calls
-        still skip-on-unchanged for OTHER files (not this one)
+    The previous v0.30.4 implementation did UPDATE-in-place, which
+    left the original row's id / enqueued_at intact and only cleared
+    the result columns. The user wanted a true clean slate so we now:
+
+      1. SELECT the row to capture (source_path, content_hash, job_id,
+         scan_run_id, file_category) — the identity columns needed to
+         re-enqueue it.
+      2. DELETE the row entirely.
+      3. INSERT a fresh row via the canonical
+         `enqueue_for_analysis(...)` path. New id, fresh enqueued_at,
+         retry_count=0, all output columns NULL.
+
+    Why this is safer than UPDATE-in-place:
+      - No risk of forgetting to clear a column that gets added in a
+        future schema change — the row is brand-new.
+      - Matches the operator's mental model ("treat as if scanned for
+        the first time").
+      - `enqueue_for_analysis` is the single canonical insertion path,
+        so any future enqueue-time logic (validation, hashing, etc.)
+        is automatically applied.
+
+    Trade-off: external systems that cached `analysis_queue.id` lose
+    those references. None known to do this currently — see
+    `docs/gotchas.md` (Re-analyze section).
     """
-    from core.database import get_db, now_iso  # noqa: F401
+    from core.database import get_db
     from core.db.connection import db_write_with_retry
+    from core.db.analysis import enqueue_for_analysis
 
-    async def _do():
-        from core.database import get_db
-        async with get_db() as conn:
-            cur = await conn.execute(
-                """UPDATE analysis_queue
-                   SET status = 'pending',
-                       batch_id = NULL,
-                       batched_at = NULL,
-                       description = NULL,
-                       extracted_text = NULL,
-                       error = NULL,
-                       analyzed_at = NULL,
-                       retry_count = 0,
-                       provider_id = NULL,
-                       model = NULL,
-                       tokens_used = NULL
-                   WHERE id = ?""",
-                (entry_id,),
-            )
-            rowcount = cur.rowcount
-            await conn.commit()
-            return rowcount
-
-    rowcount = await db_write_with_retry(_do)
-    if not rowcount:
+    row = await db_fetch_one(
+        "SELECT id, source_path, content_hash, job_id, scan_run_id, file_category "
+        "FROM analysis_queue WHERE id = ?",
+        (entry_id,),
+    )
+    if not row:
         raise HTTPException(status_code=404, detail="Analysis entry not found")
 
-    log.info("analysis.reanalyze_queued", user=user.email, entry_id=entry_id)
-    return {"status": "queued", "entry_id": entry_id}
+    async def _delete_one():
+        async with get_db() as conn:
+            await conn.execute(
+                "DELETE FROM analysis_queue WHERE id = ?", (entry_id,),
+            )
+            await conn.commit()
+    await db_write_with_retry(_delete_one)
+
+    new_id = await enqueue_for_analysis(
+        source_path=row["source_path"],
+        content_hash=row["content_hash"],
+        job_id=row["job_id"],
+        scan_run_id=row["scan_run_id"],
+        file_category=row["file_category"] or "image",
+    )
+    log.info(
+        "analysis.reanalyze_queued",
+        user=user.email,
+        old_entry_id=entry_id,
+        new_entry_id=new_id,
+    )
+    return {
+        "status": "queued",
+        "old_entry_id": entry_id,
+        "new_entry_id": new_id,
+    }
+
+
+# v0.31.0: bulk re-analyze.
+class BulkReanalyzeRequest(BaseModel):
+    """Filters for selecting which analysis_queue rows to re-analyze.
+
+    At least one filter is required (the API refuses "match every
+    row" requests). If no `status` is given, defaults to "completed".
+
+    `dry_run` (default true) returns the count + a sample of the
+    matched rows without modifying anything. The frontend should
+    always preview first, then re-call with `dry_run=false` after the
+    operator confirms.
+    """
+    analyzed_before_iso: str | None = None
+    analyzed_after_iso: str | None = None
+    provider_id: str | None = None
+    model: str | None = None
+    status: str | None = "completed"
+    dry_run: bool = True
+
+
+@router.post("/queue/reanalyze-bulk")
+async def reanalyze_bulk(
+    body: BulkReanalyzeRequest,
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+) -> dict:
+    """Bulk re-analyze every row matching the given filter (v0.31.0).
+
+    Same DELETE + re-INSERT semantics as the per-row endpoint —
+    rows are deleted entirely and re-enqueued via the canonical
+    `enqueue_for_analysis` path. Returns:
+
+      - `dry_run=true`  → {matched, sample, exceeds_cap}
+      - `dry_run=false` → {deleted, re_enqueued, new_entry_ids,
+                          dropped (rows that re-enqueue declined to
+                          re-insert because they were already
+                          completed with the same hash)}
+
+    Hard cap of 10,000 rows per call (`BULK_REANALYZE_CAP`). Above
+    that, the endpoint refuses with 400 — split the date range and
+    try again. Filters are AND'd together. Status defaults to
+    `completed`. Exclusions: at least one filter (provider, model, a
+    date bound, or a non-empty status) must be supplied — the API
+    refuses an empty filter set.
+    """
+    from core.db.analysis import (
+        BULK_REANALYZE_CAP,
+        delete_rows_by_ids,
+        enqueue_for_analysis,
+        find_rows_for_bulk_reanalyze,
+    )
+    from core.db.connection import db_write_with_retry
+
+    try:
+        rows = await find_rows_for_bulk_reanalyze(
+            analyzed_before_iso=body.analyzed_before_iso,
+            analyzed_after_iso=body.analyzed_after_iso,
+            provider_id=body.provider_id,
+            model=body.model,
+            status=body.status,
+            limit=BULK_REANALYZE_CAP,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    exceeds_cap = len(rows) > BULK_REANALYZE_CAP
+    if exceeds_cap:
+        rows = rows[:BULK_REANALYZE_CAP]
+
+    matched = len(rows)
+    sample = [r["source_path"] for r in rows[:5]]
+
+    if body.dry_run:
+        return {
+            "dry_run": True,
+            "matched": matched,
+            "sample": sample,
+            "exceeds_cap": exceeds_cap,
+            "cap": BULK_REANALYZE_CAP,
+        }
+
+    if exceeds_cap:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"matched > cap ({BULK_REANALYZE_CAP}); narrow the filter "
+                f"(e.g. tighter date range) and retry"
+            ),
+        )
+
+    if not rows:
+        return {
+            "dry_run": False,
+            "matched": 0,
+            "deleted": 0,
+            "re_enqueued": 0,
+            "new_entry_ids": [],
+            "dropped": 0,
+        }
+
+    row_ids = [r["id"] for r in rows]
+
+    async def _delete_all():
+        return await delete_rows_by_ids(row_ids)
+    deleted = await db_write_with_retry(_delete_all)
+
+    # Re-enqueue resilience (v0.31.0 hardening): each row's enqueue is
+    # wrapped in its own try so a single failure (e.g. a concurrent
+    # scan racing the DELETE → INSERT window and re-inserting the same
+    # source_path) doesn't abort the whole bulk pass. Counts and the
+    # first ~5 failure reasons are surfaced in the response so
+    # operators can investigate.
+    new_entry_ids: list[str] = []
+    dropped = 0
+    failed = 0
+    failure_samples: list[str] = []
+    for r in rows:
+        try:
+            new_id = await enqueue_for_analysis(
+                source_path=r["source_path"],
+                content_hash=r["content_hash"],
+                job_id=r["job_id"],
+                scan_run_id=r["scan_run_id"],
+                file_category=r["file_category"] or "image",
+            )
+        except Exception as exc:
+            failed += 1
+            if len(failure_samples) < 5:
+                failure_samples.append(
+                    f"{r['source_path']}: {type(exc).__name__}: {exc}"
+                )
+            log.warning(
+                "analysis.reanalyze_bulk_enqueue_failed",
+                source_path=r["source_path"],
+                error=f"{type(exc).__name__}: {exc}",
+            )
+            continue
+        if new_id is None:
+            # `enqueue_for_analysis` returns None when the same content
+            # is already completed elsewhere — shouldn't happen since
+            # we just deleted the row, but be defensive.
+            dropped += 1
+        else:
+            new_entry_ids.append(new_id)
+
+    log.info(
+        "analysis.reanalyze_bulk",
+        user=user.email,
+        matched=matched,
+        deleted=deleted,
+        re_enqueued=len(new_entry_ids),
+        dropped=dropped,
+        failed=failed,
+        filters={
+            "analyzed_before_iso": body.analyzed_before_iso,
+            "analyzed_after_iso": body.analyzed_after_iso,
+            "provider_id": body.provider_id,
+            "model": body.model,
+            "status": body.status,
+        },
+    )
+
+    return {
+        "dry_run": False,
+        "matched": matched,
+        "deleted": deleted,
+        "re_enqueued": len(new_entry_ids),
+        "new_entry_ids": new_entry_ids,
+        "dropped": dropped,
+        "failed": failed,
+        "failure_samples": failure_samples,
+    }
+
+
+@router.get("/queue/reanalyze-filters")
+async def reanalyze_filters(
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+) -> dict:
+    """Return distinct provider_id + model values to populate the bulk
+    re-analyze modal's dropdowns. Operators-only since the modal is
+    operator-only."""
+    from core.db.analysis import list_distinct_provider_models
+    return await list_distinct_provider_models()
 
 
 @router.get("/queue/{entry_id}")

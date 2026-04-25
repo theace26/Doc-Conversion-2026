@@ -315,22 +315,155 @@ async def tail_log(
 import gzip as _gzip
 import json as _json
 import re as _re
+import subprocess as _subprocess
 from datetime import datetime as _datetime, timezone as _timezone
+
+
+# v0.31.0: hard caps on `.7z` read to defend against hangs / runaway
+# processes. The search wall-clock cap below ALSO applies; this byte
+# cap is a per-reader belt-and-suspenders. v0.31.x will make the byte
+# cap operator-tunable (see plans/2026-04-25-v0.31.0-7z-safety-controls.md).
+_SEVENZ_MAX_BYTES = 200 * 1024 * 1024           # 200 MB decompressed
+_SEVENZ_TERMINATE_GRACE_S = 5.0
+_SEVENZ_KILL_GRACE_S = 2.0
+
+
+class _SevenZReader:
+    """File-like binary reader that streams decompressed `.7z` content
+    by spawning `/usr/bin/7z e -so <path>`. Lazily instantiated so the
+    subprocess only runs when the search code actually reads bytes.
+
+    The 7z binary is already in `Dockerfile.base` (it was added for
+    hashcat). The `e -so` form extracts to stdout without writing a
+    temp file. Closing the reader terminates the subprocess (graceful
+    SIGTERM → wait 5s → SIGKILL → wait 2s). v0.31.0 hardening:
+
+    - `start_new_session=True` so `close()` can kill the whole
+      process group if 7z spawned children.
+    - Per-reader byte cap (`_SEVENZ_MAX_BYTES`, 200 MB decompressed)
+      to bound the worst-case worker-thread wall time on a malicious
+      or pathological archive.
+    - `stderr=PIPE` + drain on close so 7z error output doesn't
+      block its stdout pipe (rare but possible on damaged archives).
+    """
+
+    def __init__(self, path: Path):
+        self._path = path
+        self._proc: "_subprocess.Popen | None" = None
+        self._bytes_read = 0
+        self._cap_hit = False
+
+    def _ensure_started(self) -> None:
+        if self._proc is not None:
+            return
+        kwargs: dict = {
+            "stdout": _subprocess.PIPE,
+            "stderr": _subprocess.PIPE,    # drained in close()
+            "bufsize": 64 * 1024,
+        }
+        # `start_new_session=True` puts the child in a new process
+        # group so close() can SIGTERM/SIGKILL the whole group via
+        # os.killpg if the immediate child has spawned helpers.
+        # POSIX-only — Windows would need creationflags. The container
+        # is Linux so this is the right path.
+        kwargs["start_new_session"] = True
+        self._proc = _subprocess.Popen(
+            ["/usr/bin/7z", "e", "-so", str(self._path)], **kwargs,
+        )
+
+    def _check_cap(self, chunk: bytes) -> bytes:
+        """Apply the byte cap: if reading `chunk` would exceed the
+        cap, truncate it and mark the reader spent. Subsequent reads
+        return empty so the caller sees clean EOF."""
+        if self._cap_hit:
+            return b""
+        room = _SEVENZ_MAX_BYTES - self._bytes_read
+        if room <= 0:
+            self._cap_hit = True
+            return b""
+        if len(chunk) > room:
+            chunk = chunk[:room]
+            self._cap_hit = True
+        self._bytes_read += len(chunk)
+        return chunk
+
+    def read(self, n: int = -1) -> bytes:
+        self._ensure_started()
+        if self._cap_hit:
+            return b""
+        # When n=-1, cap the read at our remaining budget so we don't
+        # buffer the whole archive into memory if the caller asked
+        # for "all of it".
+        if n == -1 or n > _SEVENZ_MAX_BYTES - self._bytes_read:
+            n = _SEVENZ_MAX_BYTES - self._bytes_read
+            if n <= 0:
+                self._cap_hit = True
+                return b""
+        chunk = self._proc.stdout.read(n)  # type: ignore[union-attr]
+        return self._check_cap(chunk)
+
+    def readline(self, *args, **kwargs) -> bytes:
+        self._ensure_started()
+        if self._cap_hit:
+            return b""
+        line = self._proc.stdout.readline(*args, **kwargs)  # type: ignore[union-attr]
+        return self._check_cap(line)
+
+    def readable(self) -> bool: return True
+    def writable(self) -> bool: return False
+    def seekable(self) -> bool: return False
+
+    def __iter__(self):
+        # Iterate via readline() so the byte cap applies to each line.
+        return iter(self.readline, b"")
+
+    def close(self) -> None:
+        if self._proc is None:
+            return
+        proc = self._proc
+        self._proc = None
+        # Drain + close stdio so the subprocess doesn't block on
+        # writing to a full pipe.
+        for stream in (proc.stdout, proc.stderr):
+            if stream is not None:
+                try: stream.close()
+                except Exception: pass
+        if proc.poll() is None:
+            # Try graceful termination of the whole process group.
+            import os, signal
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except (ProcessLookupError, OSError):
+                # Fall back to terminating just the immediate child.
+                try: proc.terminate()
+                except Exception: pass
+            try:
+                proc.wait(timeout=_SEVENZ_TERMINATE_GRACE_S)
+            except _subprocess.TimeoutExpired:
+                # Hard kill the group.
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    try: proc.kill()
+                    except Exception: pass
+                try: proc.wait(timeout=_SEVENZ_KILL_GRACE_S)
+                except Exception: pass
+
+    def __enter__(self): return self
+    def __exit__(self, *exc): self.close()
 
 
 def _open_log_for_read(path: Path):
     """Return a binary file handle for reading, transparently
-    decompressing .gz. .7z is not supported here (would require
-    subprocess + temp file; the viewer's 'Download' button is the
-    right path for 7z inspection)."""
+    decompressing `.gz` / `.tgz` (via stdlib `gzip`) and `.7z` (via
+    `7z e -so` subprocess; v0.31.0). The returned object supports
+    `read()` / `readline()` / iteration like a normal file, plus
+    `close()` to release the underlying resource."""
     name = path.name.lower()
     if name.endswith(".gz") or name.endswith(".tgz"):
         return _gzip.open(path, "rb")
     if name.endswith(".7z"):
-        raise HTTPException(
-            status_code=400,
-            detail="7z archives are not searchable in-place; download the file instead",
-        )
+        return _SevenZReader(path)
     return path.open("rb")
 
 
@@ -467,21 +600,51 @@ async def search_log(
 
     # Read + filter. Run in a worker thread to keep the event loop free.
     def _do_search() -> dict:
-        # Cap at a reasonable per-request line read ceiling so a
-        # regex-that-matches-nothing doesn't scan a 100 GB file.
+        # v0.31.0: triple-barrier protection so an unattended/headless
+        # operation can never hang on a malicious or pathological log:
+        #   1. line cap (`MAX_SCAN_LINES`) — bounds CPU on big files
+        #   2. wall-clock cap (`MAX_WALL_S`) — bounds time even when
+        #      reads are cheap-per-line but the file is huge
+        #   3. (for `.7z` only) per-reader byte cap inside `_SevenZReader`
+        # Any cap firing returns clean partial results with a flag
+        # set so the UI can surface it.
+        import time as _time
         MAX_SCAN_LINES = 500_000
+        MAX_WALL_S = 60.0
         scanned = 0
         matched_lines: list[dict] = []
+        start = _time.monotonic()
+        wall_truncated = False
+        reader_warning: str | None = None
 
         lower = path.name.lower()
-        is_compressed = lower.endswith(".gz") or lower.endswith(".tgz")
+        is_gzip = lower.endswith(".gz") or lower.endswith(".tgz")
+        is_7z = lower.endswith(".7z")
 
-        # Open for text read. gzip returns bytes; wrap with
-        # TextIOWrapper for consistent str handling.
-        if is_compressed:
-            fh = _gzip.open(path, "rt", encoding="utf-8", errors="replace")
-        else:
-            fh = path.open("r", encoding="utf-8", errors="replace")
+        # Open for text read. v0.31.0: `.7z` now supported via the
+        # `_SevenZReader` subprocess wrapper — wrap its byte stream
+        # with TextIOWrapper. gzip already returns text via mode 'rt'.
+        sevenz_reader: "_SevenZReader | None" = None
+        try:
+            if is_gzip:
+                fh = _gzip.open(path, "rt", encoding="utf-8", errors="replace")
+            elif is_7z:
+                import io as _io
+                sevenz_reader = _SevenZReader(path)
+                fh = _io.TextIOWrapper(
+                    sevenz_reader, encoding="utf-8", errors="replace",
+                )
+            else:
+                fh = path.open("r", encoding="utf-8", errors="replace")
+        except FileNotFoundError as exc:
+            # 7z binary missing on the host (or path moved out from
+            # under us between the existence check and the read).
+            return {
+                "lines": [], "returned": 0, "offset": offset, "limit": limit,
+                "scanned_lines": 0, "scan_truncated": False, "wall_truncated": False,
+                "file": name,
+                "reader_warning": f"could not open log: {type(exc).__name__}: {exc}",
+            }
 
         try:
             # For uncompressed we could reverse-scan but Python makes
@@ -496,6 +659,14 @@ async def search_log(
                 scanned += 1
                 if scanned > MAX_SCAN_LINES:
                     break
+                # Wall-clock check every 1024 lines — cheap enough
+                # not to dominate, granular enough to bail within a
+                # second of the deadline.
+                if (scanned & 0x3FF) == 0:
+                    if _time.monotonic() - start > MAX_WALL_S:
+                        wall_truncated = True
+                        break
+
                 line = line.rstrip("\n")
                 if not line:
                     continue
@@ -526,8 +697,25 @@ async def search_log(
             # Reverse to newest-first, then slice [offset : offset+limit].
             ring.reverse()
             matched_lines = ring[offset: offset + limit]
+
+            # If we read a 7z, also surface its byte-cap status.
+            if sevenz_reader is not None and sevenz_reader._cap_hit:
+                reader_warning = (
+                    f"7z stream truncated at {_SEVENZ_MAX_BYTES // (1024*1024)} MB"
+                )
+        except Exception as exc:
+            # Defensive: any I/O error from the underlying stream
+            # (corrupt gzip, killed subprocess, decoder error) returns
+            # clean partial results rather than a 500. Headless safe.
+            reader_warning = f"{type(exc).__name__}: {exc}"
         finally:
-            fh.close()
+            try: fh.close()
+            except Exception: pass
+            # Belt-and-suspenders: ensure the 7z subprocess is gone
+            # even if TextIOWrapper.close didn't propagate to it.
+            if sevenz_reader is not None:
+                try: sevenz_reader.close()
+                except Exception: pass
 
         return {
             "lines": matched_lines,
@@ -536,6 +724,9 @@ async def search_log(
             "limit": limit,
             "scanned_lines": scanned,
             "scan_truncated": scanned >= MAX_SCAN_LINES,
+            "wall_truncated": wall_truncated,
+            "wall_seconds": round(_time.monotonic() - start, 2),
+            "reader_warning": reader_warning,
             "file": name,
         }
 

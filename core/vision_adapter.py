@@ -808,15 +808,20 @@ class VisionAdapter:
             return
 
     async def _batch_openai(self, image_paths: list[Path], prompt: str) -> list["BatchImageResult"]:
-        content: list[dict] = [{"type": "text", "text": prompt}]
-        for path in image_paths:
+        # v0.31.0: filename interleaving — prepend a text block per image
+        # so the model can ground descriptions in the filename when the
+        # subject is recognizable. Mirrors `_batch_anthropic`.
+        content: list[dict] = []
+        for local_idx, path in enumerate(image_paths, start=1):
             raw = path.read_bytes()
             raw, mime = _compress_image_for_vision(raw, detect_mime(path))
             image_b64 = base64.b64encode(raw).decode()
+            content.append({"type": "text", "text": f"Image {local_idx} filename: {path.name}"})
             content.append({
                 "type": "image_url",
                 "image_url": {"url": f"data:{mime};base64,{image_b64}", "detail": "low"},
             })
+        content.append({"type": "text", "text": prompt})
 
         timeout = max(_TIMEOUT, _TIMEOUT * len(image_paths) / 3)
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -850,12 +855,15 @@ class VisionAdapter:
 
     async def _batch_gemini(self, image_paths: list[Path], prompt: str) -> list["BatchImageResult"]:
         base = self._base_url or "https://generativelanguage.googleapis.com"
-        parts: list[dict] = [{"text": prompt}]
-        for path in image_paths:
+        # v0.31.0: filename interleaving — prepend a text part per image.
+        parts: list[dict] = []
+        for local_idx, path in enumerate(image_paths, start=1):
             raw = path.read_bytes()
             raw, mime = _compress_image_for_vision(raw, detect_mime(path))
             image_b64 = base64.b64encode(raw).decode()
+            parts.append({"text": f"Image {local_idx} filename: {path.name}"})
             parts.append({"inline_data": {"mime_type": mime, "data": image_b64}})
+        parts.append({"text": prompt})
 
         timeout = max(_TIMEOUT, _TIMEOUT * len(image_paths) / 3)
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -896,13 +904,19 @@ class VisionAdapter:
         base = self._base_url or "http://localhost:11434"
         images_b64 = [base64.b64encode(p.read_bytes()).decode() for p in image_paths]
 
+        # v0.31.0: filename interleaving — Ollama's /api/generate takes a
+        # single prompt + images array (no per-image text blocks), so we
+        # prepend the filename list to the prompt instead.
+        filename_list = ", ".join(f"{i}. {p.name}" for i, p in enumerate(image_paths, start=1))
+        prompt_with_filenames = f"Files (in order): {filename_list}\n\n{prompt}"
+
         try:
             async with httpx.AsyncClient(timeout=120.0 * len(image_paths)) as client:
                 resp = await client.post(
                     f"{base}/api/generate",
                     json={
                         "model": self._model or "llava",
-                        "prompt": prompt,
+                        "prompt": prompt_with_filenames,
                         "images": images_b64,
                         "stream": False,
                     },

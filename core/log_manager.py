@@ -126,8 +126,9 @@ def _classify_status(path: Path) -> tuple[str, str | None]:
 
 def list_logs() -> list[LogEntry]:
     """Return every log file currently on disk under LOGS_DIR (including
-    the `archive/` subdir managed by `core/log_archiver`), sorted by
-    modification time descending.
+    the legacy `archive/` subdir, retained for backwards-compat after
+    the v0.31.0 log_archiver consolidation), sorted by modification
+    time descending.
 
     `LogEntry.name` is either the bare filename for files directly under
     LOGS_DIR, or `archive/<filename>` for files in the archive subdir.
@@ -173,7 +174,8 @@ def list_logs() -> list[LogEntry]:
         if p.is_file():
             _consider(p, p.name)
 
-    # Archive subdir (managed by core/log_archiver — always .gz)
+    # Legacy archive/ subdir from pre-v0.31.0 log_archiver. Still
+    # discovered for read access to historical files.
     archive_dir = LOGS_DIR / "archive"
     if archive_dir.exists() and archive_dir.is_dir():
         for p in archive_dir.iterdir():
@@ -335,6 +337,58 @@ async def apply_retention(days_override: int | None = None) -> dict:
                  retention_days=days)
     return {"deleted": deleted, "bytes_reclaimed": bytes_reclaimed,
             "retention_days": days}
+
+
+async def get_archive_stats() -> dict:
+    """Compatibility shim for the legacy `/api/logs/archives/stats`
+    endpoint (v0.12.2). Returns counts + sizes for the existing
+    `archive/` subdir AND any in-place compressed logs under LOGS_DIR.
+
+    Replaces the original `core/log_archiver.get_archive_stats` (which
+    only saw the `archive/` subdir and used an env-var retention).
+    Retention is now read from DB prefs (Settings page).
+    """
+    from core.database import get_preference
+    raw = await get_preference(PREF_RETENTION_DAYS)
+    try:
+        retention_days = int(raw) if raw else DEFAULT_RETENTION_DAYS
+    except (TypeError, ValueError):
+        retention_days = DEFAULT_RETENTION_DAYS
+
+    if not LOGS_DIR.exists():
+        return {
+            "archive_dir": str(LOGS_DIR / "archive"),
+            "file_count": 0, "total_bytes": 0, "total_mb": 0,
+            "retention_days": retention_days, "oldest_archive": None,
+        }
+
+    files: list[Path] = []
+    for p in LOGS_DIR.iterdir():
+        if p.is_file() and (
+            p.name.endswith(".gz") or p.name.endswith(".7z")
+            or p.name.endswith(".tar.gz") or p.name.endswith(".tgz")
+        ):
+            files.append(p)
+    archive_subdir = LOGS_DIR / "archive"
+    if archive_subdir.exists() and archive_subdir.is_dir():
+        for p in archive_subdir.iterdir():
+            if p.is_file() and (
+                p.name.endswith(".gz") or p.name.endswith(".7z")
+                or p.name.endswith(".tar.gz") or p.name.endswith(".tgz")
+            ):
+                files.append(p)
+
+    total_bytes = sum(f.stat().st_size for f in files)
+    oldest = min((f.stat().st_mtime for f in files), default=None)
+    return {
+        "archive_dir": str(archive_subdir),
+        "file_count": len(files),
+        "total_bytes": total_bytes,
+        "total_mb": round(total_bytes / (1024 * 1024), 1),
+        "retention_days": retention_days,
+        "oldest_archive": datetime.fromtimestamp(oldest, tz=timezone.utc).isoformat()
+            if oldest else None,
+    }
 
 
 async def get_settings() -> dict:

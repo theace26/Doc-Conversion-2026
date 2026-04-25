@@ -737,10 +737,28 @@ def start_scheduler() -> None:
         max_instances=1,
     )
 
-    # v0.12.2: Log archive — compress rotated logs every 6 hours
-    from core.log_archiver import archive_rotated_logs
+    # v0.31.0: Unified log management job. Replaces the v0.12.2
+    # `core.log_archiver.archive_rotated_logs` (deleted) with a thin
+    # wrapper around `core.log_manager` so the Settings-page
+    # preferences (compression format, retention days) actually
+    # govern the automated cycle. Previously the cron ignored those
+    # prefs — only manual "Compress Rotated Now" / "Apply Retention
+    # Now" admin clicks honored them, which surprised operators.
+    async def _log_manage_cycle():
+        from core.log_manager import compress_rotated_logs, apply_retention
+        try:
+            await compress_rotated_logs()
+        except Exception as exc:
+            log.warning("scheduler.log_compress_failed",
+                        error=f"{type(exc).__name__}: {exc}")
+        try:
+            await apply_retention()
+        except Exception as exc:
+            log.warning("scheduler.log_retention_failed",
+                        error=f"{type(exc).__name__}: {exc}")
+
     scheduler.add_job(
-        archive_rotated_logs,
+        _log_manage_cycle,
         trigger=IntervalTrigger(hours=6),
         id="log_archive",
         replace_existing=True,

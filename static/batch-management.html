@@ -407,6 +407,7 @@
       </div>
       <button id="bm-resume" class="btn btn-sm" type="button" hidden>Resume</button>
       <button id="bm-cancel-all" class="btn btn-ghost btn-sm" type="button">Cancel All Pending</button>
+      <button id="bm-bulk-reanalyze" class="btn btn-ghost btn-sm" type="button" title="Re-analyze multiple rows by date / provider / model. Uses LLM tokens.">Bulk re-analyze...</button>
       <button id="bm-refresh" class="btn btn-ghost btn-sm" type="button">Refresh</button>
       <div class="bm-counts" id="bm-counts"></div>
     </div>
@@ -425,6 +426,7 @@
       const pauseMenu = document.getElementById('bm-pause-menu');
       const resumeBtn = document.getElementById('bm-resume');
       const cancelBtn = document.getElementById('bm-cancel-all');
+      const bulkReanalyzeBtn = document.getElementById('bm-bulk-reanalyze');
       const refreshBtn = document.getElementById('bm-refresh');
       const countsEl = document.getElementById('bm-counts');
       const batchesEl = document.getElementById('bm-batches');
@@ -1169,20 +1171,19 @@
         const title = document.createElement('strong');
         title.textContent = basename(f.source_path);
         head.appendChild(title);
-        // v0.30.4: Re-analyze button — resets the row to pending so the
-        // worker re-submits it on the next cycle. Use case: rows
-        // analyzed before v0.29.8 (filename context) or v0.29.9
-        // (preflight + bisection) shipped don't benefit from those
-        // prompt/resilience improvements until they're re-analyzed.
+        // v0.31.0: Re-analyze button — DELETE + re-INSERT. Replaces the
+        // v0.30.4 UPDATE-in-place approach so re-analyzed rows get a
+        // fresh `id` / `enqueued_at` / `retry_count` and no carry-over
+        // of any prior column state.
         const reanalyzeBtn = document.createElement('button');
         reanalyzeBtn.className = 'btn btn-ghost btn-xs';
         reanalyzeBtn.type = 'button';
         reanalyzeBtn.style.marginLeft = 'auto';
         reanalyzeBtn.style.marginRight = '0.5rem';
         reanalyzeBtn.textContent = 'Re-analyze';
-        reanalyzeBtn.title = 'Reset to pending so the next worker cycle re-submits this image with the current prompt (uses LLM tokens).';
+        reanalyzeBtn.title = 'Delete this row and re-submit as a fresh analysis_queue entry. Uses LLM tokens.';
         reanalyzeBtn.addEventListener('click', async () => {
-          if (!confirm('Re-analyze "' + basename(f.source_path) + '"? The current description and extracted text will be cleared and replaced when the next worker cycle picks it up. Uses LLM tokens.')) return;
+          if (!confirm('Re-analyze "' + basename(f.source_path) + '"?\n\nThis deletes the existing analysis_queue row and re-submits it as a fresh entry. Uses LLM tokens.')) return;
           reanalyzeBtn.disabled = true;
           reanalyzeBtn.textContent = 'Queueing...';
           try {
@@ -1716,6 +1717,208 @@
           refreshBtn.disabled = false;
         }
       });
+
+      // v0.31.0: bulk re-analyze modal — DELETE + re-INSERT semantics.
+      // Operators preview first (dry-run) then confirm.
+      bulkReanalyzeBtn.addEventListener('click', () => openBulkReanalyzeModal());
+
+      function localInputToUtcIso(value) {
+        if (!value) return null;
+        try {
+          const d = new Date(value);
+          if (isNaN(d.getTime())) return null;
+          return d.toISOString();
+        } catch (e) { return null; }
+      }
+
+      async function openBulkReanalyzeModal() {
+        const backdrop = document.createElement('div');
+        backdrop.className = 'bm-modal-backdrop';
+        const modal = document.createElement('div');
+        modal.className = 'bm-modal';
+        backdrop.appendChild(modal);
+
+        const head = document.createElement('div');
+        head.className = 'bm-modal-head';
+        const title = document.createElement('strong');
+        title.textContent = 'Bulk re-analyze (DELETE + re-INSERT)';
+        head.appendChild(title);
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'bm-modal-close';
+        closeBtn.type = 'button';
+        closeBtn.setAttribute('aria-label', 'Close');
+        closeBtn.textContent = '×';
+        closeBtn.addEventListener('click', () => document.body.removeChild(backdrop));
+        head.appendChild(closeBtn);
+        modal.appendChild(head);
+
+        const body = document.createElement('div');
+        body.className = 'bm-modal-body';
+        modal.appendChild(body);
+
+        // Filters fieldset — vertical stack of label/input pairs.
+        function row(labelText, child) {
+          const wrap = document.createElement('div');
+          wrap.style.marginBottom = '0.7rem';
+          const lbl = document.createElement('label');
+          lbl.textContent = labelText;
+          lbl.style.display = 'block';
+          lbl.style.fontSize = '0.78rem';
+          lbl.style.color = 'var(--text-muted, #aaa)';
+          lbl.style.marginBottom = '0.2rem';
+          wrap.appendChild(lbl);
+          wrap.appendChild(child);
+          return wrap;
+        }
+
+        const beforeInp = document.createElement('input');
+        beforeInp.type = 'datetime-local';
+        beforeInp.style.width = '100%';
+        body.appendChild(row('Analyzed BEFORE (local time) — primary use: refresh stale results before a prompt update', beforeInp));
+
+        const afterInp = document.createElement('input');
+        afterInp.type = 'datetime-local';
+        afterInp.style.width = '100%';
+        body.appendChild(row('Analyzed AFTER (optional)', afterInp));
+
+        const providerSel = document.createElement('select');
+        providerSel.style.width = '100%';
+        providerSel.appendChild(new Option('(any)', ''));
+        body.appendChild(row('Provider (optional)', providerSel));
+
+        const modelSel = document.createElement('select');
+        modelSel.style.width = '100%';
+        modelSel.appendChild(new Option('(any)', ''));
+        body.appendChild(row('Model (optional)', modelSel));
+
+        const statusSel = document.createElement('select');
+        statusSel.style.width = '100%';
+        ['completed', 'failed', 'pending', 'batched', 'excluded'].forEach(s => {
+          statusSel.appendChild(new Option(s, s));
+        });
+        statusSel.value = 'completed';
+        body.appendChild(row('Status to target (default completed)', statusSel));
+
+        const previewBox = document.createElement('div');
+        previewBox.style.marginTop = '0.8rem';
+        previewBox.style.padding = '0.6rem';
+        previewBox.style.background = 'rgba(255,255,255,0.04)';
+        previewBox.style.borderRadius = '4px';
+        previewBox.style.fontSize = '0.85rem';
+        previewBox.textContent = 'Click "Preview" to see how many rows match.';
+        body.appendChild(previewBox);
+
+        const btnBar = document.createElement('div');
+        btnBar.style.marginTop = '0.8rem';
+        btnBar.style.display = 'flex';
+        btnBar.style.gap = '0.5rem';
+        const previewBtn = document.createElement('button');
+        previewBtn.className = 'btn btn-ghost btn-sm';
+        previewBtn.type = 'button';
+        previewBtn.textContent = 'Preview';
+        const runBtn = document.createElement('button');
+        runBtn.className = 'btn btn-primary btn-sm';
+        runBtn.type = 'button';
+        runBtn.textContent = 'Re-analyze matched rows';
+        runBtn.disabled = true;  // enabled after a successful preview
+        btnBar.appendChild(previewBtn);
+        btnBar.appendChild(runBtn);
+        body.appendChild(btnBar);
+
+        let lastPreview = null;
+
+        // Populate provider/model dropdowns from distinct values in DB.
+        try {
+          const filters = await API.get('/api/analysis/queue/reanalyze-filters');
+          (filters.providers || []).forEach(p => providerSel.appendChild(new Option(p, p)));
+          (filters.models || []).forEach(m => modelSel.appendChild(new Option(m, m)));
+        } catch (e) {
+          // Non-fatal — operator can still type-free a date filter.
+        }
+
+        function buildBody(dryRun) {
+          return {
+            analyzed_before_iso: localInputToUtcIso(beforeInp.value),
+            analyzed_after_iso: localInputToUtcIso(afterInp.value),
+            provider_id: providerSel.value || null,
+            model: modelSel.value || null,
+            status: statusSel.value || 'completed',
+            dry_run: dryRun,
+          };
+        }
+
+        previewBtn.addEventListener('click', async () => {
+          previewBtn.disabled = true;
+          previewBox.textContent = 'Previewing...';
+          runBtn.disabled = true;
+          try {
+            const r = await API.post('/api/analysis/queue/reanalyze-bulk', buildBody(true));
+            lastPreview = r;
+            const lines = [];
+            lines.push('Matched: ' + r.matched + (r.exceeds_cap ? ' (capped at ' + r.cap + ' — narrow the filter)' : ''));
+            if (r.matched > 0) {
+              lines.push('Sample paths:');
+              (r.sample || []).forEach(p => lines.push('  • ' + p));
+            }
+            previewBox.textContent = lines.join('\n');
+            previewBox.style.whiteSpace = 'pre-wrap';
+            runBtn.disabled = (r.matched === 0) || r.exceeds_cap;
+          } catch (e) {
+            previewBox.textContent = 'Preview failed: ' + e.message;
+          } finally {
+            previewBtn.disabled = false;
+          }
+        });
+
+        runBtn.addEventListener('click', async () => {
+          if (!lastPreview || lastPreview.matched === 0) return;
+          const n = lastPreview.matched;
+          const ok = confirm(
+            'This DELETES ' + n + ' analysis_queue row(s) and re-submits them as fresh entries.\n\n' +
+            'Old analysis_queue.id values for these rows will be lost.\n' +
+            'Consumes roughly ' + n + ' image-analysis worth of LLM tokens.\n\n' +
+            'Proceed?'
+          );
+          if (!ok) return;
+          runBtn.disabled = true;
+          previewBtn.disabled = true;
+          previewBox.textContent = 'Running... (this may take several seconds for large batches)';
+          try {
+            const r = await API.post('/api/analysis/queue/reanalyze-bulk', buildBody(false));
+            const lines = [];
+            lines.push('Done.');
+            lines.push('Deleted: ' + r.deleted);
+            lines.push('Re-enqueued: ' + r.re_enqueued);
+            if (r.dropped) lines.push('Dropped: ' + r.dropped);
+            if (r.failed) {
+              lines.push('Failed: ' + r.failed);
+              if (r.failure_samples && r.failure_samples.length) {
+                lines.push('First failures:');
+                r.failure_samples.forEach(s => lines.push('  • ' + s));
+              }
+            }
+            previewBox.textContent = lines.join('\n');
+            previewBox.style.whiteSpace = 'pre-wrap';
+            if (typeof showToast === 'function') {
+              const msg = r.failed
+                ? 'Re-enqueued ' + r.re_enqueued + ' row(s); ' + r.failed + ' failed'
+                : 'Re-enqueued ' + r.re_enqueued + ' row(s)';
+              showToast(msg);
+            }
+            await refreshStatus();
+            await loadBatches();
+          } catch (e) {
+            previewBox.textContent = 'Run failed: ' + e.message;
+            runBtn.disabled = false;
+            previewBtn.disabled = false;
+          }
+        });
+
+        backdrop.addEventListener('click', (ev) => {
+          if (ev.target === backdrop) document.body.removeChild(backdrop);
+        });
+        document.body.appendChild(backdrop);
+      }
 
       (async () => {
         try {

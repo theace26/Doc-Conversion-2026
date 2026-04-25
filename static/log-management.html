@@ -152,14 +152,14 @@
         cb.addEventListener('change', updateSelection);
         cbTd.appendChild(cb); tr.appendChild(cbTd);
         const nameTd = document.createElement('td'); nameTd.className='name';
-        if (e.compression === '7z') {
-          nameTd.textContent = e.name;
-        } else {
-          const a = document.createElement('a');
-          a.href = '/log-viewer.html?file=' + encodeURIComponent(e.name);
-          a.target = '_blank'; a.rel='noopener'; a.textContent = e.name;
-          nameTd.appendChild(a);
-        }
+        // v0.31.0: `.7z` archives are now viewable in history-search
+        // mode (the server decompresses via `7z e -so`); link them
+        // alongside everything else. Live tail of `.7z` is still
+        // blocked at the server (compressed files don't grow).
+        const a = document.createElement('a');
+        a.href = '/log-viewer.html?file=' + encodeURIComponent(e.name);
+        a.target = '_blank'; a.rel='noopener'; a.textContent = e.name;
+        nameTd.appendChild(a);
         tr.appendChild(nameTd);
         const streamTd = document.createElement('td'); streamTd.textContent = e.stream || '-'; tr.appendChild(streamTd);
         const statTd = document.createElement('td');

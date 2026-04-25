@@ -5,6 +5,59 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 ---
 
+## Re-analyze (v0.31.0)
+
+- **`analysis_queue.id` is no longer stable across re-analyze.** Both the
+  per-row `POST /api/analysis/queue/{id}/reanalyze` and the bulk
+  `/queue/reanalyze-bulk` endpoints DELETE the existing row and re-INSERT
+  via `enqueue_for_analysis`. The new row gets a fresh UUID, fresh
+  `enqueued_at`, `retry_count = 0`, and all output columns NULL.
+  Consequence: any external system that caches `analysis_queue.id` between
+  re-analyze invocations will get a 404 on the old id afterwards. Currently
+  no known consumers do this — the id is internal to the analysis
+  subsystem; the Batch Management UI fetches by id but does not persist
+  it. **Future integrations that need durable references should look up
+  by `source_path`** (which IS preserved) rather than caching ids.
+
+- **Bulk re-analyze refuses empty filter sets.** Calling
+  `POST /api/analysis/queue/reanalyze-bulk` with `{}` returns 400 with
+  "at least one filter is required for bulk re-analyze". This is a
+  guardrail against an operator accidentally re-enqueueing every
+  completed analysis (which would burn LLM quota at scale). At least one
+  of `analyzed_before_iso`, `analyzed_after_iso`, `provider_id`, `model`,
+  or a non-empty `status` must be supplied. The `status` field defaults
+  to `"completed"` so most reasonable calls already meet this bar.
+
+- **10,000-row hard cap on bulk re-analyze.** Above the cap, dry-run
+  sets `exceeds_cap=true` and a non-dry-run gets a 400 with "narrow the
+  filter and retry". Don't bypass the cap — operators have torched LLM
+  quota by accident before. If a wider sweep is genuinely needed, run
+  the bulk endpoint multiple times with non-overlapping date ranges.
+
+## Log subsystem (v0.31.0)
+
+- **`core/log_archiver.py` was deleted in v0.31.0** — the 6-hourly
+  scheduler job now lives in `core/scheduler.py` as the inline
+  `_log_manage_cycle` wrapper, which calls
+  `core.log_manager.compress_rotated_logs()` +
+  `core.log_manager.apply_retention()`. If you find any lingering
+  imports of `core.log_archiver`, replace them with the equivalent
+  log_manager calls. The legacy `archive/` subdir under LOGS_DIR is
+  still discovered by `list_logs()` for read access; new compressions
+  go to `LOGS_DIR/<name>.gz` (in-place), not the subdir.
+
+- **`.7z` viewer hard caps to defend headless operation.** The
+  `_SevenZReader` class spawns `7z e -so <file>` per search request
+  with three hard limits: 200 MB decompressed bytes per reader,
+  60-second wall-clock budget on the whole search request, and
+  500,000-line scan cap. Subprocess runs in `start_new_session=True`
+  so close() can SIGTERM the entire process group cleanly even if 7z
+  spawned helpers. Operator-tunable controls + live progress
+  indicator are deferred to a v0.31.x follow-up
+  (`docs/superpowers/plans/2026-04-25-v0.31.0-7z-safety-controls.md`).
+
+---
+
 ## Universal Storage Manager (v0.28.0)
 
 - **`/host/rw` is SECURITY-CRITICAL**: every file write in `core/converter.py`,
