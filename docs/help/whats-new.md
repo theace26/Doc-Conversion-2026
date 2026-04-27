@@ -6,6 +6,81 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.32.4 — Empty Trash now shows real progress in-page
+
+When you click **Empty Trash** (or **Restore All**), a
+**prominent progress card** now appears right under the action
+buttons. You can't miss it — it's bigger than the global Live
+Banner from v0.32.3 and it lives directly on the Trash page,
+so it can't be hidden by browser caching, scrolling, or
+z-index quirks.
+
+### What the card shows
+
+- **🗑 Emptying trash** with a pulsing dot showing the
+  worker is alive
+- **Progress bar** — animated left-to-right while the worker
+  is still enumerating the trash pile, then fills as deletes
+  happen
+- **Counter** — `12,047 / 51,684 files (23%)`
+- **Rate** — `437 files/s`, smoothed so a momentary stall
+  doesn't make the number jump around
+- **ETA** — `ETA 1m 30s`, computed from the rate
+- **Elapsed timer** — ticks `elapsed 27s` so you can see
+  exactly how long it's been working
+- **Last update** — `last update just now` / `last update 4s
+  ago` — tells you whether polling is actually getting
+  through, even if the deletion count is stuck
+
+### The "stuck at 0" hint
+
+Big trash piles take time. With 50,000+ rows, the backend
+needs to count the rows before it can start deleting — and
+during that 30-60 second window, you'll see `0 / 51,684`
+with no progress. **That's normal.**
+
+After 30 seconds of no movement, the card automatically shows
+a hint:
+
+> Backend may still be enumerating the trash pile — large
+> counts (50K+) can take 30-60s before progress numbers
+> appear. The worker is alive as long as "last update" is
+> recent.
+
+So you know not to panic and click Empty Trash again.
+
+### Mid-operation page refresh
+
+If you accidentally refresh the Trash page while Empty Trash
+is running, the card now reappears with the current progress
+— no need to re-trigger or wait. Same for Restore All.
+
+### Why this exists
+
+A v0.32.3 user reported: "I clicked on empty trash... and I
+don't know if the markflow is executing my command. I want a
+progress bar or some kind of status bar to be visible to tell
+the user what is happening."
+
+The disabled-button text "Purging 0 / 51684..." was too
+subtle, and the global Live Banner across the top of the
+page wasn't reliably appearing for them. v0.32.4 puts the
+feedback directly on the Trash page, big and obvious.
+
+### Try it out
+
+After upgrading + rebuilding:
+
+1. Navigate to **Trash**
+2. Click **Empty Trash** (or **Restore All**)
+3. The card appears immediately, between the buttons and the
+   file table
+4. Watch elapsed time tick, animated bar move, counter
+   update — and after ~30 s if `done` is still 0, the
+   enumeration hint kicks in to explain why
+
+---
+
 ## v0.32.3 — Trash actually empties; banner sits below the nav
 
 Three small but irritating bugs from the v0.32.1 Empty Trash +

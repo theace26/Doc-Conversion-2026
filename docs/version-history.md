@@ -4,6 +4,146 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.32.4 — Inline progress card on Trash page (2026-04-27)
+
+**Operator-feedback fix in response to a v0.32.3-shipped
+Empty Trash run that "looked stuck" because the only signal
+of progress was the disabled button text "Purging 0 / 51684..."
+and the global Live Banner failed to surface. v0.32.4 ships a
+prominent in-page progress card on the Trash page itself —
+impossible to miss, with progress bar / counter / rate / ETA /
+elapsed timer / last-poll-age indicator and a sticky hint when
+the backend is still enumerating.**
+
+### Why this matters
+
+Reported by the operator after upgrading to v0.32.3:
+
+> I clicked on empty trash... and i don't know if the
+> markflow is executing my command. I want a progress bar or
+> some kind of status bar to be visible to tell the user what
+> is happening.
+
+The screenshot showed the Trash page mid-operation: button
+disabled with text "Purging 0 / 51684..." (so the POST
+returned `started` with total=51684), but no global Live
+Banner visible at the top of the page, and `done` stuck at
+0 for tens of seconds. The operator had no way to tell
+whether the worker was alive, just slow, or hung.
+
+Two factors contributed to the gap:
+
+1. **Backend enumeration window.** With 51K trash rows, the
+   worker spends 30-60 s on the initial SQL COUNT before the
+   first batch deletion fires. During that window, the
+   `/api/trash/empty/status` endpoint returns `done=0,
+   running=true`. Honest, but indistinguishable from a hung
+   worker to the operator.
+2. **Global Live Banner not visible.** The v0.32.3 Live Banner
+   pins at `top: 56px` with `z-index: 90`. Either the page
+   needed a hard refresh after the deploy (cached old
+   live-banner.js) or the operator had scrolled past it. Either
+   way, the only feedback they had was the button text.
+
+### What the new card shows
+
+The `.trash-progress` element lives directly between the
+action buttons and the file table — operators see it without
+scrolling, immediately on click, regardless of viewport
+position or browser cache state.
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│ ● 🗑 Emptying trash                                           │
+│ ████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  (or anim) │
+│ 12,047 / 51,684 files (23%)  437 files/s  ETA 1m 30s           │
+│ elapsed 27s · last update just now                              │
+│ ─────────────────────────────────────────────────────────────  │
+│ Backend may still be enumerating the trash pile — large counts │
+│ (50K+) can take 30-60s before progress numbers appear. The     │
+│ worker is alive as long as "last update" is recent.            │
+└────────────────────────────────────────────────────────────────┘
+```
+
+State machine:
+
+- **Indeterminate / starting** — total = 0; bar animates
+  left-to-right; counter shows "Starting…"; rate / ETA
+  hidden.
+- **Determinate / running** — total > 0; bar fills to
+  done/total %; counter shows "X / Y files (N%)"; rate +
+  ETA populate from EWMA-smoothed throughput.
+- **Finished (green)** — done = total; bar at 100% green;
+  Dismiss button shown; auto-hides after 5 s.
+- **Errored (red)** — start endpoint returned non-2xx;
+  bar at 100% red; error message in hint; Dismiss button.
+
+### Implementation: unified `runTrashOp` driver
+
+Replaces the two separate `pollEmptyProgress` /
+`pollRestoreProgress` functions with a single driver that
+takes an opts dict (start URL, status URL, button element,
+running-text template, done-toast, etc.) and drives the card
+end-to-end. Both **Empty Trash** and **Restore All** flow
+through this. Adding a third long-running trash operation in
+the future is now a one-call change.
+
+The driver:
+
+- Polls every **1 s** (was 2 s in the legacy poller). Operator
+  sees movement twice as fast.
+- Tracks **EWMA-smoothed rate** (α=0.3) so a momentary stall
+  doesn't kill the ETA.
+- Updates **elapsed + last-poll-age** every **250 ms** via a
+  separate `setInterval` so timers tick smoothly even between
+  status-endpoint polls.
+- After **30 s** of `done=0` or `total=0`, surfaces the
+  "backend may still be enumerating" hint as sticky text.
+- On **transient poll failures** (network blip), leaves the
+  card visible and lets the "last update" timer grow —
+  signals degraded polling without aborting the whole op.
+
+### Mid-op recovery (page-load `checkInFlightOps`)
+
+If the user lands on the Trash page mid-op (e.g. after a hard
+refresh during a long Empty Trash), the page now checks both
+`/api/trash/empty/status` and `/api/trash/restore-all/status`
+on load. If either reports `running=true`, the inline card
+appears immediately with the current progress — no need to
+re-trigger the op or wait for the next button click.
+
+### Files
+
+- `core/version.py` — bump to 0.32.4
+- `static/trash.html` — `.trash-progress` CSS block (CSS
+  variables-first, with pulse-dot + indeterminate-bar
+  keyframes); HTML card element below the action buttons;
+  unified `runTrashOp` driver replacing the legacy pollers;
+  `checkInFlightOps` recovery path; `setCounterParts` /
+  `setCounterStarting` helpers that build the counter via
+  createElement (no innerHTML / template-string HTML)
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`
+
+No DB migration. No new dependencies. No new scheduler jobs.
+No backend changes — the existing `/api/trash/empty` /
+`/api/trash/restore-all` start endpoints and their `/status`
+companions are unchanged.
+
+### Done criteria
+
+- ✅ Operator clicking Empty Trash sees the card appear
+  immediately with the indeterminate bar animating
+- ✅ Card stays visible without scrolling on a 1080p+
+  viewport (sits between action buttons and file table)
+- ✅ Card explains the "stuck at 0" window with a hint after
+  30 s instead of leaving the operator wondering
+- ✅ Mid-op page refresh recovers the card state from
+  `/api/trash/*/status`
+- ✅ Restore All gets the same card via the shared driver
+
+---
+
 ## v0.32.3 — Trash 500-row cap removed, banner positioned below nav, banner UX polish (2026-04-27)
 
 **Three bug fixes that surfaced from the v0.32.1 trash-empty

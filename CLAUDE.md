@@ -91,7 +91,87 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.32.3
+## Current Version — v0.32.4
+
+**Inline progress card on the Trash page. Empty Trash and
+Restore All now show a prominent in-page progress card right
+between the action buttons and the file table — impossible to
+miss, with progress bar, X / Y counter, EWMA rate, ETA,
+elapsed-time ticker, last-poll-age indicator, and a
+"backend may still be enumerating" hint when the worker
+silently chews through a 50K+ row pile during its initial
+SQL COUNT.**
+
+### Why this matters
+
+The user reported: clicked Empty Trash on the production
+instance (51,684 rows). The button went disabled and showed
+"Purging 0 / 51684...", but stayed at 0 for tens of seconds.
+The global Live Banner from v0.32.1 didn't appear in the
+viewport. Operator couldn't tell whether MarkFlow was actually
+processing the command or was hung.
+
+The fix is in-page. The new `.trash-progress` card lives right
+under the action buttons. It appears immediately on click,
+runs an indeterminate animated bar during the worker's
+enumeration window (SQL COUNT over 50K+ rows takes 30-60s
+before the first done count comes back), then transitions to
+a real progress bar once `done` starts moving. The card is
+self-contained — the card works even when the global Live
+Banner has a positioning / z-index / cache issue.
+
+### Card surfaces
+
+- **Pulse dot + icon + label** ("🗑 Emptying trash" /
+  "♻ Restoring all from trash" / "Done" / "Failed")
+- **Progress bar** — animated indeterminate during
+  enumeration, deterministic once total > 0
+- **Counter** — "12,047 / 51,684 files (23%)"
+- **Rate** — EWMA-smoothed, "437 files/s"
+- **ETA** — derived from rate; "ETA 1m 30s"
+- **Elapsed timer** — "elapsed 0s" → "elapsed 2m 15s",
+  ticks every 250 ms client-side
+- **Last-poll-age** — "last update just now" /
+  "last update 12s ago" — operator sees whether polling
+  is alive
+- **Sticky hint** — appears after 30s if `done` is still 0:
+  "Backend may still be enumerating the trash pile — large
+  counts (50K+) can take 30-60s before progress numbers
+  appear. The worker is alive as long as 'last update' is
+  recent."
+- **Dismiss button** — appears when finished or errored
+
+### Other improvements bundled in
+
+- **Poll cadence sped up** from 2 s to 1 s. Operator sees
+  movement faster.
+- **Mid-op recovery** — on page load, the trash page now
+  checks `/api/trash/empty/status` and `/api/trash/restore-all/status`;
+  if either is running, the inline card appears with the
+  current progress (so an operator who refreshes the page
+  mid-op doesn't lose feedback).
+- **Network blip resilience** — transient poll failures no
+  longer abort the operation tracking; the card just stops
+  updating, the "last update" timer grows, and polling
+  resumes on the next tick.
+
+### Files
+
+- `core/version.py` — bump to 0.32.4
+- `static/trash.html` — new `.trash-progress` card CSS
+  block + HTML element + unified `runTrashOp` driver +
+  `checkInFlightOps` recovery path
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`
+
+No DB migration. No new dependencies. No new scheduler jobs.
+No backend changes — the existing `/api/trash/empty` +
+`/api/trash/restore-all` endpoints (and their `/status`
+companions) are unchanged.
+
+---
+
+## v0.32.3 — Trash 500-row cap removed, banner positioned below nav, banner UX polish
 
 **Three bug fixes that surfaced from v0.32.1's Empty Trash +
 Live Banner deploy. Trash list 500-row cap removed (was

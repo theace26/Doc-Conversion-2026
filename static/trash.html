@@ -19,6 +19,112 @@
     .confirm-dialog-body { padding: 1.5rem; }
     .confirm-dialog-body h3 { margin-bottom: 0.75rem; }
     .confirm-dialog-body p { color: var(--text-muted); margin-bottom: 0.5rem; }
+
+    /* v0.32.4: prominent inline progress card. The global Live
+     * Banner (top of page) is a nice-to-have, but operators on the
+     * Trash page itself want unmissable feedback that the operation
+     * is alive — including during the worker's enumeration window
+     * where `done` stays at 0 for tens of seconds. */
+    .trash-progress {
+      display: none;
+      margin-bottom: 1rem;
+      padding: 0.85rem 1rem;
+      background: linear-gradient(90deg, rgba(99,102,241,0.10), rgba(96,165,250,0.10));
+      border: 1px solid rgba(96,165,250,0.45);
+      border-radius: var(--radius);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+    }
+    .trash-progress.visible { display: block; }
+    .trash-progress.finished {
+      background: linear-gradient(90deg, rgba(34,197,94,0.10), rgba(22,163,74,0.10));
+      border-color: rgba(34,197,94,0.45);
+    }
+    .trash-progress.errored {
+      background: linear-gradient(90deg, rgba(220,38,38,0.10), rgba(185,28,28,0.10));
+      border-color: rgba(220,38,38,0.45);
+    }
+    .trash-progress-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: var(--text);
+    }
+    .trash-progress-header .pulse-dot {
+      display: inline-block;
+      width: 0.6rem;
+      height: 0.6rem;
+      border-radius: 50%;
+      background: #6366f1;
+      animation: trashPulse 1.2s ease-in-out infinite;
+    }
+    .trash-progress.finished .pulse-dot {
+      background: #22c55e;
+      animation: none;
+    }
+    .trash-progress.errored .pulse-dot {
+      background: #dc2626;
+      animation: none;
+    }
+    @keyframes trashPulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.7); }
+    }
+    .trash-progress-bar-track {
+      height: 0.5rem;
+      background: rgba(255,255,255,0.08);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-bottom: 0.4rem;
+    }
+    .trash-progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #6366f1, #3b82f6);
+      width: 0%;
+      transition: width 0.4s ease-out;
+      border-radius: 999px;
+    }
+    .trash-progress.finished .trash-progress-bar-fill {
+      background: linear-gradient(90deg, #22c55e, #16a34a);
+    }
+    .trash-progress.errored .trash-progress-bar-fill {
+      background: linear-gradient(90deg, #dc2626, #b91c1c);
+    }
+    .trash-progress-bar-fill.indeterminate {
+      width: 30% !important;
+      background: linear-gradient(90deg, transparent, #6366f1, transparent);
+      animation: trashIndeterminate 1.6s linear infinite;
+    }
+    @keyframes trashIndeterminate {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(400%); }
+    }
+    .trash-progress-stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem 1.25rem;
+      font-size: 0.82rem;
+      font-family: ui-monospace, monospace;
+      color: var(--text-muted);
+    }
+    .trash-progress-stats strong { color: var(--text); }
+    .trash-progress-hint {
+      margin-top: 0.5rem;
+      padding-top: 0.5rem;
+      border-top: 1px dashed rgba(255,255,255,0.08);
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      display: none;
+    }
+    .trash-progress-hint.visible { display: block; }
+    .trash-progress-actions {
+      margin-top: 0.6rem;
+      display: flex;
+      gap: 0.5rem;
+    }
+    .trash-progress-actions .btn { font-size: 0.78rem; padding: 0.25rem 0.6rem; }
   </style>
 </head>
 <body>
@@ -38,6 +144,31 @@
     <div class="bulk-actions" id="bulk-actions" hidden>
       <button class="btn btn-ghost btn-sm" id="btn-restore-all">Restore All</button>
       <button class="btn btn-ghost btn-sm" id="btn-empty-trash">Empty Trash</button>
+    </div>
+
+    <!-- v0.32.4: inline progress card. Hidden until an empty / restore-all
+         operation kicks off; visible right between the action buttons and
+         the file list so it's impossible to miss. -->
+    <div id="trash-progress" class="trash-progress" role="status" aria-live="polite">
+      <div class="trash-progress-header">
+        <span class="pulse-dot" aria-hidden="true"></span>
+        <span id="tp-icon" aria-hidden="true">🗑</span>
+        <span id="tp-label">Working…</span>
+      </div>
+      <div class="trash-progress-bar-track">
+        <div id="tp-bar" class="trash-progress-bar-fill indeterminate"></div>
+      </div>
+      <div class="trash-progress-stats">
+        <span id="tp-counter"><strong>0</strong> / <strong>—</strong> files</span>
+        <span id="tp-rate">— files/s</span>
+        <span id="tp-eta">ETA —</span>
+        <span id="tp-elapsed">elapsed 0s</span>
+        <span id="tp-poll-age">last update —</span>
+      </div>
+      <div id="tp-hint" class="trash-progress-hint"></div>
+      <div class="trash-progress-actions">
+        <button id="tp-dismiss" class="btn btn-ghost" type="button" hidden>Dismiss</button>
+      </div>
     </div>
 
     <div class="card" style="padding:0;overflow:auto">
@@ -167,97 +298,348 @@
     });
   }
 
+  // ── v0.32.4: unified trash-op driver + inline progress card ────────────
+  //
+  // Wraps the empty-trash + restore-all flows behind a single driver
+  // that owns the inline progress card. The card is the primary
+  // feedback surface — operators see prominent in-page progress no
+  // matter where the global Live Banner is in the DOM. Polls 1s
+  // (faster than the legacy 2s) so the operator sees movement as
+  // soon as the worker starts logging done counts.
+  //
+  // The driver is robust to:
+  //   - the worker's enumeration window (done=0, total=0 for tens of
+  //     seconds while the SQL COUNT runs over 50k+ rows). Bar goes
+  //     indeterminate; counter shows "Starting…"; hint explains
+  //     after 30s.
+  //   - transient network errors during polling. Tracks last-poll-
+  //     age so the operator can see whether polling is actually
+  //     getting through.
+  //   - the user navigating away mid-op. Picks back up when they
+  //     return (the global Live Banner mirrors the same status
+  //     endpoint, so they always have feedback).
+  const POLL_MS = 1000;
+  const ENUMERATION_HINT_MS = 30_000;
+  const FINISHED_HOLD_MS = 5_000;
+  const EWMA_ALPHA = 0.3;
+
+  const tpEl = document.getElementById('trash-progress');
+  const tpIcon = document.getElementById('tp-icon');
+  const tpLabel = document.getElementById('tp-label');
+  const tpBar = document.getElementById('tp-bar');
+  const tpCounter = document.getElementById('tp-counter');
+  const tpRate = document.getElementById('tp-rate');
+  const tpEta = document.getElementById('tp-eta');
+  const tpElapsed = document.getElementById('tp-elapsed');
+  const tpPollAge = document.getElementById('tp-poll-age');
+  const tpHint = document.getElementById('tp-hint');
+  const tpDismiss = document.getElementById('tp-dismiss');
+
+  function fmtNum(n) { return n == null ? '—' : Number(n).toLocaleString(); }
+  function fmtDuration(seconds) {
+    if (!isFinite(seconds) || seconds < 0) return '?';
+    seconds = Math.round(seconds);
+    if (seconds < 60) return seconds + 's';
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    if (m < 60) return `${m}m ${s}s`;
+    const h = Math.floor(m / 60);
+    return `${h}h ${m % 60}m`;
+  }
+
+  // Build the counter via createElement (no innerHTML / template-string
+  // HTML injection) so values are safely text-bound.
+  function setCounterParts(doneText, totalText, suffixText) {
+    while (tpCounter.firstChild) tpCounter.removeChild(tpCounter.firstChild);
+    const doneStrong = document.createElement('strong');
+    doneStrong.textContent = doneText;
+    tpCounter.appendChild(doneStrong);
+    tpCounter.appendChild(document.createTextNode(' / '));
+    const totalStrong = document.createElement('strong');
+    totalStrong.textContent = totalText;
+    tpCounter.appendChild(totalStrong);
+    if (suffixText) {
+      tpCounter.appendChild(document.createTextNode(' ' + suffixText));
+    }
+  }
+  function setCounterStarting() {
+    while (tpCounter.firstChild) tpCounter.removeChild(tpCounter.firstChild);
+    const s = document.createElement('strong');
+    s.textContent = 'Starting…';
+    tpCounter.appendChild(s);
+  }
+
+  // Single ticker drives elapsed-time + last-poll-age between polls
+  // so those numbers count up smoothly even when the status endpoint
+  // is slow / silent.
+  let tickerId = null;
+  let opStartTs = null;
+  let lastPollTs = null;
+
+  function showCard(opLabel, opIcon) {
+    tpEl.classList.remove('finished', 'errored');
+    tpEl.classList.add('visible');
+    tpIcon.textContent = opIcon;
+    tpLabel.textContent = opLabel;
+    tpBar.classList.add('indeterminate');
+    tpBar.style.width = '0%';
+    setCounterParts('0', '—', 'files');
+    tpRate.textContent = '— files/s';
+    tpEta.textContent = 'ETA —';
+    tpElapsed.textContent = 'elapsed 0s';
+    tpPollAge.textContent = 'last update —';
+    tpHint.textContent = '';
+    tpHint.classList.remove('visible');
+    tpDismiss.hidden = true;
+    opStartTs = Date.now();
+    lastPollTs = null;
+  }
+
+  function startTicker() {
+    stopTicker();
+    tickerId = setInterval(updateTimers, 250);
+  }
+  function stopTicker() {
+    if (tickerId) { clearInterval(tickerId); tickerId = null; }
+  }
+  function updateTimers() {
+    if (!opStartTs) return;
+    const elapsedMs = Date.now() - opStartTs;
+    tpElapsed.textContent = `elapsed ${fmtDuration(elapsedMs / 1000)}`;
+    if (lastPollTs) {
+      const ageMs = Date.now() - lastPollTs;
+      if (ageMs < 1500) tpPollAge.textContent = 'last update just now';
+      else if (ageMs < 60000) tpPollAge.textContent = `last update ${Math.round(ageMs / 1000)}s ago`;
+      else tpPollAge.textContent = `last update ${fmtDuration(ageMs / 1000)} ago`;
+    }
+  }
+
+  // Central op runner: take a label / icon / endpoint URLs, drive
+  // the card from start to finish, return when the worker is done.
+  async function runTrashOp(opts) {
+    const {
+      label, icon, startUrl, statusUrl,
+      buttonEl, runningButtonText, idleButtonText,
+      doneToast, alreadyToast, emptyToast, totalKey = 'total', doneKey = 'done',
+    } = opts;
+
+    showCard(label, icon);
+    startTicker();
+    buttonEl.disabled = true;
+    buttonEl.textContent = 'Starting…';
+
+    let total = 0;
+    try {
+      const result = await API.post(startUrl);
+      if (result.status === 'already_running') {
+        showToast(alreadyToast || 'Already running', 'info');
+        total = result[totalKey] || 0;
+      } else if (result.status === 'done') {
+        showToast(emptyToast || 'Nothing to do');
+        finishCard(true, 0, 0);
+        buttonEl.disabled = false;
+        buttonEl.textContent = idleButtonText;
+        loadTrash();
+        return;
+      } else if (result.status === 'started') {
+        total = result[totalKey] || 0;
+      }
+    } catch (err) {
+      finishCard(false, 0, 0, err.message);
+      buttonEl.disabled = false;
+      buttonEl.textContent = idleButtonText;
+      return;
+    }
+
+    let rate = 0;
+    let lastSnapshot = null;
+    let stuckHintShown = false;
+
+    return new Promise((resolve) => {
+      const poll = setInterval(async () => {
+        let s;
+        try {
+          s = await API.get(statusUrl);
+        } catch (err) {
+          // Network blip — leave card visible, just don't update.
+          // The "last update Xs ago" timer will start to grow,
+          // signalling to the operator that polling is degraded.
+          return;
+        }
+        lastPollTs = Date.now();
+        const done = s[doneKey] || 0;
+        const observedTotal = s[totalKey] || total;
+        if (observedTotal > total) total = observedTotal;
+
+        // Update rate (EWMA) so a momentary stall doesn't kill the ETA.
+        if (lastSnapshot) {
+          const dt = (lastPollTs - lastSnapshot.t) / 1000;
+          const dd = done - lastSnapshot.done;
+          if (dt > 0 && dd >= 0) {
+            const instant = dd / dt;
+            rate = (rate === 0) ? instant : (EWMA_ALPHA * instant + (1 - EWMA_ALPHA) * rate);
+          }
+        }
+        lastSnapshot = { t: lastPollTs, done };
+
+        // Update card visuals
+        if (total > 0) {
+          const pct = Math.min(100, Math.round((done / total) * 100));
+          tpBar.classList.remove('indeterminate');
+          tpBar.style.width = pct + '%';
+          setCounterParts(fmtNum(done), fmtNum(total), `files (${pct}%)`);
+        } else {
+          tpBar.classList.add('indeterminate');
+          setCounterStarting();
+        }
+        if (rate > 0.05) {
+          tpRate.textContent = `${rate.toFixed(1)} files/s`;
+          if (total > 0) {
+            const remaining = Math.max(0, total - done);
+            tpEta.textContent = `ETA ${fmtDuration(remaining / rate)}`;
+          }
+        } else {
+          tpRate.textContent = '— files/s';
+          tpEta.textContent = 'ETA —';
+        }
+
+        // Update the action button summary
+        buttonEl.textContent =
+          total > 0
+            ? runningButtonText.replace('{done}', fmtNum(done)).replace('{total}', fmtNum(total))
+            : 'Starting…';
+
+        // Sticky hint when worker has been silent or stuck-at-zero
+        // longer than the enumeration window.
+        if (!stuckHintShown && opStartTs && (Date.now() - opStartTs) > ENUMERATION_HINT_MS) {
+          if (done === 0 || total === 0) {
+            tpHint.textContent = (
+              'Backend may still be enumerating the trash pile — large counts ' +
+              '(50K+) can take 30–60s before progress numbers appear. The ' +
+              'worker is alive as long as "last update" is recent.'
+            );
+            tpHint.classList.add('visible');
+            stuckHintShown = true;
+          }
+        }
+
+        if (!s.running) {
+          clearInterval(poll);
+          stopTicker();
+          finishCard(true, done, total);
+          buttonEl.disabled = false;
+          buttonEl.textContent = idleButtonText;
+          showToast((doneToast || 'Done — {done} files').replace('{done}', fmtNum(done)));
+          loadTrash();
+          resolve();
+        }
+      }, POLL_MS);
+    });
+  }
+
+  function finishCard(ok, done, total, errMsg) {
+    stopTicker();
+    if (ok) {
+      tpEl.classList.add('finished');
+      tpBar.classList.remove('indeterminate');
+      tpBar.style.width = '100%';
+      tpLabel.textContent = 'Done';
+      setCounterParts(fmtNum(done), fmtNum(total), 'files');
+      tpRate.textContent = '';
+      tpEta.textContent = '';
+      // Auto-hide after FINISHED_HOLD_MS so the row doesn't sit
+      // stale forever, but offer Dismiss for impatient operators.
+      tpDismiss.hidden = false;
+      const hideAt = setTimeout(() => {
+        tpEl.classList.remove('visible');
+      }, FINISHED_HOLD_MS);
+      tpDismiss.onclick = () => {
+        clearTimeout(hideAt);
+        tpEl.classList.remove('visible');
+      };
+    } else {
+      tpEl.classList.add('errored');
+      tpBar.classList.remove('indeterminate');
+      tpBar.style.width = '100%';
+      tpLabel.textContent = 'Failed';
+      if (errMsg) {
+        tpHint.textContent = errMsg;
+        tpHint.classList.add('visible');
+      }
+      tpDismiss.hidden = false;
+      tpDismiss.onclick = () => { tpEl.classList.remove('visible'); };
+    }
+  }
+
   document.getElementById('btn-restore-all').addEventListener('click', () => {
     showConfirm('Restore All?', `This will restore all ${trashFiles.length} files from trash back to active.`, async () => {
       const btn = document.getElementById('btn-restore-all');
-      btn.disabled = true;
-      btn.textContent = 'Starting...';
-      try {
-        const result = await API.post('/api/trash/restore-all');
-        if (result.status === 'already_running') {
-          showToast('Restore is already running', 'info');
-        } else if (result.status === 'done') {
-          showToast('No files to restore');
-          loadTrash();
-        } else if (result.status === 'started') {
-          btn.textContent = `Restoring 0 / ${result.total}...`;
-          pollRestoreProgress(result.total);
-        }
-      } catch (err) {
-        showError(err.message);
-        btn.disabled = false;
-        btn.textContent = 'Restore All';
-      }
+      await runTrashOp({
+        label: 'Restoring all from trash',
+        icon: '♻',
+        startUrl: '/api/trash/restore-all',
+        statusUrl: '/api/trash/restore-all/status',
+        buttonEl: btn,
+        runningButtonText: 'Restoring {done} / {total}…',
+        idleButtonText: 'Restore All',
+        doneToast: 'Restored {done} files',
+        alreadyToast: 'Restore is already running',
+        emptyToast: 'No files to restore',
+      });
     });
   });
-
-  async function pollRestoreProgress(total) {
-    const btn = document.getElementById('btn-restore-all');
-    const poll = setInterval(async () => {
-      try {
-        const s = await API.get('/api/trash/restore-all/status');
-        btn.textContent = `Restoring ${s.done} / ${total}...`;
-        if (!s.running) {
-          clearInterval(poll);
-          btn.disabled = false;
-          btn.textContent = 'Restore All';
-          showToast(`Restored ${s.done} files`);
-          loadTrash();
-        }
-      } catch {
-        clearInterval(poll);
-        btn.disabled = false;
-        btn.textContent = 'Restore All';
-        loadTrash();
-      }
-    }, 2000);
-  }
 
   document.getElementById('btn-empty-trash').addEventListener('click', () => {
     showConfirm('Empty Trash?', `This will permanently delete all ${trashFiles.length} files in trash.`, async () => {
       const btn = document.getElementById('btn-empty-trash');
-      btn.disabled = true;
-      btn.textContent = 'Starting...';
-      try {
-        const result = await API.post('/api/trash/empty');
-        if (result.status === 'already_running') {
-          showToast('Empty trash is already running', 'info');
-        } else if (result.status === 'done') {
-          showToast('Trash is already empty');
-          loadTrash();
-        } else if (result.status === 'started') {
-          btn.textContent = `Purging 0 / ${result.total}...`;
-          pollEmptyProgress(result.total);
-        }
-      } catch (err) {
-        showError(err.message);
-        btn.disabled = false;
-        btn.textContent = 'Empty Trash';
-      }
+      await runTrashOp({
+        label: 'Emptying trash',
+        icon: '🗑',
+        startUrl: '/api/trash/empty',
+        statusUrl: '/api/trash/empty/status',
+        buttonEl: btn,
+        runningButtonText: 'Purging {done} / {total}…',
+        idleButtonText: 'Empty Trash',
+        doneToast: 'Purged {done} files',
+        alreadyToast: 'Empty trash is already running',
+        emptyToast: 'Trash is already empty',
+      });
     });
   });
 
-  async function pollEmptyProgress(total) {
-    const btn = document.getElementById('btn-empty-trash');
-    const poll = setInterval(async () => {
+  // ── Recovery: if the user lands on the page mid-op (e.g. after a
+  // refresh during a long Empty Trash), pick up the existing op so
+  // the inline card appears with the correct progress.
+  async function checkInFlightOps() {
+    const checks = [
+      { url: '/api/trash/empty/status', label: 'Emptying trash', icon: '🗑',
+        btnId: 'btn-empty-trash', running: 'Purging {done} / {total}…',
+        idle: 'Empty Trash' },
+      { url: '/api/trash/restore-all/status', label: 'Restoring all from trash', icon: '♻',
+        btnId: 'btn-restore-all', running: 'Restoring {done} / {total}…',
+        idle: 'Restore All' },
+    ];
+    for (const c of checks) {
       try {
-        const s = await API.get('/api/trash/empty/status');
-        btn.textContent = `Purging ${s.done} / ${total}...`;
-        if (!s.running) {
-          clearInterval(poll);
-          btn.disabled = false;
-          btn.textContent = 'Empty Trash';
-          showToast(`Purged ${s.done} files`);
-          loadTrash();
+        const s = await fetch(c.url, { credentials: 'same-origin' });
+        if (!s.ok) continue;
+        const d = await s.json();
+        if (d.running) {
+          const btn = document.getElementById(c.btnId);
+          await runTrashOp({
+            label: c.label, icon: c.icon,
+            startUrl: c.url.replace('/status', ''),
+            statusUrl: c.url,
+            buttonEl: btn,
+            runningButtonText: c.running,
+            idleButtonText: c.idle,
+          });
+          return;  // Only one op runs at a time
         }
-      } catch {
-        clearInterval(poll);
-        btn.disabled = false;
-        btn.textContent = 'Empty Trash';
-        loadTrash();
-      }
-    }, 2000);
+      } catch (e) { /* silently skip */ }
+    }
   }
+  checkInFlightOps();
 
   function showConfirm(title, message, onOk) {
     document.getElementById('confirm-title').textContent = title;
