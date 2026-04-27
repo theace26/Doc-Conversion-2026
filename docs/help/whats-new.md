@@ -6,6 +6,60 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.32.6 — Trash progress timer no longer resets when you navigate away
+
+**Reported by an operator on v0.32.4:** clicked **Empty Trash**
+on a 51K-row pile, opened the Status tab to keep an eye on
+other things, came back to Trash a few minutes later. The
+progress card said **"elapsed 12s"** — implying the operation
+had barely started. In reality the worker had been busy the
+whole time; the timer just reset to zero every time the page
+mounted.
+
+**v0.32.6 fixes the timer to reflect the actual operation.**
+The backend now stamps `started_at` when the worker enters
+its run and `last_progress_at` whenever a batch completes.
+The frontend reads both on every poll and renders elapsed
+time and "last update" against those server timestamps —
+not against the user's page session.
+
+### What changes for you
+
+- **Elapsed time is honest now.** Click Empty Trash, leave
+  for 10 minutes, come back. Card shows `elapsed 10m 0s`
+  (give or take), not `elapsed 0s`.
+- **"Last update" reflects real progress.** It tells you
+  when the worker last stamped a batch — not when your
+  browser last polled. So if the worker is mid-enumeration
+  (silent for 30s while it counts rows), you'll see the
+  "last update" timer growing — a true signal of "no
+  movement", not a misleading "polling is fine".
+- **Done count survives navigation correctly.** This was
+  already true in v0.32.4 since `done` was always
+  server-authoritative. v0.32.6 just adds the timer
+  honesty to match.
+
+### Why this matters
+
+Long operations (Empty Trash on 50K+ rows, Restore All on
+similar) take minutes. Operators leave the tab, do other
+things, come back. They need to trust that the displayed
+elapsed time matches reality — otherwise every navigation
+makes them suspect the operation reset.
+
+### Try it out
+
+After upgrading + rebuilding:
+
+1. Click **Empty Trash** on the Trash page
+2. Wait ~30 seconds
+3. Click into **Status** or **Pipeline Files**, do some
+   browsing
+4. Come back to **Trash** — card shows the true elapsed
+   time, e.g. `elapsed 1m 12s`, not `elapsed 0s`
+
+---
+
 ## v0.32.5 — Browser cache no longer holds onto old live-banner code
 
 **Tiny operator-quality-of-life fix.** When MarkFlow ships an

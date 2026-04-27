@@ -67,7 +67,18 @@ async def empty_trash(
 
     status = get_empty_trash_status()
     if status["running"]:
-        return {"status": "already_running", "progress": status}
+        # v0.32.6: also flatten started_at / last_progress / total
+        # into the top-level response so the frontend can adopt them
+        # immediately. The nested `progress` field stays for any
+        # caller that already keys on it.
+        return {
+            "status": "already_running",
+            "total": status.get("total", 0),
+            "done": status.get("done", 0),
+            "started_at_epoch": status.get("started_at_epoch", 0.0),
+            "last_progress_at_epoch": status.get("last_progress_at_epoch", 0.0),
+            "progress": status,
+        }
 
     # v0.32.3: report the *true* total — was previously the
     # legacy 500-row cap, so the operator's banner showed
@@ -78,7 +89,9 @@ async def empty_trash(
     if total == 0:
         return {"status": "done", "purged_count": 0}
 
-    # Fire and forget — returns immediately, purge runs in background
+    # Fire and forget — returns immediately, purge runs in background.
+    # The worker sets started_at_epoch on entry; by the time the next
+    # GET /empty/status fires, the timestamp will be populated.
     asyncio.create_task(purge_all_trash())
     return {"status": "started", "total": total}
 
@@ -101,7 +114,15 @@ async def restore_all_trash(
 
     status = get_restore_all_status()
     if status["running"]:
-        return {"status": "already_running", "progress": status}
+        # v0.32.6: flatten timestamps for frontend adoption.
+        return {
+            "status": "already_running",
+            "total": status.get("total", 0),
+            "done": status.get("done", 0),
+            "started_at_epoch": status.get("started_at_epoch", 0.0),
+            "last_progress_at_epoch": status.get("last_progress_at_epoch", 0.0),
+            "progress": status,
+        }
 
     # v0.32.3: true total via dedicated COUNT(*) (was 500-cap).
     from core.db.lifecycle import count_source_files_by_lifecycle_status

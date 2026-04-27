@@ -11,6 +11,7 @@ import asyncio
 import json
 import os
 import shutil
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -249,11 +250,31 @@ async def purge_file(bulk_file_id: str) -> None:
 
 
 # ── In-memory progress for empty-trash background task ───────────────────────
-_empty_trash_status: dict = {"running": False, "total": 0, "done": 0, "errors": 0}
+#
+# v0.32.6: status dict carries `started_at_epoch` and
+# `last_progress_at_epoch` so the frontend can render elapsed time
+# and "last update" relative to actual work, not relative to when
+# the user happened to click into the page. Both are unix-epoch
+# floats (seconds since 1970, server clock); the frontend
+# multiplies by 1000 to compare against `Date.now()`.
+_empty_trash_status: dict = {
+    "running": False,
+    "total": 0,
+    "done": 0,
+    "errors": 0,
+    "started_at_epoch": 0.0,
+    "last_progress_at_epoch": 0.0,
+}
 
 
 def get_empty_trash_status() -> dict:
     return dict(_empty_trash_status)
+
+
+def _bump_empty_progress() -> None:
+    """Stamp `last_progress_at_epoch` whenever total or done changes.
+    Called by the worker; safe to call from any phase."""
+    _empty_trash_status["last_progress_at_epoch"] = time.time()
 
 
 async def purge_all_trash() -> int:
@@ -269,7 +290,15 @@ async def purge_all_trash() -> int:
         log.warning("empty_trash.already_running")
         return 0
 
-    _empty_trash_status = {"running": True, "total": 0, "done": 0, "errors": 0}
+    started = time.time()
+    _empty_trash_status = {
+        "running": True,
+        "total": 0,
+        "done": 0,
+        "errors": 0,
+        "started_at_epoch": started,
+        "last_progress_at_epoch": started,
+    }
 
     try:
         from core.database import get_source_files_by_lifecycle_status
@@ -303,6 +332,7 @@ async def purge_all_trash() -> int:
                         trash_paths.append(tp)
 
         _empty_trash_status["total"] = len(bf_ids)
+        _bump_empty_progress()
         log.info("empty_trash.starting", total_bf=len(bf_ids), total_sf=len(sf_ids),
                  trash_files=len(trash_paths))
 
@@ -331,6 +361,7 @@ async def purge_all_trash() -> int:
                 (now, *chunk),
             )
             _empty_trash_status["done"] += len(chunk)
+            _bump_empty_progress()
             await asyncio.sleep(0)  # yield to event loop
 
         # Phase 3: Batch UPDATE source_files in chunks of 200
@@ -342,6 +373,7 @@ async def purge_all_trash() -> int:
                 f"WHERE id IN ({placeholders})",
                 (now, *chunk),
             )
+            _bump_empty_progress()
             await asyncio.sleep(0)
 
         log.info("empty_trash.complete", purged=len(bf_ids))
@@ -353,14 +385,29 @@ async def purge_all_trash() -> int:
         return _empty_trash_status["done"]
     finally:
         _empty_trash_status["running"] = False
+        # Don't reset started_at / last_progress on exit — leaving
+        # them in place lets the post-finish "Done" frame still
+        # show the true elapsed time the operation took.
 
 
 # ── In-memory progress for restore-all background task ─────────────────────
-_restore_all_status: dict = {"running": False, "total": 0, "done": 0, "errors": 0}
+# v0.32.6: same started_at / last_progress_at treatment as empty-trash above.
+_restore_all_status: dict = {
+    "running": False,
+    "total": 0,
+    "done": 0,
+    "errors": 0,
+    "started_at_epoch": 0.0,
+    "last_progress_at_epoch": 0.0,
+}
 
 
 def get_restore_all_status() -> dict:
     return dict(_restore_all_status)
+
+
+def _bump_restore_progress() -> None:
+    _restore_all_status["last_progress_at_epoch"] = time.time()
 
 
 async def restore_all_trash() -> int:
@@ -368,7 +415,15 @@ async def restore_all_trash() -> int:
     global _restore_all_status
     if _restore_all_status["running"]:
         return 0
-    _restore_all_status = {"running": True, "total": 0, "done": 0, "errors": 0}
+    started = time.time()
+    _restore_all_status = {
+        "running": True,
+        "total": 0,
+        "done": 0,
+        "errors": 0,
+        "started_at_epoch": started,
+        "last_progress_at_epoch": started,
+    }
     try:
         from core.database import get_source_files_by_lifecycle_status
         # v0.32.3: ALL rows in one call (was capped at 500).
@@ -382,6 +437,7 @@ async def restore_all_trash() -> int:
             )
             bf_ids.extend(r["id"] for r in rows)
         _restore_all_status["total"] = len(bf_ids)
+        _bump_restore_progress()
         log.info("restore_all.starting", total=len(bf_ids))
         for i, bf_id in enumerate(bf_ids):
             try:
@@ -389,6 +445,9 @@ async def restore_all_trash() -> int:
                 _restore_all_status["done"] += 1
             except Exception:
                 _restore_all_status["errors"] += 1
+            # Bump on every increment so the "last update" timer
+            # tracks per-row progress, not just every-50-row syncs.
+            _bump_restore_progress()
             if (i + 1) % 50 == 0:
                 await asyncio.sleep(0)
         log.info("restore_all.complete", restored=_restore_all_status["done"],
@@ -399,6 +458,8 @@ async def restore_all_trash() -> int:
         return _restore_all_status["done"]
     finally:
         _restore_all_status["running"] = False
+        # Keep started_at / last_progress in place for the
+        # post-finish "Done" frame (see empty-trash counterpart).
 
 
 async def record_file_move(

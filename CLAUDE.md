@@ -91,7 +91,108 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.32.5
+## Current Version — v0.32.6
+
+**Trash progress timers are now server-authoritative.
+`/api/trash/empty/status` and `/api/trash/restore-all/status`
+return `started_at_epoch` and `last_progress_at_epoch` (set
+by the worker when it enters and bumped on every total/done
+change). The Trash-page progress card reads these on every
+poll and renders elapsed time + "last update" against the
+true op clock — so navigating away and back no longer resets
+either timer.**
+
+### Why this matters
+
+Reported by the operator after upgrading to v0.32.4: clicked
+Empty Trash, watched the card, navigated away to Status, came
+back to Trash. Card showed "Starting…" with "elapsed 12s" —
+implying the op had only been running 12 seconds, when in
+reality the worker had been chewing through the 51,684-row
+pile for several minutes already. Confusing and undermines
+trust in the progress card.
+
+Root cause: the v0.32.4 frontend computed elapsed-time as
+`Date.now() - opStartTs`, where `opStartTs` was set to
+`Date.now()` whenever the card was shown. Returning to the
+page meant `checkInFlightOps` re-instantiated the card with
+a fresh `opStartTs`, so the timer reset.
+
+The fix is server-side timestamps. The backend already had
+authoritative knowledge of when the worker started; we just
+weren't surfacing it.
+
+### Implementation
+
+**Backend (`core/lifecycle_manager.py`):**
+
+- Both `_empty_trash_status` and `_restore_all_status` dicts
+  now carry `started_at_epoch` and `last_progress_at_epoch`
+  fields.
+- Workers set both fields on entry (`time.time()`).
+- `_bump_empty_progress()` / `_bump_restore_progress()`
+  helpers stamp `last_progress_at_epoch = time.time()`
+  whenever total or done changes (Phase 1 enumeration
+  finishing, Phase 2 batch updates, Phase 3 source_files
+  updates, per-row restore increments).
+- `finally` block does NOT reset the timestamps — the
+  post-finish "Done" frame should still reflect the true
+  elapsed time the operation took.
+
+**Backend (`api/routes/trash.py`):**
+
+- POST `/empty` and POST `/restore-all` flatten
+  `started_at_epoch`, `last_progress_at_epoch`, `total`,
+  `done` into the top-level `already_running` response so
+  the frontend can adopt them immediately (no need to wait
+  for the first GET poll).
+
+**Frontend (`static/trash.html`):**
+
+- `opStartTs` and `lastProgressTs` module-level state
+  variables now refer to server-authoritative values
+  (server `*_epoch * 1000` to align with `Date.now()`
+  millisecond units).
+- New `adoptServerTimestamps(s)` helper called on every poll
+  + on the initial mid-op recovery fetch + on the
+  `already_running` POST response.
+- `showCard()` no longer resets `opStartTs` /
+  `lastProgressTs` — `checkInFlightOps` may have pre-seeded
+  them with server values.
+- `updateTimers()` (the 250 ms ticker) renders elapsed +
+  last-update directly from server-anchored timestamps.
+
+### Cache-bust
+
+Bumped `?v=0.32.5` → `?v=0.32.6` on the `live-banner.js`
+script tag in all 3 pages that load it. The trash.html JS
+itself doesn't need a bust (the inline script is part of
+trash.html which is freshly fetched with the page), but
+keeping the convention is cheap.
+
+### Files
+
+- `core/version.py` — bump to 0.32.6
+- `core/lifecycle_manager.py` — `time` import +
+  `started_at_epoch` / `last_progress_at_epoch` fields +
+  `_bump_empty_progress` / `_bump_restore_progress` helpers
+  + non-reset on `finally`
+- `api/routes/trash.py` — flatten timestamps into
+  `already_running` POST responses
+- `static/trash.html` — `adoptServerTimestamps` helper,
+  `opStartTs` / `lastProgressTs` semantic shift,
+  `showCard` no longer resets, `checkInFlightOps`
+  pre-seeds, cache-bust to `?v=0.32.6`
+- `static/status.html`, `static/pipeline-files.html` —
+  cache-bust live-banner to `?v=0.32.6` (consistency)
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`
+
+No DB migration. No new dependencies. No new scheduler jobs.
+
+---
+
+## v0.32.5 — Cache-bust on live-banner.js
 
 **Cache-bust on `live-banner.js` so returning operators get the
 latest banner code without a manual hard-refresh. The script

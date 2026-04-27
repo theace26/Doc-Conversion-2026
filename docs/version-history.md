@@ -4,6 +4,149 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.32.6 — Server-authoritative timers on Trash progress card (2026-04-27)
+
+**Trash progress timers (elapsed + "last update") are now
+anchored to server-side timestamps instead of the user's
+client clock. Navigating away from the Trash page and back
+no longer resets either timer — they reflect the actual
+operation, not the page session.**
+
+### Why
+
+Reported after the v0.32.4 ship: operator clicked Empty
+Trash on the 51,684-row pile, watched the card, navigated
+to Status, came back. Card showed "elapsed 12s" — implying
+the op had only been running 12 seconds, when in reality
+the worker had been chewing through the pile for several
+minutes already. The displayed `done` count was also
+suspect because it visually anchored to the (wrong) elapsed
+time.
+
+Root cause: the v0.32.4 frontend computed elapsed time as
+`Date.now() - opStartTs`, where `opStartTs` was set to
+`Date.now()` in `showCard()`. The card-show ran every time
+the page mounted (including via `checkInFlightOps` on
+returning to the page), so the timer reset on every navigation.
+
+### Backend changes (`core/lifecycle_manager.py`)
+
+Both `_empty_trash_status` and `_restore_all_status` dicts
+gain two new fields:
+
+```python
+{
+    "running": False,
+    "total": 0,
+    "done": 0,
+    "errors": 0,
+    "started_at_epoch": 0.0,         # NEW
+    "last_progress_at_epoch": 0.0,   # NEW
+}
+```
+
+The worker sets both on entry (`time.time()`). New helpers
+`_bump_empty_progress()` and `_bump_restore_progress()`
+stamp `last_progress_at_epoch = time.time()` whenever the
+status changes meaningfully:
+
+- **Empty trash**:
+  - When `total` is set after Phase-1 enumeration completes
+  - On every Phase-2 batch (200-row chunk of bulk_files
+    UPDATE)
+  - On every Phase-3 batch (200-row chunk of source_files
+    UPDATE)
+- **Restore all**:
+  - When `total` is set after enumeration
+  - On every per-row restore increment (was previously
+    every-50-row syncs only — now per-row for finer
+    granularity)
+
+The `finally` block intentionally does NOT reset the
+timestamps. The post-finish "Done" frame on the card needs
+the true elapsed time the operation took; resetting on exit
+would defeat that.
+
+### Backend changes (`api/routes/trash.py`)
+
+POST `/empty` and POST `/restore-all` now flatten
+`started_at_epoch`, `last_progress_at_epoch`, `total`,
+`done` into the top-level `already_running` response:
+
+```json
+{
+    "status": "already_running",
+    "total": 51684,
+    "done": 12047,
+    "started_at_epoch": 1761606123.456,
+    "last_progress_at_epoch": 1761606145.892,
+    "progress": {...}
+}
+```
+
+The nested `progress` field stays for any caller that
+already keys on it. New callers should use the flat fields.
+This lets the frontend adopt the timestamps immediately on
+a re-click instead of waiting for the next GET poll.
+
+### Frontend changes (`static/trash.html`)
+
+- New `adoptServerTimestamps(s)` helper called on every
+  poll + on the initial mid-op recovery fetch + on the
+  `already_running` POST response.
+- `opStartTs` and `lastProgressTs` semantic shift — both
+  now refer to server-authoritative `*_epoch * 1000` values
+  (ms units to align with `Date.now()`).
+- `showCard()` no longer resets the timer state; `checkInFlightOps`
+  may have pre-seeded with server values.
+- `updateTimers()` renders elapsed + last-update directly
+  from server-anchored timestamps. Defensive fallback to
+  `Date.now()` if the backend response somehow omits the
+  fields (transitional safety; v0.32.6 backend always
+  returns them).
+
+### Cache-bust
+
+`?v=` query string on `live-banner.js` bumped from `0.32.5`
+to `0.32.6` on all 3 pages that load it (`trash.html`,
+`status.html`, `pipeline-files.html`). The convention is
+"bump on every release that touches `live-banner.js` OR
+the page that loads it."
+
+### Files
+
+- `core/version.py` — 0.32.6
+- `core/lifecycle_manager.py` — `import time`, status-dict
+  field additions, `_bump_*_progress` helpers, non-reset
+  on `finally`
+- `api/routes/trash.py` — flatten timestamps into
+  `already_running` POST responses (both endpoints)
+- `static/trash.html` — `adoptServerTimestamps` helper,
+  `opStartTs` / `lastProgressTs` semantic shift, no-reset
+  in `showCard`, `checkInFlightOps` pre-seeds,
+  `?v=0.32.6` cache-bust on `live-banner.js`
+- `static/status.html`, `static/pipeline-files.html` —
+  `?v=0.32.6` cache-bust (consistency)
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`
+
+No DB migration. No new dependencies.
+
+### Done criteria
+
+- ✅ Operator clicks Empty Trash, leaves the page, comes
+  back N minutes later — card shows elapsed = N+ minutes,
+  not "12s"
+- ✅ "last update" reflects the worker's actual last batch
+  (e.g., "last update 2s ago" if the worker just stamped
+  Phase-2 batch #100, or "last update 1m 30s ago" if it's
+  been silent that long)
+- ✅ Done count survives navigation correctly (was
+  already correct in v0.32.4; just now accompanied by
+  honest timer)
+
+---
+
 ## v0.32.5 — Cache-bust on live-banner.js (2026-04-27)
 
 **One-line fix per page: the `<script src="/static/js/live-banner.js">`

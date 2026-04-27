@@ -208,9 +208,10 @@
   </div>
 
   <script src="/static/app.js"></script>
-  <!-- v0.32.5: cache-bust by version. Bump the ?v= when live-banner.js changes
-       so returning operators don't get stale JS from their browser cache. -->
-  <script src="/static/js/live-banner.js?v=0.32.5"></script>
+  <!-- v0.32.6: cache-bust by version. Bump the ?v= when live-banner.js
+       OR trash.html changes so returning operators don't get stale JS
+       from their browser cache. -->
+  <script src="/static/js/live-banner.js?v=0.32.6"></script>
   <script>
   let trashFiles = [];
 
@@ -371,12 +372,16 @@
     tpCounter.appendChild(s);
   }
 
-  // Single ticker drives elapsed-time + last-poll-age between polls
-  // so those numbers count up smoothly even when the status endpoint
-  // is slow / silent.
+  // v0.32.6: timestamps are server-authoritative. The backend tracks
+  //   started_at_epoch       (set when the worker enters its run)
+  //   last_progress_at_epoch (bumped on every total/done change)
+  // and returns both on /api/trash/*/status. The frontend reads
+  // them on every poll and renders elapsed / "last update" against
+  // those values — so navigating away and back doesn't reset
+  // either timer (they reflect the actual op, not the page session).
   let tickerId = null;
-  let opStartTs = null;
-  let lastPollTs = null;
+  let opStartTs = null;       // ms epoch — server's started_at × 1000
+  let lastProgressTs = null;  // ms epoch — server's last_progress_at × 1000
 
   function showCard(opLabel, opIcon) {
     tpEl.classList.remove('finished', 'errored');
@@ -388,13 +393,31 @@
     setCounterParts('0', '—', 'files');
     tpRate.textContent = '— files/s';
     tpEta.textContent = 'ETA —';
-    tpElapsed.textContent = 'elapsed 0s';
+    tpElapsed.textContent = 'elapsed —';
     tpPollAge.textContent = 'last update —';
     tpHint.textContent = '';
     tpHint.classList.remove('visible');
     tpDismiss.hidden = true;
-    opStartTs = Date.now();
-    lastPollTs = null;
+    // Don't reset opStartTs / lastProgressTs here — leave them in
+    // place until the first poll lands. checkInFlightOps may have
+    // pre-seeded them with the server's authoritative values for a
+    // long-running op the user is returning to.
+  }
+
+  // Sync timestamps from a status response. Either field may be
+  // absent (older backends, transitional deploys) — fall back to
+  // local clock as a defensive default.
+  function adoptServerTimestamps(s) {
+    if (s && typeof s.started_at_epoch === 'number' && s.started_at_epoch > 0) {
+      opStartTs = s.started_at_epoch * 1000;
+    } else if (opStartTs == null) {
+      opStartTs = Date.now();  // fallback only if we have nothing
+    }
+    if (s && typeof s.last_progress_at_epoch === 'number' && s.last_progress_at_epoch > 0) {
+      lastProgressTs = s.last_progress_at_epoch * 1000;
+    } else if (lastProgressTs == null) {
+      lastProgressTs = Date.now();
+    }
   }
 
   function startTicker() {
@@ -405,11 +428,12 @@
     if (tickerId) { clearInterval(tickerId); tickerId = null; }
   }
   function updateTimers() {
-    if (!opStartTs) return;
-    const elapsedMs = Date.now() - opStartTs;
-    tpElapsed.textContent = `elapsed ${fmtDuration(elapsedMs / 1000)}`;
-    if (lastPollTs) {
-      const ageMs = Date.now() - lastPollTs;
+    if (opStartTs) {
+      const elapsedMs = Date.now() - opStartTs;
+      tpElapsed.textContent = `elapsed ${fmtDuration(elapsedMs / 1000)}`;
+    }
+    if (lastProgressTs) {
+      const ageMs = Date.now() - lastProgressTs;
       if (ageMs < 1500) tpPollAge.textContent = 'last update just now';
       else if (ageMs < 60000) tpPollAge.textContent = `last update ${Math.round(ageMs / 1000)}s ago`;
       else tpPollAge.textContent = `last update ${fmtDuration(ageMs / 1000)} ago`;
@@ -436,6 +460,10 @@
       if (result.status === 'already_running') {
         showToast(alreadyToast || 'Already running', 'info');
         total = result[totalKey] || 0;
+        // v0.32.6: adopt server timestamps from the already-running
+        // response so the elapsed timer reflects how long it's
+        // ACTUALLY been running, not when the user re-clicked.
+        adoptServerTimestamps(result);
       } else if (result.status === 'done') {
         showToast(emptyToast || 'Nothing to do');
         finishCard(true, 0, 0);
@@ -445,6 +473,10 @@
         return;
       } else if (result.status === 'started') {
         total = result[totalKey] || 0;
+        // Fresh start — set local clock as a temporary anchor; the
+        // first poll will overwrite with the server's started_at.
+        opStartTs = Date.now();
+        lastProgressTs = Date.now();
       }
     } catch (err) {
       finishCard(false, 0, 0, err.message);
@@ -464,25 +496,33 @@
           s = await API.get(statusUrl);
         } catch (err) {
           // Network blip — leave card visible, just don't update.
-          // The "last update Xs ago" timer will start to grow,
+          // The lastProgressTs timer will start to grow naturally,
           // signalling to the operator that polling is degraded.
           return;
         }
-        lastPollTs = Date.now();
+        // v0.32.6: pull authoritative timestamps from the server.
+        // These are unaffected by client-side navigation, so the
+        // elapsed timer + "last update" reflect the actual op,
+        // not the page session.
+        adoptServerTimestamps(s);
         const done = s[doneKey] || 0;
         const observedTotal = s[totalKey] || total;
         if (observedTotal > total) total = observedTotal;
 
-        // Update rate (EWMA) so a momentary stall doesn't kill the ETA.
+        // Update rate (EWMA) so a momentary stall doesn't kill the
+        // ETA. Use lastProgressTs (server-authoritative) as the
+        // time anchor so the rate doesn't get distorted by client-
+        // side polling delay.
+        const nowTs = Date.now();
         if (lastSnapshot) {
-          const dt = (lastPollTs - lastSnapshot.t) / 1000;
+          const dt = (nowTs - lastSnapshot.t) / 1000;
           const dd = done - lastSnapshot.done;
           if (dt > 0 && dd >= 0) {
             const instant = dd / dt;
             rate = (rate === 0) ? instant : (EWMA_ALPHA * instant + (1 - EWMA_ALPHA) * rate);
           }
         }
-        lastSnapshot = { t: lastPollTs, done };
+        lastSnapshot = { t: nowTs, done };
 
         // Update card visuals
         if (total > 0) {
@@ -612,6 +652,11 @@
   // ── Recovery: if the user lands on the page mid-op (e.g. after a
   // refresh during a long Empty Trash), pick up the existing op so
   // the inline card appears with the correct progress.
+  //
+  // v0.32.6: pre-seed opStartTs + lastProgressTs from the initial
+  // status fetch BEFORE calling runTrashOp so the card opens with
+  // correct elapsed / "last update" immediately, not with the
+  // 0-second values it'd show if it had to wait for the first poll.
   async function checkInFlightOps() {
     const checks = [
       { url: '/api/trash/empty/status', label: 'Emptying trash', icon: '🗑',
@@ -627,6 +672,9 @@
         if (!s.ok) continue;
         const d = await s.json();
         if (d.running) {
+          // Pre-seed timers + counter so the card opens with the
+          // server's authoritative state instead of zeros.
+          adoptServerTimestamps(d);
           const btn = document.getElementById(c.btnId);
           await runTrashOp({
             label: c.label, icon: c.icon,
