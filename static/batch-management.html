@@ -1001,8 +1001,11 @@
       }
 
       // ── Multi-select helpers (v0.29.6) ───────────────────────────────
-      const DOWNLOAD_ALL_CAP = 100;
-      const DOWNLOAD_STAGGER_MS = 120;  // small gap between synthetic clicks
+      // v0.31.4: server-side ZIP bundle replaces the sequential per-file
+      // synthetic-anchor loop. Cap raised from 100 to 500 to match the
+      // server-side limit. The server hard-caps at 500 files AND ~2 GB
+      // uncompressed total content; whichever fires first returns 413.
+      const DOWNLOAD_ALL_CAP = 500;
 
       function getSelectedFilesFromTbody(tbody) {
         if (!tbody || !tbody.__fileMap) return [];
@@ -1024,23 +1027,62 @@
           showError('Too many files selected (' + downloadable.length + '). Please select ' + DOWNLOAD_ALL_CAP + ' or fewer at a time.');
           return;
         }
-        const msg =
-          'Download ' + downloadable.length + ' file' +
-          (downloadable.length === 1 ? '' : 's') +
-          ' to your default downloads folder?\n\n' +
-          'Your browser may ask for permission to allow multiple downloads the first time.';
+        // v0.31.4: server-side ZIP bundle — single fetch instead of N
+        // synthetic-anchor clicks. The server packages the files,
+        // streams a ZIP, and the browser receives a single download
+        // item. No more "allow multiple downloads" prompt.
+        const single = downloadable.length === 1;
+        const msg = single
+          ? 'Download "' + basename(downloadable[0].source_path) + '"?'
+          : 'Download ' + downloadable.length + ' files as a single ZIP bundle?\n\n' +
+            'The server packages them; large bundles can take a few seconds to start.';
         if (!confirm(msg)) return;
 
-        for (let i = 0; i < downloadable.length; i++) {
-          const f = downloadable[i];
+        // Fast path for a single file: skip the bundle endpoint and use
+        // the existing direct-download endpoint (faster + no zipping).
+        if (single) {
+          const f = downloadable[0];
           const url = '/api/analysis/files/' + encodeURIComponent(f.source_file_id) + '/download';
           triggerDownload(url, basename(f.source_path));
-          if (i < downloadable.length - 1) {
-            await new Promise(r => setTimeout(r, DOWNLOAD_STAGGER_MS));
-          }
+          if (typeof showToast === 'function') showToast('Download started');
+          return;
         }
+
+        const file_ids = downloadable.map(f => f.source_file_id);
         if (typeof showToast === 'function') {
-          showToast('Started ' + downloadable.length + ' download' + (downloadable.length === 1 ? '' : 's'));
+          showToast('Building bundle of ' + downloadable.length + ' files - this may take a few seconds...');
+        }
+        try {
+          const resp = await fetch('/api/analysis/files/download-bundle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ file_ids: file_ids }),
+          });
+          if (!resp.ok) {
+            const detail = await resp.text().catch(() => '');
+            throw new Error('HTTP ' + resp.status + (detail ? ': ' + detail.slice(0, 300) : ''));
+          }
+          const included = parseInt(resp.headers.get('X-MarkFlow-Bundle-Files-Included') || '0', 10);
+          const skipped = parseInt(resp.headers.get('X-MarkFlow-Bundle-Files-Skipped') || '0', 10);
+          const blob = await resp.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          const cd = resp.headers.get('Content-Disposition') || '';
+          const m = cd.match(/filename="([^"]+)"/);
+          a.download = m ? m[1] : 'markflow-files.zip';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          if (typeof showToast === 'function') {
+            let toast = 'Downloaded bundle of ' + included + ' file' + (included === 1 ? '' : 's');
+            if (skipped > 0) toast += ' (' + skipped + ' skipped - missing or unreadable)';
+            showToast(toast);
+          }
+        } catch (e) {
+          showError('Bundle download failed: ' + e.message);
         }
       }
 

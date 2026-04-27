@@ -4,6 +4,125 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.31.4 — Server-side ZIP bulk download on Batch Management (2026-04-27)
+
+**Replaces the v0.29.6 sequential per-file synthetic-anchor download
+loop with a single streaming ZIP from a new
+`POST /api/analysis/files/download-bundle` endpoint.**
+
+### What this fixes
+
+The v0.29.6 multi-file download did a JS for-loop of synthetic
+`<a download>` clicks staggered 120 ms apart. Browsers prompted
+once for "allow multiple downloads" and then dumped N items into
+the browser's download manager. Above 100 files the existing UI
+refused entirely, advising the operator to split the selection.
+Operators cherry-picking a few hundred files for offline review
+had to do the work in three separate rounds.
+
+v0.31.4 replaces that loop with one POST. The server packages
+the files into a ZIP in a worker thread (`asyncio.to_thread`),
+streams the bytes back, and the browser sees a single
+`markflow-files-<TS>.zip` download.
+
+### Backend (`api/routes/analysis.py`)
+
+`POST /api/analysis/files/download-bundle` (OPERATOR+):
+
+- **`BundleDownloadRequest`** Pydantic body with
+  `file_ids: list[str]` (1-500 entries enforced via Pydantic
+  `min_length`/`max_length`) and optional `bundle_name: str`
+  (max 120 chars, sanitized for filename safety — only
+  alphanumerics, `.`, `-`, `_`, space; spaces collapse to
+  underscores; truncated to 80 chars).
+- Pre-flight: each id resolves through the existing
+  `_lookup_source_path` helper. Missing or unsafe ids are
+  silently skipped (mirrors the log-management bundle pattern).
+  Total uncompressed bytes tallied as we go.
+- **Hard cap of ~2 GiB uncompressed**
+  (`_BUNDLE_MAX_UNCOMPRESSED_BYTES = 2 * 1024**3`). When the
+  running total crosses the cap, returns HTTP 413 with a
+  specific "split into smaller batches" message. The 500-file
+  Pydantic ceiling is the other edge — whichever fires first.
+- **`_ALREADY_COMPRESSED_EXTS` set** (JPEG/PNG/GIF/WebP/AVIF
+  family, MP3/M4A/AAC/OGG/Opus/FLAC, MP4/MOV/MKV/AVI/WMV/WebM,
+  ZIP/GZ/TGZ/BZ2/XZ/7Z/RAR, DOCX/XLSX/PPTX/ODT/ODS/ODP/EPUB,
+  PDF) gets `ZIP_STORED` mode. Other extensions use
+  `ZIP_DEFLATED`. Skips wasted CPU re-compressing
+  entropy-saturated bytes.
+- **Duplicate-arcname disambiguation**: two files with the same
+  basename get `_1`, `_2` suffixes inside the ZIP so nothing
+  silently overwrites.
+- **Partial-bundle resilience**: per-file `OSError` during
+  `zipfile.write()` is logged via
+  `analysis.bundle_file_failed` + skipped. Operator gets a
+  partial bundle rather than a 500.
+- **Response headers** surface the result:
+  `X-MarkFlow-Bundle-Files-Included`,
+  `X-MarkFlow-Bundle-Files-Skipped`. UI parses these for the
+  toast message.
+- 404 only if EVERY id was missing/unsafe (no files survived
+  the pre-flight).
+
+### Frontend (`static/batch-management.html`)
+
+- `DOWNLOAD_ALL_CAP` raised from 100 to 500 to match the
+  server.
+- `DOWNLOAD_STAGGER_MS` removed (not needed for one POST).
+- Sequential synthetic-anchor loop replaced by a single
+  `fetch()` to `/api/analysis/files/download-bundle` with
+  `credentials: 'same-origin'`. Response blob → `URL.createObjectURL`
+  → `<a download>` click → revoke. Filename comes from the
+  response's `Content-Disposition`.
+- **Single-file fast path**: if exactly 1 file is selected,
+  skip the bundle endpoint entirely — go straight to the
+  existing direct `/files/{id}/download` URL. Faster, no
+  zipping, no Content-Length-Unknown delay.
+- Toast surfaces `included` + `skipped` counts.
+- Errors (4xx/5xx, network failures) surface via `showError()`
+  with the response body for context.
+
+### Operational
+
+- `.dockerignore` updated to exclude `backups/`,
+  `hashcat-queue/`, `.claude/`. The `backups/` exclusion alone
+  cut the build context from 4.7 GB to ~150 MB on this host —
+  necessary so `--no-cache` rebuilds finish in reasonable time.
+
+### Files
+
+- `core/version.py` — bump to 0.31.4
+- `api/routes/analysis.py` — `BundleDownloadRequest`,
+  `download_files_bundle`, `_BUNDLE_MAX_FILES`,
+  `_BUNDLE_MAX_UNCOMPRESSED_BYTES`, `_ALREADY_COMPRESSED_EXTS`
+- `static/batch-management.html` — bundle fetch path replaces
+  the synthetic-anchor loop; cap raised to 500
+- `.dockerignore`
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`
+
+No DB migration. No new dependencies. No new scheduler jobs.
+
+### Acceptance
+
+- Selecting 1 file and clicking "Download Selected" triggers
+  the existing direct-download URL (no bundle endpoint hit).
+- Selecting 5+ files triggers `POST /download-bundle`,
+  returns a single ZIP with all 5 files inside, browser shows
+  one item in the download manager.
+- Selecting 600 files: client-side message
+  ("Too many files selected (600). Please select 500 or fewer
+  at a time.")
+- Selecting 500 files totaling > 2 GiB on disk: server returns
+  HTTP 413 with split-into-batches message; surfaced as a
+  toast/error on the page.
+- Bundle with 1 deleted file in the selection: included count
+  is N-1, skipped count is 1 in the response headers; toast
+  reads "Downloaded bundle of N-1 files (1 skipped — missing
+  or unreadable)".
+
+---
+
 ## v0.31.2 — Multi-provider 5-layer vision-API resilience (2026-04-25)
 
 **Ports the v0.29.9 Anthropic-only resilience pipeline to

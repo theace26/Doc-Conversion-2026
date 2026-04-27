@@ -25,14 +25,16 @@ from __future__ import annotations
 
 import asyncio
 import mimetypes
+import zipfile
 from collections import OrderedDict
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel
+from fastapi.responses import FileResponse, Response, StreamingResponse
+from pydantic import BaseModel, Field
 
 from core.auth import AuthenticatedUser, UserRole, require_role
 from core.database import get_preference, set_preference
@@ -659,6 +661,183 @@ async def download_file(
         path=str(path),
         filename=path.name,
         media_type=media_type or "application/octet-stream",
+    )
+
+
+# v0.31.4: server-side ZIP bundle download. Replaces the sequential
+# per-file synthetic-anchor loop the frontend used since v0.29.6 — that
+# approach forced the user's browser to prompt "allow multiple
+# downloads" and dumped N items into the download manager. The bundle
+# endpoint streams a single ZIP, sized at the server. Hard caps:
+#   - up to 500 files per call
+#   - up to ~2 GB uncompressed total content (at the size pre-flight)
+# Above either cap, returns 413 with a specific message so the frontend
+# can show a "split into smaller batches" hint.
+_BUNDLE_MAX_FILES = 500
+_BUNDLE_MAX_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024  # 2 GiB
+
+# Already-compressed file types — ZIP_STORED instead of ZIP_DEFLATED so
+# we don't burn CPU re-compressing entropy-saturated bytes. Mirrors the
+# log-management bundle pattern. Extensions only — no MIME inspection,
+# since the file extension is ground truth in this codebase (we trust
+# the content scanner to have detected the format on ingest).
+_ALREADY_COMPRESSED_EXTS = {
+    # Image formats that are already compressed
+    ".jpg", ".jpeg", ".jfif", ".jpe",
+    ".png", ".apng",
+    ".gif", ".webp",
+    ".avif", ".avifs",
+    # Audio
+    ".mp3", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".flac",
+    # Video
+    ".mp4", ".m4v", ".mov", ".webm", ".mkv", ".avi", ".wmv",
+    # Archives
+    ".zip", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".rar", ".tar.gz",
+    # Office formats are already zipped
+    ".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp", ".epub",
+    # PDFs are typically already-compressed streams
+    ".pdf",
+}
+
+
+class BundleDownloadRequest(BaseModel):
+    file_ids: list[str] = Field(
+        ..., min_length=1, max_length=_BUNDLE_MAX_FILES,
+        description="source_files.id values to include in the ZIP bundle",
+    )
+    bundle_name: str | None = Field(
+        None, max_length=120,
+        description="Optional filename stem (no extension) for the ZIP. Defaults to a timestamped name.",
+    )
+
+
+@router.post("/files/download-bundle")
+async def download_files_bundle(
+    body: BundleDownloadRequest,
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+) -> StreamingResponse:
+    """Stream a single ZIP containing every requested source file.
+
+    file_ids that resolve to a missing file or path-traversal-rejected
+    location are silently skipped. The endpoint always returns at least
+    one file or HTTP 404 — never an empty ZIP. Path resolution reuses
+    `_lookup_source_path` so the security guarantees match the
+    single-file `/download` endpoint.
+
+    On caps overrun (file count or total uncompressed bytes), returns
+    HTTP 413 with a specific message; frontend should show a "split
+    into smaller batches" hint.
+    """
+    # Resolve and pre-flight every requested id. Missing / unsafe paths
+    # are silently skipped (mirrors log-management bundle behavior).
+    selected: list[Path] = []
+    skipped: list[str] = []
+    total_bytes = 0
+    for fid in body.file_ids:
+        try:
+            p = await _lookup_source_path(fid)
+        except HTTPException:
+            skipped.append(fid)
+            continue
+        try:
+            size = p.stat().st_size
+        except OSError:
+            skipped.append(fid)
+            continue
+        total_bytes += size
+        if total_bytes > _BUNDLE_MAX_UNCOMPRESSED_BYTES:
+            mb = _BUNDLE_MAX_UNCOMPRESSED_BYTES // (1024 * 1024)
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"Bundle exceeds {mb} MB uncompressed limit "
+                    f"({total_bytes // (1024 * 1024)} MB so far). "
+                    "Split your selection into smaller batches."
+                ),
+            )
+        selected.append(p)
+
+    if not selected:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "No matching files. All selected ids were missing on "
+                "disk, deleted from source_files, or rejected by the "
+                "path-traversal guard."
+            ),
+        )
+
+    # Resolve unique arcname per path (handle duplicates by suffixing).
+    used_names: dict[str, int] = {}
+    plan: list[tuple[Path, str]] = []
+    for p in selected:
+        base = p.name
+        if base in used_names:
+            used_names[base] += 1
+            stem = p.stem or base
+            ext = p.suffix
+            arcname = f"{stem}_{used_names[base]}{ext}"
+        else:
+            used_names[base] = 0
+            arcname = base
+        plan.append((p, arcname))
+
+    def _build_zip() -> bytes:
+        buf = BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            for path, arcname in plan:
+                ext = "".join(path.suffixes[-2:]).lower()  # catches .tar.gz
+                ext_simple = path.suffix.lower()
+                already = (
+                    ext in _ALREADY_COMPRESSED_EXTS
+                    or ext_simple in _ALREADY_COMPRESSED_EXTS
+                )
+                mode = zipfile.ZIP_STORED if already else zipfile.ZIP_DEFLATED
+                try:
+                    zf.write(path, arcname=arcname, compress_type=mode)
+                except OSError as exc:
+                    log.warning(
+                        "analysis.bundle_file_failed",
+                        path=str(path),
+                        arcname=arcname,
+                        error=f"{type(exc).__name__}: {exc}",
+                    )
+                    # Skip but continue — the operator gets a partial
+                    # bundle rather than a 500.
+                    continue
+        return buf.getvalue()
+
+    zip_bytes = await asyncio.to_thread(_build_zip)
+
+    log.info(
+        "analysis.bundle_download",
+        user=user.email,
+        files_requested=len(body.file_ids),
+        files_included=len(plan),
+        files_skipped=len(skipped),
+        uncompressed_bytes=total_bytes,
+        bundle_bytes=len(zip_bytes),
+    )
+
+    ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    if body.bundle_name:
+        # Keep filenames safe-ish: strip path separators and control chars.
+        safe = "".join(
+            c for c in body.bundle_name
+            if c.isalnum() or c in ("-", "_", ".", " ")
+        ).strip().replace(" ", "_")[:80]
+        fname = f"{safe or 'bundle'}-{ts}.zip"
+    else:
+        fname = f"markflow-files-{ts}.zip"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{fname}"',
+        "X-MarkFlow-Bundle-Files-Included": str(len(plan)),
+        "X-MarkFlow-Bundle-Files-Skipped": str(len(skipped)),
+    }
+    return StreamingResponse(
+        iter([zip_bytes]),
+        media_type="application/zip",
+        headers=headers,
     )
 
 

@@ -6,6 +6,45 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.31.4 — One-click bulk download as a single ZIP bundle
+
+The Batch Management page's multi-file download used to fire off
+one synthetic anchor click per file with a 120 ms gap between
+each. Browsers prompted you to "allow multiple downloads" the
+first time, then dumped N items into the download manager. Above
+100 files the UI refused entirely.
+
+v0.31.4 replaces that with **one POST to a new bundle endpoint**.
+The server packages every selected file into a ZIP in a worker
+thread, streams it back, and you get a single `markflow-files-<TS>.zip`
+in your downloads. No more "allow multiple downloads" prompt, no
+more 30+ items in the download manager.
+
+### What changed for you
+
+- Cap raised from **100 to 500 files** per click.
+- New ~2 GiB **uncompressed-bytes ceiling**. If your selection
+  totals more than that on disk, the server returns a 413 with a
+  "split into smaller batches" hint. Pick a tighter slice and try
+  again.
+- **Smart compression**: already-compressed files (JPEG, MP3, MP4,
+  ZIP, PDF, DOCX, etc.) are stored uncompressed inside the ZIP
+  so we don't burn CPU re-compressing entropy-saturated bytes.
+  Other files use deflate.
+- **Duplicate names** in your selection (two files named
+  `report.pdf` from different folders) get auto-suffixed inside
+  the ZIP so nothing gets silently overwritten.
+- **Partial bundle**: if a file in your selection has been deleted
+  or moved since you scrolled past it, the bundle still
+  completes — that file is skipped, and the toast reads
+  "Downloaded bundle of N files (1 skipped — missing or
+  unreadable)".
+- **Single-file fast path**: if you select exactly 1 file, the
+  download skips the bundle endpoint entirely and uses the direct
+  URL — same speed as before for the one-file case.
+
+---
+
 ## v0.31.2 — OpenAI / Gemini / Ollama get full vision-API resilience
 
 If you're using **OpenAI**, **Gemini**, or **Ollama** as your

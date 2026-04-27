@@ -91,299 +91,141 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.31.2
+## Current Version — v0.31.4
 
-**Multi-provider 5-layer vision-API resilience — OpenAI, Gemini,
-and Ollama now get the same financial protection Anthropic
-users got in v0.29.9: preflight validation, exponential backoff
-with Retry-After, per-image bisection on 400, circuit breaker,
-and the operator banner.**
+**Server-side ZIP bulk download on Batch Management — replaces
+the v0.29.6 sequential per-file synthetic-anchor loop with a
+single streaming ZIP from a new `POST /api/analysis/files/download-bundle`
+endpoint. One download item in the browser instead of N. Caps
+raised from 100 to 500 files; server enforces 500 files OR ~2 GiB
+uncompressed (whichever first).**
 
-The v0.29.9 release built a five-layer defense pipeline against
-wasted vision-API spend on Anthropic. v0.31.2 ports the entire
-pipeline to the other three providers so every operator —
-regardless of which provider they've activated — gets:
+### Why this matters
 
-- **Preflight validation** that catches corrupt / wrong-MIME /
-  out-of-range-dimension images before encoding to base64
-- **Exponential backoff** with `Retry-After` honored on
-  429 / 500 / 502 / 503 / 504 / 529
-- **Per-image bisection on 400** that isolates the bad file
-  via recursive halving rather than tossing the whole batch
-- **Circuit breaker** (process-shared with Anthropic) that
-  short-circuits after 5 consecutive upstream failures with
-  exponential cooldown (60s → 2min → 4min → 8min, cap 15min)
-- **Operator banner** on the Batch Management page (already
-  provider-agnostic) that surfaces breaker state + Reset
+The v0.29.6 multi-file download did a JS for-loop of synthetic
+`<a download>` clicks with a 120 ms stagger. Browsers prompt
+once for "allow multiple downloads" then dump N items into the
+download manager. Above 100 files the existing UI refused the
+request entirely, advising the operator to split. Operators
+cherry-picking ~300 files for an offline review session had to
+do it in three rounds.
 
-### Per-provider details
+v0.31.4 replaces the loop with one POST. The server packages
+the files into a ZIP in a worker thread (`asyncio.to_thread`),
+streams the bytes back, and the browser sees a single
+`markflow-files-<TS>.zip` download.
 
-- `_batch_openai` + new `_openai_sub_batch`: 429s carry
-  `Retry-After` in seconds form; bisection halves the
-  messages content array. Honors OpenAI's 18 MB request
-  budget from `_PROVIDER_LIMITS`.
-- `_batch_gemini` + new `_gemini_sub_batch`: error responses
-  are JSON with a `code` / `message` / `status` shape; we
-  capture the body (truncated to 500 chars) into the
-  per-image error. Honors Gemini's 18 MB budget.
-- `_batch_ollama` + new `_ollama_sub_batch`: Ollama is local,
-  so "network failure" usually means the daemon is down —
-  but the breaker still helps short-circuit during a long
-  outage. Bisection on 400 covers "model doesn't accept
-  multi-image prompt." Existing fallback to sequential
-  `describe_frame` is preserved as a last resort for
-  "model returned garbled prose the parser can't extract" —
-  the layered pipeline doesn't catch that case.
+### Backend (`api/routes/analysis.py`)
 
-The breaker module is process-wide, so a 429 storm on
-OpenAI will pause any other provider's calls too. That's by
-design — operators run one active provider at a time, and
-during cross-provider experimentation, fail-fast is what we
-want.
+`POST /api/analysis/files/download-bundle` (OPERATOR+):
 
-### Files
+- `BundleDownloadRequest` Pydantic body with `file_ids: list[str]`
+  (1-500 entries, `min_length`/`max_length` enforced) and optional
+  `bundle_name: str` (max 120 chars; sanitized for filename safety).
+- Pre-flight: each id is resolved via the existing
+  `_lookup_source_path` helper; missing/unsafe ids are silently
+  skipped (mirrors the log-management bundle pattern). Total
+  uncompressed bytes tallied as we go.
+- **Hard cap of ~2 GiB uncompressed** total. Above that, returns
+  HTTP 413 with a "split into smaller batches" message. The 500-
+  file ceiling is the Pydantic max; the byte ceiling fires
+  whichever comes first.
+- **Already-compressed extensions** (`_ALREADY_COMPRESSED_EXTS`:
+  JPEG family, PNG, GIF, WebP, AVIF, MP3/M4A/AAC/OGG/Opus/FLAC,
+  MP4/MOV/MKV/AVI/WMV/WebM, ZIP/GZ/7Z/RAR, DOCX/XLSX/PPTX/ODT/
+  ODS/ODP/EPUB, PDF) get `ZIP_STORED` so we don't burn CPU
+  re-compressing entropy-saturated bytes. Other formats use
+  `ZIP_DEFLATED`.
+- **Duplicate arcname disambiguation**: two files with the same
+  basename get `_1`, `_2` suffixes inside the ZIP so nothing gets
+  silently overwritten.
+- **Partial-bundle resilience**: per-file `OSError` during
+  `zipfile.write()` is logged + skipped, not 500'd. Operator
+  gets a partial bundle with the included/skipped counts in
+  response headers (`X-MarkFlow-Bundle-Files-Included`,
+  `X-MarkFlow-Bundle-Files-Skipped`).
+- 404 only if EVERY id was missing/unsafe.
 
-- `core/version.py` — bump to 0.31.2
-- `core/vision_adapter.py` — `_batch_openai`, `_batch_gemini`,
-  `_batch_ollama` rewritten + new `_<provider>_sub_batch`
-  helpers (~600 LOC of additions). The shared helpers
-  (`_parse_retry_after`, `_backoff_delay`, `_safe_body`,
-  `_RETRYABLE_STATUS_CODES`, the `_BACKOFF_*` constants) and
-  the circuit_breaker module are unchanged — they were
-  already provider-agnostic.
-- `CLAUDE.md`, `docs/version-history.md`,
-  `docs/help/whats-new.md`, `docs/help/llm-providers.md`
+### Frontend (`static/batch-management.html`)
 
-No DB migration. No new dependencies. No new scheduler jobs.
-The frontend operator banner needs no changes — the
-`/api/analysis/circuit-breaker` endpoint was already
-provider-agnostic.
-
----
-
-## v0.31.1 — `.7z` viewer safety controls + system-resource snapshot
-
-**`.7z` viewer safety controls + system-resource snapshot —
-operator-tunable byte cap on `.7z` log search, host CPU/RAM/load
-panel right next to the cap, and a live spinner + ticking elapsed
-time on the log viewer while a search is in flight.**
-
-The v0.31.0 release made `.7z` archives readable in the log
-viewer's history search via a `7z e -so` subprocess wrapper, with
-a hardcoded 200 MB per-reader byte cap as headless-safety
-defense. v0.31.1 surfaces that cap to operators (so they can size
-it for their hardware), shows them what hardware they're actually
-running on, and gives them a visible "yes, work is happening"
-signal during the multi-second searches a `.7z` archive can
-produce.
-
-### Item A — User-tunable `.7z` byte cap
-
-New DB pref `log_seven_z_max_mb`. Default 200 MB (matches the
-prior hardcoded value), warning threshold 1024 MB (UI shows
-amber), hard backend max 4096 MB (`PUT /api/logs/settings` returns
-400 above). The Log Management Settings card has a new "7z search
-byte cap" input with inline live validation:
-
-- Below 1024 MB → neutral hint with the cap-as-applied summary
-- Above 1024 MB OR above 50% of currently-free RAM → amber warning
-- Above 4096 MB → red "above hard limit" error
-
-`get_seven_z_max_mb()` clamps reads to `[1, SEVEN_Z_HARD_MAX_MB]`
-so a malformed pref can never lift the cap. `_SevenZReader`
-constructor now takes an optional `max_bytes`; the legacy
-`_SEVENZ_DEFAULT_MAX_BYTES` constant remains as the fall-through
-default so any new call site that forgets to pass `max_bytes`
-still gets a safety cap.
-
-### Item B — Host resource snapshot
-
-`get_system_resource_snapshot()` reads `/proc/cpuinfo` (model
-name), `/proc/meminfo` (MemTotal + MemAvailable), and
-`os.getloadavg()`. Best-effort — each field returns None on
-read failure rather than raising, so a malformed `/proc` entry
-doesn't 500 the settings page. Snapshot embeds in the
-`GET /api/logs/settings` response under the `system` key.
-
-The Log Management Settings card now renders a snapshot row right
-below the controls: "Host: <CPU model> (N cores) — X GB total /
-Y GB free — load 1m / 5m / 15m". One-shot read at page load (no
-polling, no scheduler job). A dynamic ETA framework that uses
-24-hour spec polling + a benchmark routine is its own deferred
-follow-up — see v0.31.5 in the roadmap.
-
-### Item C — Live search spinner on the log viewer
-
-`runHistorySearch` now starts a CSS spinner + ticking elapsed
-time when the request leaves the page, ticking every 200 ms.
-Stops on response (or error) before the existing
-`returned · scanned · …` status line takes over. The spinner is
-attached to whichever tab fired the search, not whichever tab is
-currently active — so switching tabs mid-search doesn't strand a
-spinner against the wrong status line.
-
-No protocol change. The search endpoint is still single-blob
-JSON; for true server-pushed progress events the deferred
-v0.31.5 ETA framework is the natural place.
+- `DOWNLOAD_ALL_CAP` raised from 100 to 500 to match the server.
+- The sequential synthetic-anchor loop replaced by a single
+  `fetch()` to `/api/analysis/files/download-bundle`. Response
+  blob is turned into an object URL and triggered as a download.
+  Filename comes from the response's `Content-Disposition`.
+- **Single-file fast path**: if exactly 1 file is selected,
+  skip the bundle endpoint entirely and use the existing direct
+  `/download` URL — faster, no zipping. Confirm dialog also
+  drops the "ZIP bundle" copy.
+- Toast surfaces `included` + `skipped` counts from the response
+  headers so operators see at a glance whether all selected
+  files made it in.
+- Errors (4xx/5xx, network failures) surface via `showError()`
+  with the response body for context (e.g. the 413 "split into
+  smaller batches" message).
 
 ### Files
 
-- `core/version.py` — bump to 0.31.1
-- `core/log_manager.py` — `PREF_SEVEN_Z_MAX_MB` constant +
-  `get_seven_z_max_mb()` + `get_system_resource_snapshot()` +
-  augmented `get_settings()` / `set_settings()`
-- `api/routes/log_management.py` — `seven_z_max_mb` field on
-  `SettingsUpdate`; `_SevenZReader.__init__` accepts optional
-  `max_bytes`; `_do_search` reads pref + passes it through;
-  truncation warning text uses the actual cap MB
-- `static/log-management.html` — Settings card 7z cap input +
-  inline warn/error/ok hint, system snapshot row, JS validation
-- `static/log-viewer.html` — CSS spinner, in-flight elapsed-time
-  ticker, spinner ownership tied to the requesting tab
+- `core/version.py` — bump to 0.31.4
+- `api/routes/analysis.py` — `BundleDownloadRequest`,
+  `download_files_bundle`, `_BUNDLE_MAX_FILES`,
+  `_BUNDLE_MAX_UNCOMPRESSED_BYTES`, `_ALREADY_COMPRESSED_EXTS`
+- `static/batch-management.html` — bundle fetch path replaces
+  the synthetic-anchor loop; cap raised to 500
+- `.dockerignore` — exclude `backups/`, `hashcat-queue/`,
+  `.claude/` to keep the build context bounded
 - `CLAUDE.md`, `docs/version-history.md`,
-  `docs/help/whats-new.md`, `docs/help/admin-tools.md`
+  `docs/help/whats-new.md`
 
 No DB migration. No new dependencies. No new scheduler jobs.
 
 ---
 
-## v0.31.0 — Five-item deferred-items bundle
+### v0.31.3 (carried-forward summary) — Preview format expansion
 
-**Five-item bundle release encompassing every deferred item from
-the v0.31.x plan: multi-provider filename interleaving, log-viewer
-time-range UI, bulk re-analyze with delete-and-re-insert
-semantics, multi-log tabbed live view, and log subsystem
-consolidation.**
+Hover preview now covers HEIC / HEIF (modern phone defaults via
+`pillow-heif`), camera RAW formats (.cr2 / .nef / .arw / .dng /
+…via `rawpy`), and SVG (rasterized server-side via `cairosvg`,
+no XSS surface). Full context:
+[`docs/version-history.md`](docs/version-history.md).
 
-### Item 1 — Multi-provider filename interleaving
+### v0.31.2 (carried-forward summary) — Multi-provider 5-layer vision resilience
 
-`_batch_anthropic` got the filename-as-text-block treatment in
-v0.29.8 so Claude could ground descriptions in recognizable
-filenames (e.g. `Benaroya_Hall_Seattle.jpg` → "Benaroya Hall, a
-concert venue in Seattle"). Same pattern now ported to:
+OpenAI, Gemini, and Ollama vision batch paths now get the same
+v0.29.9 Anthropic resilience pipeline: preflight validation,
+exponential backoff with `Retry-After`, per-image bisection on
+400, circuit breaker, operator banner. The breaker module is
+process-wide so a 429 storm on one provider pauses any other
+provider's calls — by design (one active provider at a time;
+fail-fast on storms). Full context:
+[`docs/version-history.md`](docs/version-history.md).
 
-- **OpenAI** (`_batch_openai`): inserts a `{"type": "text", "text":
-  "Image N filename: ..."}` block before each `image_url` block,
-  prompt at the end. Same shape as Anthropic.
-- **Gemini** (`_batch_gemini`): inserts a `{"text": "..."}` part
-  before each `inline_data` part, prompt at the end.
-- **Ollama** (`_batch_ollama`): Ollama's `/api/generate` takes a
-  single prompt + images array (no per-image text blocks), so the
-  filename list is prepended to the prompt
-  (`"Files (in order): 1. foo.jpg, 2. bar.png\n\n<prompt>"`).
+### v0.31.1 (carried-forward summary) — `.7z` viewer safety controls + system snapshot
 
-### Item 2 — Time-range UI in log viewer historical search
+Three polish items on top of v0.31.0's `.7z` viewability:
+operator-tunable `.7z` byte cap (DB pref, 200 MB default, warn
+above 1024 MB / above 50% free RAM, hard max 4096 MB), Log
+Management Settings card host snapshot row (CPU model + cores,
+RAM total/free, load 1m/5m/15m), and a live spinner + ticking
+elapsed time on the log viewer while a search is in flight.
+Full context: [`docs/version-history.md`](docs/version-history.md).
 
-Backend has supported `from_iso` / `to_iso` query params on
-`/api/logs/search` since v0.30.1. UI now wires them. New row
-below the main controls:
-- `<input type="datetime-local">` for From + To, dark-themed
-- Preset chips: Last hour / Last 24h / Last 7d / Clear range
-- Visible only in history mode (live tail mode hides the row)
-- Local-time inputs converted to UTC ISO before being sent
+### v0.31.0 (carried-forward summary) — Five-item deferred-items bundle
 
-### Item 3 — Bulk re-analyze with delete-and-re-insert semantics
 
-The v0.30.4 per-row endpoint did UPDATE-in-place — preserved id,
-enqueued_at, and other identity fields. Per user requirement
-("make sure that the files that get reanalyzed are deleted from
-the database and resubmitted for entry into the database"), v0.31.0
-switches BOTH the per-row and the new bulk endpoint to
-**DELETE + re-INSERT via `enqueue_for_analysis`**. Result: every
-re-analyzed row gets a fresh id / enqueued_at / retry_count and
-all output columns NULL — no carry-over of any prior state.
-
-- **Per-row endpoint** (`POST /api/analysis/queue/{id}/reanalyze`):
-  selects identity columns, deletes the row, re-enqueues via the
-  canonical path. Returns `{old_entry_id, new_entry_id}`.
-- **Bulk endpoint** (`POST /api/analysis/queue/reanalyze-bulk`):
-  Pydantic body with `analyzed_before_iso`, `analyzed_after_iso`,
-  `provider_id`, `model`, `status` (defaults `completed`),
-  `dry_run` (defaults `true`). Hard cap of 10,000 rows per call;
-  400 if exceeded. Refuses empty filter sets (no "match every row").
-- **Filters helper** (`GET /api/analysis/queue/reanalyze-filters`):
-  returns distinct provider_id + model values to populate modal
-  dropdowns from the current DB state.
-- **Frontend modal** on Batch Management with date pickers,
-  provider/model dropdowns pre-populated from the API,
-  status dropdown, Preview button → calls `dry_run=true` to show
-  matched count + sample paths, Run button confirms with explicit
-  "deletes the matching rows and re-submits them as fresh entries"
-  language and exact row count.
-- **Per-row Re-analyze button copy** updated to mention DELETE +
-  re-INSERT explicitly.
-
-### Item 4 — Multi-log tabbed live view
-
-Log viewer became a multi-tab inspector. Single global EventSource
-+ filter state replaced with a `LogTab` class — each tab owns its
-own SSE connection, history offset, body DOM, and per-tab filter
-state (level chips, search query/regex, time range, mode).
-
-- Tab strip below the main controls. Each tab shows a
-  green/red/grey dot indicating SSE connection state, the file
-  name, and a × close button.
-- "+ Add tab" button at the end opens a popover listing all
-  available logs (with size + status pill); already-open logs are
-  greyed out.
-- Background tabs keep their EventSource open so events aren't
-  missed; their bodies are capped at 1000 lines (oldest evicted
-  from the head) so memory stays bounded.
-- Switching the active tab syncs the top-bar controls (mode,
-  level chips, search, time range) to that tab's stored state.
-- Open tab list + active tab + per-tab filter state persist to
-  `localStorage` so refresh restores the layout.
-- Falls back to a single auto-opened tab on the most-recent log
-  when no localStorage data + no `?file=` query param.
-
-### Item 5 — Log subsystem consolidation
-
-`core/log_archiver.py` (v0.12.2, ~150 LOC) deleted. Its scheduler
-job replaced by a thin wrapper (`_log_manage_cycle`) that calls
-`core.log_manager.compress_rotated_logs()` +
-`core.log_manager.apply_retention()`. Net effect: the same 6-hour
-cron cadence, but the Settings page preferences (compression
-format, retention days) now actually govern the automated cycle.
-Previously the cron ignored those prefs and used hardcoded gz +
-90-day defaults — only manual "Compress Rotated Now" / "Apply
-Retention Now" admin clicks honored them, surprising operators.
-
-- The legacy `archive/` subdir is left in place for read access
-  to historical files; the inventory endpoint already discovered
-  it (added in v0.30.1) and continues to.
-- `get_archive_stats()` reborn in `log_manager.py` (now reads
-  retention from DB pref, not env var) so the
-  `/api/logs/archives/stats` endpoint keeps working.
-- 18-job scheduler count unchanged.
-
-### Files
-
-- `core/version.py` — bump to 0.31.0
-- `core/vision_adapter.py` — filename interleaving in
-  `_batch_openai`, `_batch_gemini`, `_batch_ollama`
-- `core/db/analysis.py` — `BULK_REANALYZE_CAP`,
-  `find_rows_for_bulk_reanalyze`, `delete_rows_by_ids`,
-  `list_distinct_provider_models`
-- `api/routes/analysis.py` — per-row `reanalyze_queue_entry`
-  switched to delete+re-insert; new `reanalyze_bulk` endpoint
-  + `BulkReanalyzeRequest` Pydantic model + filters helper
-- `static/log-viewer.html` — multi-tab refactor (LogTab class,
-  per-tab state, +/× tab UI, localStorage); time-range row
-- `static/batch-management.html` — Bulk re-analyze top-bar button
-  + modal HTML/CSS/JS; per-row button copy update
-- `core/scheduler.py` — `_log_manage_cycle` replaces
-  `archive_rotated_logs` job
-- `core/log_archiver.py` — DELETED
-- `core/log_manager.py` — added `get_archive_stats()` shim;
-  comment cleanup re: deleted module
-- `api/routes/logs.py` — `/archives/stats` re-imports from
-  `log_manager` (now async)
-- `CLAUDE.md`, `docs/version-history.md`, `docs/gotchas.md`,
-  `docs/key-files.md`
-
-No DB migration. No new dependencies.
+Five-item bundle release: multi-provider filename interleaving
+in vision_adapter.py (OpenAI/Gemini/Ollama, mirroring v0.29.8
+Anthropic), time-range UI on the log viewer history search,
+bulk re-analyze with DELETE + re-INSERT semantics, multi-log
+tabbed live view (LogTab class refactor), and log subsystem
+consolidation (deleted core/log_archiver.py; scheduler now
+calls core/log_manager). Plus .7z archives readable in-place
+via _SevenZReader subprocess wrapper with three-layer headless
+safety (500k-line / 60s wall-clock / 200 MB byte caps). Full
+context: [`docs/version-history.md`](docs/version-history.md).
 
 ---
+
 
 ### v0.30.4 (carried-forward summary) — per-row Re-analyze
 

@@ -14,3 +14,6 @@ data/
 .env.*
 input/
 tests/fixtures/
+backups/
+hashcat-queue/
+.claude/
