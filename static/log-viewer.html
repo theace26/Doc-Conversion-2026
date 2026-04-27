@@ -171,6 +171,7 @@
       <button class="chip preset" data-preset="7d" type="button">Last 7d</button>
       <button class="chip preset" data-preset="clear" type="button">Clear range</button>
       <span class="lv-status" id="lv-time-hint"></span>
+      <span class="lv-status" id="lv-eta-hint" style="margin-left:1rem;"></span>
     </div>
     <div id="lv-tabs" class="lv-tabs"></div>
     <div id="lv-bodies" class="lv-bodies"></div>
@@ -205,6 +206,7 @@
       const loadMoreBtn = document.getElementById('lv-load-more');
       const statusEl = document.getElementById('lv-status');
       const spinnerEl = document.getElementById('lv-spinner');
+      const etaHintEl = document.getElementById('lv-eta-hint');
       const tabsBar = document.getElementById('lv-tabs');
 
       // v0.31.1: in-flight search spinner. The history-search request
@@ -315,13 +317,37 @@
         updateTimeHint();
       }
 
-      function updateTimeHint() {
-        const r = getTimeRange();
-        if (!r.from_iso && !r.to_iso) { timeHint.textContent = 'No time range'; return; }
-        const parts = [];
-        if (r.from_iso) parts.push('from ' + r.from_iso);
-        if (r.to_iso) parts.push('to ' + r.to_iso);
-        timeHint.textContent = parts.join(' ');
+      // v0.31.5: ETA hint above the search controls. Async, swallows
+      // failures — if the estimator hasn't seen enough observations
+      // (or the network blips), we just clear the hint.
+      async function updateEtaHint(name) {
+        if (!name || !etaHintEl) return;
+        try {
+          // 100k lines is the line cap; the estimator scales linearly.
+          const data = await API.get(
+            '/api/logs/eta?name=' + encodeURIComponent(name) +
+            '&estimated_scope=100000'
+          );
+          const e = data && data.estimate;
+          if (!e) {
+            etaHintEl.textContent = '';
+            return;
+          }
+          const sec = e.estimate_seconds;
+          const conf = e.confidence || 'low';
+          const word = (conf === 'low') ? 'estimated ~'
+                     : (conf === 'medium') ? 'estimated '
+                     : 'expected ';
+          let display;
+          if (sec < 1) display = '<1s';
+          else if (sec < 60) display = sec.toFixed(1) + 's';
+          else display = (sec / 60).toFixed(1) + ' min';
+          etaHintEl.textContent =
+            'ETA: ' + word + display +
+            ' (' + e.observations + ' prior obs)';
+        } catch (e) {
+          etaHintEl.textContent = '';
+        }
       }
 
       function clientMatches(parsed, raw, levels, qRegex, qLower) {
@@ -541,6 +567,11 @@
           // (so we don't leave a stale spinner behind).
           const startedSpinner = (this === activeTab);
           if (startedSpinner) startSearchSpinner(this.name);
+          // v0.31.5: ETA hint, fire-and-forget. If the estimator has
+          // enough observations for this format bucket, the hint
+          // populates beside the time-range hint. Latency-tolerant —
+          // the search itself doesn't wait on this.
+          if (this === activeTab) updateEtaHint(this.name);
           try {
             const data = await API.get('/api/logs/search?' + params.toString());
             if (startedSpinner) stopSearchSpinner();

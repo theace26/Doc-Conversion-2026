@@ -350,6 +350,41 @@ plus a status line indicator. You'll see:
   this, download the archive and use a desktop tool for
   full-file work.
 
+##### ETA estimates (new in v0.31.5)
+
+Above the search controls in history mode, you'll see an ETA
+hint like **"ETA: estimated 1.4s (12 prior obs)"** once the
+estimator has seen 3+ searches against this archive's format
+bucket (gzip vs 7z vs plain `.log` — they decompress at very
+different speeds, so they're tracked separately).
+
+The estimate is based on **actual throughput observed on your
+hardware** during recent searches, not a static benchmark. It
+uses an exponentially-weighted moving average — the most
+recent 30% weighting on each new observation, so the estimator
+adapts quickly to host changes (RAM upgrade, SSD migration,
+container under heavy bulk-job load, etc.) over the next
+handful of searches.
+
+Confidence tiers:
+
+| Observations | Phrasing | Meaning |
+|--------------|----------|---------|
+| `<3` | hint absent | not enough data yet |
+| `3-9` | "estimated ~Xs" | low confidence (squiggle) |
+| `10-49` | "estimated Xs" | medium confidence |
+| `50+` | "expected Xs" | high confidence |
+
+Searches that bail at the line cap or wall-clock cap are NOT
+counted toward the estimate — those ran out of budget before
+finishing the work they would have done, and would skew the
+math toward "infinitely slow."
+
+For deeper diagnostics: `GET /api/logs/eta/stats` returns the
+observation count + EWMA throughput per operation key. The same
+endpoint accepts `?op=log_search_gz` (or another op key) to drop
+in a trailing-20-entry history sample for that bucket.
+
 #### Tabbed view (new in v0.31.0)
 
 The viewer now supports watching **multiple log streams

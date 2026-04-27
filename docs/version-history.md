@@ -4,6 +4,271 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.31.5 — Preview format expansion + dynamic ETA framework (2026-04-27)
+
+Two-item bundle release that closes out the v0.31.x roadmap.
+Folds in both the **v0.31.3** roadmap item (preview format
+expansion: HEIC, RAW, SVG) and the **v0.31.5** roadmap item
+(system spec polling + dynamic ETA framework) into a single
+release.
+
+### Numbering note
+
+The roadmap (`docs/superpowers/plans/2026-04-25-v0.31.x-roadmap.md`)
+suggested numbering preview formats as v0.31.3 and the ETA
+framework as v0.31.5 as separate releases. Since v0.31.4 (the
+server-side ZIP bundle) shipped first chronologically, going
+back to v0.31.3 would have been a regression in
+`core/version.py`. We bundled both remaining items into v0.31.5
+to keep version numbers monotonic.
+
+### Item 1 — Preview format expansion (was roadmap v0.31.3)
+
+The hover preview on Batch Management already covered 37
+extensions across browser-native and PIL-thumbnailed buckets
+(v0.29.7-v0.29.8). v0.31.5 adds three more buckets:
+
+#### HEIC / HEIF / HEICS / HEIFS
+
+Modern phone-camera default (iOS, recent Android). The pip dep
+`pillow-heif` was already in `requirements.txt` from a prior
+release but never wired up. v0.31.5 actually USES it:
+
+```python
+try:
+    import pillow_heif as _pillow_heif
+    _pillow_heif.register_heif_opener()
+except Exception as _exc:
+    log.warning("preview.pillow_heif_unavailable", error=...)
+```
+
+Once the opener is registered at module load, HEIC files flow
+through the same `_generate_thumbnail_sync` PIL path as TIFF /
+PSD / etc. — no new code path. The container's apt packages
+already include `libheif1` runtime (pillow-heif's wheels bundle
+it on Debian Trixie / x86_64).
+
+#### RAW camera formats
+
+~30 extensions across the major camera vendors:
+
+- **Canon**: `.cr2`, `.cr3`, `.crw`
+- **Nikon**: `.nef`, `.nrw`
+- **Sony**: `.arw`, `.srf`, `.sr2`
+- **Fuji / Olympus / Panasonic / Pentax / Samsung**:
+  `.raf`, `.orf`, `.rw2`, `.pef`, `.srw`
+- **Adobe Digital Negative** (cross-vendor open standard):
+  `.dng`
+- **Kodak / Sigma / Hasselblad / Leica / Mamiya / Phase One /
+  Epson**: `.kdc`, `.dcr`, `.x3f`, `.3fr`, `.fff`, `.mef`,
+  `.mos`, `.raw`, `.rwl`, `.erf`
+
+Decoded via `rawpy` (LibRaw bindings). Wheels ship LibRaw, so
+no apt deps needed. New helper
+`_generate_raw_thumbnail_sync(path)`:
+
+1. Try `raw.extract_thumb()` — most RAW files carry an
+   embedded JPEG preview (160-1600 px on the longest edge).
+   Returns the JPEG bytes wrapped in a PIL Image, thumbnailed
+   to `_THUMB_MAX_PX` (400 px).
+2. If extraction returns a bitmap thumb instead of a JPEG
+   thumb, the `numpy` array becomes a PIL Image and goes
+   through the same thumbnail path.
+3. If extraction fails (older RAW format with no embedded
+   preview), fall back to `raw.postprocess(half_size=True)`
+   — half-size demosaic skips the bayer interpolation cost,
+   which is ~50× faster than full resolution. Still slower
+   than embedded-JPEG extraction, but acceptable for a
+   preview hover.
+
+#### SVG / SVGZ
+
+Rasterized server-side via `cairosvg` (uses the `libcairo2`
+already in the container via WeasyPrint — no new apt
+dependency). New helper `_generate_svg_thumbnail_sync(path)`:
+
+```python
+png_bytes = cairosvg.svg2png(
+    url=str(path),
+    output_width=_THUMB_MAX_PX,
+)
+# … then PIL.Image.open(BytesIO(png_bytes)) → JPEG output
+```
+
+**Security note**: the response body is raster pixels, NOT
+the original SVG document. Any embedded `<script>` / event
+handlers / external `<image>` references are inert by the
+time bytes reach the browser. We never serve the SVG verbatim
+through the preview endpoint, so XSS surface is zero. The
+output dimensions are also capped at 400 px regardless of the
+SVG's intrinsic size, which prevents "billion-laughs" style
+expansion attacks from blowing up the thumbnail buffer.
+
+#### Frontend
+
+`_IMG_EXT` set in `static/batch-management.html` is updated to
+match the new server-side coverage so hover previews fire on
+HEIC / RAW / SVG files.
+
+### Item 2 — Dynamic ETA framework (was roadmap v0.31.5)
+
+New module `core/eta_estimator.py` (~250 LOC). Records
+observations of the form `(operation, scope_size, wall_seconds)`
+and answers "given an upcoming operation of size N, how long
+is it likely to take?" using an exponentially-weighted moving
+average (EWMA, α=0.3) of throughput.
+
+#### Why EWMA over a fixed-window average
+
+Throughput is heavily influenced by recent disk-cache state, so
+the most recent observations are the most predictive. EWMA's
+α=0.3 weights the newest reading at 30% and the prior trailing
+average at 70% — enough smoothing to swallow outliers, enough
+recency to react to drift (HDD cache warm vs cold, container
+under heavy bulk load vs idle).
+
+#### Storage
+
+One preference row per operation key, named
+`eta_observations__<sanitized op>`. JSON-encoded blob per row:
+
+```json
+{
+  "count": 47,
+  "throughput_ewma": 8523.4,
+  "last_throughput": 9120.1,
+  "last_observed_at": 1745740432.5,
+  "history": [{"scope_size": 50000, "wall_seconds": 5.8, ...}, ...]
+}
+```
+
+The history array is bounded at 200 entries — enough for the
+diagnostic tail-20 view, capped to keep the row at ~10 KB.
+
+#### Cold-start gate
+
+`estimate()` returns `None` until `_MIN_OBSERVATIONS = 3`.
+Below that, the UI shows nothing rather than a confidently
+wrong prediction. After 3 obs, the estimate has confidence
+"low"; the UI says "estimated ~X" with the squiggle. After
+10 obs, "medium" — drops the squiggle. After 50, "high" —
+phrasing softens to "expected X."
+
+#### System-spec snapshot
+
+New scheduler job `eta_system_spec_snapshot` (job count 18→19),
+runs every 24 hours via `IntervalTrigger(hours=24)`. Captures
+host CPU / RAM / load via the existing
+`core.log_manager.get_system_resource_snapshot` helper (which
+reads `/proc/cpuinfo`, `/proc/meminfo`, `os.getloadavg()`),
+appends to `preferences['eta_system_spec_history']`, capped at
+90 entries (~3 months of daily snapshots). Best-effort: a
+`/proc` read failure on one field doesn't abort the snapshot,
+just leaves the field as `None`.
+
+The framework doesn't currently USE the spec history for ETA
+calculation — it's recorded so future improvements can detect
+hardware drift (e.g. fall back to a fresh EWMA if RAM doubled
+between snapshots, suggesting a hardware upgrade).
+
+#### First wired-up operation: log-history search
+
+`/api/logs/search` now records observations bucketed by archive
+format:
+
+- `log_search_plain` — uncompressed `.log`
+- `log_search_gz` — `.gz` / `.tgz` archives
+- `log_search_7z` — `.7z` archives (subprocess decompression
+  is much slower per byte, separate bucket avoids polluting
+  gzip forecasts)
+
+Observations from cap-truncated searches (line cap or
+wall-clock cap fired) are NOT recorded — those would skew the
+EWMA toward "infinitely slow" because the wall-time covered
+fewer scanned lines than the search would have completed
+naturally.
+
+#### UI surface
+
+Log viewer's history-mode controls row gains a new ETA hint
+span. `updateEtaHint(name)` fires fire-and-forget at the start
+of every history search:
+
+```js
+const data = await API.get(
+  '/api/logs/eta?name=' + encodeURIComponent(name) +
+  '&estimated_scope=100000'
+);
+```
+
+Reads "ETA: estimated 1.4s (12 prior obs)" or similar; absent
+if the estimator hasn't seen enough observations yet for this
+file's format bucket.
+
+#### Headless safety
+
+Every method in the estimator is best-effort. Misshaped JSON
+in the preference, DB unavailable, math errors all return
+`None` rather than raising. Callers should treat ETA as
+advisory text, never gate logic on it. The ETA hint update on
+the frontend swallows network failures — if the endpoint blips
+the hint just clears.
+
+#### Diagnostic endpoints
+
+- `GET /api/logs/eta?name=<file>&estimated_scope=N` (ADMIN+) —
+  returns `{op, scope, estimate}`. The UI hint hits this.
+- `GET /api/logs/eta/stats?op=<op>` (ADMIN+) — returns recorded
+  observation counts + EWMA per known operation key, with a
+  trailing-20-entry history sample when an `op` is named.
+
+### Files
+
+- `core/version.py` — bump to 0.31.5
+- `core/eta_estimator.py` — NEW (~250 LOC)
+- `core/scheduler.py` — registers `eta_system_spec_snapshot`
+  daily job (count 18→19)
+- `api/routes/log_management.py` — search endpoint records
+  observations on success; new `/eta` and `/eta/stats`
+  endpoints
+- `api/routes/analysis.py` — preview endpoint dispatches to
+  `_generate_raw_thumbnail_sync` (rawpy) and
+  `_generate_svg_thumbnail_sync` (cairosvg); registers
+  pillow-heif opener at module load; expanded preview
+  extension sets (`_THUMBNAIL_PREVIEW_EXTS` adds HEIC family;
+  new `_RAW_PREVIEW_EXTS` and `_SVG_PREVIEW_EXTS` sets)
+- `requirements.txt` — adds `rawpy`, `cairosvg`
+- `static/batch-management.html` — `_IMG_EXT` adds HEIC / RAW /
+  SVG extensions
+- `static/log-viewer.html` — ETA hint span, `updateEtaHint()`
+  helper fires on each search
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`
+
+No DB migration. Two new pip dependencies (`rawpy`,
+`cairosvg`). One new scheduler job (count 18→19). Lazy imports
+for `rawpy` and `cairosvg` (only loaded when their format is
+actually previewed) so module-load cost is bounded.
+
+### Acceptance
+
+- Hover a `.heic` file on Batch Management → preview thumbnail
+  shows the photo (was 404 / silent fail before).
+- Hover a `.cr2` / `.dng` / etc. → preview shows the embedded
+  JPEG thumb (or half-size demosaic for older formats).
+- Hover an `.svg` → preview shows the rasterized PNG render;
+  inspect the response Content-Type → `image/jpeg` (NOT
+  `image/svg+xml`).
+- Run a few log searches over a `.gz` archive: the ETA hint
+  appears once 3+ observations are on file, reads "estimated
+  Xs (3 prior obs)" or higher count.
+- Inspect `/api/logs/eta/stats` → returns the observation
+  counts + EWMA per operation key.
+- Wait 24 h after rebuild: `preferences['eta_system_spec_history']`
+  has at least one entry.
+
+---
+
 ## v0.31.4 — Server-side ZIP bulk download on Batch Management (2026-04-27)
 
 **Replaces the v0.29.6 sequential per-file synthetic-anchor download

@@ -91,102 +91,133 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.31.4
+## Current Version — v0.31.5
 
-**Server-side ZIP bulk download on Batch Management — replaces
-the v0.29.6 sequential per-file synthetic-anchor loop with a
-single streaming ZIP from a new `POST /api/analysis/files/download-bundle`
-endpoint. One download item in the browser instead of N. Caps
-raised from 100 to 500 files; server enforces 500 files OR ~2 GiB
-uncompressed (whichever first).**
+**Two-item bundle: preview format expansion (HEIC/HEIF, RAW
+camera, SVG) AND a dynamic ETA framework that estimates how
+long log searches will take based on observed throughput on
+the host's actual hardware. Folds in both the v0.31.3
+"preview format expansion" roadmap item and the v0.31.5
+"system spec polling + dynamic ETA framework" item.**
 
-### Why this matters
+### Item 1 — Preview format expansion (was roadmap v0.31.3)
 
-The v0.29.6 multi-file download did a JS for-loop of synthetic
-`<a download>` clicks with a 120 ms stagger. Browsers prompt
-once for "allow multiple downloads" then dump N items into the
-download manager. Above 100 files the existing UI refused the
-request entirely, advising the operator to split. Operators
-cherry-picking ~300 files for an offline review session had to
-do it in three rounds.
+The hover preview on Batch Management already covered 37
+extensions. v0.31.5 adds three more buckets:
 
-v0.31.4 replaces the loop with one POST. The server packages
-the files into a ZIP in a worker thread (`asyncio.to_thread`),
-streams the bytes back, and the browser sees a single
-`markflow-files-<TS>.zip` download.
+- **HEIC / HEIF / HEICS / HEIFS** — modern phone-camera
+  default. `pillow-heif` was already in `requirements.txt`;
+  v0.31.5 actually USES it. The opener registers at module
+  load, so HEIC files flow through the same PIL thumbnail
+  path as TIFF / PSD.
+- **RAW camera formats** (~30 extensions across Canon, Nikon,
+  Sony, Fuji, Olympus, Panasonic, Pentax, Samsung, Adobe DNG,
+  Kodak, Sigma, Hasselblad, Leica, Mamiya, Phase One, Epson)
+  — decoded via `rawpy`. New helper extracts the embedded
+  JPEG preview when available (~50× faster than full
+  demosaicing); falls back to half-size demosaic for older
+  formats.
+- **SVG / SVGZ** — rasterized server-side via `cairosvg`
+  (uses `libcairo2` already in the container via WeasyPrint).
+  **Security note**: response body is raster pixels, not the
+  SVG document, so embedded `<script>` / event handlers /
+  external `<image>` refs are inert by the time bytes reach
+  the browser.
 
-### Backend (`api/routes/analysis.py`)
+The frontend `_IMG_EXT` set is updated to match.
 
-`POST /api/analysis/files/download-bundle` (OPERATOR+):
+### Item 2 — Dynamic ETA framework (was roadmap v0.31.5)
 
-- `BundleDownloadRequest` Pydantic body with `file_ids: list[str]`
-  (1-500 entries, `min_length`/`max_length` enforced) and optional
-  `bundle_name: str` (max 120 chars; sanitized for filename safety).
-- Pre-flight: each id is resolved via the existing
-  `_lookup_source_path` helper; missing/unsafe ids are silently
-  skipped (mirrors the log-management bundle pattern). Total
-  uncompressed bytes tallied as we go.
-- **Hard cap of ~2 GiB uncompressed** total. Above that, returns
-  HTTP 413 with a "split into smaller batches" message. The 500-
-  file ceiling is the Pydantic max; the byte ceiling fires
-  whichever comes first.
-- **Already-compressed extensions** (`_ALREADY_COMPRESSED_EXTS`:
-  JPEG family, PNG, GIF, WebP, AVIF, MP3/M4A/AAC/OGG/Opus/FLAC,
-  MP4/MOV/MKV/AVI/WMV/WebM, ZIP/GZ/7Z/RAR, DOCX/XLSX/PPTX/ODT/
-  ODS/ODP/EPUB, PDF) get `ZIP_STORED` so we don't burn CPU
-  re-compressing entropy-saturated bytes. Other formats use
-  `ZIP_DEFLATED`.
-- **Duplicate arcname disambiguation**: two files with the same
-  basename get `_1`, `_2` suffixes inside the ZIP so nothing gets
-  silently overwritten.
-- **Partial-bundle resilience**: per-file `OSError` during
-  `zipfile.write()` is logged + skipped, not 500'd. Operator
-  gets a partial bundle with the included/skipped counts in
-  response headers (`X-MarkFlow-Bundle-Files-Included`,
-  `X-MarkFlow-Bundle-Files-Skipped`).
-- 404 only if EVERY id was missing/unsafe.
+New module `core/eta_estimator.py` (~250 LOC). Records
+observations of the form `(operation, scope_size, wall_seconds)`
+and answers "given an upcoming operation of size N, how long
+is it likely to take?" using an EWMA (α=0.3) of throughput.
 
-### Frontend (`static/batch-management.html`)
+**Storage:** one preference row per operation key
+(`eta_observations__<op>`), JSON-encoded, with the EWMA, a
+trailing-200 history (for diagnostics), and the
+last-observed-at timestamp. Bounded so the row stays small.
 
-- `DOWNLOAD_ALL_CAP` raised from 100 to 500 to match the server.
-- The sequential synthetic-anchor loop replaced by a single
-  `fetch()` to `/api/analysis/files/download-bundle`. Response
-  blob is turned into an object URL and triggered as a download.
-  Filename comes from the response's `Content-Disposition`.
-- **Single-file fast path**: if exactly 1 file is selected,
-  skip the bundle endpoint entirely and use the existing direct
-  `/download` URL — faster, no zipping. Confirm dialog also
-  drops the "ZIP bundle" copy.
-- Toast surfaces `included` + `skipped` counts from the response
-  headers so operators see at a glance whether all selected
-  files made it in.
-- Errors (4xx/5xx, network failures) surface via `showError()`
-  with the response body for context (e.g. the 413 "split into
-  smaller batches" message).
+**Cold-start gate:** `estimate()` returns `None` until 3
+observations have been recorded for that operation. Below
+that, the UI shows nothing rather than a wrong prediction.
+
+**Confidence tiers** — `<10` low, `10-50` medium, `50+` high.
+The UI softens phrasing accordingly ("estimated ~Xs" vs
+"estimated Xs" vs "expected Xs").
+
+**System-spec snapshot:** new daily scheduler job
+(`eta_system_spec_snapshot`, count 18→19) captures host CPU /
+RAM / load to `preferences['eta_system_spec_history']`
+(capped at 90 entries = ~3 months). Gives the framework a
+record of hardware drift.
+
+**First wired operation:** log-history search. Search records
+observations bucketed by archive format (`log_search_plain`,
+`log_search_gz`, `log_search_7z`) so cold-vs-warm cache and
+decompression overhead don't pollute each other's forecasts.
+Cap-truncated searches are NOT recorded (would skew EWMA
+toward "infinitely slow").
+
+**UI surface:** new ETA hint on the log viewer's history-mode
+controls row, populated by a fire-and-forget call to
+`GET /api/logs/eta?name=<file>&estimated_scope=100000`. Reads
+"ETA: estimated 1.4s (12 prior obs)" or similar; absent if
+no estimate yet.
+
+**Headless safety:** every method is best-effort. Misshaped
+JSON, DB unavailable, math errors all return `None` rather
+than raising.
+
+**New endpoints (ADMIN+):**
+- `GET /api/logs/eta?name=...&estimated_scope=N`
+- `GET /api/logs/eta/stats?op=<op>`
 
 ### Files
 
-- `core/version.py` — bump to 0.31.4
-- `api/routes/analysis.py` — `BundleDownloadRequest`,
-  `download_files_bundle`, `_BUNDLE_MAX_FILES`,
-  `_BUNDLE_MAX_UNCOMPRESSED_BYTES`, `_ALREADY_COMPRESSED_EXTS`
-- `static/batch-management.html` — bundle fetch path replaces
-  the synthetic-anchor loop; cap raised to 500
-- `.dockerignore` — exclude `backups/`, `hashcat-queue/`,
-  `.claude/` to keep the build context bounded
+- `core/version.py` — bump to 0.31.5
+- `core/eta_estimator.py` — NEW
+- `core/scheduler.py` — `eta_system_spec_snapshot` daily job
+  (job count 18→19)
+- `api/routes/log_management.py` — search records
+  observations + new `/eta` and `/eta/stats` endpoints
+- `api/routes/analysis.py` — preview endpoint dispatches to
+  `_generate_raw_thumbnail_sync` (rawpy) and
+  `_generate_svg_thumbnail_sync` (cairosvg); registers
+  pillow-heif opener at module load
+- `requirements.txt` — adds `rawpy`, `cairosvg`
+- `static/batch-management.html` — `_IMG_EXT` adds HEIC / RAW /
+  SVG extensions
+- `static/log-viewer.html` — ETA hint span, `updateEtaHint()`
+  helper fires on each search
 - `CLAUDE.md`, `docs/version-history.md`,
   `docs/help/whats-new.md`
 
-No DB migration. No new dependencies. No new scheduler jobs.
+No DB migration. Two new pip dependencies (`rawpy`,
+`cairosvg`). One new scheduler job. Lazy imports for `rawpy`
+and `cairosvg` (only loaded when their format is actually
+previewed).
+
+### Numbering note
+
+The v0.31.x roadmap suggested numbering preview formats as
+v0.31.3 and the ETA framework as v0.31.5. Since v0.31.4 (the
+server-side ZIP bundle) shipped first chronologically, going
+back to v0.31.3 would have been a regression in
+`core/version.py`. We bundled both remaining items into
+v0.31.5 to keep version numbers monotonic.
 
 ---
 
-### v0.31.3 (carried-forward summary) — Preview format expansion
+### v0.31.4 (carried-forward summary) — Server-side ZIP bulk download
 
-Hover preview now covers HEIC / HEIF (modern phone defaults via
-`pillow-heif`), camera RAW formats (.cr2 / .nef / .arw / .dng /
-…via `rawpy`), and SVG (rasterized server-side via `cairosvg`,
-no XSS surface). Full context:
+Multi-file download on Batch Management now produces a single
+streaming ZIP via `POST /api/analysis/files/download-bundle`
+instead of the v0.29.6 sequential synthetic-anchor loop. Cap
+raised from 100 to 500 files; server enforces 500 files OR
+~2 GiB uncompressed (whichever first). Smart compression
+(`ZIP_STORED` for already-compressed extensions). Single-file
+fast path skips the bundle endpoint entirely. Full context:
 [`docs/version-history.md`](docs/version-history.md).
 
 ### v0.31.2 (carried-forward summary) — Multi-provider 5-layer vision resilience

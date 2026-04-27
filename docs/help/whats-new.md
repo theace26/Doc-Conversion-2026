@@ -6,6 +6,62 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.31.5 — Hover preview now covers HEIC / RAW / SVG, plus log searches show an ETA
+
+### Phone photos and RAW camera files now preview
+
+The hover preview on Batch Management used to cover JPEG, PNG,
+TIFF, PSD, and a few dozen other PIL-readable formats — but
+not the formats most modern cameras and phones produce by
+default:
+
+- **HEIC / HEIF** — the iOS default and many Android phones'
+  high-quality mode. Hover-preview now works on these.
+- **RAW camera files** — `.cr2`, `.cr3`, `.crw`, `.nef`,
+  `.nrw`, `.arw`, `.srf`, `.sr2`, `.raf`, `.orf`, `.rw2`,
+  `.pef`, `.srw`, `.dng`, plus another dozen vendor-specific
+  extensions. We pull the embedded JPEG thumbnail when the
+  RAW file has one (most do, ~50× faster than full
+  decoding); fall back to a fast half-size decode otherwise.
+- **SVG / SVGZ** — vector graphics, rasterized server-side
+  on the way to the browser. The browser sees a JPEG, never
+  the SVG document, so any embedded scripts in the SVG are
+  inert. Operators don't need to worry about XSS in SVG
+  files dropped into the source repo.
+
+### Log searches now show an ETA
+
+The Log Viewer's history-search mode now shows an estimate
+above the search controls: "ETA: estimated 1.4s (12 prior
+obs)" — or "expected 12s" once the estimator has seen 50+
+prior runs on this archive's format bucket (gzip / 7z /
+plain `.log`).
+
+The number is based on actual throughput observed on YOUR
+hardware over recent searches. After a few searches the
+estimator settles in; before then, the hint just doesn't
+appear. If you upgrade the host's RAM or move the data to an
+SSD, the estimate adapts automatically over the next handful
+of searches.
+
+Searches that bail at the line cap (500k lines) or the
+wall-clock cap (60s) are NOT counted toward the estimate —
+those would skew the math toward "infinitely slow" because
+they ran out of budget before finishing the work they would
+have done.
+
+### Behind the scenes
+
+- New scheduler job: every 24 hours we capture a snapshot of
+  the host's CPU model, RAM, and load average. 90 entries
+  retained — a three-month rolling history that future
+  releases can use to detect hardware drift.
+- New diagnostic endpoint: `GET /api/logs/eta/stats` returns
+  observation counts and EWMA throughput per operation key
+  for admin debugging.
+
+---
+
 ## v0.31.4 — One-click bulk download as a single ZIP bundle
 
 The Batch Management page's multi-file download used to fire off

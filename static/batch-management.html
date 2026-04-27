@@ -1589,6 +1589,14 @@
         '.tga', '.icb', '.vda', '.vst',
         '.sgi', '.rgb', '.rgba', '.bw',
         '.pcx', '.dds', '.icns', '.psd',
+        // v0.31.3: HEIC / HEIF (modern phone-camera default, via pillow-heif)
+        '.heic', '.heif', '.heics', '.heifs',
+        // v0.31.3: RAW camera files (via rawpy → PIL)
+        '.cr2', '.cr3', '.crw', '.nef', '.nrw', '.arw', '.srf', '.sr2',
+        '.raf', '.orf', '.rw2', '.pef', '.srw', '.dng',
+        '.kdc', '.dcr', '.x3f', '.3fr', '.fff', '.mef', '.mos', '.raw', '.rwl', '.erf',
+        // v0.31.3: SVG (rasterized server-side via cairosvg, no XSS surface)
+        '.svg', '.svgz',
       ]);
       function isImageExt(p) {
         return _IMG_EXT.has(extOf(p).toLowerCase());

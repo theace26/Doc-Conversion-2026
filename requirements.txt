@@ -20,6 +20,13 @@ pandas
 # Image processing
 Pillow
 pillow-heif
+# v0.31.3: RAW camera files (.cr2 / .nef / .arw / .dng / …). Wheels
+# bundle LibRaw so no apt deps needed at runtime.
+rawpy
+# v0.31.3: SVG → raster PNG for the preview endpoint. Uses libcairo2
+# which is already in the container via weasyprint (no extra apt
+# package needed).
+cairosvg
 
 # PDF export
 weasyprint

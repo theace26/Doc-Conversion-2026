@@ -767,6 +767,23 @@ def start_scheduler() -> None:
         misfire_grace_time=300,
     )
 
+    # v0.31.5: ETA framework system-spec snapshot — daily.
+    # Records a bounded history (last 90 entries) of host CPU /
+    # RAM / load to `preferences['eta_system_spec_history']`. The
+    # ETA estimator uses recent throughput + this spec history to
+    # forecast operation durations on the operator's actual
+    # hardware. Best-effort: failures are logged, never raised.
+    from core.eta_estimator import record_system_spec_snapshot
+    scheduler.add_job(
+        record_system_spec_snapshot,
+        trigger=IntervalTrigger(hours=24),
+        id="eta_system_spec_snapshot",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
     # v0.14.0: Pipeline watchdog — hourly check for disabled state + auto-reset
     scheduler.add_job(
         _pipeline_watchdog,

@@ -758,4 +758,84 @@ async def search_log(
             "file": name,
         }
 
-    return await asyncio.to_thread(_do_search)
+    result = await asyncio.to_thread(_do_search)
+
+    # v0.31.5: feed the ETA estimator. Bucket per-format so cold/warm
+    # cache + decompression overhead don't pollute each other's
+    # forecasts. Skip recording when the search bailed via line/wall
+    # caps (those observations would skew the EWMA toward "infinitely
+    # slow"). Best-effort — failures never propagate.
+    if (
+        not result.get("scan_truncated")
+        and not result.get("wall_truncated")
+        and result.get("scanned_lines", 0) > 0
+        and result.get("wall_seconds", 0) > 0
+    ):
+        lower = path.name.lower()
+        if lower.endswith(".7z"):
+            op = "log_search_7z"
+        elif lower.endswith(".gz") or lower.endswith(".tgz"):
+            op = "log_search_gz"
+        else:
+            op = "log_search_plain"
+        try:
+            from core.eta_estimator import record_observation
+            await record_observation(
+                op,
+                result["scanned_lines"],
+                float(result["wall_seconds"]),
+            )
+        except Exception:  # pragma: no cover — defensive
+            pass
+    return result
+
+
+@router.get("/eta")
+async def get_log_search_eta(
+    name: str,
+    estimated_scope: int = 100_000,
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+) -> dict:
+    """Return an ETA estimate for searching `name` over a scope of
+    `estimated_scope` lines (v0.31.5).
+
+    The UI calls this BEFORE firing a real search to populate the
+    "estimated ~X seconds" hint above the search controls. Returns
+    `null` for `estimate` if the estimator hasn't seen enough
+    observations yet for this archive's format bucket.
+    """
+    if estimated_scope <= 0:
+        raise HTTPException(status_code=400,
+                            detail="estimated_scope must be > 0")
+    try:
+        path = _safe_logs_path(name)
+    except PermissionError:
+        raise HTTPException(status_code=400, detail="invalid filename")
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="log not found")
+    lower = path.name.lower()
+    if lower.endswith(".7z"):
+        op = "log_search_7z"
+    elif lower.endswith(".gz") or lower.endswith(".tgz"):
+        op = "log_search_gz"
+    else:
+        op = "log_search_plain"
+
+    from core.eta_estimator import estimate
+    est = await estimate(op, estimated_scope)
+    return {
+        "op": op,
+        "scope": estimated_scope,
+        "estimate": est,
+    }
+
+
+@router.get("/eta/stats")
+async def get_eta_stats(
+    op: str | None = None,
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+) -> dict:
+    """Diagnostic: list known operation keys + stats. Powers the ETA
+    panel on the Settings page (v0.31.5)."""
+    from core.eta_estimator import stats
+    return await stats(op)
