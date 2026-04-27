@@ -1,18 +1,1146 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MarkFlow — Preview</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-<link rel="stylesheet" href="/static/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>File Preview — MarkFlow</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+  <!-- v0.32.0: marked + dompurify for the office_with_markdown viewer.
+       Same CDN versions as viewer.html so they share the browser cache.
+       All HTML insertion in this page goes through DOMPurify; never
+       raw template strings. -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+  <style>
+    .pv-wrap { display: flex; flex-direction: column; min-height: 100vh; }
+    .pv-toolbar {
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+      padding: 0.85rem 1rem;
+      background: var(--bg-secondary, #1a1a2e);
+      border-bottom: 1px solid var(--border, #2b2b3f);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .pv-breadcrumb {
+      font-size: 0.82rem;
+      color: var(--text-muted, #aaa);
+      font-family: ui-monospace, monospace;
+      word-break: break-all;
+    }
+    .pv-breadcrumb .crumb { color: var(--text, #eee); }
+    .pv-breadcrumb .sep { color: var(--text-muted, #888); margin: 0 0.3rem; }
+    .pv-title-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .pv-title {
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: var(--text, #eee);
+      margin: 0;
+      flex: 1;
+      word-break: break-all;
+    }
+    .pv-pill {
+      display: inline-block;
+      padding: 0.15em 0.6em;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .pv-pill.success { background: rgba(34,197,94,0.18); color: #86efac; }
+    .pv-pill.failed { background: rgba(220,38,38,0.18); color: #fca5a5; }
+    .pv-pill.pending { background: rgba(217,119,6,0.18); color: #fbbf24; }
+    .pv-pill.skipped { background: rgba(156,163,175,0.18); color: #d1d5db; }
+    .pv-pill.flagged { background: rgba(217,119,6,0.18); color: #fbbf24; }
+    .pv-pill.completed { background: rgba(34,197,94,0.18); color: #86efac; }
+    .pv-pill.excluded { background: rgba(156,163,175,0.18); color: #d1d5db; }
+    .pv-pill.batched { background: rgba(96,165,250,0.18); color: #93c5fd; }
+    .pv-pill.unknown { background: rgba(156,163,175,0.18); color: #d1d5db; }
+    .pv-actions {
+      display: flex;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+    }
+    .pv-actions .btn { font-size: 0.82rem; }
+
+    /* Main split: viewer (left) + sidebar (right) */
+    .pv-main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 22rem;
+      gap: 1rem;
+      padding: 1rem;
+      align-items: start;
+    }
+    @media (max-width: 1100px) {
+      .pv-main { grid-template-columns: 1fr; }
+    }
+    .pv-viewer {
+      background: var(--surface, #161624);
+      border: 1px solid var(--border, #2b2b3f);
+      border-radius: var(--radius, 8px);
+      padding: 1rem;
+      min-height: 60vh;
+      overflow: hidden;
+    }
+    .pv-viewer.viewer-pdf { padding: 0; min-height: 80vh; }
+    .pv-viewer.viewer-image,
+    .pv-viewer.viewer-archive,
+    .pv-viewer.viewer-text { min-height: 40vh; }
+    .pv-viewer-image-wrap { text-align: center; }
+    .pv-viewer-image-wrap img {
+      max-width: 100%;
+      max-height: 75vh;
+      height: auto;
+      border-radius: 4px;
+    }
+    .pv-viewer audio,
+    .pv-viewer video { width: 100%; }
+    .pv-viewer iframe {
+      width: 100%;
+      height: 100%;
+      min-height: 80vh;
+      border: 0;
+    }
+    .pv-viewer pre.code {
+      margin: 0;
+      max-height: 75vh;
+      overflow: auto;
+      padding: 0.85rem;
+      background: #0b0b14;
+      border-radius: 4px;
+      color: var(--text, #eee);
+      font: 0.82rem ui-monospace, monospace;
+      white-space: pre;
+    }
+    .pv-viewer .empty-state {
+      padding: 2rem 1rem;
+      text-align: center;
+      color: var(--text-muted, #aaa);
+    }
+    .pv-viewer .markdown-rendered {
+      max-width: 70rem;
+      margin: 0 auto;
+      color: var(--text, #eee);
+    }
+    .pv-viewer .markdown-rendered h1,
+    .pv-viewer .markdown-rendered h2,
+    .pv-viewer .markdown-rendered h3 {
+      border-bottom: 1px solid var(--border, #2b2b3f);
+      padding-bottom: 0.25rem;
+    }
+    .pv-viewer .markdown-rendered code {
+      background: rgba(255,255,255,0.06);
+      padding: 0.1em 0.3em;
+      border-radius: 3px;
+      font: 0.85em ui-monospace, monospace;
+    }
+    .pv-viewer .markdown-rendered pre {
+      background: #0b0b14;
+      padding: 0.85rem;
+      border-radius: 4px;
+      overflow: auto;
+    }
+    .pv-viewer .markdown-rendered pre code {
+      background: none;
+      padding: 0;
+      color: inherit;
+    }
+    .pv-viewer .archive-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    .pv-viewer .archive-table th,
+    .pv-viewer .archive-table td {
+      padding: 0.4rem 0.6rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border, #2b2b3f);
+    }
+    .pv-viewer .archive-table th {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      color: var(--text-muted, #aaa);
+      letter-spacing: 0.04em;
+    }
+    .pv-viewer .archive-table td.size { white-space: nowrap; color: var(--text-muted, #aaa); }
+    .pv-viewer .archive-table td.name {
+      font-family: ui-monospace, monospace;
+      word-break: break-all;
+    }
+
+    /* Sidebar */
+    .pv-sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+      max-height: calc(100vh - 8rem);
+      overflow-y: auto;
+      position: sticky;
+      top: 8rem;
+    }
+    @media (max-width: 1100px) {
+      .pv-sidebar {
+        max-height: none;
+        position: static;
+      }
+    }
+    .pv-card {
+      background: var(--surface, #161624);
+      border: 1px solid var(--border, #2b2b3f);
+      border-radius: var(--radius, 8px);
+      padding: 0.75rem 0.9rem;
+    }
+    .pv-card h3 {
+      margin: 0 0 0.5rem;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--text-muted, #aaa);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .pv-meta-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      padding: 0.18rem 0;
+      border-bottom: 1px dashed rgba(255,255,255,0.04);
+    }
+    .pv-meta-row:last-child { border-bottom: 0; }
+    .pv-meta-key { color: var(--text-muted, #aaa); }
+    .pv-meta-val {
+      color: var(--text, #eee);
+      text-align: right;
+      word-break: break-word;
+      max-width: 14rem;
+      font-family: ui-monospace, monospace;
+      font-size: 0.78rem;
+    }
+    .pv-card .empty {
+      color: var(--text-muted, #888);
+      font-size: 0.82rem;
+      font-style: italic;
+    }
+    .pv-card .description {
+      color: var(--text, #eee);
+      font-size: 0.85rem;
+      line-height: 1.4;
+      margin-bottom: 0.45rem;
+    }
+    .pv-card .extracted {
+      max-height: 9rem;
+      overflow-y: auto;
+      background: rgba(0,0,0,0.2);
+      padding: 0.45rem;
+      border-radius: 4px;
+      color: var(--text, #eee);
+      font: 0.78rem ui-monospace, monospace;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .pv-flag {
+      padding: 0.4rem 0.5rem;
+      background: rgba(217,119,6,0.08);
+      border: 1px solid rgba(217,119,6,0.25);
+      border-radius: 4px;
+      font-size: 0.82rem;
+      margin-bottom: 0.4rem;
+    }
+    .pv-flag .flag-by { color: var(--text-muted, #aaa); font-size: 0.75rem; }
+    .pv-flag:last-child { margin-bottom: 0; }
+
+    .pv-sib-nav {
+      display: flex;
+      gap: 0.4rem;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+    .pv-sib-nav .btn { flex: 1; font-size: 0.78rem; padding: 0.3rem 0.5rem; }
+    .pv-sib-list {
+      max-height: 16rem;
+      overflow-y: auto;
+      font-size: 0.8rem;
+      border-top: 1px solid var(--border, #2b2b3f);
+      padding-top: 0.4rem;
+    }
+    .pv-sib-item {
+      display: block;
+      padding: 0.2rem 0.4rem;
+      border-radius: 3px;
+      color: var(--text, #eee);
+      text-decoration: none;
+      font-family: ui-monospace, monospace;
+      font-size: 0.78rem;
+      cursor: pointer;
+      word-break: break-all;
+    }
+    .pv-sib-item:hover { background: rgba(255,255,255,0.04); }
+    .pv-sib-item.current {
+      background: rgba(96,165,250,0.16);
+      color: #93c5fd;
+      font-weight: 600;
+    }
+    .pv-sib-item.is-dir { color: var(--text-muted, #aaa); }
+    .pv-sib-item.is-dir::before { content: "📁 "; }
+
+    .pv-error {
+      padding: 1rem;
+      margin: 1rem;
+      background: rgba(220,38,38,0.08);
+      border: 1px solid rgba(220,38,38,0.4);
+      border-radius: var(--radius, 8px);
+      color: #fca5a5;
+    }
+    .pv-error h2 { margin: 0 0 0.4rem; font-size: 1rem; }
+    .pv-loading {
+      padding: 2rem;
+      text-align: center;
+      color: var(--text-muted, #aaa);
+    }
+  </style>
 </head>
 <body>
-<main class="container">
-<h1>MarkFlow — Preview</h1>
-<p>This page is implemented in a later phase.</p>
-<a href="/">← Back to Home</a>
-</main>
-<script src="/static/app.js"></script>
+  <div class="pv-wrap">
+    <nav class="nav-bar">
+      <a href="/" class="nav-logo">MarkFlow</a>
+      <div id="main-nav" class="nav-links"></div>
+    </nav>
+    <div id="error-banner" role="alert" hidden></div>
+
+    <div id="pv-toolbar" class="pv-toolbar" hidden>
+      <div id="pv-breadcrumb" class="pv-breadcrumb"></div>
+      <div class="pv-title-row">
+        <h1 id="pv-title" class="pv-title">Loading...</h1>
+        <span id="pv-status-pill" class="pv-pill unknown" hidden></span>
+        <span id="pv-flag-pill" class="pv-pill flagged" hidden>flagged</span>
+      </div>
+      <div id="pv-actions" class="pv-actions"></div>
+    </div>
+
+    <div id="pv-loading" class="pv-loading">Loading file information...</div>
+    <div id="pv-error" class="pv-error" hidden></div>
+
+    <div id="pv-main" class="pv-main" hidden>
+      <div id="pv-viewer" class="pv-viewer"></div>
+      <aside class="pv-sidebar">
+        <div id="pv-meta-card" class="pv-card">
+          <h3>Metadata</h3>
+          <div id="pv-meta-rows"></div>
+        </div>
+        <div id="pv-conversion-card" class="pv-card">
+          <h3>Conversion</h3>
+          <div id="pv-conversion-body" class="empty">No conversion record.</div>
+        </div>
+        <div id="pv-analysis-card" class="pv-card">
+          <h3>Analysis</h3>
+          <div id="pv-analysis-body" class="empty">No analysis record.</div>
+        </div>
+        <div id="pv-flags-card" class="pv-card" hidden>
+          <h3>Flags</h3>
+          <div id="pv-flags-body"></div>
+        </div>
+        <div id="pv-siblings-card" class="pv-card">
+          <h3>Siblings</h3>
+          <div id="pv-sib-nav" class="pv-sib-nav"></div>
+          <div id="pv-sib-list" class="pv-sib-list"></div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script>
+    /*
+     * File Detail / Preview page (v0.32.0).
+     *
+     * The page receives `?path=<absolute container path>` from
+     * the Pipeline Files folder-icon click. The /api/preview/info
+     * endpoint returns the composite metadata (file stats + DB
+     * registry rows + sibling listing); we render each section
+     * from that single response, then lazily fetch additional
+     * endpoints (text-excerpt, archive-listing, markdown-output)
+     * for the per-viewer dispatch.
+     *
+     * Adjacent to viewer.html (converted-Markdown viewer): both
+     * pages share the marked + dompurify CDN imports. preview.html
+     * is the source-file-detail page; viewer.html is the converted-
+     * output reader.
+     *
+     * Security note: the only place this page sets HTML is the
+     * office_with_markdown viewer, where DOMPurify sanitizes
+     * marked.parse() output. Every other DOM node is built via
+     * createElement + textContent to avoid template-string XSS.
+     */
+    (function(){
+      'use strict';
+
+      const toolbarEl = document.getElementById('pv-toolbar');
+      const breadcrumbEl = document.getElementById('pv-breadcrumb');
+      const titleEl = document.getElementById('pv-title');
+      const statusPillEl = document.getElementById('pv-status-pill');
+      const flagPillEl = document.getElementById('pv-flag-pill');
+      const actionsEl = document.getElementById('pv-actions');
+      const loadingEl = document.getElementById('pv-loading');
+      const errorEl = document.getElementById('pv-error');
+      const mainEl = document.getElementById('pv-main');
+      const viewerEl = document.getElementById('pv-viewer');
+      const metaRowsEl = document.getElementById('pv-meta-rows');
+      const conversionBodyEl = document.getElementById('pv-conversion-body');
+      const analysisBodyEl = document.getElementById('pv-analysis-body');
+      const flagsCardEl = document.getElementById('pv-flags-card');
+      const flagsBodyEl = document.getElementById('pv-flags-body');
+      const sibNavEl = document.getElementById('pv-sib-nav');
+      const sibListEl = document.getElementById('pv-sib-list');
+
+      const state = {
+        path: null,
+        info: null,
+      };
+
+      function clearChildren(el) { while (el.firstChild) el.removeChild(el.firstChild); }
+
+      function fmtBytes(n) {
+        if (n == null) return '—';
+        if (n < 1024) return n + ' B';
+        if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+        if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB';
+        return (n / 1073741824).toFixed(2) + ' GB';
+      }
+
+      function fmtDateTime(iso) {
+        if (!iso) return '—';
+        try {
+          const d = (typeof parseUTC === 'function') ? parseUTC(iso) : new Date(iso);
+          if (!d || isNaN(d.getTime())) return iso;
+          return d.toLocaleString();
+        } catch (e) { return iso; }
+      }
+
+      function basename(p) {
+        if (!p) return '';
+        const norm = String(p).replace(/\/+$/, '');
+        const idx = norm.lastIndexOf('/');
+        return idx === -1 ? norm : norm.slice(idx + 1);
+      }
+
+      function showError(html) {
+        errorEl.hidden = false;
+        clearChildren(errorEl);
+        if (typeof html === 'string') {
+          errorEl.textContent = html;
+        } else {
+          errorEl.appendChild(html);
+        }
+        loadingEl.hidden = true;
+      }
+
+      // ── Breadcrumb ──────────────────────────────────────────────
+      function renderBreadcrumb(path) {
+        clearChildren(breadcrumbEl);
+        if (!path) return;
+        const segments = path.split('/').filter(Boolean);
+        // Show the path with separators; segments are not clickable
+        // because we don't have a generic per-folder navigation
+        // surface yet. The "Show in folder" action button gives
+        // operators the parent-dir filter.
+        const root = document.createElement('span');
+        root.className = 'crumb';
+        root.textContent = '/';
+        breadcrumbEl.appendChild(root);
+        segments.forEach((seg, i) => {
+          if (i > 0) {
+            const sep = document.createElement('span');
+            sep.className = 'sep';
+            sep.textContent = '›';
+            breadcrumbEl.appendChild(sep);
+          }
+          const c = document.createElement('span');
+          c.className = 'crumb';
+          c.textContent = seg;
+          breadcrumbEl.appendChild(c);
+        });
+      }
+
+      // ── Status pill ─────────────────────────────────────────────
+      function setStatusPill(info) {
+        statusPillEl.hidden = true;
+        flagPillEl.hidden = true;
+        const conv = info.conversion || null;
+        if (conv && conv.status) {
+          statusPillEl.hidden = false;
+          statusPillEl.textContent = conv.status;
+          statusPillEl.className = 'pv-pill ' + (conv.status || 'unknown');
+        }
+        if ((info.flags || []).length > 0) {
+          flagPillEl.hidden = false;
+          flagPillEl.textContent = info.flags.length + ' flag' + (info.flags.length === 1 ? '' : 's');
+        }
+      }
+
+      // ── Actions ─────────────────────────────────────────────────
+      function renderActions(info) {
+        clearChildren(actionsEl);
+        const path = info.path;
+        const contentUrl = '/api/preview/content?path=' + encodeURIComponent(path);
+
+        const dlBtn = document.createElement('a');
+        dlBtn.className = 'btn btn-primary btn-sm';
+        dlBtn.href = contentUrl;
+        dlBtn.setAttribute('download', info.name || '');
+        dlBtn.textContent = 'Download';
+        actionsEl.appendChild(dlBtn);
+
+        const openBtn = document.createElement('a');
+        openBtn.className = 'btn btn-ghost btn-sm';
+        openBtn.href = contentUrl;
+        openBtn.target = '_blank';
+        openBtn.rel = 'noopener';
+        openBtn.textContent = 'Open in new tab';
+        actionsEl.appendChild(openBtn);
+
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'btn btn-ghost btn-sm';
+        copyBtn.type = 'button';
+        copyBtn.textContent = 'Copy path';
+        copyBtn.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(path);
+            if (typeof showToast === 'function') showToast('Path copied to clipboard');
+          } catch (e) {
+            // Fallback for non-secure contexts
+            const ta = document.createElement('textarea');
+            ta.value = path;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); } catch (e2) {}
+            document.body.removeChild(ta);
+            if (typeof showToast === 'function') showToast('Path copied');
+          }
+        });
+        actionsEl.appendChild(copyBtn);
+
+        if (info.parent_dir) {
+          const folderBtn = document.createElement('a');
+          folderBtn.className = 'btn btn-ghost btn-sm';
+          folderBtn.href = '/static/pipeline-files.html?folder=' + encodeURIComponent(info.parent_dir);
+          folderBtn.textContent = 'Show in folder';
+          actionsEl.appendChild(folderBtn);
+        }
+
+        // View converted Markdown — only when a successful
+        // conversion exists. Links to viewer.html for the full
+        // experience.
+        if (info.conversion && info.conversion.status === 'success' && info.conversion.output_path) {
+          const viewBtn = document.createElement('a');
+          viewBtn.className = 'btn btn-ghost btn-sm';
+          viewBtn.href = '/static/viewer.html?path=' + encodeURIComponent(info.conversion.output_path);
+          viewBtn.target = '_blank';
+          viewBtn.rel = 'noopener';
+          viewBtn.textContent = 'View converted →';
+          actionsEl.appendChild(viewBtn);
+        }
+
+        // Re-analyze — only when an analysis row exists. Uses the
+        // v0.31.0 delete-and-re-insert endpoint.
+        if (info.analysis && info.analysis.id) {
+          const reBtn = document.createElement('button');
+          reBtn.className = 'btn btn-ghost btn-sm';
+          reBtn.type = 'button';
+          reBtn.textContent = 'Re-analyze';
+          reBtn.title = 'DELETE the existing analysis row and re-insert as a fresh entry';
+          reBtn.addEventListener('click', async () => {
+            if (!confirm('Re-analyze this file?\n\nThe existing analysis row will be deleted and a fresh row enqueued. Uses LLM tokens on the next batch.')) return;
+            reBtn.disabled = true;
+            try {
+              await API.post('/api/analysis/queue/' + encodeURIComponent(info.analysis.id) + '/reanalyze', {});
+              if (typeof showToast === 'function') showToast('Re-analyze queued');
+              // Refresh info to reflect the new state.
+              await loadInfo(state.path);
+            } catch (e) {
+              showError('Re-analyze failed: ' + e.message);
+            } finally {
+              reBtn.disabled = false;
+            }
+          });
+          actionsEl.appendChild(reBtn);
+        }
+      }
+
+      // ── Sidebar metadata ───────────────────────────────────────
+      function row(key, val) {
+        const wrap = document.createElement('div');
+        wrap.className = 'pv-meta-row';
+        const k = document.createElement('span');
+        k.className = 'pv-meta-key';
+        k.textContent = key;
+        const v = document.createElement('span');
+        v.className = 'pv-meta-val';
+        v.textContent = val == null || val === '' ? '—' : val;
+        wrap.appendChild(k);
+        wrap.appendChild(v);
+        return wrap;
+      }
+
+      function renderMeta(info) {
+        clearChildren(metaRowsEl);
+        metaRowsEl.appendChild(row('Size', fmtBytes(info.size_bytes)));
+        metaRowsEl.appendChild(row('Modified', fmtDateTime(info.mtime_iso)));
+        metaRowsEl.appendChild(row('MIME', info.mime_type || '—'));
+        metaRowsEl.appendChild(row('Extension', info.extension || '—'));
+        metaRowsEl.appendChild(row('Category', info.category || '—'));
+        metaRowsEl.appendChild(row('Viewer', info.viewer_kind || '—'));
+        if (info.source_file) {
+          const sf = info.source_file;
+          metaRowsEl.appendChild(row('Lifecycle', sf.lifecycle_status || '—'));
+          if (sf.content_hash) {
+            metaRowsEl.appendChild(row('Hash', String(sf.content_hash).substring(0, 16) + '…'));
+          }
+        }
+      }
+
+      function renderConversion(info) {
+        clearChildren(conversionBodyEl);
+        const conv = info.conversion;
+        if (!conv) {
+          conversionBodyEl.className = 'empty';
+          conversionBodyEl.textContent = 'No conversion record (not yet processed by the bulk pipeline).';
+          return;
+        }
+        conversionBodyEl.className = '';
+        conversionBodyEl.appendChild(row('Status', conv.status || '—'));
+        conversionBodyEl.appendChild(row('Converted', fmtDateTime(conv.converted_at)));
+        if (conv.output_path) {
+          const r = document.createElement('div');
+          r.className = 'pv-meta-row';
+          const k = document.createElement('span');
+          k.className = 'pv-meta-key';
+          k.textContent = 'Output';
+          const v = document.createElement('span');
+          v.className = 'pv-meta-val';
+          v.style.maxWidth = '14rem';
+          v.title = conv.output_path;
+          v.textContent = basename(conv.output_path);
+          r.appendChild(k); r.appendChild(v);
+          conversionBodyEl.appendChild(r);
+        }
+        if (conv.error_msg) {
+          const err = document.createElement('div');
+          err.style.cssText = 'color:#fca5a5; font-size:0.78rem; margin-top:0.4rem; white-space:pre-wrap;';
+          err.textContent = conv.error_msg;
+          conversionBodyEl.appendChild(err);
+        }
+      }
+
+      function renderAnalysis(info) {
+        clearChildren(analysisBodyEl);
+        const a = info.analysis;
+        if (!a) {
+          analysisBodyEl.className = 'empty';
+          analysisBodyEl.textContent = 'No analysis record. Image / vision analysis only fires for image-class source files.';
+          return;
+        }
+        analysisBodyEl.className = '';
+        analysisBodyEl.appendChild(row('Status', a.status || '—'));
+        analysisBodyEl.appendChild(row('Analyzed', fmtDateTime(a.analyzed_at)));
+        analysisBodyEl.appendChild(row('Provider', a.provider_id || '—'));
+        analysisBodyEl.appendChild(row('Model', a.model || '—'));
+        if (a.tokens_used != null) {
+          analysisBodyEl.appendChild(row('Tokens', String(a.tokens_used)));
+        }
+        if (a.description) {
+          const d = document.createElement('div');
+          d.className = 'description';
+          d.textContent = a.description;
+          analysisBodyEl.appendChild(d);
+        }
+        if (a.extracted_text) {
+          const ex = document.createElement('pre');
+          ex.className = 'extracted';
+          ex.textContent = a.extracted_text;
+          analysisBodyEl.appendChild(ex);
+        }
+        if (a.error) {
+          const err = document.createElement('div');
+          err.style.cssText = 'color:#fca5a5; font-size:0.78rem; margin-top:0.4rem;';
+          err.textContent = a.error;
+          analysisBodyEl.appendChild(err);
+        }
+      }
+
+      function renderFlags(info) {
+        const flags = info.flags || [];
+        if (flags.length === 0) {
+          flagsCardEl.hidden = true;
+          return;
+        }
+        flagsCardEl.hidden = false;
+        clearChildren(flagsBodyEl);
+        flags.forEach(f => {
+          const wrap = document.createElement('div');
+          wrap.className = 'pv-flag';
+          const reason = document.createElement('div');
+          reason.style.cssText = 'font-weight:600;';
+          reason.textContent = f.reason || 'Flagged';
+          wrap.appendChild(reason);
+          if (f.note) {
+            const n = document.createElement('div');
+            n.style.cssText = 'margin-top:0.2rem;';
+            n.textContent = f.note;
+            wrap.appendChild(n);
+          }
+          const meta = document.createElement('div');
+          meta.className = 'flag-by';
+          meta.textContent = (f.flagged_by_email || 'unknown') + ' · ' + fmtDateTime(f.created_at);
+          wrap.appendChild(meta);
+          flagsBodyEl.appendChild(wrap);
+        });
+      }
+
+      // ── Sibling navigation ─────────────────────────────────────
+      function renderSiblings(info) {
+        clearChildren(sibNavEl);
+        clearChildren(sibListEl);
+
+        const sib = info.siblings || { files: [], current_index: -1, total: 0, truncated: false };
+        const files = sib.files || [];
+
+        // Prev / Next buttons (only file siblings, skipping dirs)
+        const fileSiblings = files.filter(f => !f.is_dir);
+        const currentFileIdx = fileSiblings.findIndex(f => f.is_current);
+
+        const prevBtn = document.createElement('button');
+        prevBtn.className = 'btn btn-ghost';
+        prevBtn.type = 'button';
+        prevBtn.textContent = '← Prev';
+        prevBtn.disabled = (currentFileIdx <= 0);
+        prevBtn.addEventListener('click', () => {
+          if (currentFileIdx > 0) {
+            navigateToSibling(fileSiblings[currentFileIdx - 1].path);
+          }
+        });
+        sibNavEl.appendChild(prevBtn);
+
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'btn btn-ghost';
+        nextBtn.type = 'button';
+        nextBtn.textContent = 'Next →';
+        nextBtn.disabled = (currentFileIdx === -1 || currentFileIdx >= fileSiblings.length - 1);
+        nextBtn.addEventListener('click', () => {
+          if (currentFileIdx >= 0 && currentFileIdx < fileSiblings.length - 1) {
+            navigateToSibling(fileSiblings[currentFileIdx + 1].path);
+          }
+        });
+        sibNavEl.appendChild(nextBtn);
+
+        // Sibling list — clickable. Truncated indicator at the top.
+        if (sib.truncated && sib.total > files.length) {
+          const note = document.createElement('div');
+          note.className = 'pv-meta-key';
+          note.style.cssText = 'font-size:0.75rem; padding:0.2rem 0.4rem;';
+          note.textContent = 'Showing ' + files.length + ' of ' + sib.total + ' (truncated)';
+          sibListEl.appendChild(note);
+        } else if (sib.total > 0) {
+          const note = document.createElement('div');
+          note.className = 'pv-meta-key';
+          note.style.cssText = 'font-size:0.75rem; padding:0.2rem 0.4rem;';
+          note.textContent = sib.total + ' total';
+          sibListEl.appendChild(note);
+        }
+        files.forEach(f => {
+          const a = document.createElement('a');
+          a.className = 'pv-sib-item' + (f.is_current ? ' current' : '') + (f.is_dir ? ' is-dir' : '');
+          a.textContent = f.name;
+          a.title = f.path;
+          if (f.is_dir) {
+            a.href = '/static/pipeline-files.html?folder=' + encodeURIComponent(f.path);
+          } else {
+            a.href = '?path=' + encodeURIComponent(f.path);
+            a.addEventListener('click', (ev) => {
+              if (ev.metaKey || ev.ctrlKey || ev.shiftKey) return;
+              ev.preventDefault();
+              navigateToSibling(f.path);
+            });
+          }
+          sibListEl.appendChild(a);
+        });
+      }
+
+      function navigateToSibling(path) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('path', path);
+        window.history.pushState({}, '', url.toString());
+        loadInfo(path);
+      }
+
+      // ── Per-viewer dispatch ────────────────────────────────────
+      function renderViewer(info) {
+        clearChildren(viewerEl);
+        viewerEl.className = 'pv-viewer viewer-' + (info.viewer_kind || 'unknown');
+        const path = info.path;
+        const contentUrl = '/api/preview/content?path=' + encodeURIComponent(path);
+        const thumbnailUrl = '/api/preview/thumbnail?path=' + encodeURIComponent(path);
+
+        if (!info.exists || !info.is_file) {
+          renderEmpty('File does not exist on disk', info.exists
+            ? 'Path resolves to a directory, not a regular file.'
+            : 'The file may have been deleted, renamed, or moved since the source registry last saw it.');
+          return;
+        }
+
+        switch (info.viewer_kind) {
+          case 'image':           renderImageViewer(info, contentUrl, thumbnailUrl); break;
+          case 'audio':           renderAudioViewer(info, contentUrl); break;
+          case 'video':           renderVideoViewer(info, contentUrl); break;
+          case 'pdf':             renderPdfViewer(info, contentUrl); break;
+          case 'text':            renderTextViewer(info); break;
+          case 'office_with_markdown': renderOfficeWithMarkdownViewer(info); break;
+          case 'office_no_markdown':   renderOfficeNoMarkdownViewer(info); break;
+          case 'archive':         renderArchiveViewer(info); break;
+          default:                renderUnknownViewer(info);
+        }
+      }
+
+      function renderEmpty(title, hint) {
+        const wrap = document.createElement('div');
+        wrap.className = 'empty-state';
+        const h = document.createElement('div');
+        h.style.cssText = 'font-size:1rem; margin-bottom:0.4rem;';
+        h.textContent = title;
+        wrap.appendChild(h);
+        if (hint) {
+          const p = document.createElement('div');
+          p.style.cssText = 'font-size:0.85rem;';
+          p.textContent = hint;
+          wrap.appendChild(p);
+        }
+        viewerEl.appendChild(wrap);
+      }
+
+      function renderImageViewer(info, contentUrl, thumbnailUrl) {
+        // Native browsers render JPG/PNG/GIF/WebP/AVIF/BMP/etc via
+        // /content. Server-thumbnailed (TIFF/EPS/HEIC/RAW/SVG/PSD)
+        // come from /thumbnail. We can't tell from JS which path is
+        // needed for a given file, so we try /content first via
+        // <img> and fall back to /thumbnail on the error event.
+        // The latter returns JPEG bytes regardless of input format.
+        const wrap = document.createElement('div');
+        wrap.className = 'pv-viewer-image-wrap';
+        const img = document.createElement('img');
+        img.src = contentUrl;
+        img.alt = info.name;
+        let triedThumb = false;
+        img.addEventListener('error', () => {
+          if (!triedThumb) {
+            triedThumb = true;
+            img.src = thumbnailUrl;
+          }
+        });
+        wrap.appendChild(img);
+        viewerEl.appendChild(wrap);
+      }
+
+      function renderAudioViewer(info, contentUrl) {
+        const audio = document.createElement('audio');
+        audio.controls = true;
+        audio.src = contentUrl;
+        audio.preload = 'metadata';
+        viewerEl.appendChild(audio);
+        const note = document.createElement('div');
+        note.className = 'empty-state';
+        note.style.cssText = 'margin-top:1rem; padding:0;';
+        note.textContent = 'Audio playback uses HTTP range requests for seeking. ' +
+          'If the timeline doesn\'t scrub, the source format may not be browser-native — try Download.';
+        viewerEl.appendChild(note);
+      }
+
+      function renderVideoViewer(info, contentUrl) {
+        const video = document.createElement('video');
+        video.controls = true;
+        video.src = contentUrl;
+        video.preload = 'metadata';
+        video.style.cssText = 'max-height: 75vh;';
+        viewerEl.appendChild(video);
+      }
+
+      function renderPdfViewer(info, contentUrl) {
+        const iframe = document.createElement('iframe');
+        iframe.src = contentUrl;
+        iframe.title = info.name;
+        viewerEl.appendChild(iframe);
+      }
+
+      async function renderTextViewer(info) {
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'display:flex; flex-direction:column; gap:0.5rem;';
+        const status = document.createElement('div');
+        status.style.cssText = 'font-size:0.78rem; color:var(--text-muted, #aaa);';
+        status.textContent = 'Loading text excerpt...';
+        wrap.appendChild(status);
+        const pre = document.createElement('pre');
+        pre.className = 'code';
+        wrap.appendChild(pre);
+        viewerEl.appendChild(wrap);
+
+        try {
+          const data = await API.get('/api/preview/text-excerpt?path=' + encodeURIComponent(info.path));
+          pre.textContent = data.text || '';
+          if (data.truncated) {
+            status.textContent = 'Showing first ' + fmtBytes(data.bytes_returned) +
+              ' of ' + fmtBytes(data.full_size_bytes) + ' (' + data.encoding + '). Download for full content.';
+          } else {
+            status.textContent = 'Full content (' + fmtBytes(data.bytes_returned) + ', ' + data.encoding + ').';
+          }
+        } catch (e) {
+          status.textContent = 'Failed to load text excerpt: ' + e.message;
+        }
+      }
+
+      async function renderOfficeWithMarkdownViewer(info) {
+        const wrap = document.createElement('div');
+        const status = document.createElement('div');
+        status.style.cssText = 'font-size:0.78rem; color:var(--text-muted, #aaa); margin-bottom:0.5rem;';
+        status.textContent = 'Loading converted Markdown...';
+        wrap.appendChild(status);
+        const md = document.createElement('div');
+        md.className = 'markdown-rendered';
+        wrap.appendChild(md);
+        viewerEl.appendChild(wrap);
+
+        try {
+          const data = await API.get('/api/preview/markdown-output?path=' + encodeURIComponent(info.path));
+          status.textContent = 'Converted ' + fmtDateTime(data.converted_at) + '. ' +
+            'For TOC + line numbers see the full viewer →';
+          // marked.parse → DOMPurify.sanitize → element.innerHTML.
+          // This is the documented-safe pattern; DOMPurify strips any
+          // script tags / event handlers / external image URLs that
+          // could've been injected via the source markdown.
+          try {
+            const rawHtml = marked.parse(data.markdown || '');
+            const cleanHtml = DOMPurify.sanitize(rawHtml, {
+              ALLOWED_TAGS: ['h1','h2','h3','h4','h5','h6','p','a','ul','ol','li',
+                'table','thead','tbody','tr','th','td','pre','code','blockquote',
+                'em','strong','del','br','hr','img','span','div','sup','sub','dl','dt','dd'],
+              ALLOWED_ATTR: ['href','src','alt','title','class','id','colspan','rowspan'],
+            });
+            // Sanitized HTML is safe to assign here; DOMPurify is the
+            // referenced sanitizer for this exact use case.
+            md.innerHTML = cleanHtml;
+          } catch (e) {
+            md.textContent = data.markdown || '';
+          }
+        } catch (e) {
+          status.textContent = 'Failed to load converted Markdown: ' + e.message;
+        }
+      }
+
+      function renderOfficeNoMarkdownViewer(info) {
+        const wrap = document.createElement('div');
+        wrap.className = 'empty-state';
+        const h = document.createElement('div');
+        h.style.cssText = 'font-size:1rem; margin-bottom:0.4rem;';
+        h.textContent = 'Not converted to Markdown yet';
+        wrap.appendChild(h);
+        const p = document.createElement('div');
+        p.style.cssText = 'font-size:0.85rem; max-width: 36rem; margin: 0 auto;';
+        if (info.conversion && info.conversion.status === 'failed') {
+          p.textContent = 'A previous conversion attempt failed. See the sidebar for the error message.';
+        } else if (info.conversion && info.conversion.status === 'pending') {
+          p.textContent = 'Queued for conversion (status=pending). The next bulk pipeline cycle will pick it up.';
+        } else if (info.conversion && info.conversion.status === 'skipped') {
+          p.textContent = 'Skipped during conversion. Reason: ' + (info.conversion.error_msg || info.conversion.skip_reason || 'unknown') + '.';
+        } else {
+          p.textContent = 'No bulk_files row exists for this path. Run the bulk pipeline to convert it.';
+        }
+        wrap.appendChild(p);
+        viewerEl.appendChild(wrap);
+      }
+
+      async function renderArchiveViewer(info) {
+        const wrap = document.createElement('div');
+        const status = document.createElement('div');
+        status.style.cssText = 'font-size:0.78rem; color:var(--text-muted, #aaa); margin-bottom:0.5rem;';
+        status.textContent = 'Loading archive listing...';
+        wrap.appendChild(status);
+        const tableWrap = document.createElement('div');
+        tableWrap.style.cssText = 'max-height:75vh; overflow:auto;';
+        wrap.appendChild(tableWrap);
+        viewerEl.appendChild(wrap);
+
+        try {
+          const data = await API.get('/api/preview/archive-listing?path=' + encodeURIComponent(info.path));
+          status.textContent = (data.format || '?').toUpperCase() + ' archive — ' + data.entry_count + ' entries' +
+            (data.truncated ? ' (truncated; first 500 shown)' : '') +
+            ', ' + fmtBytes(data.uncompressed_total_bytes) + ' uncompressed.';
+          const table = document.createElement('table');
+          table.className = 'archive-table';
+          const thead = document.createElement('thead');
+          const trh = document.createElement('tr');
+          ['Name', 'Size', 'Modified'].forEach(h => {
+            const th = document.createElement('th'); th.textContent = h; trh.appendChild(th);
+          });
+          thead.appendChild(trh);
+          table.appendChild(thead);
+          const tbody = document.createElement('tbody');
+          (data.entries || []).forEach(e => {
+            const tr = document.createElement('tr');
+            const tdName = document.createElement('td');
+            tdName.className = 'name';
+            tdName.textContent = (e.is_dir ? '📁 ' : '📄 ') + e.name;
+            tr.appendChild(tdName);
+            const tdSize = document.createElement('td');
+            tdSize.className = 'size';
+            tdSize.textContent = e.is_dir ? '—' : fmtBytes(e.size_bytes);
+            tr.appendChild(tdSize);
+            const tdMod = document.createElement('td');
+            tdMod.className = 'size';
+            tdMod.textContent = e.modified_iso ? fmtDateTime(e.modified_iso) : '—';
+            tr.appendChild(tdMod);
+            tbody.appendChild(tr);
+          });
+          table.appendChild(tbody);
+          tableWrap.appendChild(table);
+        } catch (e) {
+          status.textContent = 'Failed to load archive listing: ' + e.message;
+        }
+      }
+
+      function renderUnknownViewer(info) {
+        const wrap = document.createElement('div');
+        wrap.className = 'empty-state';
+        const h = document.createElement('div');
+        h.style.cssText = 'font-size:1rem; margin-bottom:0.4rem;';
+        h.textContent = 'No inline preview for this file type';
+        wrap.appendChild(h);
+        const p = document.createElement('div');
+        p.style.cssText = 'font-size:0.85rem;';
+        // Build the message via createElement instead of innerHTML so
+        // we don't have to think about escaping the extension /
+        // mime values (server-supplied, but defensive coding wins).
+        p.appendChild(document.createTextNode('Extension '));
+        const extCode = document.createElement('code');
+        extCode.textContent = info.extension || '?';
+        p.appendChild(extCode);
+        p.appendChild(document.createTextNode(' · MIME '));
+        const mimeCode = document.createElement('code');
+        mimeCode.textContent = info.mime_type || '?';
+        p.appendChild(mimeCode);
+        p.appendChild(document.createTextNode('. Use the Download button to inspect locally.'));
+        wrap.appendChild(p);
+        viewerEl.appendChild(wrap);
+      }
+
+      // ── Page load ──────────────────────────────────────────────
+      async function loadInfo(path) {
+        loadingEl.hidden = false;
+        errorEl.hidden = true;
+        toolbarEl.hidden = true;
+        mainEl.hidden = true;
+        try {
+          const data = await API.get('/api/preview/info?path=' + encodeURIComponent(path));
+          state.info = data;
+          state.path = path;
+          renderAll(data);
+          loadingEl.hidden = true;
+          toolbarEl.hidden = false;
+          mainEl.hidden = false;
+          // Update document title with the file name for tab clarity.
+          document.title = (data.name || 'Preview') + ' — MarkFlow';
+        } catch (e) {
+          loadingEl.hidden = true;
+          const wrap = document.createElement('div');
+          const h = document.createElement('h2');
+          h.textContent = 'Failed to load preview';
+          wrap.appendChild(h);
+          const p = document.createElement('p');
+          p.textContent = e.message;
+          wrap.appendChild(p);
+          const a = document.createElement('a');
+          a.href = '/';
+          a.textContent = '← Back to Home';
+          wrap.appendChild(a);
+          showError(wrap);
+        }
+      }
+
+      function renderAll(info) {
+        renderBreadcrumb(info.path);
+        titleEl.textContent = info.name || info.path || 'Preview';
+        setStatusPill(info);
+        renderActions(info);
+        renderMeta(info);
+        renderConversion(info);
+        renderAnalysis(info);
+        renderFlags(info);
+        renderSiblings(info);
+        renderViewer(info);
+      }
+
+      // ── Keyboard shortcuts ─────────────────────────────────────
+      document.addEventListener('keydown', (ev) => {
+        // Don't intercept when the user is typing in a control.
+        if (ev.target && ev.target.tagName) {
+          const tag = ev.target.tagName.toUpperCase();
+          if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        }
+        if (!state.info || !state.info.siblings) return;
+        const fileSiblings = (state.info.siblings.files || []).filter(f => !f.is_dir);
+        const idx = fileSiblings.findIndex(f => f.is_current);
+
+        if (ev.key === 'ArrowLeft' && idx > 0) {
+          ev.preventDefault();
+          navigateToSibling(fileSiblings[idx - 1].path);
+        } else if (ev.key === 'ArrowRight' && idx >= 0 && idx < fileSiblings.length - 1) {
+          ev.preventDefault();
+          navigateToSibling(fileSiblings[idx + 1].path);
+        } else if (ev.key === 'Escape') {
+          // Back to the parent dir on the Pipeline Files page.
+          if (state.info.parent_dir) {
+            window.location.href = '/static/pipeline-files.html?folder=' + encodeURIComponent(state.info.parent_dir);
+          }
+        }
+      });
+
+      // Browser back / forward — re-load on history navigation.
+      window.addEventListener('popstate', () => {
+        const params = new URLSearchParams(window.location.search);
+        const path = params.get('path');
+        if (path && path !== state.path) loadInfo(path);
+      });
+
+      // ── Bootstrap ──────────────────────────────────────────────
+      const params = new URLSearchParams(window.location.search);
+      const initialPath = params.get('path');
+      if (!initialPath) {
+        loadingEl.hidden = true;
+        const wrap = document.createElement('div');
+        const h = document.createElement('h2');
+        h.textContent = 'No file selected';
+        wrap.appendChild(h);
+        const p = document.createElement('p');
+        p.textContent = 'This page expects a ?path=<absolute container path> query parameter. ' +
+          'Click the folder icon on a Pipeline Files row to open a file in this view.';
+        wrap.appendChild(p);
+        const a = document.createElement('a');
+        a.href = '/static/pipeline-files.html';
+        a.textContent = '→ Open Pipeline Files';
+        wrap.appendChild(a);
+        showError(wrap);
+      } else {
+        loadInfo(initialPath);
+      }
+    })();
+  </script>
 </body>
 </html>

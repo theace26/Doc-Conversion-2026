@@ -6,6 +6,106 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.32.0 — File preview page + Batch Management page-size + collapse-all
+
+### File preview page (replaces the old "later phase" stub)
+
+Click the **folder icon** (📂) on any Pipeline Files row and
+you now get a real **file-detail page** instead of the
+19-line stub that was there before. The page shows the
+**source file**, not the converted Markdown — that's still on
+the eye-icon (👁️) viewer page.
+
+#### What you see
+
+- **Inline preview** — sized to the file type:
+  - **Image** (JPG/PNG/HEIC/RAW/SVG/TIFF/PSD/EPS): rendered
+    inline, server-thumbnailed when the browser can't decode
+    the format directly.
+  - **Audio** (MP3/M4A/WAV/OGG/Opus/FLAC): playable in-page
+    with a seekable timeline.
+  - **Video** (MP4/M4V/MOV/WebM/MKV): playable in-page,
+    seekable.
+  - **PDF**: opens in the browser's built-in PDF viewer
+    (iframe).
+  - **Text / code / config / log** (.txt, .md, .json, .csv,
+    .py, .js, .yaml, etc.): first 64 KB shown in a `<pre>`
+    block.
+  - **Office docs that were converted** (DOCX/XLSX/PPTX/ODT
+    etc. with a successful conversion): the rendered Markdown
+    is shown inline, with a "→ View converted" link to the
+    full viewer.
+  - **Office docs not yet converted**: a clear "Not yet
+    converted" panel that tells you the current pipeline
+    status (pending / failed / skipped) and what to do.
+  - **Archives** (.zip, .tar, .tar.gz, .7z, .rar, plus
+    Office-doc internals): table of entries with names,
+    sizes, and modified times (capped at 500 entries).
+  - **Anything else**: metadata + a Download button.
+
+- **Sidebar metadata cards**:
+  - **File stats**: size, mtime, MIME, extension, category
+  - **Conversion**: status pill, output path, error message
+    if it failed, timestamp
+  - **Analysis**: image-analysis description / extracted text
+    / provider / model / tokens (when relevant)
+  - **Flags**: any active operator-raised flags on the file
+  - **Siblings**: list of files in the same folder, with a
+    `← Prev` / `Next →` button pair to jump between them.
+    Capped at 200 entries with a "showing N of M" indicator
+    on bigger folders.
+
+- **Action buttons**:
+  - **Download** — straight file download
+  - **Open in new tab** — same content URL in a new tab
+  - **Copy path** — puts the absolute container path on the
+    clipboard
+  - **Show in folder** — jumps to Pipeline Files filtered to
+    the parent directory
+  - **View converted →** (when applicable) — opens the
+    converted-Markdown viewer for the full experience
+  - **Re-analyze** (when an analysis row exists) — DELETEs
+    the existing analysis row and re-enqueues a fresh one
+    (uses LLM tokens on the next batch)
+
+- **Keyboard shortcuts**: `←` and `→` jump to the previous /
+  next file in the same folder. `Esc` jumps back to Pipeline
+  Files filtered to the parent.
+
+#### Example workflow
+
+You see a row in Pipeline Files for
+`/host/c/2026 Audits/JulyAudit/page17.tif` flagged as
+"failed conversion." Click the 📂 icon, the preview page
+opens. The inline image viewer shows the actual TIFF page (so
+you can see what's on it). The Conversion sidebar shows the
+error message. Press `→` to step to `page18.tif`. Press `Esc`
+to jump back to Pipeline Files filtered to `JulyAudit/` so
+you can see all of that audit's files together.
+
+### Batch Management — page size + Collapse / Expand all
+
+The Batch Management page used to render every batch card on
+load. With hundreds of batches, that meant scrolling forever
+or playing whack-a-mole opening cards. v0.32.0 adds:
+
+- A **page-size dropdown** (10 / 30 / 50 / 100 / All —
+  default 30). Your choice persists across page loads.
+- A **Pagination footer** below the cards: `← Prev`,
+  `Next →`, and "Showing 1-30 of 247 batches".
+- An **Expand all / Collapse all** toggle button that flips
+  every card on the current page open or shut. Click once to
+  expand all collapsed cards (which fires the existing
+  lazy-load of each card's file list); click again to
+  collapse them all.
+
+If you usually want to see all batches at once on a fast
+machine, set page size to **All** once and you're set. If you
+want to scan recent activity quickly, **30** keeps the page
+snappy.
+
+---
+
 ## v0.31.6 — Test-convert a hand-picked subset of pending files
 
 The History page's **Pending Files** card lists every file

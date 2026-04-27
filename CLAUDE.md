@@ -91,7 +91,168 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.31.6
+## Current Version — v0.32.0
+
+**File preview page (`static/preview.html`) — full-fledged
+file-detail viewer replacing the long-standing 19-line stub.
+Click the folder icon on a Pipeline Files row and a real page
+opens with inline content preview, metadata sidebar, conversion +
+analysis status, sibling navigation, and operator actions. Plus
+side polish on Batch Management (page-size selector, collapse/
+expand-all toggle).**
+
+The preview page is the source-file inspection surface — a peer
+of the converted-Markdown viewer at `static/viewer.html`. Where
+viewer.html renders the Markdown OUTPUT, preview.html shows the
+INPUT: the original file, its metadata, where it sits in the
+pipeline, and what neighbors live next to it.
+
+### What clicking the folder icon now produces
+
+A page with a sticky toolbar (breadcrumb · title · status pill ·
+flag pill · action buttons) and a two-pane layout:
+
+- **Left**: per-format viewer — image, audio player, video
+  player, PDF iframe, text excerpt, rendered Markdown (for
+  converted Office docs), archive listing, or "no inline
+  preview" metadata-only fallback.
+- **Right**: metadata cards — file stats, source_files
+  registry row, latest bulk_files conversion, latest
+  analysis_queue row, active file_flags, sibling listing with
+  ← Prev / Next → buttons + clickable file list.
+
+Action buttons:
+- **Download** — direct file download via Content-Disposition
+- **Open in new tab** — same content URL, new tab
+- **Copy path** — `navigator.clipboard.writeText` (with a
+  document.execCommand fallback for non-secure contexts)
+- **Show in folder** — jumps to Pipeline Files filtered to
+  the parent directory (uses the new `?folder=` query param)
+- **View converted →** — only when a successful conversion
+  exists; opens viewer.html for the full Markdown experience
+- **Re-analyze** — only when an analysis row exists; uses
+  the v0.31.0 delete-and-re-insert endpoint
+
+Keyboard shortcuts: `←` / `→` navigate to prev / next sibling
+file; `Esc` jumps back to Pipeline Files filtered to the
+parent folder.
+
+### Backend — new `/api/preview/*` router
+
+Six endpoints, all `OPERATOR+`-gated and path-keyed (verified
+by `core.path_utils.is_path_under_allowed_root`):
+
+- `GET /api/preview/info` — composite metadata + status +
+  sibling listing (cap 200 entries, 10 s wall-clock)
+- `GET /api/preview/content` — raw bytes via `FileResponse`
+  with HTTP range support (so video/audio seek)
+- `GET /api/preview/thumbnail` — server-rendered JPEG via
+  the shared `core.preview_thumbnails` cache
+- `GET /api/preview/text-excerpt` — first N bytes UTF-8
+  decoded (`errors='replace'`, hard cap 512 KB)
+- `GET /api/preview/archive-listing` — zip / tar (auto-detect
+  gz/bz2/xz) / 7z entries (cap 500)
+- `GET /api/preview/markdown-output` — converted Markdown if
+  a successful `bulk_files` row exists, else 404
+
+### Refactor: thumbnail machinery in `core/preview_thumbnails.py`
+
+Extracted the thumbnail cache + dispatch logic out of
+`api/routes/analysis.py` into a shared module. Cache key is
+now path-based (resolved + mtime + size), so a thumbnail
+rendered via the source_file_id-keyed analysis endpoint AND
+the path-keyed preview endpoint share the same cache hit.
+The existing `/api/analysis/files/:id/preview` endpoint stays
+externally identical — it just delegates to the shared
+module.
+
+### Helpers: `core/preview_helpers.py`
+
+Pure functions for `classify_viewer_kind(path)`,
+`get_mime_type(path)`, `get_file_category(path)`. Used by the
+info endpoint to compute the dispatch hint server-side so the
+frontend doesn't repeat extension classification logic.
+
+### Side polish: Batch Management
+
+The Batch Management page now has:
+
+- **Page-size dropdown** (10 / 30 / 50 / 100 / All — default
+  30, persists to localStorage)
+- **Expand all / Collapse all** toggle that uses the existing
+  card-header click handler so lazy-loading of file lists
+  fires on expand
+- **Pagination footer** with `← Prev` / `Next →` and
+  "Showing 1-30 of 247 batches" indicator
+
+The page sometimes lists hundreds of batches; the previous
+"render every card on page load" behavior was unwieldy.
+Client-side pagination is good enough — the API already
+returns the full list, we just slice it for display.
+
+### Pipeline Files `?folder=` filter
+
+Small addition (~30 LOC). The "Show in folder" button on the
+preview page sends users to Pipeline Files filtered to a
+specific directory; this required teaching pipeline-files.html
+to honor a `?folder=<path>` query parameter that pre-fills
+the search box.
+
+### Side fix: quiet shutdown for the lifecycle scan
+
+`core/scheduler.py:run_lifecycle_scan()` wrapped its body in
+`try / except Exception`. When the container received SIGTERM
+mid-scan, the asyncio task got cancelled while awaiting
+`aiosqlite.connect.__aexit__()` inside
+`mark_file_for_deletion → update_source_file → get_db()`, and
+the resulting `CancelledError` slipped past the broad
+`except Exception` (it's a `BaseException` in Python 3.8+),
+surfacing inside apscheduler as a job-raised-exception
+traceback in `markflow.log` on every clean restart.
+
+Fix: explicit `except asyncio.CancelledError` clause that logs
+`scheduler.scan_cancelled_on_shutdown` at info level and
+returns. Cancellation has already done its job — the next
+scheduled interval picks up the work. Other apscheduler-facing
+job functions in `scheduler.py` use the same broad-except
+pattern but haven't been observed crashing on shutdown; left
+alone for now.
+
+### Side cleanup: stale `db-*.log` files removed
+
+`core/db/contention_logger.py` was retired in v0.24.2 but its
+three temp files (`db-contention.log` 375 MB,
+`db-queries.log` 272 MB, `db-active.log` 15 MB — last write
+2026-04-23) sat untouched on disk. Removed during this release.
+No code path writes to those filenames anymore.
+
+### Files
+
+- `core/version.py` — bump to 0.32.0
+- `core/preview_thumbnails.py` (new) — shared thumbnail cache
+- `core/preview_helpers.py` (new) — classification helpers
+- `api/routes/preview.py` (new) — six endpoints
+- `api/routes/analysis.py` — thumbnail helpers replaced by
+  imports from `core.preview_thumbnails`; preview endpoint
+  unchanged externally
+- `core/scheduler.py` — `import asyncio` + new
+  `except asyncio.CancelledError` clause in
+  `run_lifecycle_scan` (side fix)
+- `main.py` — register the new preview router
+- `static/preview.html` — full rewrite (~770 LOC)
+- `static/pipeline-files.html` — `?folder=` query param honored
+- `static/batch-management.html` — page-size selector +
+  Expand/Collapse-all toggle + pagination footer
+- removed: `/app/logs/db-{contention,queries,active}.log` (662
+  MB stale instrumentation, side cleanup)
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`
+
+No DB migration. No new dependencies. No new scheduler jobs.
+
+---
+
+## v0.31.6 — Selective conversion of pending files
 
 **Selective conversion on the History page's Pending Files
 section — checkboxes per row + select-all + a "Convert Selected

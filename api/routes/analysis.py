@@ -843,282 +843,17 @@ async def download_files_bundle(
 
 # ── Preview (browser-native + thumbnail fallback, v0.29.7+) ──────────────────
 #
-# v0.29.8: expanded both sets to cover every photo format PIL can decode in the
-# current base image, plus every format mainstream Chromium/Firefox/Safari
-# render natively. Source of truth: `python -c "from PIL import Image;
-# Image.init(); print(Image.EXTENSION)"` inside the container. Must stay in
-# sync with static/batch-management.html `_IMG_EXT`.
+# v0.32.0: thumbnail machinery extracted into core/preview_thumbnails.py
+# so the new path-keyed /api/preview/* endpoints can share the same
+# cache + dispatch logic. The /files/:id/preview endpoint below stays
+# externally identical — it just delegates instead of carrying its own
+# helper functions.
 
-# Browser renders these natively — stream the raw bytes unchanged.
-_NATIVE_PREVIEW_EXTS = {
-    # JPEG family
-    ".jpg", ".jpeg", ".jfif", ".jpe",
-    # PNG family
-    ".png", ".apng",
-    # Other native formats
-    ".gif", ".bmp", ".dib", ".webp",
-    # Modern formats supported by all recent browsers
-    ".avif", ".avifs",
-    # Icon / cursor formats
-    ".ico", ".cur",
-}
-
-# Browser CAN'T render these — generate a JPEG thumbnail via PIL.
-# .eps / .ps use PIL's EpsImagePlugin which shells out to Ghostscript
-# (/usr/bin/gs). .psd is read as the flat composite (good enough for preview).
-_THUMBNAIL_PREVIEW_EXTS = {
-    # TIFF family
-    ".tif", ".tiff",
-    # PostScript family (rasterized via Ghostscript)
-    ".eps", ".ps",
-    # JPEG 2000 family
-    ".jp2", ".j2k", ".jpx", ".jpc", ".jpf", ".j2c",
-    # Netpbm family
-    ".ppm", ".pgm", ".pbm", ".pnm",
-    # Targa family (TrueVision TGA)
-    ".tga", ".icb", ".vda", ".vst",
-    # SGI family
-    ".sgi", ".rgb", ".rgba", ".bw",
-    # Other photo/raster formats PIL decodes natively
-    ".pcx", ".dds", ".icns", ".psd",
-    # v0.31.3: HEIC / HEIF (modern phone-camera default). pillow-heif
-    # registers itself as a PIL opener at module load (see below) so
-    # these flow through the existing _generate_thumbnail_sync path.
-    ".heic", ".heif", ".heics", ".heifs",
-}
-
-# v0.31.3: RAW camera formats — separate set because they don't go
-# through PIL. Decoded via `rawpy` (ships LibRaw in wheels), the
-# resulting numpy array is converted to a PIL Image, then the same
-# thumbnail pipeline takes over.
-_RAW_PREVIEW_EXTS = {
-    # Canon
-    ".cr2", ".cr3", ".crw",
-    # Nikon
-    ".nef", ".nrw",
-    # Sony
-    ".arw", ".srf", ".sr2",
-    # Fuji / Olympus / Panasonic / Pentax / Samsung
-    ".raf", ".orf", ".rw2", ".pef", ".srw",
-    # Adobe Digital Negative (cross-vendor open standard)
-    ".dng",
-    # Kodak / Sigma / Hasselblad / Leica / Mamiya / Phase One / Epson
-    ".kdc", ".dcr", ".x3f", ".3fr", ".fff", ".mef", ".mos", ".raw", ".rwl", ".erf",
-}
-
-# v0.31.3: SVG — rasterized via cairosvg (no XSS surface because we
-# return PNG bytes, not the original SVG document). Separate set so
-# the dispatcher knows to use `_generate_svg_thumbnail_sync` instead
-# of PIL.
-_SVG_PREVIEW_EXTS = {".svg", ".svgz"}
-
-_ALL_PREVIEW_EXTS = (
-    _NATIVE_PREVIEW_EXTS | _THUMBNAIL_PREVIEW_EXTS
-    | _RAW_PREVIEW_EXTS | _SVG_PREVIEW_EXTS
+from core.preview_thumbnails import (
+    get_cached_thumbnail as _shared_get_cached_thumbnail,
+    is_previewable as _is_previewable,
+    needs_thumbnail as _needs_thumbnail,
 )
-
-# v0.31.3: Register pillow-heif as a PIL opener at module import so
-# .heic / .heif files get the same `Image.open()` path TIFF/PSD use.
-# Quietly tolerate the import failing — base image without the dep
-# still serves every other format. The resulting `_is_previewable`
-# check above is what gates the request.
-try:
-    import pillow_heif as _pillow_heif  # type: ignore[import-not-found]
-    _pillow_heif.register_heif_opener()
-except Exception as _exc:  # pragma: no cover — defensive
-    log.warning(
-        "preview.pillow_heif_unavailable",
-        error=f"{type(_exc).__name__}: {_exc}",
-    )
-
-_THUMB_MAX_PX = 400
-_THUMB_JPEG_QUALITY = 78
-_THUMB_CACHE_SIZE = 64  # ~13 MB at 200 KB avg per thumb — bounded and small
-_thumb_cache: "OrderedDict[tuple, bytes]" = OrderedDict()
-
-
-def _ext_lower(ext: str) -> str:
-    return ("." + ext.lstrip(".")).lower()
-
-
-def _is_previewable(ext: str) -> bool:
-    return _ext_lower(ext) in _ALL_PREVIEW_EXTS
-
-
-def _needs_thumbnail(ext: str) -> bool:
-    e = _ext_lower(ext)
-    return (
-        e in _THUMBNAIL_PREVIEW_EXTS
-        or e in _RAW_PREVIEW_EXTS
-        or e in _SVG_PREVIEW_EXTS
-    )
-
-
-def _generate_thumbnail_sync(path: Path) -> bytes:
-    """Open `path` with PIL, thumbnail to _THUMB_MAX_PX on the longest edge,
-    return JPEG bytes. Runs in a worker thread via asyncio.to_thread; must
-    not touch async state.
-
-    v0.31.3: dispatches to specialized helpers for RAW (rawpy) and SVG
-    (cairosvg) formats; HEIC/HEIF flow through the standard PIL path
-    via the pillow-heif opener registered at module load.
-    """
-    ext = _ext_lower(path.suffix)
-    if ext in _RAW_PREVIEW_EXTS:
-        return _generate_raw_thumbnail_sync(path)
-    if ext in _SVG_PREVIEW_EXTS:
-        return _generate_svg_thumbnail_sync(path)
-
-    # Import lazily so module load doesn't block on PIL for non-preview
-    # requests (PIL pulls in C extensions and can be slow to first-import).
-    from PIL import Image
-
-    with Image.open(str(path)) as img:
-        img.load()
-        # Convert to a JPEG-safe mode. EPS can arrive as CMYK; TIFF may be
-        # LA/P/I;16 etc. RGB is the safe common denominator for JPEG.
-        if img.mode not in ("RGB", "L"):
-            img = img.convert("RGB")
-        img.thumbnail((_THUMB_MAX_PX, _THUMB_MAX_PX), Image.LANCZOS)
-        buf = BytesIO()
-        img.save(buf, format="JPEG", quality=_THUMB_JPEG_QUALITY, optimize=True)
-        return buf.getvalue()
-
-
-def _generate_raw_thumbnail_sync(path: Path) -> bytes:
-    """Decode a RAW camera file via `rawpy`, downsample, return JPEG bytes.
-
-    v0.31.3. RAW files carry an embedded JPEG preview (typically
-    160-1600px on the longest edge); we use `rawpy.extract_thumb()`
-    when available since it's ~50x faster than full demosaicing. If
-    extraction fails (older RAW format with no embedded preview), we
-    fall back to a half-sized demosaic — still much faster than full
-    res.
-    """
-    import rawpy  # type: ignore[import-not-found]
-    from PIL import Image
-
-    with rawpy.imread(str(path)) as raw:
-        try:
-            thumb = raw.extract_thumb()
-            if thumb.format == rawpy.ThumbFormat.JPEG:
-                # Embedded JPEG preview — re-encode to enforce our size cap.
-                with Image.open(BytesIO(thumb.data)) as img:
-                    img.load()
-                    if img.mode != "RGB":
-                        img = img.convert("RGB")
-                    img.thumbnail((_THUMB_MAX_PX, _THUMB_MAX_PX), Image.LANCZOS)
-                    buf = BytesIO()
-                    img.save(buf, format="JPEG",
-                             quality=_THUMB_JPEG_QUALITY, optimize=True)
-                    return buf.getvalue()
-            elif thumb.format == rawpy.ThumbFormat.BITMAP:
-                # Bitmap from rawpy — it's a numpy array (H, W, 3) RGB.
-                img = Image.fromarray(thumb.data)
-                img.thumbnail((_THUMB_MAX_PX, _THUMB_MAX_PX), Image.LANCZOS)
-                buf = BytesIO()
-                img.save(buf, format="JPEG",
-                         quality=_THUMB_JPEG_QUALITY, optimize=True)
-                return buf.getvalue()
-        except (rawpy.LibRawNoThumbnailError, rawpy.LibRawUnsupportedThumbnailError):
-            pass  # Fall through to the demosaic path
-
-        # No embedded preview — half-size demosaic, still cheap-ish.
-        # `half_size=True` skips the bayer interpolation cost.
-        rgb = raw.postprocess(half_size=True, no_auto_bright=False, output_bps=8)
-        img = Image.fromarray(rgb)
-        img.thumbnail((_THUMB_MAX_PX, _THUMB_MAX_PX), Image.LANCZOS)
-        buf = BytesIO()
-        img.save(buf, format="JPEG",
-                 quality=_THUMB_JPEG_QUALITY, optimize=True)
-        return buf.getvalue()
-
-
-def _generate_svg_thumbnail_sync(path: Path) -> bytes:
-    """Rasterize an SVG to JPEG via `cairosvg` → PIL (v0.31.3).
-
-    Security note: the output is raster pixels, NOT the original SVG
-    document, so any embedded `<script>` / event handlers / external
-    `<image>` references are inert by the time the browser sees the
-    response. cairosvg internally uses a strict parser that ignores
-    JS — but we don't rely on that; we never serve the SVG verbatim.
-
-    Bomb defense: cap the rasterized output dimensions at the
-    standard `_THUMB_MAX_PX` (longest edge). cairosvg's
-    `output_width` parameter is honored; the SVG's intrinsic size
-    is irrelevant.
-    """
-    import cairosvg  # type: ignore[import-not-found]
-    from PIL import Image
-
-    # cairosvg natively accepts gzipped SVGs (.svgz). Render at
-    # exactly _THUMB_MAX_PX wide; height auto-derives from aspect.
-    png_bytes = cairosvg.svg2png(
-        url=str(path),
-        output_width=_THUMB_MAX_PX,
-    )
-    with Image.open(BytesIO(png_bytes)) as img:
-        img.load()
-        if img.mode not in ("RGB", "L"):
-            # SVGs commonly produce RGBA; flatten over white for JPEG.
-            background = Image.new("RGB", img.size, (255, 255, 255))
-            if img.mode in ("RGBA", "LA"):
-                background.paste(img, mask=img.split()[-1])
-            else:
-                background.paste(img.convert("RGB"))
-            img = background
-        # cairosvg already sized to _THUMB_MAX_PX width, but enforce
-        # cap on height too (very tall SVGs).
-        if max(img.size) > _THUMB_MAX_PX:
-            img.thumbnail((_THUMB_MAX_PX, _THUMB_MAX_PX), Image.LANCZOS)
-        buf = BytesIO()
-        img.save(buf, format="JPEG",
-                 quality=_THUMB_JPEG_QUALITY, optimize=True)
-        return buf.getvalue()
-
-
-async def _get_cached_thumbnail(path: Path, source_file_id: str) -> bytes:
-    """Return cached or freshly-rendered JPEG thumbnail bytes.
-
-    Cache key = (source_file_id, st_mtime_ns, st_size). Any edit to the
-    file changes the key so stale thumbs are never served. LRU eviction
-    with _THUMB_CACHE_SIZE entries.
-    """
-    try:
-        stat = path.stat()
-    except OSError as exc:
-        raise HTTPException(
-            status_code=404, detail=f"File not accessible: {exc}"
-        ) from exc
-
-    cache_key = (source_file_id, stat.st_mtime_ns, stat.st_size)
-    hit = _thumb_cache.get(cache_key)
-    if hit is not None:
-        _thumb_cache.move_to_end(cache_key)
-        return hit
-
-    try:
-        thumb_bytes = await asyncio.to_thread(_generate_thumbnail_sync, path)
-    except Exception as exc:
-        # PIL errors bubble up as generic Exception; surface as 500 with
-        # the error class + message so operators can diagnose from the
-        # browser's network tab without log-diving.
-        log.warning(
-            "analysis.thumbnail_generation_failed",
-            source_file_id=source_file_id,
-            path=str(path),
-            error=f"{type(exc).__name__}: {exc}",
-        )
-        raise HTTPException(
-            status_code=500,
-            detail=f"Thumbnail generation failed: {type(exc).__name__}: {exc}",
-        ) from exc
-
-    _thumb_cache[cache_key] = thumb_bytes
-    _thumb_cache.move_to_end(cache_key)
-    while len(_thumb_cache) > _THUMB_CACHE_SIZE:
-        _thumb_cache.popitem(last=False)
-    return thumb_bytes
 
 
 @router.get("/files/{source_file_id}/preview")
@@ -1150,9 +885,11 @@ async def preview_file(
       handlers / external `<image>` references are inert by the time
       bytes reach the page.
 
-    Any other extension returns 404. The (source_file_id, mtime, size)
-    cache key means unchanged files serve instantly after the first hit
-    and edits invalidate automatically.
+    Any other extension returns 404. v0.32.0: the cache + dispatch
+    machinery moved to `core.preview_thumbnails`; cache key is
+    path-based (resolved + mtime + size) so the new path-keyed
+    `/api/preview/*` endpoints share hits with this one. The
+    on-disk semantics for unchanged-file fast-serve are unchanged.
     """
     path = await _lookup_source_path(source_file_id)
     if not _is_previewable(path.suffix):
@@ -1170,7 +907,16 @@ async def preview_file(
     )
 
     if _needs_thumbnail(path.suffix):
-        thumb_bytes = await _get_cached_thumbnail(path, source_file_id)
+        try:
+            thumb_bytes = await _shared_get_cached_thumbnail(path)
+        except OSError as exc:
+            raise HTTPException(
+                status_code=404, detail=f"File not accessible: {exc}"
+            ) from exc
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=500, detail=str(exc),
+            ) from exc
         return Response(
             content=thumb_bytes,
             media_type="image/jpeg",

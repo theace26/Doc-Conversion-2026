@@ -86,6 +86,31 @@
       font-size: 0.85rem;
       color: var(--text, #eee);
     }
+    /* v0.31.6: page-size selector + pagination footer */
+    .bm-page-size-select {
+      padding: 0.25rem 0.55rem;
+      background: var(--surface, #161624);
+      color: var(--text, #eee);
+      border: 1px solid var(--border, #2b2b3f);
+      border-radius: var(--radius-sm, 4px);
+      font: inherit;
+      font-size: 0.85rem;
+    }
+    .bm-pagination {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      padding: 0.75rem 1rem;
+      margin-top: 0.75rem;
+      background: var(--bg-secondary, #1a1a2e);
+      border-radius: var(--radius, 8px);
+    }
+    .bm-pagination .bm-pag-info { margin-right: auto; }
+    .bm-pagination button[disabled] {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
     .bm-loadmore {
       margin-top: 0.75rem;
       display: flex;
@@ -409,6 +434,15 @@
       <button id="bm-cancel-all" class="btn btn-ghost btn-sm" type="button">Cancel All Pending</button>
       <button id="bm-bulk-reanalyze" class="btn btn-ghost btn-sm" type="button" title="Re-analyze multiple rows by date / provider / model. Uses LLM tokens.">Bulk re-analyze...</button>
       <button id="bm-refresh" class="btn btn-ghost btn-sm" type="button">Refresh</button>
+      <!-- v0.31.6: page-size selector + collapse/expand-all toggle -->
+      <button id="bm-collapse-toggle" class="btn btn-ghost btn-sm" type="button" title="Expand or collapse all visible batches">Expand all</button>
+      <select id="bm-page-size" class="bm-page-size-select" title="Batches per page" aria-label="Batches per page">
+        <option value="10">10 / page</option>
+        <option value="30" selected>30 / page</option>
+        <option value="50">50 / page</option>
+        <option value="100">100 / page</option>
+        <option value="all">All</option>
+      </select>
       <div class="bm-counts" id="bm-counts"></div>
     </div>
 
@@ -439,6 +473,26 @@
       let lastCounts = {};                   // keeps the most recent /status counts for re-render
       const PENDING_BATCH_SENTINEL = '__pending__';
       const PENDING_PAGE_SIZE = 100;
+
+      // v0.31.6: client-side pagination + collapse/expand-all toggle.
+      // /api/analysis/batches already returns every matching row; we
+      // just slice it for display so the page doesn't render hundreds
+      // of cards at once.
+      const collapseToggleBtn = document.getElementById('bm-collapse-toggle');
+      const pageSizeSel = document.getElementById('bm-page-size');
+      const PAGE_SIZE_KEY = 'markflow.batch-management.pageSize.v1';
+      let allBatches = [];
+      let batchPageIndex = 0;
+      let batchPageSize = (() => {
+        try {
+          const stored = localStorage.getItem(PAGE_SIZE_KEY);
+          if (stored === 'all') return 'all';
+          const n = parseInt(stored, 10);
+          if ([10, 30, 50, 100].includes(n)) return n;
+        } catch (e) {}
+        return 30;
+      })();
+      pageSizeSel.value = String(batchPageSize);
 
       function clearChildren(el) {
         while (el.firstChild) el.removeChild(el.firstChild);
@@ -699,26 +753,145 @@
           const qs = activeStatusFilter ? '?status=' + encodeURIComponent(activeStatusFilter) : '';
           const data = await API.get('/api/analysis/batches' + qs);
           const batches = (data && data.batches) || [];
-          if (batches.length === 0) {
-            const empty = document.createElement('div');
-            empty.className = 'bm-empty';
-            empty.textContent = activeStatusFilter
-              ? 'No batches contain any ' + activeStatusFilter + ' files right now.'
-              : 'No analysis batches. Batches are created automatically after bulk conversion scans complete.';
-            batchesEl.appendChild(empty);
-            return;
-          }
           batches.sort((a, b) => {
             const ax = a.earliest_batched_at || '';
             const bx = b.earliest_batched_at || '';
             return bx.localeCompare(ax);
           });
-          batches.forEach(b => batchesEl.appendChild(renderBatchCard(b)));
+          // v0.31.6: stash full list, then render the active page slice.
+          // Reset to page 0 on every fresh load — operator actions
+          // (filter change, bulk action) typically expect to see the
+          // newest data at the top.
+          allBatches = batches;
+          batchPageIndex = 0;
+          renderBatchesPage();
         } catch (e) {
           clearChildren(batchesEl);
           showError('Failed to load batches: ' + e.message);
         }
       }
+
+      // v0.31.6: render the current page of batch cards. Called both
+      // from loadBatches (after a fresh fetch) and from the page-size
+      // / pagination handlers (no re-fetch needed). Strips prior
+      // batch cards / pagination footers / empty messages but keeps
+      // the filter banner if present.
+      function renderBatchesPage() {
+        Array.from(batchesEl.querySelectorAll('.bm-card, .bm-pagination, .bm-empty'))
+          .forEach(n => n.remove());
+
+        if (allBatches.length === 0) {
+          const empty = document.createElement('div');
+          empty.className = 'bm-empty';
+          empty.textContent = activeStatusFilter
+            ? 'No batches contain any ' + activeStatusFilter + ' files right now.'
+            : 'No analysis batches. Batches are created automatically after bulk conversion scans complete.';
+          batchesEl.appendChild(empty);
+          collapseToggleBtn.textContent = 'Expand all';
+          collapseToggleBtn.dataset.state = 'collapsed';
+          return;
+        }
+
+        let startIdx, endIdx, totalPages;
+        if (batchPageSize === 'all') {
+          startIdx = 0;
+          endIdx = allBatches.length;
+          totalPages = 1;
+        } else {
+          totalPages = Math.max(1, Math.ceil(allBatches.length / batchPageSize));
+          if (batchPageIndex >= totalPages) batchPageIndex = totalPages - 1;
+          if (batchPageIndex < 0) batchPageIndex = 0;
+          startIdx = batchPageIndex * batchPageSize;
+          endIdx = Math.min(startIdx + batchPageSize, allBatches.length);
+        }
+
+        allBatches.slice(startIdx, endIdx).forEach(b => batchesEl.appendChild(renderBatchCard(b)));
+
+        if (totalPages > 1) {
+          batchesEl.appendChild(renderPaginationFooter(startIdx, endIdx, totalPages));
+        }
+        // Newly-rendered cards default to collapsed; reset toggle.
+        collapseToggleBtn.textContent = 'Expand all';
+        collapseToggleBtn.dataset.state = 'collapsed';
+      }
+
+      function renderPaginationFooter(startIdx, endIdx, totalPages) {
+        const footer = document.createElement('div');
+        footer.className = 'bm-pagination';
+
+        const info = document.createElement('span');
+        info.className = 'bm-pag-info text-muted text-sm';
+        info.textContent = 'Showing ' + (startIdx + 1) + '-' + endIdx + ' of ' + allBatches.length + ' batches';
+        footer.appendChild(info);
+
+        const prevBtn = document.createElement('button');
+        prevBtn.className = 'btn btn-ghost btn-sm';
+        prevBtn.type = 'button';
+        prevBtn.textContent = '← Prev';
+        prevBtn.disabled = batchPageIndex === 0;
+        prevBtn.addEventListener('click', () => {
+          if (batchPageIndex > 0) {
+            batchPageIndex--;
+            renderBatchesPage();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+        });
+        footer.appendChild(prevBtn);
+
+        const pageLabel = document.createElement('span');
+        pageLabel.className = 'text-muted text-sm';
+        pageLabel.textContent = 'Page ' + (batchPageIndex + 1) + ' of ' + totalPages;
+        footer.appendChild(pageLabel);
+
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'btn btn-ghost btn-sm';
+        nextBtn.type = 'button';
+        nextBtn.textContent = 'Next →';
+        nextBtn.disabled = batchPageIndex >= totalPages - 1;
+        nextBtn.addEventListener('click', () => {
+          if (batchPageIndex < totalPages - 1) {
+            batchPageIndex++;
+            renderBatchesPage();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+        });
+        footer.appendChild(nextBtn);
+
+        return footer;
+      }
+
+      pageSizeSel.addEventListener('change', () => {
+        const v = pageSizeSel.value;
+        batchPageSize = v === 'all' ? 'all' : parseInt(v, 10);
+        batchPageIndex = 0;
+        try { localStorage.setItem(PAGE_SIZE_KEY, String(batchPageSize)); } catch (e) {}
+        renderBatchesPage();
+      });
+
+      collapseToggleBtn.addEventListener('click', () => {
+        const cards = Array.from(batchesEl.querySelectorAll('.bm-card'));
+        if (cards.length === 0) return;
+        const anyCollapsed = cards.some(c => !c.classList.contains('open'));
+        if (anyCollapsed) {
+          // Expand all collapsed cards via their existing header click
+          // handler so lazy-loading of file lists fires for any not-
+          // yet-loaded card. Idempotent on already-open cards (we
+          // filter them out).
+          cards.forEach(card => {
+            if (!card.classList.contains('open')) {
+              const header = card.querySelector('.bm-card-header');
+              if (header) header.click();
+            }
+          });
+          collapseToggleBtn.textContent = 'Collapse all';
+          collapseToggleBtn.dataset.state = 'expanded';
+        } else {
+          // Collapse: just remove the .open class — no async work.
+          cards.forEach(card => card.classList.remove('open'));
+          collapseToggleBtn.textContent = 'Expand all';
+          collapseToggleBtn.dataset.state = 'collapsed';
+        }
+      });
 
       function renderPendingPseudoBatch() {
         const total = lastCounts.pending || 0;

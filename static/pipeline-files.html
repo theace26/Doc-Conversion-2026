@@ -321,6 +321,30 @@
         s = s.trim();
         if (s) activeStatuses.add(s);
       });
+      // v0.32.0: ?folder=<abs path> pre-fills the search box so the
+      // operator lands filtered to that directory. Reuses the existing
+      // substring-match — paths are matched against source_path so a
+      // folder path naturally selects every file under it.
+      var folder = params.get('folder');
+      if (folder) {
+        searchQuery = folder;
+        // The DOM may not exist yet at first call; defer to when it does.
+        var setIt = function () {
+          var inp = document.getElementById('search-input');
+          if (inp) inp.value = folder;
+        };
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', setIt);
+        } else {
+          setIt();
+        }
+        // If status hasn't been pinned via URL, default to "scanned" so
+        // the operator sees something rather than the "Select one or
+        // more categories" empty state.
+        if (!activeStatuses.size) {
+          activeStatuses.add('scanned');
+        }
+      }
     }
 
     function pushUrlState() {

@@ -463,6 +463,10 @@ app.include_router(analysis_routes.router)
 from api.routes import log_management as log_management_routes
 app.include_router(log_management_routes.router)
 
+# v0.32.0: file detail / preview page (path-keyed, OPERATOR+)
+from api.routes import preview as preview_routes
+app.include_router(preview_routes.router)
+
 log.info("markflow.all_routes_registered")
 
 # ── Static files ──────────────────────────────────────────────────────────────

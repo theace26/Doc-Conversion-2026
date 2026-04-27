@@ -4,6 +4,229 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.32.0 — File preview page + Batch Management UX polish (2026-04-27)
+
+**Replaces the long-standing 19-line `static/preview.html` stub
+with a full-fledged file-detail viewer. Click the folder icon
+on a Pipeline Files row and a real page opens with inline
+content preview (per format), a metadata sidebar showing every
+DB registry row that touches the file, and operator actions
+(Download / Open / Copy path / Show in folder / View converted
+/ Re-analyze). Sibling navigation with ←/→ keys; Esc jumps back
+to Pipeline Files filtered to the parent directory.**
+
+Plan executed:
+[`docs/superpowers/plans/2026-04-27-preview-page-implementation.md`](superpowers/plans/2026-04-27-preview-page-implementation.md).
+
+### Architecture
+
+The preview page is the **source-file inspection** surface — a
+peer of `static/viewer.html` (the converted-Markdown viewer).
+viewer.html renders the Markdown OUTPUT; preview.html shows the
+INPUT alongside its lineage through the conversion + analysis
+pipelines.
+
+### New backend router — `api/routes/preview.py`
+
+Six endpoints, all `OPERATOR+`-gated and path-keyed (verified
+by `core.path_utils.is_path_under_allowed_root`). Path
+validation rejects relative paths, Windows-style backslashes,
+drive-letter prefixes, and anything outside the allow-listed
+mount roots.
+
+- `GET /api/preview/info` — composite endpoint returning file
+  metadata + source_files row (if any) + latest bulk_files
+  conversion (if any) + latest analysis_queue row (if any) +
+  active file_flags + sibling listing. Sibling listing capped
+  at 200 entries with a 10s wall-clock guard so a slow
+  SMB/NFS share can't pin the request thread. Computes
+  `viewer_kind` server-side as a dispatch hint, refining
+  `office` to either `office_with_markdown` or
+  `office_no_markdown` based on whether a successful
+  conversion exists.
+- `GET /api/preview/content` — raw bytes via FastAPI's
+  `FileResponse`, which honors HTTP Range headers natively
+  (so the browser's `<video>` / `<audio>` elements seek
+  correctly). 500 MB inline cap as defense-in-depth against
+  unbounded fetches.
+- `GET /api/preview/thumbnail` — server-rendered JPEG via
+  the shared `core.preview_thumbnails.get_cached_thumbnail`.
+  Reuses the same LRU cache as the analysis-route preview
+  endpoint (cache key is path-based, so both endpoints share
+  hits on identical paths).
+- `GET /api/preview/text-excerpt` — first N bytes UTF-8
+  decoded with `errors='replace'`. Default 64 KB, hard max
+  512 KB. Extension-gated to TEXT_EXTS / OFFICE_EXTS / unknown
+  so a `.mp4` doesn't accidentally get decoded.
+- `GET /api/preview/archive-listing` — zip / tar (auto-detect
+  gz/bz2/xz) / 7z entries (cap 500). The 7z format uses the
+  system `/usr/bin/7z l -slt` listing command parsed via
+  block-per-entry. Already-corrupt archives surface as HTTP
+  422 rather than 500.
+- `GET /api/preview/markdown-output` — converted Markdown
+  contents if a successful `bulk_files` row exists for the
+  source path. Honors the path-traversal guard on the
+  output_path too — a corrupted DB row pointing outside the
+  allowed roots returns 400, not the file.
+
+### Refactor — `core/preview_thumbnails.py` (new shared module)
+
+Extracted the thumbnail cache + dispatch logic out of
+`api/routes/analysis.py` into a shared module. Cache key is
+now path-based: `(resolved_path_str, st_mtime_ns, st_size)`.
+This means a thumbnail rendered via the source_file_id-keyed
+analysis endpoint AND the path-keyed preview endpoint share
+the same cache entry — no duplicate rendering for the same
+file.
+
+The existing `/api/analysis/files/:source_file_id/preview`
+endpoint stays externally identical: same response shape, same
+cache behavior. Internally it now delegates to
+`get_cached_thumbnail(path)` which raises OSError on
+inaccessible files and RuntimeError on PIL/rawpy/cairosvg
+failures; the route layer translates to HTTP 404 / 500
+respectively.
+
+The pillow-heif registration at module load is preserved so
+HEIC/HEIF files continue to flow through the standard PIL
+path.
+
+### Helpers — `core/preview_helpers.py` (new)
+
+Pure functions used by the info endpoint:
+- `classify_viewer_kind(path)` — extension → `image | audio
+  | video | pdf | text | office | archive | unknown`
+- `get_mime_type(path)` — best-effort MIME with overrides for
+  HEIC, AVIF, Opus, etc. that stdlib mimetypes returns None
+  on
+- `get_file_category(path)` — coarse category for the
+  metadata sidebar (`document` aggregates PDFs + Office
+  formats)
+- `can_render_native(path)` — predicate for "browser can
+  render via /content directly" vs "needs /thumbnail"
+
+No I/O — purely extension-based so works on a path that may
+not exist on disk yet.
+
+### Frontend — full rewrite of `static/preview.html`
+
+~770 LOC replacing the 19-line stub. Sticky toolbar
+(breadcrumb · title · status pill · flag pill · action
+buttons) above a CSS-grid two-pane layout (viewer left,
+sidebar right). Per-viewer dispatch on `info.viewer_kind`:
+
+- `image` — `<img>` from /content with /thumbnail fallback
+  on error (handles TIFF/EPS/HEIC/RAW/SVG/PSD that browsers
+  can't render natively)
+- `audio` — `<audio controls>` with HTTP range seeking
+- `video` — `<video controls>` with HTTP range seeking
+- `pdf` — `<iframe>` using the browser's built-in PDF viewer
+- `text` — `<pre><code>` of the first 64 KB
+- `office_with_markdown` — `marked.parse()` →
+  `DOMPurify.sanitize()` → `innerHTML`. Same import block as
+  viewer.html (CDN-cached); same allow-list.
+- `office_no_markdown` — empty-state with a context-aware
+  message ("Queued for conversion" / "Previous attempt
+  failed" / "Skipped" / "No bulk_files row")
+- `archive` — sortable table of entries with size + modified
+  columns
+- `unknown` — metadata + Download button only
+
+Sibling navigation:
+- ← Prev / Next → buttons in the sidebar
+- Clickable sibling list (capped at 200, with truncation
+  indicator)
+- ← / → keyboard shortcuts when focus isn't in an input
+- Esc jumps to Pipeline Files filtered to the parent
+
+Action buttons:
+- Download (direct file)
+- Open in new tab
+- Copy path (Clipboard API + execCommand fallback)
+- Show in folder (`/static/pipeline-files.html?folder=`)
+- View converted → (only when bulk_files.status == 'success')
+- Re-analyze (only when analysis_queue row exists; uses the
+  v0.31.0 delete-and-re-insert endpoint)
+
+Browser back/forward navigation supported via `popstate`
+listener — the URL is mutated via `history.pushState()` on
+sibling-link clicks rather than full reloads, so navigation
+within a folder is instant.
+
+### Pipeline Files `?folder=` filter
+
+`static/pipeline-files.html` now honors a `?folder=<absolute
+path>` query parameter. On page load, the search input is
+pre-filled with the folder path and `searchQuery` is set so
+the existing substring-match filter naturally selects every
+file under that directory. If no status chip is pre-selected,
+defaults to `scanned` so the operator sees results rather than
+the empty-state prompt.
+
+### Side polish — Batch Management page
+
+Three additions on `static/batch-management.html`:
+
+- **Page-size dropdown** with options 10 / 30 / 50 / 100 /
+  All. Defaults to 30; persists to localStorage under
+  `markflow.batch-management.pageSize.v1`.
+- **Expand all / Collapse all** toggle button. Detects current
+  state (any cards collapsed → expand all; all open →
+  collapse all). The expand path simulates header clicks so
+  lazy-loading of file lists fires; the collapse path just
+  removes the `.open` class.
+- **Pagination footer** with `← Prev` / `Next →` buttons and a
+  "Showing 1-30 of 247 batches" indicator.
+
+The `loadBatches` function was refactored: it now stores the
+full list in a closure variable `allBatches` and calls
+`renderBatchesPage()` to slice + render. Page-size changes and
+pagination clicks just call `renderBatchesPage()` with no
+re-fetch.
+
+### Files
+
+- `core/version.py` — bump to 0.32.0
+- `core/preview_thumbnails.py` (new, ~290 LOC)
+- `core/preview_helpers.py` (new, ~190 LOC)
+- `api/routes/preview.py` (new, ~580 LOC)
+- `api/routes/analysis.py` — thumbnail helpers extracted
+  (-160 LOC, +5 import lines)
+- `main.py` — register the new preview router
+- `static/preview.html` — full rewrite (~770 LOC, was 19)
+- `static/pipeline-files.html` — `?folder=` query param
+  honored (~25 LOC)
+- `static/batch-management.html` — page-size dropdown,
+  Expand/Collapse-all toggle, pagination footer
+  (~120 LOC additions)
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`
+
+No DB migration. No new dependencies. No new scheduler jobs.
+
+### Acceptance verification
+
+Per the plan's acceptance criteria:
+- ✅ Click folder icon on a Pipeline Files row → preview.html
+  opens in new tab with `?path=<container path>`
+- ✅ Audio / video rows show players with seek (HTTP range
+  works through FileResponse)
+- ✅ Image rows show the file at full size, with auto-fallback
+  to /thumbnail for non-native formats
+- ✅ PDF rows show the browser's built-in PDF viewer
+- ✅ Text rows show first 64 KB with truncation indicator
+- ✅ Converted Office docs show the rendered Markdown inline
+  AND link to viewer.html
+- ✅ Unconverted Office docs show context-aware empty state
+- ✅ Archives show entry table (zip / tar / 7z)
+- ✅ Sidebar metadata reflects file stats + DB rows + flags
+- ✅ Action buttons work (Download streams, Copy path
+  copies, Show in folder navigates with `?folder=`)
+- ✅ ← / → / Esc keyboard nav
+- ✅ `?path=/etc/passwd` returns 400 (path-traversal guard)
+
+---
+
 ## v0.31.6 — Selective conversion of pending files (2026-04-27)
 
 **New "Convert Selected (N)" / "Retry Selected (N)" workflow on
