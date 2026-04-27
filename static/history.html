@@ -55,10 +55,33 @@
           <input type="search" id="pending-search" placeholder="Search..." style="font-size:0.82rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);width:180px">
         </div>
       </div>
+      <!-- v0.31.6: bulk-action bar for hand-picked selections. Hidden
+           until at least one row is checked. Replaces the all-or-nothing
+           commit to "Force Transcribe / Convert Pending" with a
+           targeted "Convert Selected (N)" path. -->
+      <div id="pending-bulk-bar" hidden
+           style="display:none;margin-top:0.75rem;padding:0.55rem 0.85rem;
+                  background:rgba(79,91,213,0.10);
+                  border:1px solid rgba(79,91,213,0.35);
+                  border-radius:var(--radius-sm);
+                  align-items:center;gap:0.7rem;font-size:0.85rem">
+        <strong id="pending-bulk-count">0 selected</strong>
+        <span id="pending-bulk-context" style="color:var(--text-muted)"></span>
+        <span style="flex:1"></span>
+        <button id="pending-bulk-convert" type="button"
+                class="btn btn-primary btn-sm">Convert Selected</button>
+        <button id="pending-bulk-clear" type="button"
+                class="btn btn-ghost btn-sm">Clear selection</button>
+      </div>
       <div style="overflow-x:auto;margin-top:0.75rem">
         <table class="data-table" style="font-size:0.82rem">
           <thead>
             <tr>
+              <th style="width:32px;padding-right:0">
+                <input type="checkbox" id="pending-select-all"
+                       title="Select all files on this page"
+                       style="cursor:pointer;margin:0">
+              </th>
               <th style="width:45%">File</th>
               <th style="width:60px">Type</th>
               <th style="width:70px">Size</th>
@@ -478,6 +501,101 @@
   var pendingPage = 1;
   var pendingPerPage = 50;
   var pendingRefreshTimer = null;
+  // v0.31.6: per-row selection state. Keyed by bulk_files.id so it
+  // survives pagination + filter changes within the same session.
+  // Cleared on "Clear selection" or after a successful Convert Selected
+  // batch dispatches. Cap at the same 100-file limit the backend
+  // enforces — surface a UI-side message before the user commits.
+  var pendingSelectedIds = new Set();
+  var PENDING_SELECT_CAP = 100;
+  // Cache of {id: file_dict} so the bulk bar can summarize size/types
+  // even when the user scrolled past the page where they checked them.
+  var pendingSelectedFiles = Object.create(null);
+
+  function updatePendingBulkBar() {
+    var bar = document.getElementById('pending-bulk-bar');
+    var count = pendingSelectedIds.size;
+    var countEl = document.getElementById('pending-bulk-count');
+    var ctxEl = document.getElementById('pending-bulk-context');
+    var btn = document.getElementById('pending-bulk-convert');
+    if (!bar) return;
+    if (count === 0) {
+      bar.hidden = true;
+      bar.style.display = 'none';
+      return;
+    }
+    bar.hidden = false;
+    bar.style.display = 'flex';
+    countEl.textContent = count + ' selected';
+
+    // Summarize the selection: total size + dominant file type +
+    // current status filter context. Operators glancing at the bar
+    // should know exactly what they're about to commit to.
+    var totalBytes = 0;
+    var typeCounts = Object.create(null);
+    var statusCounts = Object.create(null);
+    Object.keys(pendingSelectedFiles).forEach(function(id) {
+      if (!pendingSelectedIds.has(id)) return;
+      var f = pendingSelectedFiles[id];
+      totalBytes += (f.file_size_bytes || 0);
+      var ext = (f.file_ext || '?').toLowerCase();
+      typeCounts[ext] = (typeCounts[ext] || 0) + 1;
+      var st = f.status || 'pending';
+      statusCounts[st] = (statusCounts[st] || 0) + 1;
+    });
+    var topTypes = Object.keys(typeCounts)
+      .sort(function(a, b) { return typeCounts[b] - typeCounts[a]; })
+      .slice(0, 3)
+      .map(function(t) { return typeCounts[t] + '× ' + t; })
+      .join(', ');
+    var statusFilter = document.getElementById('pending-status-filter').value;
+    var verb = (statusFilter === 'failed') ? 'Retry' : 'Convert';
+    btn.textContent = verb + ' Selected (' + count + ')';
+
+    var ctxParts = [];
+    if (topTypes) ctxParts.push(topTypes);
+    ctxParts.push(formatBytes(totalBytes) + ' total');
+    if (count > PENDING_SELECT_CAP) {
+      ctxParts.push('⚠ above ' + PENDING_SELECT_CAP + '-file cap');
+      btn.disabled = true;
+      btn.title = 'Selection exceeds the per-call cap of '
+        + PENDING_SELECT_CAP + '. Untick some rows to proceed; for full '
+        + 'pipeline runs use Force Transcribe / Convert Pending.';
+    } else {
+      btn.disabled = false;
+      btn.title = '';
+    }
+    ctxEl.textContent = ctxParts.join(' · ');
+  }
+
+  function clearPendingSelection() {
+    pendingSelectedIds.clear();
+    pendingSelectedFiles = Object.create(null);
+    document.querySelectorAll('.pending-row-cb').forEach(function(cb) {
+      cb.checked = false;
+    });
+    var sa = document.getElementById('pending-select-all');
+    if (sa) { sa.checked = false; sa.indeterminate = false; }
+    updatePendingBulkBar();
+  }
+
+  function syncSelectAllState() {
+    var sa = document.getElementById('pending-select-all');
+    if (!sa) return;
+    var rows = document.querySelectorAll('.pending-row-cb');
+    var checked = 0;
+    rows.forEach(function(cb) { if (cb.checked) checked++; });
+    if (checked === 0) {
+      sa.checked = false;
+      sa.indeterminate = false;
+    } else if (checked === rows.length) {
+      sa.checked = true;
+      sa.indeterminate = false;
+    } else {
+      sa.checked = false;
+      sa.indeterminate = true;
+    }
+  }
 
   async function loadPending() {
     var statusFilter = document.getElementById('pending-status-filter').value;
@@ -507,7 +625,8 @@
       if (!data.files || !data.files.length) {
         var tr = document.createElement('tr');
         var td = document.createElement('td');
-        td.colSpan = 5;
+        // v0.31.6: colSpan goes 5→6 to cover the new checkbox column.
+        td.colSpan = 6;
         td.style.textAlign = 'center';
         td.style.padding = '1.5rem';
         td.style.color = 'var(--text-muted)';
@@ -520,6 +639,31 @@
 
       data.files.forEach(function(f) {
         var tr = document.createElement('tr');
+
+        // v0.31.6: per-row checkbox. Bound to pendingSelectedIds so
+        // selection persists across pagination + filter changes.
+        var tdCb = document.createElement('td');
+        tdCb.style.paddingRight = '0';
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'pending-row-cb';
+        cb.dataset.fileId = f.id;
+        cb.style.cursor = 'pointer';
+        cb.style.margin = '0';
+        if (pendingSelectedIds.has(f.id)) cb.checked = true;
+        cb.addEventListener('change', function() {
+          if (cb.checked) {
+            pendingSelectedIds.add(f.id);
+            pendingSelectedFiles[f.id] = f;
+          } else {
+            pendingSelectedIds.delete(f.id);
+            delete pendingSelectedFiles[f.id];
+          }
+          syncSelectAllState();
+          updatePendingBulkBar();
+        });
+        tdCb.appendChild(cb);
+        tr.appendChild(tdCb);
 
         // File path
         var tdFile = document.createElement('td');
@@ -596,6 +740,14 @@
         info.textContent = data.total.toLocaleString() + ' files';
         pagEl.appendChild(info);
       }
+
+      // v0.31.6: re-sync the select-all checkbox + bulk bar against the
+      // freshly-rendered rows. Selections survive page changes via the
+      // pendingSelectedIds Set, but the DOM checkboxes need restoring
+      // and the indeterminate state on select-all needs recomputing
+      // for the rows currently visible.
+      syncSelectAllState();
+      updatePendingBulkBar();
     } catch(e) {
       // Silently fail — pending section is supplementary
     }
@@ -603,6 +755,11 @@
 
   document.getElementById('pending-status-filter').addEventListener('change', function() {
     pendingPage = 1;
+    // Status filter switch invalidates the selection: a row that was
+    // selected as "pending" might not even appear under "failed",
+    // and the ineligible-statuses guard on the backend would reject
+    // a mixed batch. Clearing keeps the UX honest.
+    clearPendingSelection();
     loadPending();
   });
 
@@ -610,6 +767,98 @@
   document.getElementById('pending-search').addEventListener('input', function() {
     clearTimeout(pendingSearchTimer);
     pendingSearchTimer = setTimeout(function() { pendingPage = 1; loadPending(); }, 300);
+  });
+
+  // ── v0.31.6: bulk-bar wiring ───────────────────────────────────────────────
+  // Select-all toggles every visible row's checkbox AND adds/removes
+  // those ids from the global selection set. Cross-page state is
+  // preserved (toggling all on page 2 doesn't touch page 1's
+  // selection). Cap-aware: if checking all on this page would push
+  // total over PENDING_SELECT_CAP, we still allow it but the bulk
+  // bar renders the "above cap" warning.
+  document.getElementById('pending-select-all')?.addEventListener('change', function(ev) {
+    var checked = ev.target.checked;
+    document.querySelectorAll('.pending-row-cb').forEach(function(cb) {
+      cb.checked = checked;
+      var fid = cb.dataset.fileId;
+      if (checked) {
+        pendingSelectedIds.add(fid);
+        // Walk the table for the file dict — we kept it on the
+        // closure earlier in the row render. Easier to look up via
+        // a lazy fetch when not present.
+        if (!pendingSelectedFiles[fid]) {
+          // We don't have the dict if the row was rendered in a prior
+          // page-load. Best-effort metadata: leave a stub with the id
+          // so the bulk bar's count is still accurate.
+          pendingSelectedFiles[fid] = { id: fid };
+        }
+      } else {
+        pendingSelectedIds.delete(fid);
+        delete pendingSelectedFiles[fid];
+      }
+    });
+    updatePendingBulkBar();
+  });
+
+  document.getElementById('pending-bulk-clear')?.addEventListener('click', clearPendingSelection);
+
+  document.getElementById('pending-bulk-convert')?.addEventListener('click', async function() {
+    var btn = this;
+    var ids = Array.from(pendingSelectedIds);
+    if (ids.length === 0) return;
+    if (ids.length > PENDING_SELECT_CAP) {
+      showError('Selection of ' + ids.length + ' exceeds the per-call cap of '
+        + PENDING_SELECT_CAP + '. Untick some rows or use Force Transcribe / '
+        + 'Convert Pending for the full set.');
+      return;
+    }
+    var verb = (document.getElementById('pending-status-filter').value === 'failed')
+      ? 'retry' : 'convert';
+    var msg = 'Schedule ' + ids.length + ' selected file'
+      + (ids.length === 1 ? '' : 's')
+      + ' for immediate ' + verb + '? '
+      + 'They will run with up to 4 concurrent workers; '
+      + 'large media files (audio/video) may take minutes each.';
+    if (!confirm(msg)) return;
+
+    btn.disabled = true;
+    var origText = btn.textContent;
+    btn.textContent = 'Scheduling...';
+    try {
+      var resp = await fetch('/api/pipeline/convert-selected', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ file_ids: ids }),
+      });
+      if (!resp.ok) {
+        var detail = await resp.text().catch(function() { return ''; });
+        throw new Error('HTTP ' + resp.status + ' ' + detail.slice(0, 300));
+      }
+      var data = await resp.json();
+      if (typeof showToast === 'function') {
+        var tmsg = 'Scheduled ' + data.queued + ' file'
+          + (data.queued === 1 ? '' : 's') + ' for conversion';
+        if (data.ineligible && data.ineligible.length) {
+          tmsg += ' (' + data.ineligible.length + ' skipped — not in pending/failed)';
+        }
+        if (data.not_found && data.not_found.length) {
+          tmsg += ' (' + data.not_found.length + ' missing — already removed?)';
+        }
+        showToast(tmsg);
+      }
+      clearPendingSelection();
+      btn.textContent = 'Scheduled ✓';
+      setTimeout(function() {
+        btn.textContent = origText;
+        btn.disabled = false;
+        loadPending();
+      }, 2000);
+    } catch (e) {
+      showError('Scheduling failed: ' + e.message);
+      btn.textContent = origText;
+      btn.disabled = false;
+    }
   });
 
   loadPending();

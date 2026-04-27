@@ -1,19 +1,22 @@
 """
 Pipeline status and control API endpoints.
 
-GET  /api/pipeline/status   -- Pipeline status (enabled, paused, last scan, next scan)
-POST /api/pipeline/pause    -- Pause the pipeline (in-memory)
-POST /api/pipeline/resume   -- Resume the pipeline
-POST /api/pipeline/run-now  -- Trigger immediate scan+convert cycle
-GET  /api/pipeline/stats    -- Pipeline funnel statistics
-GET  /api/pipeline/files    -- Paginated file list by pipeline status category
+GET  /api/pipeline/status            -- Pipeline status (enabled, paused, last scan, next scan)
+POST /api/pipeline/pause             -- Pause the pipeline (in-memory)
+POST /api/pipeline/resume            -- Resume the pipeline
+POST /api/pipeline/run-now           -- Trigger immediate scan+convert cycle
+POST /api/pipeline/convert-selected  -- Convert a hand-picked subset of pending files (v0.31.6)
+GET  /api/pipeline/stats             -- Pipeline funnel statistics
+GET  /api/pipeline/files             -- Paginated file list by pipeline status category
 """
 
 import asyncio
 from datetime import datetime
+from pathlib import Path
 
 import structlog
-from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from core.auth import AuthenticatedUser, UserRole, require_role
 from core.database import (
@@ -224,6 +227,276 @@ async def run_pipeline_now(
             "paused_for_bulk": True,
         }
     return {"message": "Pipeline cycle triggered. Scan will start shortly."}
+
+
+# ── POST /api/pipeline/convert-selected (v0.31.6) ──────────────────────────────
+#
+# Targeted conversion of a hand-picked subset of pending bulk_files rows.
+# Replaces the "all-or-nothing" choice between letting the pipeline pick up
+# everything (Force Transcribe) vs. doing nothing — operators can now check
+# the boxes for the 3 files they want to test and trigger conversion just
+# for those.
+#
+# Hard cap of 100 files per call. Above that, "Force Transcribe / Convert
+# Pending" is the right tool. This endpoint is for SELECTIVE testing.
+
+# Bounded so an operator can't accidentally trigger 100k file conversions.
+_CONVERT_SELECTED_MAX = 100
+
+# Statuses we can re-process. "pending" = never tried; "failed" / "adobe_failed"
+# = retry. Other statuses (converted, skipped, …) refuse with 400 — operators
+# should use re-convert on the file detail page for those.
+_CONVERT_SELECTED_ELIGIBLE = {"pending", "failed", "adobe_failed"}
+
+
+class ConvertSelectedRequest(BaseModel):
+    file_ids: list[str] = Field(
+        ...,
+        min_length=1,
+        max_length=_CONVERT_SELECTED_MAX,
+        description="bulk_files.id values to schedule for conversion",
+    )
+
+
+async def _convert_one_pending_file(file_dict: dict, user_email: str) -> None:
+    """Background task: convert a single pending bulk_files row.
+
+    Mirrors the inner work of `BulkJob._process_convertible` but
+    standalone — no full BulkJob lifecycle. Uses:
+      - `core.storage_manager.get_output_path()` for the output root
+        (Universal Storage Manager since v0.25.0)
+      - `_map_output_path` to compute the per-file destination
+      - `core.converter._convert_file_sync` for the heavy lifting
+        (run in a worker thread)
+      - `update_bulk_file` to record success / failure
+
+    Best-effort: per-file exceptions are logged + recorded on the row,
+    they never abort the surrounding asyncio.gather (callers run all
+    selected files concurrently).
+    """
+    import hashlib
+    import time
+    from datetime import timezone
+
+    from core.converter import _convert_file_sync
+    from core.db.bulk import _map_output_path, update_bulk_file
+    from core.db.connection import db_write_with_retry
+    from core.storage_manager import get_output_path, is_write_allowed
+
+    file_id = file_dict["id"]
+    source_path = Path(file_dict["source_path"])
+    job_id = file_dict.get("job_id") or "convert_selected"
+    source_mtime = file_dict.get("source_mtime")
+
+    # Resolve output root from Storage Manager (the same root the
+    # Force Transcribe / pipeline scans use). If the operator hasn't
+    # configured one yet, fall back to /mnt/output-repo (legacy default).
+    output_root_str = get_output_path() or "/mnt/output-repo"
+    output_root = Path(output_root_str)
+
+    # The bulk_files row stores the source root that was active when
+    # the file was scanned, but it's not on the row itself. Reconstruct
+    # by walking up: the deepest ancestor of source_path that exists
+    # under one of /mnt/source, /host/c, /host/d, /host/rw is the
+    # source root for output mapping. Defensive fallback to source_path
+    # parent if no match (the converter still works; the output just
+    # lands directly under output_root rather than mirroring the tree).
+    candidates = [Path(p) for p in (
+        "/mnt/source", "/host/c", "/host/d", "/host/rw", "/host/root"
+    )]
+    source_root = source_path.parent  # fallback
+    for c in candidates:
+        try:
+            source_path.relative_to(c)
+            source_root = c
+            break
+        except ValueError:
+            continue
+
+    output_md = _map_output_path(source_path, source_root, output_root)
+
+    if not is_write_allowed(str(output_md.parent)):
+        log.warning(
+            "convert_selected.write_denied",
+            file_id=file_id,
+            output_dir=str(output_md.parent),
+            user=user_email,
+        )
+        await db_write_with_retry(lambda: update_bulk_file(
+            file_id,
+            status="failed",
+            error_msg="write denied — output dir outside Storage Manager allow-list",
+        ))
+        return
+
+    try:
+        output_md.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        log.warning("convert_selected.mkdir_failed",
+                    file_id=file_id, error=str(exc))
+        await db_write_with_retry(lambda: update_bulk_file(
+            file_id, status="failed",
+            error_msg=f"output dir mkdir failed: {exc}",
+        ))
+        return
+
+    log.info(
+        "convert_selected.start",
+        file_id=file_id, source=str(source_path),
+        output=str(output_md), user=user_email,
+    )
+    t_start = time.perf_counter()
+    try:
+        result = await asyncio.to_thread(
+            _convert_file_sync,
+            source_path,
+            "to_md",
+            job_id,
+            output_md.parent,
+            {},  # no per-job overrides — uses global settings
+        )
+    except Exception as exc:
+        duration_ms = int((time.perf_counter() - t_start) * 1000)
+        log.error(
+            "convert_selected.exception",
+            file_id=file_id, source=str(source_path),
+            duration_ms=duration_ms,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        await db_write_with_retry(lambda: update_bulk_file(
+            file_id, status="failed",
+            error_msg=f"{type(exc).__name__}: {exc}",
+        ))
+        return
+
+    duration_ms = int((time.perf_counter() - t_start) * 1000)
+
+    if result.status == "success":
+        content_hash = None
+        actual = Path(result.output_path) if result.output_path else None
+        if actual and actual.exists():
+            try:
+                content_hash = hashlib.sha256(actual.read_bytes()).hexdigest()
+            except OSError:
+                pass
+        await db_write_with_retry(lambda: update_bulk_file(
+            file_id,
+            status="converted",
+            output_path=result.output_path,
+            stored_mtime=source_mtime,
+            content_hash=content_hash,
+            converted_at=datetime.now(timezone.utc).isoformat(),
+            error_msg=None,
+        ))
+        log.info(
+            "convert_selected.success",
+            file_id=file_id, duration_ms=duration_ms,
+            output=result.output_path,
+        )
+    else:
+        await db_write_with_retry(lambda: update_bulk_file(
+            file_id,
+            status="failed",
+            error_msg=getattr(result, "error", "conversion returned non-success"),
+        ))
+        log.warning(
+            "convert_selected.failed",
+            file_id=file_id, duration_ms=duration_ms,
+            status=result.status,
+            error=getattr(result, "error", None),
+        )
+
+
+async def _run_convert_selected_batch(files: list[dict], user_email: str) -> None:
+    """Spawn per-file conversion tasks with a concurrency cap so a
+    100-file selection doesn't melt the worker pool. Caps at 4
+    concurrent conversions to match the default BULK_WORKER_COUNT."""
+    sem = asyncio.Semaphore(4)
+
+    async def _bound(f: dict) -> None:
+        async with sem:
+            await _convert_one_pending_file(f, user_email)
+
+    await asyncio.gather(*(_bound(f) for f in files), return_exceptions=False)
+    log.info(
+        "convert_selected.batch_complete",
+        count=len(files), user=user_email,
+    )
+
+
+@router.post("/convert-selected")
+async def convert_selected_files(
+    body: ConvertSelectedRequest,
+    background_tasks: BackgroundTasks,
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+) -> dict:
+    """Schedule a hand-picked subset of pending bulk_files rows for
+    immediate conversion (v0.31.6).
+
+    Every selected row must be in `pending`, `failed`, or `adobe_failed`
+    status. Already-converted rows are rejected with 400 — use the
+    file-detail page's Re-convert action for those.
+
+    Behavior:
+      - Looks up the bulk_files row for each id (skips any not found,
+        with the count of skipped surfaced in the response).
+      - Spawns a background batch that runs the conversions in
+        parallel (up to 4 concurrent — matches BULK_WORKER_COUNT
+        default).
+      - Returns immediately. Frontend polls /api/bulk/pending to see
+        files transition out of pending.
+    """
+    selected: list[dict] = []
+    not_found: list[str] = []
+    ineligible: list[dict] = []
+
+    for fid in body.file_ids:
+        row = await db_fetch_one(
+            "SELECT id, source_path, source_mtime, status, job_id, file_ext "
+            "FROM bulk_files WHERE id = ?",
+            (fid,),
+        )
+        if not row:
+            not_found.append(fid)
+            continue
+        d = dict(row)
+        if d["status"] not in _CONVERT_SELECTED_ELIGIBLE:
+            ineligible.append({"id": fid, "status": d["status"]})
+            continue
+        selected.append(d)
+
+    if not selected:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "msg": "No eligible files in the selection.",
+                "not_found": not_found,
+                "ineligible": ineligible,
+                "eligible_statuses": sorted(_CONVERT_SELECTED_ELIGIBLE),
+            },
+        )
+
+    background_tasks.add_task(
+        _run_convert_selected_batch, selected, user.email,
+    )
+
+    log.info(
+        "convert_selected.scheduled",
+        count=len(selected),
+        not_found=len(not_found),
+        ineligible=len(ineligible),
+        user=user.email,
+    )
+    return {
+        "queued": len(selected),
+        "not_found": not_found,
+        "ineligible": ineligible,
+        "message": (
+            f"Scheduled {len(selected)} file"
+            f"{'' if len(selected) == 1 else 's'} for conversion. "
+            "Status will update as each completes."
+        ),
+    }
 
 
 @router.get("/coordinator")

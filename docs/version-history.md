@@ -4,6 +4,192 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.31.6 — Selective conversion of pending files (2026-04-27)
+
+**New "Convert Selected (N)" / "Retry Selected (N)" workflow on
+the History page's Pending Files section. Operators can hand-pick
+a subset of pending files for immediate conversion instead of
+committing to the full pipeline run via Force Transcribe.**
+
+### The user need
+
+The Pending Files card surfaces every `bulk_files` row with
+`status='pending'` or `'failed'` — currently 113,354 entries on
+the production instance. The existing **Force Transcribe /
+Convert Pending** button hits `/api/pipeline/run-now` which
+processes ALL of them in one sweep. Operators wanted to **test a
+specific handful of files** (a few MP3s, one problematic PDF)
+without committing to the full sweep, especially because audio
+and video files take minutes each via Whisper.
+
+### Frontend (`static/history.html`)
+
+- **Checkbox column** added to the pending files table:
+  - Header has a select-all checkbox (toggles current page
+    only, not all 113k).
+  - Rows have per-file checkboxes bound to `bulk_files.id`.
+  - Indeterminate state on select-all when partial-page
+    selection.
+- **Bulk-action bar** (`#pending-bulk-bar`) appears when ≥1 row
+  is checked:
+  - "N selected" count
+  - Context summary: "3× .mp3, 1× .pdf · 287.5 MB total"
+    (top-3 file types, total uncompressed size)
+  - Cap warning if N > 100 (matches backend
+    `_CONVERT_SELECTED_MAX`); button disabled with tooltip
+    "Untick some rows or use Force Transcribe..."
+  - Convert/Retry button — verb switches based on the
+    status-filter dropdown:
+    - `pending` → "Convert Selected (N)"
+    - `failed` → "Retry Selected (N)"
+  - Clear selection button
+- **Selection persistence**:
+  - In-memory `Set<string>` of `bulk_files.id` values.
+  - Survives pagination — selecting rows on page 1, navigating
+    to page 2, and back to page 1 restores the checkboxes.
+  - **Cleared on status filter switch** (pending↔failed) since
+    the eligibility set differs.
+- **`updatePendingBulkBar()`** computes the summary from a
+  cached `pendingSelectedFiles` map. For ids selected via
+  select-all on a page rendered earlier (and now off-screen),
+  a stub `{id}` entry is created so the count stays correct
+  even if size data isn't available.
+- **`syncSelectAllState()`** computes the indeterminate state
+  by counting checked rows vs. total visible rows.
+- After every `loadPending()` re-render, `syncSelectAllState`
+  + `updatePendingBulkBar` run to restore visual state from
+  the persistent Set.
+- Click handler on **Convert Selected**:
+  - Confirmation prompt: "Schedule N selected files for
+    immediate convert? They will run with up to 4 concurrent
+    workers; large media files (audio/video) may take minutes
+    each."
+  - POST `/api/pipeline/convert-selected` with `{file_ids: [...]}`.
+  - Toast on success with included/skipped counts.
+  - Auto-clears selection and refreshes the pending list after
+    a 2-second delay.
+
+### Backend (`api/routes/pipeline.py`)
+
+`POST /api/pipeline/convert-selected` (OPERATOR+):
+
+- **Pydantic body** `ConvertSelectedRequest`:
+  ```python
+  class ConvertSelectedRequest(BaseModel):
+      file_ids: list[str] = Field(
+          ..., min_length=1, max_length=100,
+          description="bulk_files.id values to schedule",
+      )
+  ```
+- **Validation**: each id is looked up in `bulk_files`. Misses
+  go into `not_found`; rows whose status isn't in
+  `{pending, failed, adobe_failed}` go into `ineligible`.
+- **400 only when nothing eligible**. Mixed selections (some
+  resolved + some not) succeed with the issues surfaced in
+  the response.
+- **Background batch**: schedules a `_run_convert_selected_batch`
+  task that runs conversions concurrently with
+  `asyncio.Semaphore(4)` — matches the default
+  `BULK_WORKER_COUNT`. Per-file exceptions are caught + logged
+  + recorded on the row, never abort the whole batch.
+- **Per-file conversion** (`_convert_one_pending_file`):
+  - Resolves output dir from
+    `core.storage_manager.get_output_path()` (the same Storage
+    Manager-configured root the pipeline uses); falls back to
+    `/mnt/output-repo` if the operator hasn't set one yet.
+  - Reconstructs the source root by walking up the path
+    until one of the standard mount roots matches:
+    `/mnt/source`, `/host/c`, `/host/d`, `/host/rw`,
+    `/host/root`. Falls back to `source_path.parent` if no
+    match (the converter still works; output just lands
+    directly under output_root rather than mirroring the tree).
+  - Uses `core.db.bulk._map_output_path` to compute the
+    per-file destination, mirroring
+    `BulkJob._process_convertible`.
+  - Honors `core.storage_manager.is_write_allowed()` write
+    guard.
+  - Calls `core.converter._convert_file_sync` in a worker
+    thread (`asyncio.to_thread`).
+  - On success: updates `bulk_files` with status='converted',
+    output_path, converted_at, content_hash (sha256 of
+    output file), and clears `error_msg`. Routed through
+    `db_write_with_retry` to ride out single-writer DB
+    contention.
+  - On failure: updates status='failed' with error_msg.
+- Returns immediately with
+  `{queued, not_found, ineligible, message}`. The frontend's
+  existing 30-second pending-list refresh picks up the row
+  transitions; no SSE / push needed for a workflow this
+  short-lived.
+
+### Logging events
+
+- `convert_selected.scheduled` — request received, batch queued
+- `convert_selected.start` — per-file conversion starting
+- `convert_selected.success` — per-file conversion completed
+  with output_path
+- `convert_selected.failed` — per-file conversion returned
+  non-success status
+- `convert_selected.exception` — per-file conversion threw
+- `convert_selected.write_denied` — output dir failed
+  `is_write_allowed` check
+- `convert_selected.mkdir_failed` — output dir mkdir raised
+  OSError
+- `convert_selected.batch_complete` — whole batch finished
+
+### Files
+
+- `core/version.py` — bump to 0.31.6
+- `api/routes/pipeline.py` — `ConvertSelectedRequest`,
+  `convert_selected_files` endpoint, `_convert_one_pending_file`
+  + `_run_convert_selected_batch` helpers (~210 LOC)
+- `static/history.html` — checkbox column, bulk-action bar,
+  selection state Set, all handlers (~150 LOC)
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`
+
+No DB migration. No new dependencies. No new scheduler jobs.
+
+### Acceptance
+
+- Pending Files table renders a checkbox column on every row.
+- Checking 3 rows surfaces a "3 selected · 3× .mp3 · 287 MB
+  total" bulk bar.
+- Switching the status filter from Pending to Failed clears the
+  selection.
+- Click "Convert Selected (3)" → confirm → toast "Scheduled 3
+  files for conversion" → table auto-refreshes within ~30 s
+  showing the rows transitioning out of pending.
+- Selecting 101 rows shows the cap warning and disables the
+  Convert button.
+- Backend rejects an all-ineligible selection with HTTP 400
+  carrying `{not_found, ineligible, eligible_statuses}`.
+- Backend accepts mixed (eligible + missing) selections and
+  surfaces the missing ids in the response.
+
+### Risks
+
+- **Concurrent run-now / bulk job collision**: if the operator
+  triggers Convert Selected while a bulk job is already running,
+  both pipelines try to update the same `bulk_files` rows. The
+  bulk job's row claim happens via `claim_pending_files`
+  (atomic UPDATE on status), so only one of the two would
+  succeed in claiming any given row — the other gets a no-op
+  rowcount and effectively skips. Acceptable; shouldn't
+  duplicate work.
+- **Whisper concurrency**: Whisper transcription is GPU-bound
+  (or thread-bound on CPU) and serialized via the existing
+  `whisper_transcriber.py` lock from v0.24.2. Selecting 4
+  audio files schedules 4 conversions; 3 of them block waiting
+  for the lock. Total wall time is roughly the sum of
+  transcription times. Acceptable.
+- **Output write contention**: same write-guard rules apply.
+  If the Storage Manager output root is on a slow SMB share,
+  operators see throughput limited by the share. No different
+  from the bulk-job path.
+
+---
+
 ## v0.31.5 — Preview format expansion + dynamic ETA framework (2026-04-27)
 
 Two-item bundle release that closes out the v0.31.x roadmap.

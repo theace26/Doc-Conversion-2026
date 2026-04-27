@@ -6,6 +6,44 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.31.6 — Test-convert a hand-picked subset of pending files
+
+The History page's **Pending Files** card lists every file
+queued for conversion (currently 113,354 on this instance). The
+existing **Force Transcribe / Convert Pending** button kicks off
+the whole list — fine when you want everything processed, but
+heavy when you just want to test 3 specific MP3s before
+committing.
+
+v0.31.6 adds **per-row checkboxes + a bulk action bar**. Pick
+the files you want, the bar at the top of the card shows what
+you've got selected ("3× .mp3, 1× .pdf · 287 MB total"), and
+clicking **Convert Selected (3)** schedules just those for
+immediate conversion.
+
+### What changed
+
+- New checkbox column on every row in the Pending Files table.
+- Header has a "select all on this page" checkbox.
+- Selection survives pagination — pick rows on page 1, navigate
+  to page 2 to pick more, the page-1 picks stay selected.
+- Switching the status filter (Pending ↔ Failed) clears the
+  selection (different eligibility rules).
+- The action button text adapts: **Convert Selected (N)** when
+  filtering by Pending, **Retry Selected (N)** when filtering by
+  Failed.
+- Hard cap of 100 files per click. Above that, the button shows
+  a warning and disables — use Force Transcribe for the full set.
+- Confirmation dialog warns about audio/video files taking
+  minutes each.
+- Up to 4 files convert in parallel server-side (matches the
+  default bulk worker count).
+- The pending list auto-refreshes every 30 seconds, so you'll
+  see your selected files transition out of pending as each
+  finishes.
+
+---
+
 ## v0.31.5 — Hover preview now covers HEIC / RAW / SVG, plus log searches show an ETA
 
 ### Phone photos and RAW camera files now preview

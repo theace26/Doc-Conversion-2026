@@ -91,121 +91,98 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.31.5
+## Current Version — v0.31.6
 
-**Two-item bundle: preview format expansion (HEIC/HEIF, RAW
-camera, SVG) AND a dynamic ETA framework that estimates how
-long log searches will take based on observed throughput on
-the host's actual hardware. Folds in both the v0.31.3
-"preview format expansion" roadmap item and the v0.31.5
-"system spec polling + dynamic ETA framework" item.**
+**Selective conversion on the History page's Pending Files
+section — checkboxes per row + select-all + a "Convert Selected
+(N)" / "Retry Selected (N)" bulk-action bar that lets operators
+test a hand-picked subset of pending files instead of committing
+to the full pipeline run.**
 
-### Item 1 — Preview format expansion (was roadmap v0.31.3)
+### Why this matters
 
-The hover preview on Batch Management already covered 37
-extensions. v0.31.5 adds three more buckets:
+The Pending Files card on the History page shows a paginated
+view of every `bulk_files` row with `status='pending'` /
+`'failed'` (113,354 entries on this instance). The existing
+**Force Transcribe / Convert Pending** button kicks off
+`/api/pipeline/run-now` which processes ALL of them in one
+sweep. Operators wanted to **test a few specific files** (a
+handful of MP3s, one problematic PDF) without committing to
+the full sweep — especially given audio/video files take
+minutes each via Whisper.
 
-- **HEIC / HEIF / HEICS / HEIFS** — modern phone-camera
-  default. `pillow-heif` was already in `requirements.txt`;
-  v0.31.5 actually USES it. The opener registers at module
-  load, so HEIC files flow through the same PIL thumbnail
-  path as TIFF / PSD.
-- **RAW camera formats** (~30 extensions across Canon, Nikon,
-  Sony, Fuji, Olympus, Panasonic, Pentax, Samsung, Adobe DNG,
-  Kodak, Sigma, Hasselblad, Leica, Mamiya, Phase One, Epson)
-  — decoded via `rawpy`. New helper extracts the embedded
-  JPEG preview when available (~50× faster than full
-  demosaicing); falls back to half-size demosaic for older
-  formats.
-- **SVG / SVGZ** — rasterized server-side via `cairosvg`
-  (uses `libcairo2` already in the container via WeasyPrint).
-  **Security note**: response body is raster pixels, not the
-  SVG document, so embedded `<script>` / event handlers /
-  external `<image>` refs are inert by the time bytes reach
-  the browser.
+### Frontend (`static/history.html`)
 
-The frontend `_IMG_EXT` set is updated to match.
+- Checkbox column on the pending table (header has select-all,
+  rows have per-file checkboxes bound to `bulk_files.id`).
+- Bulk-action bar appears when ≥1 row is checked:
+  - "N selected" count + summary "3× .mp3, 1× .pdf · 287.5 MB"
+  - Cap warning if N > 100 (matches backend cap)
+  - **Convert Selected (N)** / **Retry Selected (N)** button —
+    verb switches based on status-filter dropdown
+  - Clear selection button
+- Selection persists across pagination via in-memory Set keyed
+  on `bulk_files.id`. Switching the status filter
+  (pending↔failed) clears selection (different eligibility
+  sets). Select-all toggles current-page rows only — not all
+  113k.
+- Indeterminate state on select-all when partial selection.
 
-### Item 2 — Dynamic ETA framework (was roadmap v0.31.5)
+### Backend (`api/routes/pipeline.py`)
 
-New module `core/eta_estimator.py` (~250 LOC). Records
-observations of the form `(operation, scope_size, wall_seconds)`
-and answers "given an upcoming operation of size N, how long
-is it likely to take?" using an EWMA (α=0.3) of throughput.
+`POST /api/pipeline/convert-selected` (OPERATOR+):
 
-**Storage:** one preference row per operation key
-(`eta_observations__<op>`), JSON-encoded, with the EWMA, a
-trailing-200 history (for diagnostics), and the
-last-observed-at timestamp. Bounded so the row stays small.
-
-**Cold-start gate:** `estimate()` returns `None` until 3
-observations have been recorded for that operation. Below
-that, the UI shows nothing rather than a wrong prediction.
-
-**Confidence tiers** — `<10` low, `10-50` medium, `50+` high.
-The UI softens phrasing accordingly ("estimated ~Xs" vs
-"estimated Xs" vs "expected Xs").
-
-**System-spec snapshot:** new daily scheduler job
-(`eta_system_spec_snapshot`, count 18→19) captures host CPU /
-RAM / load to `preferences['eta_system_spec_history']`
-(capped at 90 entries = ~3 months). Gives the framework a
-record of hardware drift.
-
-**First wired operation:** log-history search. Search records
-observations bucketed by archive format (`log_search_plain`,
-`log_search_gz`, `log_search_7z`) so cold-vs-warm cache and
-decompression overhead don't pollute each other's forecasts.
-Cap-truncated searches are NOT recorded (would skew EWMA
-toward "infinitely slow").
-
-**UI surface:** new ETA hint on the log viewer's history-mode
-controls row, populated by a fire-and-forget call to
-`GET /api/logs/eta?name=<file>&estimated_scope=100000`. Reads
-"ETA: estimated 1.4s (12 prior obs)" or similar; absent if
-no estimate yet.
-
-**Headless safety:** every method is best-effort. Misshaped
-JSON, DB unavailable, math errors all return `None` rather
-than raising.
-
-**New endpoints (ADMIN+):**
-- `GET /api/logs/eta?name=...&estimated_scope=N`
-- `GET /api/logs/eta/stats?op=<op>`
+- `ConvertSelectedRequest` Pydantic body: `file_ids` (1–100).
+- Validates each id has eligible status (`pending` / `failed`
+  / `adobe_failed`). Returns 400 with structured
+  `{not_found, ineligible, eligible_statuses}` if no eligible
+  rows.
+- Schedules a background batch with `asyncio.Semaphore(4)`
+  concurrency (matches `BULK_WORKER_COUNT` default).
+- Each file routes through `_convert_one_pending_file()`:
+  - Resolves output dir from
+    `core.storage_manager.get_output_path()` (Universal Storage
+    Manager since v0.25.0); falls back to `/mnt/output-repo`.
+  - Reconstructs source root by walking up the path until one
+    of the mount roots matches (`/mnt/source`, `/host/c`,
+    `/host/d`, `/host/rw`, `/host/root`); falls back to
+    `source_path.parent`.
+  - Uses `_map_output_path` to compute destination, mirroring
+    `BulkJob._process_convertible`.
+  - Honors `is_write_allowed()` write guard.
+  - Calls `_convert_file_sync` in a worker thread; updates
+    `bulk_files` via `db_write_with_retry`.
+- Per-file exceptions never abort the batch — logged and
+  recorded on the row.
+- Returns immediately with `{queued, not_found, ineligible,
+  message}`. Frontend's existing 30s pending-list refresh
+  reflects status changes.
 
 ### Files
 
-- `core/version.py` — bump to 0.31.5
-- `core/eta_estimator.py` — NEW
-- `core/scheduler.py` — `eta_system_spec_snapshot` daily job
-  (job count 18→19)
-- `api/routes/log_management.py` — search records
-  observations + new `/eta` and `/eta/stats` endpoints
-- `api/routes/analysis.py` — preview endpoint dispatches to
-  `_generate_raw_thumbnail_sync` (rawpy) and
-  `_generate_svg_thumbnail_sync` (cairosvg); registers
-  pillow-heif opener at module load
-- `requirements.txt` — adds `rawpy`, `cairosvg`
-- `static/batch-management.html` — `_IMG_EXT` adds HEIC / RAW /
-  SVG extensions
-- `static/log-viewer.html` — ETA hint span, `updateEtaHint()`
-  helper fires on each search
+- `core/version.py` — bump to 0.31.6
+- `api/routes/pipeline.py` — `ConvertSelectedRequest`,
+  `convert_selected_files`, `_convert_one_pending_file`,
+  `_run_convert_selected_batch` (~210 LOC)
+- `static/history.html` — checkbox column, bulk-action bar,
+  selection state Set, all handlers (~150 LOC)
 - `CLAUDE.md`, `docs/version-history.md`,
   `docs/help/whats-new.md`
 
-No DB migration. Two new pip dependencies (`rawpy`,
-`cairosvg`). One new scheduler job. Lazy imports for `rawpy`
-and `cairosvg` (only loaded when their format is actually
-previewed).
+No DB migration. No new dependencies. No new scheduler jobs.
 
-### Numbering note
+---
 
-The v0.31.x roadmap suggested numbering preview formats as
-v0.31.3 and the ETA framework as v0.31.5. Since v0.31.4 (the
-server-side ZIP bundle) shipped first chronologically, going
-back to v0.31.3 would have been a regression in
-`core/version.py`. We bundled both remaining items into
-v0.31.5 to keep version numbers monotonic.
+### v0.31.5 (carried-forward summary) — Preview format expansion + dynamic ETA framework
+
+Hover preview now covers HEIC / HEIF (modern phone photos), ~30
+RAW camera formats (Canon / Nikon / Sony / Fuji / Olympus /
+Panasonic / etc), and SVG (rasterized server-side via cairosvg,
+no XSS surface). Plus a dynamic ETA framework: log searches
+now show "estimated 1.4s (12 prior obs)" hints based on EWMA
+throughput observed on the host's actual hardware. Daily
+scheduler job (count 18→19) captures CPU / RAM / load history.
+Full context: [`docs/version-history.md`](docs/version-history.md).
 
 ---
 
