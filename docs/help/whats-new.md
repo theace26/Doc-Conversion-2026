@@ -6,6 +6,75 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.32.2 — Recovery for `.tmk` files and browser-download suffixes
+
+Two specific classes of file used to get stuck in the
+**Unrecognized** bucket on Pipeline Files. As of v0.32.2, both
+classes flow through normal conversion automatically.
+
+### Browser-download suffixes (`.download`, `.crdownload`, `.part`, `.partial`)
+
+If you've ever used a browser's **"Save Page As — Complete"**
+mode, you've seen this: the saved page is a `.html` file plus
+a `_files/` folder full of CSS / JS / image assets that the
+browser saved with names like `add-to-cart.min.js.download`.
+Same thing happens with **interrupted downloads** — Chrome /
+Edge leave a `.crdownload` partial, Firefox and Safari leave
+`.part` or `.partial`.
+
+MarkFlow now strips the trailing suffix and re-checks the
+**inner extension**. If the inner extension has a registered
+handler, the file is routed through it directly. Examples:
+
+| Filename in your repo | Recovered as | What MarkFlow does |
+|---|---|---|
+| `add-to-cart.min.js.download` | `.js` | Indexed as JavaScript text |
+| `report.pdf.crdownload` | `.pdf` | Full PDF conversion |
+| `archive.zip.part` | `.zip` | Archive listing + extraction |
+| `slides.pptx.partial` | `.pptx` | Office conversion |
+
+This works even when the inner extension is itself unfamiliar
+(e.g., a `.tmk.download` falls through to the `.tmk` handler
+described next), so nothing gets stuck.
+
+### `.tmk` files
+
+These are small marker files seen alongside `.mp3` recordings
+in audio-transcribe folders. MarkFlow now runs them through a
+**three-layer recovery** chain:
+
+1. **MIME detection** on the bytes — if libmagic recognises
+   the format (e.g., it's actually a JSON manifest), MarkFlow
+   uses the matched handler.
+2. **UTF-8 text fallback** — if it's mostly printable text,
+   MarkFlow indexes it as plain text so its contents are
+   searchable.
+3. **Metadata-only stub** — last resort. MarkFlow emits a
+   short Markdown record with the filename, size, and first
+   16 bytes as hex, so the file shows up in conversion
+   counts rather than getting stuck in Unrecognized.
+
+The same chain runs for any `.tmp` file (which has worked this
+way since v0.20.x).
+
+### What you should see after the next bulk scan
+
+Open `/static/pipeline-files.html` and switch to the
+**Unrecognized** filter. The chip count should drop by the
+sum of `.tmk` + `.download` + `.crdownload` + `.part` +
+`.partial` files across the source. The recovered files now
+show up under **Scanned** / **Indexed** instead, and their
+content is searchable.
+
+> **What's still deferred**: the broader plan to **sniff
+> every unrecognized file by content** (regardless of
+> extension) and surface the discovered format in the search
+> results / preview page is a follow-up release. v0.32.2
+> handles the two specific cases your repo had — the general
+> case will land later.
+
+---
+
 ## v0.32.1 — Pages stay fresh, pills click through, lists shrink
 
 The v0.32.0 preview page surfaced three things operators wanted:

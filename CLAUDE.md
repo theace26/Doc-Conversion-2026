@@ -91,7 +91,60 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.32.1
+## Current Version — v0.32.2
+
+**Unrecognized-file recovery: `.tmk` handler + browser-download
+suffix shim. Files that were stranded in the Unrecognized
+bucket because they had a `.download` / `.crdownload` /
+`.part` / `.partial` suffix (browser save-page-as / interrupted-
+download artifacts) or a `.tmk` extension (small markers next
+to `.mp3` recordings) now flow through the existing
+`SniffHandler` delegation chain.**
+
+The fix is small and surgical:
+
+- `formats/sniff_handler.py` registers for the new extensions.
+  A new `_strip_browser_suffix(path)` helper strips the
+  trailing suffix and checks the inner extension; if it has
+  a registered handler, the file is routed there directly
+  (e.g. `add-to-cart.min.js.download` → `.js` → text/code
+  handler). No content-sniffing round-trip required.
+- For `.tmk` (and other unfamiliar extensions reaching
+  SniffHandler), the existing 3-layer recovery — MIME-byte
+  detection via libmagic, UTF-8 text-content heuristic →
+  TxtHandler, metadata-only stub last-resort — is unchanged.
+- The metadata-only stub now records the **actual originating
+  extension** in `DocumentMetadata.source_format` (e.g.
+  `"tmk"`, `"download"`) rather than always `"tmp"` so
+  operators triaging the converted output can see what they're
+  looking at without back-tracing the source path.
+
+This is **Phase 1c + Phase 3** of
+[`docs/superpowers/plans/2026-04-27-unrecognized-file-recovery.md`](docs/superpowers/plans/2026-04-27-unrecognized-file-recovery.md).
+Phase 0 (operator places a fresh `.tmk` sample for byte-level
+discovery) and Phase 2 (general format-sniff fallback for any
+unrecognized extension, with `bulk_files.sniffed_*` columns +
+search/preview UI surfacing) are deferred. The shipped pieces
+already recover the operator's actual stuck files; Phase 2
+adds breadth at the cost of a DB migration + Meili re-index.
+
+### Files
+
+- `formats/sniff_handler.py` — `EXTENSIONS` expanded to
+  `["tmp", "tmk", "download", "crdownload", "part", "partial"]`;
+  `_strip_browser_suffix` helper; Step 0 in `ingest`;
+  metadata-only stub records the originating extension.
+- `core/version.py` — bump to 0.32.2
+- `docs/help/unrecognized-files.md`,
+  `docs/version-history.md`, `docs/help/whats-new.md` —
+  user + engineering docs
+
+No DB migration. No new dependencies. No new scheduler jobs.
+No frontend changes.
+
+---
+
+## v0.32.1 — Pipeline-files filter + AutoRefresh + Live Banner + clickable status pills
 
 **Pipeline Files include-trashed filter, AutoRefresh shared
 helper across stale-data pages, Live Status Banner that mirrors

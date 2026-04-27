@@ -21,6 +21,25 @@ As of v0.20.2, common binary files (executables, DLLs, databases, disk images,
 compiled bytecode, object files) are handled by the binary metadata handler and
 will no longer appear as unrecognized.
 
+As of v0.32.2, two additional recovery passes run before a file is
+finalised as unrecognized:
+
+- **Browser-download suffix recovery** — files ending in
+  `.download`, `.crdownload`, `.part`, or `.partial` (left
+  behind by Chrome / Edge / Firefox / Safari during in-flight
+  downloads or "Save Page As — Complete" exports) get the
+  trailing suffix stripped, and MarkFlow re-checks the inner
+  extension. Example: `add-to-cart.min.js.download` is
+  recognised as JavaScript and routed through the text
+  handler. No content sniffing required when the original
+  extension was correct.
+- **`.tmk` recovery** — small marker files seen alongside
+  audio recordings in transcribe folders. MarkFlow tries
+  MIME detection on the bytes, then a UTF-8 text-content
+  heuristic, then falls back to a metadata-only stub
+  (filename + size + first 16 bytes as hex). Either way, the
+  file ends up as `converted` rather than `unrecognized`.
+
 Common examples of files that remain unrecognized:
 
 - Game ROMs (NES, GBA)
@@ -36,7 +55,29 @@ Common examples of files that remain unrecognized:
 ## How MIME Classification Works
 
 When the scanner encounters an unrecognized file, it identifies the file type
-using a two-step detection process:
+using a multi-step detection process:
+
+### Step 0: Browser-suffix strip (v0.32.2)
+
+If the filename ends in a browser-download suffix (`.download`,
+`.crdownload`, `.part`, `.partial`), MarkFlow strips the trailing
+token and looks at the **inner extension**. If the inner
+extension has a registered handler (e.g. `.js`, `.pdf`,
+`.docx`), the file is routed through that handler directly —
+no content sniffing required.
+
+Examples:
+
+| Original filename | Recovered as | Routed to |
+|---|---|---|
+| `add-to-cart.min.js.download` | `.js` | text/code handler |
+| `report.pdf.crdownload` | `.pdf` | PDF handler |
+| `archive.zip.part` | `.zip` | archive handler |
+| `mystery.tmk.partial` | `.tmk` | sniff handler (the .tmk path below) |
+
+Even if the inner extension also lacks a handler (e.g. a
+`.tmk.download`), the file falls through to the next step
+rather than getting stuck unrecognized.
 
 ### Step 1: Content-Based Detection (libmagic)
 
@@ -48,13 +89,31 @@ have the wrong extension.
 For example, a JPEG image renamed to `.dat` will still be detected as
 `image/jpeg`.
 
-### Step 2: Extension Fallback
+### Step 2: UTF-8 text-content fallback
+
+If MIME detection didn't match a registered handler but the
+file is mostly printable UTF-8, MarkFlow routes it through the
+text handler so its contents are at least indexed and
+searchable. This catches the common case where a small file
+has unrecognised bytes at the head but is otherwise
+plain-text source code or notes.
+
+### Step 3: Extension Fallback
 
 If libmagic cannot determine the type (returns `application/octet-stream`),
 MarkFlow falls back to a built-in extension mapping. The file extension is
 matched against a table of known extensions to assign a category.
 
-If both steps fail, the file is classified as `application/octet-stream` with
+### Step 4: Metadata-only stub (v0.32.2)
+
+For `.tmp` / `.tmk` / browser-suffix files where every
+preceding step failed, MarkFlow emits a minimal Markdown
+stub recording the filename, size, and the first 16 bytes
+as hex. The file is recorded as `converted` so it shows up
+in inventories and search rather than getting stuck in the
+unrecognized bucket.
+
+If all five steps fail, the file is classified as `application/octet-stream` with
 category **unknown**.
 
 > **Warning:** MIME detection never crashes the scanner. If something goes

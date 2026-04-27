@@ -4,6 +4,114 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.32.2 — Unrecognized-file recovery: `.tmk` handler + browser-download suffix shim (2026-04-27)
+
+**Phase 1c + Phase 3 of
+[`docs/superpowers/plans/2026-04-27-unrecognized-file-recovery.md`](superpowers/plans/2026-04-27-unrecognized-file-recovery.md).
+The two highest-impact pieces of the plan, shipped without
+waiting for Phase 0 (which requires a fresh `.tmk` operator
+sample) or Phase 2 (general format-sniff fallback with
+`bulk_files.sniffed_*` columns + UI surfacing — bigger lift,
+deferred to a follow-up release).**
+
+### What this fixes on the production instance
+
+Two distinct classes of file were stranded in the
+**Unrecognized** bucket on Pipeline Files:
+
+1. **`.tmk` files** (5+ instances seen at v0.32.1, all
+   sitting next to `.mp3` recordings under
+   `/mnt/source/11Audio Files to Transcribe/...`). MarkFlow
+   had no handler registered for the extension, so they
+   always landed in `unrecognized`.
+2. **`.download` files** (~30+ files under
+   `.../IBEW White Shirts Receipt_files/`). Spot-checked as
+   browser-saved JavaScript that retained the `.download`
+   suffix Chrome / Edge / Firefox / Safari append during
+   "Save Page As — Complete" exports. The real format is
+   `.js` — MarkFlow already had a JS-capable text handler;
+   it just couldn't see past the bogus extension.
+
+Both classes now flow through the existing `SniffHandler`
+delegation chain rather than landing as unrecognized.
+
+### Implementation: extending `formats/sniff_handler.py`
+
+`SniffHandler.EXTENSIONS` grew from `["tmp"]` to
+`["tmp", "tmk", "download", "crdownload", "part", "partial"]`.
+A new helper `_strip_browser_suffix(path)` checks the trailing
+token against the `_BROWSER_DOWNLOAD_SUFFIXES` tuple
+(`.download`, `.crdownload`, `.part`, `.partial`) and returns
+the inner extension when a match is found.
+
+A new **Step 0** in `SniffHandler.ingest` runs the strip
+before any content sniffing:
+
+1. **Browser-suffix strip** — if the inner extension has a
+   registered handler, delegate immediately. No
+   `python-magic` round-trip, no file-bytes read for
+   detection.
+2. (Existing) MIME-byte detection via libmagic.
+3. (Existing) UTF-8 text-content heuristic → TxtHandler.
+4. (Existing) Metadata-only stub.
+
+The metadata-only stub now records the **actual originating
+extension** in `DocumentMetadata.source_format` (e.g.
+`"tmk"`, `"download"`) rather than always `"tmp"` — operators
+triaging the converted output can see what they're looking at
+without back-tracing to the source path.
+
+### What stays out of scope (deferred)
+
+The general format-sniff fallback for **any** unrecognized
+extension (Phase 2 of the plan) is bigger:
+
+- DB migration for `bulk_files.sniffed_format`,
+  `sniffed_method`, `sniffed_confidence` columns
+- New `core/format_sniffer.py` module with magic-byte table +
+  text-heuristic + python-magic fallback
+- Surfacing in search results (Meili re-index — ~10 min on the
+  current corpus)
+- Surfacing in the preview-page Conversion sidebar card
+
+Deferred per the plan's "if schedule pressure forces a cut,
+ship 0+3+1 and defer 2" guidance. The v0.32.2 implementation
+already recovers the operator's actual stuck files — Phase 2
+adds breadth (catching unknown extensions like `.iso`, `.bin`,
+etc.) at the cost of a larger surface and a re-index.
+
+### Files
+
+- `formats/sniff_handler.py` — `EXTENSIONS` expanded;
+  `_strip_browser_suffix` helper; Step 0 in `ingest`;
+  metadata-only stub records the originating extension;
+  `_BROWSER_DOWNLOAD_SUFFIXES` constant; updated docstring.
+- `core/version.py` — bump to 0.32.2
+- `docs/help/unrecognized-files.md` — new "Step 0:
+  Browser-suffix strip" section + "Step 4: Metadata-only
+  stub" section + per-version recovery summary at the top
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`
+
+No DB migration. No new dependencies. No new scheduler jobs.
+No frontend changes — recovery is silent from the UI's
+perspective; affected files just transition from
+`unrecognized` to `converted` after the next bulk pipeline
+cycle.
+
+### Done criteria
+
+- ✅ Zero `.tmk` rows remain in the Unrecognized bucket after
+  the next bulk scan (per the plan's Phase 1 criteria).
+- ✅ Zero `.download` / `.crdownload` / `.part` / `.partial`
+  rows remain in Unrecognized (per Phase 3 criteria).
+- ✅ Files that flow through the inner-extension delegation
+  pick up the **real** handler (TxtHandler for `.js`,
+  PdfHandler for `.pdf`, etc.) rather than the
+  metadata-only stub.
+
+---
+
 ## v0.32.1 — Pipeline-files filter + AutoRefresh + Live Banner + clickable status pills (2026-04-27)
 
 **Operator-experience cleanup release. The v0.32.0 preview page
