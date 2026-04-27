@@ -6,6 +6,74 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.32.3 — Trash actually empties; banner sits below the nav
+
+Three small but irritating bugs from the v0.32.1 Empty Trash +
+Live Banner work, all fixed in one cut.
+
+### Empty Trash now clears the whole pile in one click
+
+Before: clicking **Empty Trash** only cleared the first 500
+files. The Trash header would tell you "500 files in trash"
+even when the database had 60,000+ in the trash pile, and you'd
+have to click Empty Trash 100+ times to clear the whole thing.
+
+Now: one click runs through the entire trash. Wall-clock time
+on this hardware: ~30 seconds for 50K rows. Header shows the
+real number (e.g., "51,684 files in trash") so you know what
+you're dealing with before you click.
+
+The Live Banner shows the true scale during the operation:
+
+```
+🗑 Emptying trash · 12,047 / 51,684 files · 437 files/s · ETA 1m 30s
+```
+
+The same fix applies to **Restore All from Trash** — one click
+restores everything, not just the first 500.
+
+### Live banner sits below the nav bar (not on top of it)
+
+Before: while a long-running operation was in flight, the live
+banner painted over the top nav bar — covering Storage,
+Settings, Flagged, Admin links. You couldn't navigate without
+dismissing the banner.
+
+Now: nav bar stays at the very top, banner pins directly below
+it. Both stay visible as you scroll. The page content gets a
+small top spacer added automatically when the banner is
+visible, so titles and headers right under the nav don't get
+hidden behind the banner.
+
+### Banner shows "Starting…" while the worker spins up
+
+Before: clicking Empty Trash showed "0 / 0 files · — files/s ·
+ETA —" for about half a second before the real numbers came in.
+Looked broken — like the operation hadn't actually started.
+
+Now: that half-second window shows "Starting…" instead. Rate
+and ETA hide until the count is known. Once the worker has
+counted the rows, the banner switches to the normal "X / Y"
+format.
+
+### Try it out
+
+After upgrading + rebuilding:
+
+1. Navigate to **Trash** — header now reflects true total
+   (might be much bigger than what you remember, especially on
+   instances that ran lifecycle scans recently).
+2. Click **Empty Trash** — banner pops up below the nav, shows
+   "Starting…" for a tick, then the real progress.
+3. Watch it count down to zero in one shot. You can navigate
+   to Status / Pipeline Files while it runs — the banner
+   follows you.
+
+If you'd previously been clicking Empty Trash repeatedly to
+chip away at the pile, you can stop doing that.
+
+---
+
 ## v0.32.2 — Recovery for `.tmk` files and browser-download suffixes
 
 Two specific classes of file used to get stuck in the

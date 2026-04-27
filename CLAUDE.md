@@ -91,7 +91,103 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.32.2
+## Current Version — v0.32.3
+
+**Three bug fixes that surfaced from v0.32.1's Empty Trash +
+Live Banner deploy. Trash list 500-row cap removed (was
+showing "500 files in trash" indefinitely on a 60K-row pile);
+single Empty Trash click now clears the whole pile in one
+shot (was capped at 500 per click); banner positioned below
+the nav bar instead of on top of it; banner shows "Starting…"
+during the 100–500 ms enumeration window instead of
+confusing "0 / 0 files".**
+
+### What was broken
+
+The v0.32.1 Empty Trash workflow + Live Banner combo had three
+issues that confused operators using them end-to-end:
+
+1. **Trash list capped at 500 rows.**
+   `core/db/lifecycle.py:get_source_files_by_lifecycle_status`
+   silently defaulted `limit=500`. Every caller that didn't pass
+   an explicit limit got the first 500 rows. `/api/trash` then
+   ran `total = len(files)` and reported `total: 500` — operators
+   saw "500 files in trash" indefinitely on instances with much
+   bigger trash piles. `purge_all_trash()` had the same bug, so
+   one Empty Trash click only ever cleared the first 500 rows.
+2. **Banner covered the nav bar.** `position: fixed; top: 0;
+   z-index: 9999` painted over the sticky nav (`top: 0; z-index:
+   100; height: 56px`). Operators couldn't navigate while a
+   purge was in flight.
+3. **Banner showed "0 / 0 files" during the kickoff window.**
+   The empty-trash worker flips `running=true` before the SQL
+   count completes — there's a 100–500 ms window where the
+   banner sees `running=true AND total=0`, and it rendered "0 /
+   0 files · — files/s · ETA —" which looked broken.
+
+### Fixes
+
+**Bug 1 — Trash 500-cap removed:**
+- `get_source_files_by_lifecycle_status` accepts `limit=None`
+  to fetch all matching rows in a single query (default still
+  500 for legacy callers that paginate by hand).
+- New helper `count_source_files_by_lifecycle_status(status)`
+  runs a dedicated `SELECT COUNT(*)` for true totals.
+- `/api/trash` (list) — uses count helper for `total`,
+  paginated `LIMIT/OFFSET` for the `files` array.
+- `/api/trash/empty` and `/api/trash/restore-all` (POST) —
+  report true total via count helper.
+- `core/lifecycle_manager.purge_all_trash` and
+  `restore_all_trash` — pass `limit=None` so one click clears
+  everything.
+
+**Bug 2 — Banner below nav:**
+- `position: fixed; top: 56px; z-index: 90` (nav is z-index
+  100). Banner pins directly below the nav; both stay
+  anchored as the page scrolls.
+- Body gains `padding-top: 44px` when the banner is visible
+  (via inline-injected `<style>` rule) so page content isn't
+  hidden under the banner.
+
+**Bug 3 — Banner "Starting…" UX:**
+- When `running=true && total<=0 && !finished`, render
+  "Starting…" instead of the zero-counter line. Rate / ETA
+  lines collapse during this window. Once `total` populates
+  on the next 2 s tick, normal counter format takes over.
+
+### Files
+
+- `core/version.py` — bump to 0.32.3
+- `core/db/lifecycle.py` — `limit=None` support + count
+  helper
+- `core/lifecycle_manager.py` — purge/restore use
+  `limit=None`
+- `api/routes/trash.py` — three endpoints use count helper +
+  LIMIT/OFFSET on the SQL side
+- `static/js/live-banner.js` — top:56px, z-index:90,
+  body padding, "Starting…" UX
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`
+
+No DB migration. No new dependencies. No new scheduler jobs.
+
+### Operator-visible API change
+
+```bash
+# /api/trash now returns the TRUE total
+curl -s 'http://localhost:8000/api/trash?per_page=25&page=1'
+# was: {"total": 500, ...}; now: {"total": 51684, ...}
+
+# /api/trash/empty reports true total in kickoff
+curl -sX POST 'http://localhost:8000/api/trash/empty'
+# was: {"status":"started","total":500}; now: {"total": 51684}
+
+# A single click now clears the entire pile (~30 s for 50K rows)
+```
+
+---
+
+## v0.32.2 — Unrecognized-file recovery: `.tmk` handler + browser-download suffix shim
 
 **Unrecognized-file recovery: `.tmk` handler + browser-download
 suffix shim. Files that were stranded in the Unrecognized

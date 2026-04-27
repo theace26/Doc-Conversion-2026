@@ -69,8 +69,11 @@ async def empty_trash(
     if status["running"]:
         return {"status": "already_running", "progress": status}
 
-    source_files = await get_source_files_by_lifecycle_status("in_trash")
-    total = len(source_files)
+    # v0.32.3: report the *true* total — was previously the
+    # legacy 500-row cap, so the operator's banner showed
+    # "127 / 500" even when the real trash pile was 60K rows.
+    from core.db.lifecycle import count_source_files_by_lifecycle_status
+    total = await count_source_files_by_lifecycle_status("in_trash")
 
     if total == 0:
         return {"status": "done", "purged_count": 0}
@@ -100,8 +103,9 @@ async def restore_all_trash(
     if status["running"]:
         return {"status": "already_running", "progress": status}
 
-    source_files = await get_source_files_by_lifecycle_status("in_trash")
-    total = len(source_files)
+    # v0.32.3: true total via dedicated COUNT(*) (was 500-cap).
+    from core.db.lifecycle import count_source_files_by_lifecycle_status
+    total = await count_source_files_by_lifecycle_status("in_trash")
     if total == 0:
         return {"status": "done", "restored_count": 0}
 
@@ -125,24 +129,37 @@ async def list_trash(
     sort: str = "moved_to_trash_at",
     user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
 ) -> dict:
-    """List all files currently in trash."""
+    """List files currently in trash. Returns the **true total** in
+    the registry (was capped at 500 before v0.32.3 — operators saw
+    "500 files in trash" indefinitely on instances with much larger
+    trash piles)."""
+    from core.db.lifecycle import count_source_files_by_lifecycle_status
+
     retention_str = await get_preference("lifecycle_trash_retention_days")
     retention_days = int(retention_str) if retention_str else 60
 
-    files = await get_source_files_by_lifecycle_status("in_trash")
+    # Get the true total via a dedicated COUNT(*); pagination still
+    # uses the legacy fetch (capped per query) but gets the right
+    # offset for the requested page.
+    total = await count_source_files_by_lifecycle_status("in_trash")
 
-    # Sort
+    # SQL ORDER BY decides server-side which rows to fetch for this
+    # page. The legacy in-memory sort below is preserved for
+    # `moved_to_trash_at` (the SQL ORDER is by source_path) — it's a
+    # cheap re-sort over the page-size slice (default 25 rows).
+    files = await get_source_files_by_lifecycle_status(
+        "in_trash",
+        limit=per_page,
+        offset=max(0, (page - 1) * per_page),
+    )
+
     if sort == "path":
-        files.sort(key=lambda f: f.get("source_path", ""))
+        # Already sorted by source_path on the server side — no-op.
+        pass
     else:
         files.sort(key=lambda f: f.get("moved_to_trash_at", ""), reverse=True)
 
-    total = len(files)
-    start = (page - 1) * per_page
-    end = start + per_page
-    page_files = files[start:end]
-
-    records = [_to_trash_record(f, retention_days) for f in page_files]
+    records = [_to_trash_record(f, retention_days) for f in files]
     return {
         "files": [r.model_dump() for r in records],
         "total": total,

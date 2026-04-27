@@ -4,6 +4,129 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.32.3 — Trash 500-row cap removed, banner positioned below nav, banner UX polish (2026-04-27)
+
+**Three bug fixes that surfaced from the v0.32.1 trash-empty
+work and the live-banner deploy. All three were blocking
+operators from using v0.32.1's banner + Empty Trash workflow
+end-to-end.**
+
+### Bug 1: Trash list capped at 500 rows
+
+`core/db/lifecycle.py:get_source_files_by_lifecycle_status`
+had a hard-coded `limit: int = 500` parameter. Every caller
+that passed no explicit limit got the first 500 rows
+silently — including `/api/trash` (list endpoint), which then
+ran `total = len(files)` and returned `total: 500` in the
+JSON response. Operators saw "500 files in trash" on the
+Trash page indefinitely even when the database had 60K+ rows
+in `lifecycle_status='in_trash'`. The Empty Trash workflow
+did the same — `purge_all_trash()` only ever processed 500
+rows per call, so clearing a 60K pile required 120+ button
+clicks.
+
+Fix:
+- `get_source_files_by_lifecycle_status` accepts `limit=None`
+  to fetch all matching rows in a single query. Default
+  stays at 500 for callers that explicitly want paginated
+  walks.
+- New helper `count_source_files_by_lifecycle_status(status)`
+  runs a dedicated `SELECT COUNT(*)` so endpoints can
+  display true totals without paying the cost of fetching
+  every row.
+- `/api/trash` list endpoint now uses
+  `count_source_files_by_lifecycle_status` for `total` and
+  paginated `LIMIT/OFFSET` for the `files` array — the two
+  are now consistent (operator sees real totals; per-page
+  list stays bounded at 25 by default).
+- `core/lifecycle_manager.py:purge_all_trash` and
+  `restore_all_trash` both pass `limit=None` so a single
+  Empty Trash / Restore All click clears the entire pile.
+- `/api/trash/empty` and `/api/trash/restore-all` (POST
+  endpoints) report the true total via the count helper, so
+  the live banner shows e.g. "127 / 51,684" instead of "127
+  / 500".
+
+### Bug 2: Live banner covered the nav bar
+
+`static/js/live-banner.js` set `position: fixed; top: 0;
+z-index: 9999`. The nav bar in `markflow.css` is `position:
+sticky; top: 0; z-index: 100; height: 56px`. Banner painted
+over the nav during long-running operations — operators
+couldn't navigate while a purge was in flight.
+
+Fix: banner now `position: fixed; top: 56px; z-index: 90`.
+Nav stays supreme at the very top; banner pins directly
+below. Both stay anchored as the page scrolls. Body gains
+`padding-top: 44px` when the banner is visible (via an
+inline-injected style rule) so page content isn't hidden
+under it.
+
+### Bug 3: Banner showed "0 / 0 files" while running
+
+The empty-trash worker initializes `_empty_trash_status` with
+`total=0` and flips `running=true` BEFORE the SQL count
+completes. There's a 100–500 ms window where the banner
+sees `running=true` AND `total=0` and rendered "0 / 0 files
+· — files/s · ETA —" which looked broken.
+
+Fix: when `running=true` but `total <= 0` and not finished,
+render "Starting…" instead. Rate / ETA lines collapse during
+this window. Once `total` populates on the next 2 s tick,
+the banner switches to the normal counter format.
+
+Combined with Bug 1's fix returning true totals from
+`/api/trash/empty`, the banner now shows "Starting… → 12 /
+51,684 → 51,684 / 51,684 (Done)" through the lifecycle of
+one click.
+
+### Files
+
+Modified:
+- `core/version.py` — bump to 0.32.3
+- `core/db/lifecycle.py` —
+  `get_source_files_by_lifecycle_status(limit=None)` support;
+  new `count_source_files_by_lifecycle_status`
+- `core/lifecycle_manager.py` — `purge_all_trash` and
+  `restore_all_trash` use `limit=None`
+- `api/routes/trash.py` — three endpoints (list, empty,
+  restore-all) use the count helper for true totals; list
+  endpoint uses LIMIT/OFFSET on the SQL side
+- `static/js/live-banner.js` — banner at `top: 56px` with
+  `z-index: 90` below nav; body padding when visible;
+  "Starting…" UX when total=0
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`
+
+No DB migration. No new dependencies. No new scheduler jobs.
+
+### API behavior changes (visible to API consumers)
+
+```bash
+# /api/trash now returns the TRUE total (was capped at 500)
+$ curl -s 'http://localhost:8000/api/trash?per_page=25&page=1' | jq '{total, page, per_page, files_in_page: (.files | length)}'
+{
+  "total": 51684,        # ← used to be 500
+  "page": 1,
+  "per_page": 25,
+  "files_in_page": 25
+}
+
+# /api/trash/empty reports true total in the kickoff response
+$ curl -sX POST 'http://localhost:8000/api/trash/empty'
+{"status":"started","total":51684}   # ← used to be 500
+
+# Status polling — banner reads done/total from here
+$ curl -s 'http://localhost:8000/api/trash/empty/status'
+{"running":true,"total":51684,"done":12047,"errors":0}
+```
+
+A single Empty Trash click now clears the entire pile
+(~30 s wall-clock for 50K rows on this hardware, batched 200
+at a time internally).
+
+---
+
 ## v0.32.2 — Unrecognized-file recovery: `.tmk` handler + browser-download suffix shim (2026-04-27)
 
 **Phase 1c + Phase 3 of

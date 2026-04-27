@@ -110,10 +110,23 @@ async def update_source_file(source_file_id: str, **fields) -> None:
 
 async def get_source_files_by_lifecycle_status(
     status: str,
-    limit: int = 500,
+    limit: int | None = 500,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
-    """Return source_files rows matching a lifecycle_status, with pagination."""
+    """Return source_files rows matching a lifecycle_status.
+
+    `limit=None` returns all matching rows. Used by purge_all_trash so
+    a single API call can clear an entire trash pile, not just the
+    first 500. Default `limit=500` preserves the legacy paginated
+    behavior for callers that walk pages by hand.
+    """
+    if limit is None:
+        return await db_fetch_all(
+            """SELECT * FROM source_files
+               WHERE lifecycle_status=?
+               ORDER BY source_path""",
+            (status,),
+        )
     return await db_fetch_all(
         """SELECT * FROM source_files
            WHERE lifecycle_status=?
@@ -121,6 +134,18 @@ async def get_source_files_by_lifecycle_status(
            LIMIT ? OFFSET ?""",
         (status, limit, offset),
     )
+
+
+async def count_source_files_by_lifecycle_status(status: str) -> int:
+    """True total count of rows for a lifecycle_status. The paginated
+    fetch above can't distinguish "page is the last page" from "page
+    hit the limit." This is the dedicated counter for /api/trash and
+    similar endpoints that need a real total for UI display."""
+    row = await db_fetch_one(
+        "SELECT COUNT(*) AS cnt FROM source_files WHERE lifecycle_status=?",
+        (status,),
+    )
+    return row["cnt"] if row else 0
 
 
 async def get_source_files_pending_trash(

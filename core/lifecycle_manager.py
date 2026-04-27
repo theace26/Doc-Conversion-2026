@@ -274,7 +274,12 @@ async def purge_all_trash() -> int:
     try:
         from core.database import get_source_files_by_lifecycle_status
 
-        source_files = await get_source_files_by_lifecycle_status("in_trash")
+        # v0.32.3: pass limit=None so we get ALL in_trash rows in one
+        # call. Previously the underlying helper defaulted to 500,
+        # so a 60K-row trash pile required 120+ Empty-Trash clicks.
+        source_files = await get_source_files_by_lifecycle_status(
+            "in_trash", limit=None,
+        )
         if not source_files:
             return 0
 
@@ -366,7 +371,10 @@ async def restore_all_trash() -> int:
     _restore_all_status = {"running": True, "total": 0, "done": 0, "errors": 0}
     try:
         from core.database import get_source_files_by_lifecycle_status
-        source_files = await get_source_files_by_lifecycle_status("in_trash")
+        # v0.32.3: ALL rows in one call (was capped at 500).
+        source_files = await get_source_files_by_lifecycle_status(
+            "in_trash", limit=None,
+        )
         bf_ids = []
         for sf in source_files:
             rows = await db_fetch_all(

@@ -133,12 +133,20 @@
     el.id = 'live-status-banner';
     el.setAttribute('role', 'status');
     el.setAttribute('aria-live', 'polite');
+    // v0.32.3: position the banner BELOW the nav bar, not on top of
+    // it. The nav-bar in markflow.css is `position: sticky; top: 0;
+    // z-index: 100; height: 56px`. The banner sits at `top: 56px`
+    // with `z-index: 90` — so the nav bar is always supreme at the
+    // viewport top, and the banner pins just below it. As the page
+    // scrolls, both stay anchored: nav at the top, banner under
+    // it. (This is the layout the user requested: "the menu bar
+    // should always be supreme, it should always be at the top".)
     el.style.cssText = [
       'position: fixed',
-      'top: 0',
+      'top: 56px',
       'left: 0',
       'right: 0',
-      'z-index: 9999',
+      'z-index: 90',
       'background: linear-gradient(90deg, rgba(99,102,241,0.18), rgba(96,165,250,0.18))',
       'border-bottom: 1px solid rgba(96,165,250,0.45)',
       'color: #e0e7ff',
@@ -211,18 +219,46 @@
   function showBanner(state) {
     var el = ensureBanner();
     el.style.display = 'flex';
+    // Reserve the banner's vertical space in the document flow so
+    // page content isn't hidden under it. The banner is `position:
+    // fixed` so it doesn't take flow space on its own — we add
+    // matching padding to <body> when visible, remove it when
+    // hidden. Banner height is ~38 px (0.5rem padding × 2 + ~22 px
+    // content); use 44 px as a small buffer.
+    document.body.classList.add('live-banner-visible');
+    if (!document.getElementById('live-banner-spacer-style')) {
+      var s = document.createElement('style');
+      s.id = 'live-banner-spacer-style';
+      s.textContent = 'body.live-banner-visible { padding-top: 44px; }';
+      document.head.appendChild(s);
+    }
     iconEl.textContent = state.icon || '⏳';
     labelEl.textContent = state.label || 'Working';
+
+    // v0.32.3: when the worker is running but total hasn't been set
+    // yet (it's still enumerating), show "Starting…" instead of
+    // confusing "0 / 0 files · ETA —". This is a real backend
+    // window — the in-memory status dict is initialized with
+    // total=0 before the SQL COUNT completes.
+    var enumerating = state.running && (!state.total || state.total <= 0) && !state.finished;
+
     var pct = state.total > 0
       ? Math.min(100, Math.round((state.done / state.total) * 100))
       : 0;
     barFillEl.style.width = pct + '%';
-    counterEl.textContent =
-      fmtNum(state.done) + ' / ' + fmtNum(state.total) + ' ' + (state.noun || '') +
-      (state.errors ? ' (' + state.errors + ' errors)' : '');
-    rateEl.textContent =
-      (state.rate ? state.rate.toFixed(1) : '—') + ' ' + (state.noun || 'items') + '/s';
-    etaEl.textContent = 'ETA ' + (state.eta != null ? fmtDuration(state.eta) : '—');
+
+    if (enumerating) {
+      counterEl.textContent = 'Starting…';
+      rateEl.textContent = '';
+      etaEl.textContent = '';
+    } else {
+      counterEl.textContent =
+        fmtNum(state.done) + ' / ' + fmtNum(state.total) + ' ' + (state.noun || '') +
+        (state.errors ? ' (' + state.errors + ' errors)' : '');
+      rateEl.textContent =
+        (state.rate ? state.rate.toFixed(1) : '—') + ' ' + (state.noun || 'items') + '/s';
+      etaEl.textContent = 'ETA ' + (state.eta != null ? fmtDuration(state.eta) : '—');
+    }
 
     if (state.finished) {
       el.style.background = 'linear-gradient(90deg, rgba(34,197,94,0.18), rgba(22,163,74,0.18))';
@@ -236,6 +272,7 @@
 
   function hideBanner() {
     if (bannerEl) bannerEl.style.display = 'none';
+    document.body.classList.remove('live-banner-visible');
   }
 
   var bannerDismissed = false;
@@ -295,6 +332,7 @@
         errors: active.data.errors || 0,
         rate: rate,
         eta: eta,
+        running: true,
         finished: false,
       });
       return;
