@@ -46,7 +46,9 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `core/differ.py` | Unified diff engine + bullet summary generator |
 | `core/lifecycle_manager.py` | Lifecycle state transitions: mark, restore, trash, purge, move, content change |
 | `core/lifecycle_scanner.py` | Source share walker, change detection, move detection via content hash |
-| `core/scheduler.py` | APScheduler setup: lifecycle scan, trash expiry, DB maintenance jobs |
+| `core/scheduler.py` | APScheduler setup: lifecycle scan, trash expiry, DB maintenance jobs. v0.32.0 added explicit `asyncio.CancelledError` clause in `run_lifecycle_scan` to keep clean shutdown traceback-free |
+| `core/preview_helpers.py` | Pure-function preview classifiers (v0.32.0): `classify_viewer_kind`, `get_mime_type`, `get_file_category`, `can_render_native`, plus `pick_action_for_path` + `ACTION_*` constants for the file-aware force-action dispatcher |
+| `core/preview_thumbnails.py` | Shared thumbnail cache (v0.32.0): extracted from `api/routes/analysis.py` so both the source_file_id-keyed analysis preview and the path-keyed `/api/preview/thumbnail` share the same LRU. Pillow-heif registered at import; rawpy for RAW formats; cairosvg for SVG |
 | `core/db_maintenance.py` | VACUUM, integrity checks, stale data detection, health summary |
 | `core/auth.py` | JWT validation, role hierarchy, API key verification, FastAPI dependencies |
 | `core/resource_manager.py` | psutil wrapper: CPU affinity, process priority, live metrics |
@@ -161,6 +163,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `api/routes/pipeline.py` | Pipeline control: status, pause, resume, run-now, file browser (`/api/pipeline/files`) |
 | `api/routes/ai_assist.py` | AI Assist: SSE search synthesis, doc expand, status, admin toggle + usage (v0.21.0) |
 | `api/routes/storage.py` | Universal Storage Manager API: host-info, validate, sources/output/exclusions CRUD, shares + discovery + credentials, mount health, restart status, first-run wizard (v0.28.0) |
+| `api/routes/preview.py` | File-detail page API (v0.32.0) — `/info` (composite metadata + viewer dispatch hint + `info_version` etag), `/content` (range-aware streaming + HTML 404 page on browser hits), `/thumbnail`, `/text-excerpt`, `/archive-listing`, `/markdown-output`, `/force-action` + `/force-action-status` (file-aware Whisper / converter / LLM-vision dispatch w/ in-memory progress tracker), `/related` (Meili keyword + Qdrant semantic, query auto-derived from file content) |
 
 ## Frontend
 

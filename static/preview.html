@@ -307,6 +307,266 @@
       text-align: center;
       color: var(--text-muted, #aaa);
     }
+
+    /* Staleness banner — shown when /info changes while the tab was
+       hidden (operator returned to the page after work completed). */
+    .pv-stale-banner {
+      padding: 0.55rem 1rem;
+      background: rgba(96,165,250,0.18);
+      color: #93c5fd;
+      border-bottom: 1px solid rgba(96,165,250,0.4);
+      font-size: 0.85rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      animation: pv-banner-slide 0.3s ease-out;
+    }
+    @keyframes pv-banner-slide {
+      from { transform: translateY(-100%); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .pv-stale-banner .icon { font-size: 1rem; }
+    .pv-stale-banner .dismiss {
+      margin-left: auto;
+      cursor: pointer;
+      background: transparent;
+      border: 0;
+      color: inherit;
+      font-size: 1.1rem;
+      padding: 0 0.25rem;
+    }
+
+    /* Force-action button (file-aware label) and progress card. */
+    .pv-force-action.btn-primary {
+      background: #4f46e5;
+      border-color: #4f46e5;
+    }
+    .pv-force-action.btn-primary:hover { background: #4338ca; }
+    .pv-action-progress {
+      margin-top: 0.5rem;
+      padding: 0.6rem 0.85rem;
+      background: rgba(96,165,250,0.08);
+      border: 1px solid rgba(96,165,250,0.25);
+      border-radius: 6px;
+      font-size: 0.85rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .pv-action-progress.success {
+      background: rgba(34,197,94,0.10);
+      border-color: rgba(34,197,94,0.35);
+    }
+    .pv-action-progress.failed {
+      background: rgba(220,38,38,0.10);
+      border-color: rgba(220,38,38,0.4);
+    }
+    .pv-action-progress .row {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+    .pv-action-progress .phase {
+      font-weight: 600;
+      color: var(--text, #eee);
+      text-transform: capitalize;
+    }
+    .pv-action-progress .elapsed {
+      color: var(--text-muted, #aaa);
+      font-family: ui-monospace, monospace;
+      font-size: 0.78rem;
+    }
+    .pv-action-progress .err {
+      color: #fca5a5;
+      font-size: 0.78rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .pv-action-progress .spinner {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      border: 2px solid rgba(96,165,250,0.3);
+      border-top-color: #93c5fd;
+      animation: pv-spin 0.8s linear infinite;
+      display: inline-block;
+    }
+    .pv-action-progress.success .spinner { display: none; }
+    .pv-action-progress.failed .spinner { display: none; }
+    @keyframes pv-spin {
+      to { transform: rotate(360deg); }
+    }
+    .pv-action-progress .dismiss-btn {
+      align-self: flex-end;
+      background: transparent;
+      border: 0;
+      color: var(--text-muted, #aaa);
+      font-size: 0.78rem;
+      cursor: pointer;
+    }
+
+    /* Sidebar Search panel + Related list. */
+    .pv-card h3 .pv-card-link {
+      float: right;
+      font-weight: 500;
+      font-size: 0.7rem;
+      text-transform: none;
+      letter-spacing: normal;
+      color: #93c5fd;
+      text-decoration: none;
+    }
+    .pv-card h3 .pv-card-link:hover { text-decoration: underline; }
+    .pv-related-tabs {
+      display: flex;
+      gap: 0.3rem;
+      margin-bottom: 0.5rem;
+    }
+    .pv-tab {
+      flex: 1;
+      padding: 0.3rem 0.5rem;
+      font-size: 0.78rem;
+      background: transparent;
+      border: 1px solid var(--border, #2b2b3f);
+      border-radius: 4px;
+      color: var(--text-muted, #aaa);
+      cursor: pointer;
+    }
+    .pv-tab:hover { background: rgba(255,255,255,0.04); color: var(--text, #eee); }
+    .pv-tab.is-active {
+      background: rgba(96,165,250,0.16);
+      color: #93c5fd;
+      border-color: rgba(96,165,250,0.4);
+    }
+    .pv-related-status {
+      font-size: 0.75rem;
+      color: var(--text-muted, #aaa);
+      margin-bottom: 0.4rem;
+      min-height: 1.1em;
+    }
+    .pv-related-status.warn { color: #fbbf24; }
+    .pv-related-status.err { color: #fca5a5; }
+    .pv-related-list {
+      max-height: 18rem;
+      overflow-y: auto;
+    }
+    .pv-related-item {
+      display: block;
+      padding: 0.35rem 0.45rem;
+      border-radius: 4px;
+      margin-bottom: 0.25rem;
+      cursor: pointer;
+      text-decoration: none;
+      color: var(--text, #eee);
+      border: 1px solid transparent;
+    }
+    .pv-related-item:hover {
+      background: rgba(255,255,255,0.04);
+      border-color: var(--border, #2b2b3f);
+    }
+    .pv-related-item .name {
+      font-family: ui-monospace, monospace;
+      font-size: 0.78rem;
+      word-break: break-all;
+    }
+    .pv-related-item .meta {
+      font-size: 0.7rem;
+      color: var(--text-muted, #aaa);
+      margin-top: 0.15rem;
+      font-family: ui-monospace, monospace;
+    }
+    .pv-related-item .score { color: #86efac; }
+
+    .pv-search-row {
+      display: flex;
+      gap: 0.35rem;
+      margin-bottom: 0.4rem;
+    }
+    .pv-search-actions-row { gap: 0.3rem; }
+    .pv-search-input {
+      flex: 1;
+      min-width: 0;
+      padding: 0.35rem 0.5rem;
+      font-size: 0.82rem;
+      background: #0b0b14;
+      border: 1px solid var(--border, #2b2b3f);
+      border-radius: 4px;
+      color: var(--text, #eee);
+    }
+    .pv-search-input:focus { outline: 1px solid #4f46e5; }
+    .pv-search-mode {
+      padding: 0.35rem 0.4rem;
+      font-size: 0.78rem;
+      background: #0b0b14;
+      border: 1px solid var(--border, #2b2b3f);
+      border-radius: 4px;
+      color: var(--text, #eee);
+    }
+    .pv-search-actions-row .btn { padding: 0.3rem 0.6rem; font-size: 0.78rem; }
+    #pv-search-btn { flex: 0 0 auto; }
+    #pv-search-ai-btn { margin-left: auto; }
+
+    /* Selection chip — appears when the user highlights text inside
+       any rendered preview pane. Position is set programmatically in
+       JS based on the selection's bounding rect. */
+    .pv-sel-chip {
+      position: fixed;
+      z-index: 1000;
+      display: none;
+      gap: 0.25rem;
+      padding: 0.3rem 0.4rem;
+      background: #161624;
+      border: 1px solid var(--border, #2b2b3f);
+      border-radius: 6px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      font-size: 0.75rem;
+    }
+    .pv-sel-chip.show { display: flex; }
+    .pv-sel-chip button,
+    .pv-sel-chip a {
+      padding: 0.2rem 0.45rem;
+      font-size: 0.72rem;
+      background: transparent;
+      border: 0;
+      border-radius: 3px;
+      color: var(--text, #eee);
+      cursor: pointer;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .pv-sel-chip button:hover,
+    .pv-sel-chip a:hover { background: rgba(255,255,255,0.08); }
+    .pv-sel-chip .sep {
+      width: 1px;
+      background: var(--border, #2b2b3f);
+      margin: 0.15rem 0;
+    }
+
+    /* Transcript pane added below the audio player on success. */
+    .pv-transcript-pane {
+      margin-top: 1rem;
+      padding-top: 0.6rem;
+      border-top: 1px solid var(--border, #2b2b3f);
+    }
+    .pv-transcript-pane .head {
+      font-size: 0.72rem;
+      color: var(--text-muted, #aaa);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.4rem;
+    }
+    .pv-transcript-pane .body {
+      max-height: 50vh;
+      overflow-y: auto;
+      padding: 0.6rem;
+      background: #0b0b14;
+      border-radius: 4px;
+      color: var(--text, #eee);
+      font-size: 0.85rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      user-select: text;
+    }
   </style>
 </head>
 <body>
@@ -348,6 +608,34 @@
         <div id="pv-flags-card" class="pv-card" hidden>
           <h3>Flags</h3>
           <div id="pv-flags-body"></div>
+        </div>
+        <div id="pv-related-card" class="pv-card">
+          <h3>Related Files
+            <a id="pv-related-fullpage" class="pv-card-link" href="#" target="_blank" rel="noopener">Full search ↗</a>
+          </h3>
+          <div id="pv-related-tabs" class="pv-related-tabs">
+            <button type="button" class="pv-tab is-active" data-mode="semantic">Semantic</button>
+            <button type="button" class="pv-tab" data-mode="keyword">Keyword</button>
+          </div>
+          <div id="pv-related-status" class="pv-related-status"></div>
+          <div id="pv-related-list" class="pv-related-list"></div>
+        </div>
+        <div id="pv-search-card" class="pv-card">
+          <h3>Search</h3>
+          <div class="pv-search-row">
+            <input id="pv-search-input" class="pv-search-input"
+                   type="search" placeholder="Search related context..." />
+            <select id="pv-search-mode" class="pv-search-mode">
+              <option value="semantic">Semantic</option>
+              <option value="keyword">Keyword</option>
+            </select>
+          </div>
+          <div class="pv-search-row pv-search-actions-row">
+            <button id="pv-search-btn" type="button" class="btn btn-primary btn-sm">Search</button>
+            <a id="pv-search-ai-btn" class="btn btn-ghost btn-sm" href="#" target="_blank" rel="noopener" title="Open the full search page with AI Assist enabled">🤖 AI Assist ↗</a>
+          </div>
+          <div id="pv-search-status" class="pv-related-status"></div>
+          <div id="pv-search-list" class="pv-related-list"></div>
         </div>
         <div id="pv-siblings-card" class="pv-card">
           <h3>Siblings</h3>
@@ -401,11 +689,70 @@
       const flagsBodyEl = document.getElementById('pv-flags-body');
       const sibNavEl = document.getElementById('pv-sib-nav');
       const sibListEl = document.getElementById('pv-sib-list');
+      const relatedCardEl = document.getElementById('pv-related-card');
+      const relatedTabsEl = document.getElementById('pv-related-tabs');
+      const relatedStatusEl = document.getElementById('pv-related-status');
+      const relatedListEl = document.getElementById('pv-related-list');
+      const relatedFullPageEl = document.getElementById('pv-related-fullpage');
+      const searchInputEl = document.getElementById('pv-search-input');
+      const searchModeEl = document.getElementById('pv-search-mode');
+      const searchBtnEl = document.getElementById('pv-search-btn');
+      const searchAiBtnEl = document.getElementById('pv-search-ai-btn');
+      const searchStatusEl = document.getElementById('pv-search-status');
+      const searchListEl = document.getElementById('pv-search-list');
 
       const state = {
         path: null,
         info: null,
+        // Force-action runtime state
+        forceActionPolling: false,
+        forceActionTimer: null,
+        forceActionElapsedTimer: null,
+        forceActionEl: null,
+        // Related-files (auto-populated) currently selected mode
+        relatedMode: 'semantic',
+        // Last seen info_version — used by the visibility-change
+        // listener to decide whether to show the staleness banner.
+        lastInfoVersion: null,
       };
+
+      // Client-side fallback for `info.action` when the backend
+      // hasn't been restarted with the v0.32.0 force-action support
+      // yet. Mirrors the logic in `core.preview_helpers.pick_action_for_path`.
+      // Once the backend is current this is unused (info.action wins),
+      // but we keep it as defense against stale-deploy edge cases.
+      function deriveActionFromExtension(ext) {
+        const e = String(ext || '').toLowerCase();
+        const AUDIO = ['.mp3','.m4a','.aac','.ogg','.oga','.opus','.flac','.wav','.wave','.aif','.aiff','.aifc','.weba','.wma','.amr','.mpga'];
+        const VIDEO = ['.mp4','.m4v','.mov','.webm','.mkv','.avi','.wmv','.flv','.f4v','.3gp','.3g2','.mpg','.mpeg','.ogv','.ts'];
+        const IMAGE = ['.jpg','.jpeg','.jfif','.jpe','.png','.apng','.gif','.bmp','.dib','.webp','.avif','.avifs','.ico','.cur','.tif','.tiff','.eps','.ps','.heic','.heif','.heics','.heifs','.psd','.svg','.svgz','.cr2','.cr3','.crw','.nef','.nrw','.arw','.srf','.sr2','.raf','.orf','.rw2','.pef','.srw','.dng'];
+        const DOC = ['.pdf','.docx','.doc','.dotx','.xlsx','.xls','.xlsm','.xltx','.pptx','.ppt','.potx','.odt','.ods','.odp','.rtf','.epub'];
+        const TEXT = ['.txt','.text','.log','.md','.markdown','.rst','.json','.jsonl','.ndjson','.yaml','.yml','.toml','.ini','.csv','.tsv','.tab','.html','.htm','.xhtml','.xml','.css','.scss','.sass','.js','.mjs','.cjs','.ts','.tsx','.jsx','.py','.pyx','.pyi','.go','.rs','.rb','.php','.pl','.swift','.java','.kt','.scala','.c','.h','.cpp','.cxx','.hpp','.cc','.hh','.sh','.bash','.zsh','.fish','.ps1','.psm1','.sql','.graphql','.gql','.conf','.cfg','.env'];
+        const ARCH = ['.zip','.tar','.gz','.tgz','.bz2','.tbz2','.xz','.txz','.7z','.rar','.cab'];
+        if (AUDIO.includes(e) || VIDEO.includes(e)) return 'transcribe';
+        if (IMAGE.includes(e)) return 'analyze';
+        if (DOC.includes(e) || TEXT.includes(e) || ARCH.includes(e)) return 'convert';
+        return 'none';
+      }
+
+      // Build a query string for the /search.html page derived from
+      // the current file. Used by the "Find related (full search)" link
+      // and the AI Assist deep-link button. Falls back to filename
+      // when there's no transcript / description to seed with.
+      function buildSearchPageQuery(info) {
+        if (!info) return '';
+        const conv = info.conversion || {};
+        const ana = info.analysis || {};
+        if (ana.description) return String(ana.description).slice(0, 240);
+        if (conv.status === 'success' && info.name) return info.name;
+        // Fall back to filename stem + parent dir name, mirroring the
+        // backend's _derive_related_query fallback.
+        const stem = (info.name || '').replace(/\.[^.]+$/, '');
+        const parent = info.parent_dir
+          ? String(info.parent_dir).split('/').filter(Boolean).slice(-1)[0]
+          : '';
+        return [stem, parent].filter(Boolean).join(' ');
+      }
 
       function clearChildren(el) { while (el.firstChild) el.removeChild(el.firstChild); }
 
@@ -492,19 +839,39 @@
         clearChildren(actionsEl);
         const path = info.path;
         const contentUrl = '/api/preview/content?path=' + encodeURIComponent(path);
+        // The bulk_files / source_files registry can keep a row alive
+        // after the underlying file is moved or deleted on disk. The
+        // preview-info endpoint flags that with exists=false; in that
+        // case we render the action buttons in a disabled state with
+        // a tooltip so the operator sees what's wrong without getting
+        // a raw JSON 404 in a new tab.
+        const fileMissing = !info.exists || !info.is_file;
+        const missingTitle = 'File not found on disk — cannot serve content';
 
-        const dlBtn = document.createElement('a');
+        const dlBtn = document.createElement(fileMissing ? 'button' : 'a');
         dlBtn.className = 'btn btn-primary btn-sm';
-        dlBtn.href = contentUrl;
-        dlBtn.setAttribute('download', info.name || '');
+        if (fileMissing) {
+          dlBtn.disabled = true;
+          dlBtn.title = missingTitle;
+          dlBtn.type = 'button';
+        } else {
+          dlBtn.href = contentUrl;
+          dlBtn.setAttribute('download', info.name || '');
+        }
         dlBtn.textContent = 'Download';
         actionsEl.appendChild(dlBtn);
 
-        const openBtn = document.createElement('a');
+        const openBtn = document.createElement(fileMissing ? 'button' : 'a');
         openBtn.className = 'btn btn-ghost btn-sm';
-        openBtn.href = contentUrl;
-        openBtn.target = '_blank';
-        openBtn.rel = 'noopener';
+        if (fileMissing) {
+          openBtn.disabled = true;
+          openBtn.title = missingTitle;
+          openBtn.type = 'button';
+        } else {
+          openBtn.href = contentUrl;
+          openBtn.target = '_blank';
+          openBtn.rel = 'noopener';
+        }
         openBtn.textContent = 'Open in new tab';
         actionsEl.appendChild(openBtn);
 
@@ -576,6 +943,76 @@
           });
           actionsEl.appendChild(reBtn);
         }
+
+        // Force-action button — file-aware label per `info.action`.
+        // "Relevant" = the file extension has a force-action mapping
+        // (transcribe / convert / analyze). For a recognized type the
+        // button is always rendered so the operator sees the verb that
+        // matches the file. When the bytes are missing on disk the
+        // button is rendered disabled with a tooltip — same pattern
+        // as Download / Open in new tab. Only hidden entirely when
+        // `action='none'` (the extension has no mapping at all, e.g.
+        // a .exe or a binary blob — nothing for the pipeline to do).
+        //
+        // Fallback to client-side extension dispatch when info.action
+        // is absent (older backend that hasn't been restarted with
+        // v0.32.0 force-action support). The button will still appear
+        // with the right label; only the actual /force-action POST
+        // requires the backend to be current.
+        const action = info.action || deriveActionFromExtension(info.extension) || 'none';
+        if (action !== 'none') {
+          const actionBtn = document.createElement('button');
+          actionBtn.className = 'btn btn-primary btn-sm pv-force-action';
+          actionBtn.type = 'button';
+          const labels = {
+            transcribe: '🎙 Transcribe',
+            convert: '⚙ Process',
+            analyze: '🔍 Analyze',
+          };
+          actionBtn.textContent = labels[action] || 'Process';
+          if (fileMissing) {
+            actionBtn.disabled = true;
+            const verbLabel = action === 'transcribe' ? 'transcribe'
+              : action === 'analyze' ? 'analyze'
+              : 'process';
+            actionBtn.title = 'File not found on disk — cannot ' + verbLabel +
+              ' until the file is restored. The action is still the right one ' +
+              'for this file type; the button will re-enable when MarkFlow can ' +
+              'see the bytes again.';
+          } else {
+            actionBtn.title = (
+              action === 'transcribe'
+                ? 'Run Whisper transcription, write Markdown to the output dir, and add to the index.'
+                : action === 'analyze'
+                ? 'Send the image through the LLM vision pipeline (description + extracted text).'
+                : 'Convert to Markdown, write to the output dir, and add to the index.'
+            );
+            actionBtn.addEventListener('click', async () => {
+              actionBtn.disabled = true;
+              try {
+                await startForceAction(info.path, action);
+              } catch (e) {
+                showInlineActionError(e.message || String(e));
+                actionBtn.disabled = false;
+              }
+            });
+          }
+          actionsEl.appendChild(actionBtn);
+        }
+
+        // "Find related (full search) ↗" — opens /search.html in a
+        // new tab so the operator doesn't lose the preview-page
+        // context. The query is seeded from the file's content
+        // (same derivation as the auto-related card).
+        const findRelBtn = document.createElement('a');
+        findRelBtn.className = 'btn btn-ghost btn-sm';
+        const seedQ = buildSearchPageQuery(info);
+        findRelBtn.href = '/static/search.html?q=' + encodeURIComponent(seedQ);
+        findRelBtn.target = '_blank';
+        findRelBtn.rel = 'noopener';
+        findRelBtn.textContent = 'Find related ↗';
+        findRelBtn.title = 'Open the full search page in a new tab with this file\'s context as the query';
+        actionsEl.appendChild(findRelBtn);
       }
 
       // ── Sidebar metadata ───────────────────────────────────────
@@ -863,6 +1300,40 @@
         note.textContent = 'Audio playback uses HTTP range requests for seeking. ' +
           'If the timeline doesn\'t scrub, the source format may not be browser-native — try Download.';
         viewerEl.appendChild(note);
+
+        // Inline transcript pane — only when a successful conversion
+        // exists. Pulls the converted Markdown via the same endpoint
+        // the office_with_markdown viewer uses; rendered as plain text
+        // so timestamps and speaker labels stay readable, and the
+        // selection-chip search works against unparsed text.
+        if (info.conversion && info.conversion.status === 'success') {
+          attachAudioTranscript(info);
+        }
+      }
+
+      async function attachAudioTranscript(info) {
+        const pane = document.createElement('div');
+        pane.className = 'pv-transcript-pane';
+        const head = document.createElement('div');
+        head.className = 'head';
+        head.textContent = 'Transcript (loading...)';
+        pane.appendChild(head);
+        const body = document.createElement('div');
+        body.className = 'body';
+        body.dataset.searchable = 'true';  // marks for selection-chip
+        pane.appendChild(body);
+        viewerEl.appendChild(pane);
+
+        try {
+          const data = await API.get(
+            '/api/preview/markdown-output?path=' + encodeURIComponent(info.path)
+          );
+          head.textContent = 'Transcript — ' + fmtDateTime(data.converted_at);
+          body.textContent = data.markdown || '';
+        } catch (e) {
+          head.textContent = 'Transcript';
+          body.textContent = 'Failed to load transcript: ' + (e.message || e);
+        }
       }
 
       function renderVideoViewer(info, contentUrl) {
@@ -1041,6 +1512,474 @@
         viewerEl.appendChild(wrap);
       }
 
+      // ── Force-action (file-aware Process button) ─────────────────
+      //
+      // Posts to /api/preview/force-action, then polls
+      // /api/preview/force-action-status every 2s. Renders an inline
+      // progress card under the action buttons in the toolbar so
+      // the operator sees phase + elapsed time without leaving the
+      // page. On success we re-fetch /info — that re-renders the
+      // sidebar (Conversion / Analysis cards), the viewer (audio
+      // player gets a transcript pane, image gets a description on
+      // its analysis card), and the related-files lists.
+      async function startForceAction(path, action) {
+        // Tear down any previous progress card before starting fresh.
+        if (state.forceActionEl && state.forceActionEl.parentNode) {
+          state.forceActionEl.parentNode.removeChild(state.forceActionEl);
+        }
+        const card = document.createElement('div');
+        card.className = 'pv-action-progress';
+        const labels = {
+          transcribe: 'Transcription',
+          convert: 'Conversion',
+          analyze: 'Analysis',
+        };
+        const head = document.createElement('div');
+        head.className = 'row';
+        const spinner = document.createElement('span');
+        spinner.className = 'spinner';
+        head.appendChild(spinner);
+        const phase = document.createElement('span');
+        phase.className = 'phase';
+        phase.textContent = (labels[action] || 'Action') + ' — starting…';
+        head.appendChild(phase);
+        const elapsed = document.createElement('span');
+        elapsed.className = 'elapsed';
+        elapsed.textContent = '0.0s';
+        head.appendChild(elapsed);
+        card.appendChild(head);
+        actionsEl.parentNode.appendChild(card);
+        state.forceActionEl = card;
+
+        // POST to start
+        let resp;
+        try {
+          resp = await API.post('/api/preview/force-action', {path: path});
+        } catch (e) {
+          card.classList.add('failed');
+          phase.textContent = 'Failed to start';
+          const err = document.createElement('div');
+          err.className = 'err';
+          err.textContent = e.message || String(e);
+          card.appendChild(err);
+          throw e;
+        }
+        if (typeof showToast === 'function') {
+          showToast(resp.message || ('Scheduled ' + action));
+        }
+
+        // Start the elapsed-time ticker (independent of HTTP poll
+        // cadence so the timer feels live).
+        const startedAt = Date.now();
+        if (state.forceActionElapsedTimer) clearInterval(state.forceActionElapsedTimer);
+        state.forceActionElapsedTimer = setInterval(() => {
+          if (!card.parentNode) return;
+          const sec = (Date.now() - startedAt) / 1000;
+          elapsed.textContent = sec.toFixed(1) + 's';
+        }, 100);
+
+        // Poll loop
+        state.forceActionPolling = true;
+        if (state.forceActionTimer) clearInterval(state.forceActionTimer);
+        state.forceActionTimer = setInterval(
+          () => pollForceActionTick(path, action, card, phase, elapsed),
+          2000,
+        );
+        // Fire one immediate poll so the phase label updates fast.
+        pollForceActionTick(path, action, card, phase, elapsed);
+      }
+
+      async function pollForceActionTick(path, action, card, phase, elapsed) {
+        if (!state.forceActionPolling) return;
+        let st;
+        try {
+          st = await API.get(
+            '/api/preview/force-action-status?path=' + encodeURIComponent(path)
+          );
+        } catch (e) {
+          // Transient — keep polling. The next tick will retry.
+          return;
+        }
+        const phaseText = st.phase || st.state || 'running';
+        const elapsedSec = (st.elapsed_ms != null) ? (st.elapsed_ms / 1000).toFixed(1) + 's' : '';
+        const labels = {
+          queued: 'Queued',
+          preparing: 'Preparing the row',
+          running: action === 'transcribe' ? 'Transcribing (Whisper)…'
+                 : action === 'analyze' ? 'Analyzing (LLM vision)…'
+                 : 'Converting…',
+          indexing: 'Indexing the result',
+          success: 'Complete',
+          failed: 'Failed',
+        };
+        phase.textContent = labels[phaseText] || phaseText;
+        if (elapsedSec) elapsed.textContent = elapsedSec;
+
+        if (st.state === 'success') {
+          stopForceActionPolling();
+          card.classList.add('success');
+          phase.textContent = (action === 'transcribe' ? 'Transcribed'
+                              : action === 'analyze' ? 'Analyzed'
+                              : 'Converted') + ' ✓';
+          if (st.output_path) {
+            const out = document.createElement('div');
+            out.style.cssText = 'font-size:0.78rem; color:#86efac; word-break:break-all;';
+            out.textContent = 'Output: ' + st.output_path;
+            card.appendChild(out);
+          }
+          const dismiss = document.createElement('button');
+          dismiss.type = 'button';
+          dismiss.className = 'dismiss-btn';
+          dismiss.textContent = 'Dismiss';
+          dismiss.addEventListener('click', () => {
+            if (card.parentNode) card.parentNode.removeChild(card);
+          });
+          card.appendChild(dismiss);
+          // Re-fetch /info so transcript / description / output_path
+          // populate the sidebar + viewer. The page stays in place.
+          await loadInfo(state.path);
+          // And refresh the auto-related lists since the new content
+          // makes the query derivation richer.
+          runRelatedSearch(state.relatedMode, '');
+        } else if (st.state === 'failed') {
+          stopForceActionPolling();
+          card.classList.add('failed');
+          phase.textContent = (action === 'transcribe' ? 'Transcription'
+                              : action === 'analyze' ? 'Analysis'
+                              : 'Conversion') + ' failed';
+          if (st.error) {
+            const err = document.createElement('div');
+            err.className = 'err';
+            err.textContent = st.error;
+            card.appendChild(err);
+          }
+          const dismiss = document.createElement('button');
+          dismiss.type = 'button';
+          dismiss.className = 'dismiss-btn';
+          dismiss.textContent = 'Dismiss';
+          dismiss.addEventListener('click', () => {
+            if (card.parentNode) card.parentNode.removeChild(card);
+          });
+          card.appendChild(dismiss);
+        }
+      }
+
+      function stopForceActionPolling() {
+        state.forceActionPolling = false;
+        if (state.forceActionTimer) {
+          clearInterval(state.forceActionTimer);
+          state.forceActionTimer = null;
+        }
+        if (state.forceActionElapsedTimer) {
+          clearInterval(state.forceActionElapsedTimer);
+          state.forceActionElapsedTimer = null;
+        }
+        // Re-enable the action button so the operator can retry.
+        const actionBtn = actionsEl.querySelector('.pv-force-action');
+        if (actionBtn) actionBtn.disabled = false;
+      }
+
+      function showInlineActionError(msg) {
+        if (state.forceActionEl && state.forceActionEl.parentNode) {
+          state.forceActionEl.parentNode.removeChild(state.forceActionEl);
+        }
+        const card = document.createElement('div');
+        card.className = 'pv-action-progress failed';
+        const head = document.createElement('div');
+        head.className = 'row';
+        const phase = document.createElement('span');
+        phase.className = 'phase';
+        phase.textContent = 'Action failed to start';
+        head.appendChild(phase);
+        card.appendChild(head);
+        const err = document.createElement('div');
+        err.className = 'err';
+        err.textContent = msg;
+        card.appendChild(err);
+        actionsEl.parentNode.appendChild(card);
+        state.forceActionEl = card;
+      }
+
+      // ── Related files (auto + typed search) ─────────────────────
+      function renderRelatedHits(listEl, statusEl, data, currentPath) {
+        clearChildren(listEl);
+        const hits = data.results || [];
+        if (data.warning) {
+          statusEl.textContent = data.warning;
+          statusEl.className = 'pv-related-status warn';
+        } else if (hits.length === 0) {
+          statusEl.textContent = data.derived
+            ? 'No related files found from auto-derived query.'
+            : 'No related files found.';
+          statusEl.className = 'pv-related-status';
+        } else {
+          const tag = data.derived ? 'auto-derived from this file' : 'manual query';
+          statusEl.textContent = hits.length + ' results · ' + tag;
+          statusEl.className = 'pv-related-status';
+        }
+        hits.forEach(h => {
+          const a = document.createElement('a');
+          a.className = 'pv-related-item';
+          a.href = '?path=' + encodeURIComponent(h.path);
+          a.target = '_blank';
+          a.rel = 'noopener';
+          const name = document.createElement('div');
+          name.className = 'name';
+          name.textContent = h.name || h.path || '?';
+          a.appendChild(name);
+          const meta = document.createElement('div');
+          meta.className = 'meta';
+          const bits = [];
+          if (h.source_format) bits.push(h.source_format);
+          if (h.size_bytes != null) bits.push(fmtBytes(h.size_bytes));
+          if (h.score != null) bits.push('score=' + Number(h.score).toFixed(3));
+          meta.textContent = bits.join(' · ') + (h.path ? ' — ' + h.path : '');
+          a.appendChild(meta);
+          a.title = h.path;
+          listEl.appendChild(a);
+        });
+      }
+
+      async function runRelatedSearch(mode, q) {
+        if (!state.path) return;
+        relatedStatusEl.textContent = 'Searching...';
+        relatedStatusEl.className = 'pv-related-status';
+        try {
+          const url = '/api/preview/related?path=' + encodeURIComponent(state.path) +
+                      '&mode=' + encodeURIComponent(mode || 'semantic') +
+                      (q ? '&q=' + encodeURIComponent(q) : '');
+          const data = await API.get(url);
+          renderRelatedHits(relatedListEl, relatedStatusEl, data, state.path);
+        } catch (e) {
+          relatedStatusEl.textContent = 'Failed: ' + (e.message || e);
+          relatedStatusEl.className = 'pv-related-status err';
+        }
+      }
+
+      function bindRelatedTabs() {
+        relatedTabsEl.querySelectorAll('.pv-tab').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const mode = btn.getAttribute('data-mode');
+            relatedTabsEl.querySelectorAll('.pv-tab').forEach(b => b.classList.toggle('is-active', b === btn));
+            state.relatedMode = mode;
+            runRelatedSearch(mode, '');
+          });
+        });
+      }
+
+      async function runTypedSearch(q) {
+        if (!state.path) return;
+        const mode = searchModeEl.value;
+        searchStatusEl.textContent = 'Searching...';
+        searchStatusEl.className = 'pv-related-status';
+        try {
+          const url = '/api/preview/related?path=' + encodeURIComponent(state.path) +
+                      '&mode=' + encodeURIComponent(mode) +
+                      '&q=' + encodeURIComponent(q);
+          const data = await API.get(url);
+          renderRelatedHits(searchListEl, searchStatusEl, data, state.path);
+        } catch (e) {
+          searchStatusEl.textContent = 'Failed: ' + (e.message || e);
+          searchStatusEl.className = 'pv-related-status err';
+        }
+      }
+
+      function bindSearchPanel() {
+        searchBtnEl.addEventListener('click', () => {
+          const q = (searchInputEl.value || '').trim();
+          if (!q) return;
+          runTypedSearch(q);
+        });
+        searchInputEl.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter') {
+            ev.preventDefault();
+            const q = (searchInputEl.value || '').trim();
+            if (q) runTypedSearch(q);
+          }
+        });
+      }
+
+      // Update the AI Assist deep-link href + the Related card's
+      // "Full search ↗" link as info changes (so the seed query
+      // matches the current file's content).
+      function refreshSearchPageLinks(info) {
+        const seed = buildSearchPageQuery(info);
+        if (relatedFullPageEl) {
+          relatedFullPageEl.href = '/static/search.html?q=' + encodeURIComponent(seed);
+        }
+        if (searchAiBtnEl) {
+          searchAiBtnEl.href = '/static/search.html?q=' + encodeURIComponent(seed) + '&ai=1';
+        }
+      }
+
+      // ── Selection chip (highlight-to-search) ────────────────────
+      let selChipEl = null;
+      function ensureSelChip() {
+        if (selChipEl) return selChipEl;
+        const el = document.createElement('div');
+        el.className = 'pv-sel-chip';
+        el.id = 'pv-sel-chip';
+        document.body.appendChild(el);
+        selChipEl = el;
+        return el;
+      }
+
+      function hideSelChip() {
+        if (selChipEl) selChipEl.classList.remove('show');
+      }
+
+      function showSelChipForSelection() {
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed) return hideSelChip();
+        const text = String(sel.toString() || '').trim();
+        if (text.length < 3 || text.length > 500) return hideSelChip();
+        // Only fire when the selection is inside a known viewer pane,
+        // sibling list, transcript body, or related/search list. Avoid
+        // hijacking selection in input fields, sidebars, etc.
+        const node = sel.anchorNode;
+        const host = node && (node.nodeType === 1 ? node : node.parentElement);
+        if (!host) return hideSelChip();
+        if (!host.closest('.pv-viewer, .pv-transcript-pane .body, .pv-card .description, .pv-card .extracted, .pv-related-list')) {
+          return hideSelChip();
+        }
+        const range = sel.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        if (!rect || (rect.width === 0 && rect.height === 0)) return hideSelChip();
+
+        const chip = ensureSelChip();
+        clearChildren(chip);
+
+        const semBtn = document.createElement('button');
+        semBtn.type = 'button';
+        semBtn.textContent = '🧠 Semantic';
+        semBtn.title = 'Find files semantically similar to the selected text';
+        semBtn.addEventListener('click', () => {
+          searchModeEl.value = 'semantic';
+          searchInputEl.value = text;
+          runTypedSearch(text);
+          hideSelChip();
+        });
+        chip.appendChild(semBtn);
+
+        const sep = document.createElement('span'); sep.className = 'sep'; chip.appendChild(sep);
+
+        const kwBtn = document.createElement('button');
+        kwBtn.type = 'button';
+        kwBtn.textContent = '🔎 Keyword';
+        kwBtn.addEventListener('click', () => {
+          searchModeEl.value = 'keyword';
+          searchInputEl.value = text;
+          runTypedSearch(text);
+          hideSelChip();
+        });
+        chip.appendChild(kwBtn);
+
+        const sep2 = document.createElement('span'); sep2.className = 'sep'; chip.appendChild(sep2);
+
+        const aiLink = document.createElement('a');
+        aiLink.href = '/static/search.html?q=' + encodeURIComponent(text) + '&ai=1';
+        aiLink.target = '_blank';
+        aiLink.rel = 'noopener';
+        aiLink.textContent = '🤖 AI ↗';
+        aiLink.title = 'Open AI Assist in a new tab with this text as the query';
+        aiLink.addEventListener('click', () => hideSelChip());
+        chip.appendChild(aiLink);
+
+        // Position above the selection by default; flip below if the
+        // selection is too close to the top of the viewport.
+        chip.classList.add('show');
+        const chipRect = chip.getBoundingClientRect();
+        let top = rect.top - chipRect.height - 6;
+        if (top < 8) top = rect.bottom + 6;
+        let left = rect.left + (rect.width / 2) - (chipRect.width / 2);
+        if (left < 8) left = 8;
+        if (left + chipRect.width > window.innerWidth - 8) {
+          left = window.innerWidth - chipRect.width - 8;
+        }
+        chip.style.top = top + 'px';
+        chip.style.left = left + 'px';
+      }
+
+      document.addEventListener('mouseup', () => {
+        // setTimeout(0) so the selection has settled before we read it.
+        setTimeout(showSelChipForSelection, 0);
+      });
+      document.addEventListener('mousedown', (ev) => {
+        if (selChipEl && selChipEl.contains(ev.target)) return;
+        hideSelChip();
+      });
+      document.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape') hideSelChip();
+      });
+      window.addEventListener('scroll', hideSelChip, true);
+      window.addEventListener('resize', hideSelChip);
+
+      // ── Staleness banner (visibility-change re-fetch) ────────────
+      //
+      // When the user's tab is hidden (they Alt-Tabbed to another app
+      // or another tab) and a force-action / pipeline tick updated
+      // the file in the meantime, we re-fetch /info on tab focus and
+      // compare the version hash. If it changed, the page is
+      // refreshed and a one-line banner explains what happened.
+      let staleBannerEl = null;
+      function showStaleBanner() {
+        if (staleBannerEl && staleBannerEl.parentNode) {
+          staleBannerEl.parentNode.removeChild(staleBannerEl);
+        }
+        const banner = document.createElement('div');
+        banner.className = 'pv-stale-banner';
+        const icon = document.createElement('span');
+        icon.className = 'icon';
+        icon.textContent = '🔄';
+        banner.appendChild(icon);
+        const msg = document.createElement('span');
+        msg.textContent = 'This file changed while you were away — page refreshed with the latest data.';
+        banner.appendChild(msg);
+        const x = document.createElement('button');
+        x.type = 'button';
+        x.className = 'dismiss';
+        x.textContent = '×';
+        x.title = 'Dismiss';
+        x.addEventListener('click', () => {
+          if (banner.parentNode) banner.parentNode.removeChild(banner);
+        });
+        banner.appendChild(x);
+        // Insert at the very top of pv-wrap, before the nav bar.
+        const wrap = document.querySelector('.pv-wrap');
+        if (wrap) wrap.insertBefore(banner, wrap.firstChild);
+        staleBannerEl = banner;
+        // Auto-dismiss after 12 seconds — long enough to read, short
+        // enough not to clutter once the operator's seen it.
+        setTimeout(() => {
+          if (banner.parentNode) banner.parentNode.removeChild(banner);
+        }, 12000);
+      }
+
+      document.addEventListener('visibilitychange', async () => {
+        if (document.visibilityState !== 'visible') return;
+        if (!state.path || !state.lastInfoVersion) return;
+        // Don't compete with an in-flight force-action poll.
+        if (state.forceActionPolling) return;
+        try {
+          const fresh = await API.get(
+            '/api/preview/info?path=' + encodeURIComponent(state.path)
+          );
+          const oldVer = state.lastInfoVersion;
+          const newVer = fresh.info_version;
+          if (newVer && oldVer && newVer !== oldVer) {
+            // State changed while the tab was hidden — re-render and
+            // surface the banner so the operator knows why content
+            // they were looking at is now different.
+            state.info = fresh;
+            state.lastInfoVersion = newVer;
+            renderAll(fresh);
+            showStaleBanner();
+          }
+        } catch (e) {
+          // Quiet failure — visibility-change re-fetch is opportunistic.
+        }
+      });
+
       // ── Page load ──────────────────────────────────────────────
       async function loadInfo(path) {
         loadingEl.hidden = false;
@@ -1051,6 +1990,7 @@
           const data = await API.get('/api/preview/info?path=' + encodeURIComponent(path));
           state.info = data;
           state.path = path;
+          state.lastInfoVersion = data.info_version || null;
           renderAll(data);
           loadingEl.hidden = true;
           toolbarEl.hidden = false;
@@ -1085,6 +2025,11 @@
         renderFlags(info);
         renderSiblings(info);
         renderViewer(info);
+        refreshSearchPageLinks(info);
+        // Auto-populate the Related card with the currently-selected
+        // mode (default: semantic). Cheap — it's Meili / Qdrant only,
+        // no LLM cost.
+        runRelatedSearch(state.relatedMode, '');
       }
 
       // ── Keyboard shortcuts ─────────────────────────────────────
@@ -1120,6 +2065,12 @@
       });
 
       // ── Bootstrap ──────────────────────────────────────────────
+      // Bind interactive sidebar handlers once; their behavior is
+      // path-driven via state.path so we don't need to re-bind on
+      // navigation between siblings.
+      bindRelatedTabs();
+      bindSearchPanel();
+
       const params = new URLSearchParams(window.location.search);
       const initialPath = params.get('path');
       if (!initialPath) {

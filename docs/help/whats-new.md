@@ -104,6 +104,200 @@ machine, set page size to **All** once and you're set. If you
 want to scan recent activity quickly, **30** keeps the page
 snappy.
 
+### Force-process this file (file-aware Transcribe / Process / Analyze)
+
+The preview page now has a **single button** that runs the full
+pipeline on whatever file you're looking at — without waiting
+for the next pipeline tick. The label changes to match the
+file:
+
+| Your file is… | Button reads | What it does |
+|---|---|---|
+| Audio (`.mp3`, `.m4a`, `.wav`, …) or video (`.mp4`, `.mov`, …) | **🎙 Transcribe** | Runs Whisper, writes the transcript Markdown to the output dir, and indexes it. |
+| Office doc, PDF, text/code, archive | **⚙ Process** | Converts to Markdown using the right handler, writes output, and indexes. |
+| Image (`.jpg`, `.png`, `.heic`, RAW, etc.) | **🔍 Analyze** | Sends the image through the LLM vision pipeline (description + extracted text) and writes results to the analysis queue. |
+| Anything else (binary blobs, executables, etc.) | *button hidden* | No applicable action. |
+
+Click it and a **live progress card** slides in below the
+action buttons:
+
+- Spinner + phase label ("Transcribing (Whisper)…",
+  "Converting…", "Analyzing (LLM vision)…")
+- Live elapsed-time ticker (`12.3s`, then `1m 23.4s` …)
+- On success: green card, output path, **Dismiss** button.
+  The page **refreshes its sidebar in place** so you don't
+  lose your scroll position — the Conversion / Analysis
+  cards repopulate, and audio files get a transcript pane
+  added below the player.
+- On failure: red card with the error message and **Dismiss**.
+
+#### Example — transcribe a meeting recording
+
+1. Browse to `/static/pipeline-files.html?folder=/host/c/Audio`
+2. Click the 📂 icon on `meeting04.mp3`. The preview page opens.
+3. Click **🎙 Transcribe** in the toolbar.
+4. The progress card appears: *"Transcribing (Whisper)… 0.5s"* …
+   *14.2s* … *2m 11.0s*. (Whisper is single-threaded per call;
+   for a 1-hour recording expect ~10–20 min on the GTX 1660 Ti.)
+5. When it completes, the **Transcript** pane appears below
+   the audio player with the speaker dialog, and the
+   **Conversion** sidebar card flips to ✅ Success with the
+   output path. The **Related Files** sidebar card re-runs
+   with the new transcript content as the query — files with
+   similar text content show up at the top.
+
+#### Example — analyze a phone photo
+
+1. Open a `.heic` file from a phone backup folder.
+2. Click **🔍 Analyze**. Progress card shows
+   *"Analyzing (LLM vision)… 8.4s"*.
+3. The Analysis sidebar card populates with the LLM's
+   description ("A close-up of a hand-written meeting agenda
+   with bullet points listing…") and any extracted text.
+4. Related Files re-runs using the new description as the
+   query — other photos of agendas / handwritten notes show up.
+
+#### Example — convert a single Office doc that's stuck pending
+
+1. Open a `.docx` whose Conversion sidebar shows "pending."
+2. Click **⚙ Process**. The conversion runs in foreground
+   (you see the elapsed timer); when it finishes, the
+   Office-with-Markdown viewer takes over the main pane,
+   showing the rendered Markdown inline with a "→ View
+   converted" link to the full viewer.
+
+The button is **hidden** entirely when the file extension
+isn't supported by any pipeline (e.g., a `.exe` or stripped
+binary blob — there's nothing for MarkFlow to do with it).
+It's **disabled** with a tooltip when the file is recognized
+by type but missing on disk (deleted between scans, NAS
+hiccup, etc.) — once the file's bytes come back the button
+re-enables on the next page load.
+
+### Related Files + typed search + highlight-to-search
+
+The preview page now has three new ways to find context-similar
+files **without leaving the page**:
+
+#### 1. Auto-populated Related Files card
+
+Every preview page load fires a similar-file search keyed off
+the file's own content (transcript text → analysis description
+→ filename + folder name, in that order). Two tabs at the top
+of the card:
+
+- **Semantic** (default) — vector search via Qdrant. Finds
+  files with similar meaning, even if the words are different.
+- **Keyword** — Meilisearch full-text. Faster, but matches
+  literal terms.
+
+Click any result to open it in a new tab — your current
+preview stays in place.
+
+#### 2. Sidebar Search panel
+
+Type your own query into the search box, pick a mode
+(Semantic / Keyword), and hit **Search** (or just press
+Enter). Results render directly below.
+
+For deeper synthesis, click **🤖 AI Assist ↗** — that opens
+the full search page in a new tab with AI Assist enabled.
+(AI Assist isn't auto-fired here because every preview-page
+open would burn LLM tokens — it's an explicit click.)
+
+#### 3. Highlight-to-search chip
+
+Highlight any text inside the file viewer, transcript,
+analysis description, or any related-files list. A floating
+chip pops up at your cursor with three options:
+
+- **🧠 Semantic** — searches the same panel for files with
+  similar meaning.
+- **🔎 Keyword** — searches for files containing those
+  literal words.
+- **🤖 AI ↗** — opens the full AI Assist page in a new tab
+  with your highlighted text as the query.
+
+This is the fastest way to chase a phrase you just noticed
+in a transcript — highlight, click, results appear in the
+sidebar.
+
+#### Example workflow — pull on a thread in a transcript
+
+1. You're reading the transcript of a board meeting in the
+   audio file viewer.
+2. You highlight the phrase "*resolution for trans
+   healthcare*."
+3. The chip appears. Click **🧠 Semantic**.
+4. The Search panel below populates with other files
+   discussing similar topics — meeting minutes, draft
+   resolutions, related correspondence.
+5. Click any result; it opens in a new tab. Your transcript
+   stays exactly where you left it.
+
+#### "Find related ↗" full-page handoff
+
+In the action toolbar at the top of the preview page, the
+**Find related ↗** button opens the full
+`/static/search.html` page in a new tab, seeded with the
+current file's content as the query. Use this when you need
+the bigger search experience (filters, AI Assist, batch
+download) without sacrificing your preview-page context.
+
+### "Page refreshed" banner when you come back
+
+If you're looking at a preview page, switch tabs / Alt-Tab
+to another app, and a force-action / pipeline tick changes
+the underlying file's state in the meantime — when you come
+back, the page detects it on focus and:
+
+- **Re-fetches** the file info,
+- **Re-renders** the sidebar / viewer with the latest data,
+- **Shows a blue banner** at the top: *"This file changed
+  while you were away — page refreshed with the latest
+  data."*
+
+The banner auto-dismisses after 12 seconds, or you can click
+the × to close it sooner. This way you never read stale info
+without realizing it. The banner is suppressed during your
+own in-progress force-action so it doesn't show up for your
+own work.
+
+### Better error UX on missing files
+
+Click "Open in new tab" or "Download" on a file that the
+registry remembers but the disk has lost? Two improvements:
+
+- **In the preview page**, those buttons now render
+  **disabled** with a tooltip that says *"File not found on
+  disk — cannot serve content."* You won't accidentally land
+  on a JSON error page.
+- **If you do hit the URL directly** (bookmarked link, copied
+  URL, shared in Slack), you now get a friendly HTML page
+  instead of `{"detail":"file not found"}`. The page shows
+  the path, the reason, and links back to the preview view
+  + Pipeline Files.
+
+The **🎙 Transcribe / ⚙ Process / 🔍 Analyze** force-action
+button on a missing file: it stays visible (so you know what
+the right action would be) but is disabled with a tooltip.
+Once the file's bytes come back, the button re-enables.
+
+### Side fixes shipped in this release
+
+- **Lifecycle scan no longer logs a noisy traceback on
+  shutdown.** Container restarts used to leave a
+  `CancelledError` traceback in `markflow.log` because the
+  scheduled lifecycle scan was mid-await on a DB write when
+  SIGTERM landed. Now it logs `scheduler.scan_cancelled_on_shutdown`
+  cleanly and exits.
+- **662 MB of stale `db-*.log` files removed.** The DB
+  contention logger was retired back in v0.24.2 but its
+  three temp files (`db-contention.log` 375 MB,
+  `db-queries.log` 272 MB, `db-active.log` 15 MB) were never
+  cleaned up. Reclaimed automatically as part of this
+  release.
+
 ---
 
 ## v0.31.6 — Test-convert a hand-picked subset of pending files

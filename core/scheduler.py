@@ -4,6 +4,7 @@ APScheduler setup — registers lifecycle scan, trash expiry, and DB maintenance
 Called from main.py lifespan.
 """
 
+import asyncio
 from datetime import datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -104,6 +105,13 @@ async def run_lifecycle_scan(force: bool = False) -> None:
         from core.lifecycle_scanner import run_lifecycle_scan as _scan
         scan_run_id = await _scan()
         log.info("scheduler.scan_complete", scan_run_id=scan_run_id)
+    except asyncio.CancelledError:
+        # Container shutdown cancelled the scan mid-DB-await. CancelledError
+        # is a BaseException, so it slips past `except Exception` and surfaces
+        # as an apscheduler unhandled-exception traceback. Swallow at this
+        # boundary — the scan run will be picked up at the next interval.
+        log.info("scheduler.scan_cancelled_on_shutdown")
+        return
     except Exception as exc:
         log.error("scheduler.scan_failed", error=str(exc))
 

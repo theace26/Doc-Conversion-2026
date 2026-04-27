@@ -199,3 +199,54 @@ def can_render_native(path: Path) -> bool:
     if ext in AUDIO_EXTS or ext in VIDEO_EXTS or ext in PDF_EXTS:
         return True
     return False
+
+
+# ── Force-action dispatcher (v0.32.0 force-process button) ───────────────────
+#
+# The preview-page "Process this file" button uses this to pick the
+# right pipeline action by extension. The button label is set from the
+# action name ("Transcribe" / "Convert" / "Analyze") so operators see
+# the verb that matches what's about to happen.
+#
+# Edit this mapping when you want a different default — e.g., if .psd
+# should go to image analysis instead of conversion, move ".psd" out of
+# the convert path. The function is intentionally a small lookup so the
+# decision is one place to grep.
+
+# Verb returned from `pick_action_for_path`. One of:
+#   transcribe  → audio/video → Whisper via converter._convert_file_sync
+#   convert     → office/pdf/text/archive → standard converter
+#   analyze     → image → enqueue_for_analysis + force-drain
+#   none        → no action available (button hidden / disabled)
+ACTION_TRANSCRIBE = "transcribe"
+ACTION_CONVERT = "convert"
+ACTION_ANALYZE = "analyze"
+ACTION_NONE = "none"
+
+
+def pick_action_for_path(path: Path | str) -> str:
+    """Return the force-action verb for `path` based on its extension.
+
+    Default mapping:
+      - audio/video  → transcribe
+      - image        → analyze
+      - pdf/office/text/archive → convert
+      - unknown      → none
+
+    Both transcribe and convert end up calling the same
+    `_convert_file_sync` under the hood — the bulk converter routes by
+    extension internally (audio/video → Whisper, office → handler,
+    etc.). They're separate verbs only so the button label tells the
+    operator what's actually going to happen.
+    """
+    p = Path(path) if not isinstance(path, Path) else path
+    ext = _ext_lower(p)
+    if ext in AUDIO_EXTS or ext in VIDEO_EXTS:
+        return ACTION_TRANSCRIBE
+    # Image set comes from the preview-thumbnail registry so any
+    # format we can preview is also a valid analyze target.
+    if ext in all_preview_extensions():
+        return ACTION_ANALYZE
+    if ext in PDF_EXTS or ext in OFFICE_EXTS or ext in TEXT_EXTS or ext in ARCHIVE_EXTS:
+        return ACTION_CONVERT
+    return ACTION_NONE

@@ -226,6 +226,114 @@ three temp files (`db-contention.log` 375 MB,
 2026-04-23) sat untouched on disk. Removed during this release.
 No code path writes to those filenames anymore.
 
+### Force-process button + real-time progress (file-aware)
+
+A new "🎙 Transcribe" / "⚙ Process" / "🔍 Analyze" button on
+the preview page kicks off the full pipeline for a single file:
+removes it from `pending` / `failed` / `batched` state, runs the
+appropriate engine (Whisper / converter / LLM vision), writes
+the output to the configured directory, and reindexes — without
+forcing the operator to wait for the next pipeline tick.
+
+- **File-aware label** — picked from `info.action` returned by
+  `/api/preview/info`. Backed by a single-line dispatcher
+  `core.preview_helpers.pick_action_for_path(p)`:
+    - audio/video → `transcribe`
+    - office/pdf/text/archive → `convert`
+    - image (any preview-eligible extension) → `analyze`
+    - everything else → `none` (button hidden)
+- **Backend** — `POST /api/preview/force-action {path}` schedules
+  a `BackgroundTask`. Two paths:
+    - `transcribe` / `convert` → upserts a `bulk_files` row, then
+      reuses `_convert_one_pending_file` from v0.31.6 (so the
+      same routing / output-mapping / write-guard / index logic
+      applies).
+    - `analyze` → calls `enqueue_for_analysis`, then forces a
+      `run_analysis_drain()` so the LLM call goes out within the
+      current request rather than waiting up to 5 minutes for
+      the scheduled tick.
+- **Real-time progress** — in-memory dict
+  (`_FORCE_ACTION_STATE`) keyed on resolved source path,
+  exposed via `GET /api/preview/force-action-status?path=…`.
+  Frontend polls every 2 s; each phase
+  (`queued → preparing → running → success/failed`) renders an
+  inline card under the action buttons with a live elapsed-time
+  ticker. The poll loop quits on success/failed and re-fetches
+  `/info`, which re-runs the dispatch — sidebar Conversion /
+  Analysis cards repopulate, and the audio viewer adds a new
+  transcript pane below its `<audio>` element.
+- **Re-entrancy guard** — a second click while a prior run is
+  still in-flight returns 409. Works across browser refreshes
+  (state is process-local, not session-local).
+
+### Related-Files sidebar + selection-driven search
+
+The preview page now has two new sidebar cards plus a global
+text-selection chip — operators can find context-similar files
+without leaving the file detail.
+
+- **Auto-populated "Related Files" card** — fires
+  `/api/preview/related` on every page load with `mode=semantic`
+  by default. Toggle to `keyword` (Meilisearch) via tabs.
+  Backend derives the query in this order: converted Markdown
+  excerpt (first 1000 chars) → analysis description →
+  filename + parent directory tokens.
+- **Sidebar search panel** — typed-query `<input>` + mode
+  dropdown (semantic / keyword) + "🤖 AI Assist ↗" deep-link
+  to `/search.html?q=…&ai=1` in a new tab. AI Assist intentionally
+  does NOT auto-fire — preview-page opens shouldn't burn LLM
+  tokens, so the synthesize action is operator-initiated.
+- **Highlight-to-search chip** — `mouseup` inside the viewer,
+  transcript pane, analysis description, or any related-file
+  list pops a floating chip with [🧠 Semantic | 🔎 Keyword |
+  🤖 AI ↗] options. Position is computed from the selection's
+  `getBoundingClientRect()` and flips below if the selection
+  is too close to the viewport top.
+- **`Find related ↗` action button** — opens `/search.html` in
+  a new tab seeded with the file's content as the query, so the
+  operator gets the full search page without losing the preview
+  context.
+
+Backend endpoint `GET /api/preview/related` accepts:
+`path`, `mode` (`keyword`|`semantic`), optional `q` override,
+`limit` (1–25 default 10). Returns hits filtered to exclude the
+current file, with `path / name / score / source_format /
+size_bytes / doc_id / snippet`. Vector hits use
+`source_path` from the Qdrant payload directly — no Meili
+roundtrip.
+
+### Staleness banner (don't lose the view)
+
+When the user is away from a preview tab and a force-action /
+pipeline tick changes the underlying state, the page detects it
+on `visibilitychange`:
+
+- `/info` now returns `info_version` — a 16-char SHA256 prefix
+  of `(size, mtime, viewer_kind, conv.status, conv.converted_at,
+  conv.output_path, analysis.status, analysis.analyzed_at,
+  analysis.description[:64], len(flags))`.
+- Frontend stores it on load. On tab-focus it re-fetches `/info`
+  and compares; if the version changed, it re-renders + shows a
+  blue banner: *"This file changed while you were away — page
+  refreshed with the latest data."* Auto-dismisses after 12 s.
+- Suppressed during force-action polling so we don't show the
+  banner for our own work-in-progress.
+
+### Better error UX on missing files
+
+Click "Open in new tab" / "Download" on a file the registry
+remembers but disk has lost? Two fixes:
+
+- **Frontend** — when `info.exists=false`, the buttons render
+  as `<button disabled>` with tooltip *"File not found on
+  disk — cannot serve content"* instead of linking to a
+  404-returning endpoint.
+- **Backend** — `/api/preview/content` sniffs `Accept: text/html`.
+  Browser navigations get a styled error page (path + reason +
+  back-to-preview link); media-element / fetch consumers still
+  get the JSON 404 so `<img onerror>` fallback paths keep
+  working.
+
 ### Files
 
 - `core/version.py` — bump to 0.32.0
@@ -238,8 +346,18 @@ No code path writes to those filenames anymore.
 - `core/scheduler.py` — `import asyncio` + new
   `except asyncio.CancelledError` clause in
   `run_lifecycle_scan` (side fix)
+- `core/preview_helpers.py` — added
+  `pick_action_for_path()` + ACTION_* constants for the
+  force-action dispatcher
+- `api/routes/preview.py` — added force-action endpoints
+  + state tracker, `/related` endpoint with keyword/semantic
+  modes, `info_version` etag, friendly HTML 404 for browser
+  hits on missing-file content
 - `main.py` — register the new preview router
-- `static/preview.html` — full rewrite (~770 LOC)
+- `static/preview.html` — full rewrite + force-action button +
+  progress card + Related/Search sidebar cards + selection
+  chip + staleness banner + audio transcript pane
+  (~1500 LOC after this release)
 - `static/pipeline-files.html` — `?folder=` query param honored
 - `static/batch-management.html` — page-size selector +
   Expand/Collapse-all toggle + pagination footer

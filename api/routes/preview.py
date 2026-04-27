@@ -27,6 +27,7 @@ infer "interesting" directories from missing-vs-blocked responses.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import tarfile
 import time
@@ -37,19 +38,25 @@ from io import BytesIO
 from pathlib import Path
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi.responses import FileResponse, HTMLResponse, Response
+from pydantic import BaseModel, Field
 
 from core.auth import AuthenticatedUser, UserRole, require_role
 from core.db.connection import db_fetch_one, db_fetch_all
 from core.path_utils import is_path_under_allowed_root
 from core.preview_helpers import (
+    ACTION_ANALYZE,
+    ACTION_CONVERT,
+    ACTION_NONE,
+    ACTION_TRANSCRIBE,
     AUDIO_EXTS,
     OFFICE_EXTS,
     TEXT_EXTS,
     classify_viewer_kind,
     get_file_category,
     get_mime_type,
+    pick_action_for_path,
 )
 from core.preview_thumbnails import (
     get_cached_thumbnail,
@@ -379,6 +386,27 @@ async def get_preview_info(
         flag_count=len(flags),
     )
 
+    # Stable hash of the fields that, when changed, should trigger the
+    # "page has been updated" banner on the frontend. Background work
+    # (force-action, normal pipeline ticks) eventually flips one of
+    # these; the frontend polls /info on visibility-change and compares
+    # the stored version against the new one.
+    version_parts = [
+        str(size_bytes),
+        str(mtime_iso),
+        str(viewer_kind),
+        str((bulk_file or {}).get("status")),
+        str((bulk_file or {}).get("converted_at")),
+        str((bulk_file or {}).get("output_path")),
+        str((analysis or {}).get("status")),
+        str((analysis or {}).get("analyzed_at")),
+        str((analysis or {}).get("description") or "")[:64],
+        str(len(flags)),
+    ]
+    info_version = hashlib.sha256(
+        "|".join(version_parts).encode("utf-8"),
+    ).hexdigest()[:16]
+
     return {
         "path": source_path_str,
         "name": p.name,
@@ -396,11 +424,95 @@ async def get_preview_info(
         "analysis": analysis,
         "flags": flags,
         "siblings": siblings,
+        "action": pick_action_for_path(p),  # force-action verb hint
+        "info_version": info_version,
     }
+
+
+def _content_not_found_html(path_str: str, reason: str) -> HTMLResponse:
+    """Render a friendly HTML error for missing-file content requests.
+
+    The /api/preview/content endpoint is normally invoked from
+    `<img>` / `<audio>` / `<video>` / `<a href>` inside the preview
+    page, where a 404 JSON response is invisible (the browser just
+    doesn't render the asset). But operators occasionally land on
+    the URL directly — clicking "Open in new tab" against a stale
+    registry row, or following a bookmark — and a raw
+    `{"detail":"file not found"}` blob is a hostile UX.
+
+    This wrapper returns a small standalone page with the file's
+    container path, the reason it couldn't be served, and a link
+    back to the preview view (which itself handles missing files
+    gracefully).
+    """
+    # Defensive escaping. The path comes from the URL but we own the
+    # template so html.escape is sufficient.
+    import html as _html
+    safe_path = _html.escape(path_str)
+    safe_reason = _html.escape(reason)
+    preview_link = (
+        "/static/preview.html?path=" + urllib.parse.quote(path_str, safe="")
+    )
+    body = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>File not found — MarkFlow</title>
+  <link rel="stylesheet" href="/static/markflow.css">
+  <style>
+    body {{ background: #0b0b14; color: #eee; font-family: system-ui, sans-serif;
+            margin: 0; padding: 2rem; }}
+    .wrap {{ max-width: 36rem; margin: 4rem auto; padding: 1.5rem;
+             background: #161624; border: 1px solid #2b2b3f; border-radius: 8px; }}
+    h1 {{ margin: 0 0 0.4rem; font-size: 1.2rem; color: #fca5a5; }}
+    .reason {{ color: #aaa; font-size: 0.9rem; margin-bottom: 1rem; }}
+    .path {{ font-family: ui-monospace, monospace; font-size: 0.82rem;
+             padding: 0.5rem 0.6rem; background: #0b0b14; border-radius: 4px;
+             color: #eee; word-break: break-all; margin-bottom: 1rem; }}
+    .hint {{ color: #aaa; font-size: 0.85rem; margin-bottom: 1rem;
+             line-height: 1.5; }}
+    .btns {{ display: flex; gap: 0.5rem; flex-wrap: wrap; }}
+    .btn {{ display: inline-block; padding: 0.45rem 0.85rem;
+            border-radius: 5px; text-decoration: none; font-size: 0.88rem;
+            border: 1px solid #2b2b3f; color: #eee; }}
+    .btn.primary {{ background: #4f46e5; border-color: #4f46e5; }}
+    .btn:hover {{ background: rgba(255,255,255,0.06); }}
+    .btn.primary:hover {{ background: #4338ca; }}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>File not found</h1>
+    <div class="reason">{safe_reason}</div>
+    <div class="path">{safe_path}</div>
+    <div class="hint">
+      The MarkFlow registry has a record of this file but it could not be
+      read from disk. The file may have been moved, renamed, or deleted
+      since the last source scan. The preview page can still show its
+      metadata and any prior conversion / analysis results.
+    </div>
+    <div class="btns">
+      <a class="btn primary" href="{preview_link}">← Back to file preview</a>
+      <a class="btn" href="/static/pipeline-files.html">Pipeline Files</a>
+    </div>
+  </div>
+</body>
+</html>"""
+    return HTMLResponse(content=body, status_code=404)
+
+
+def _wants_html(request: Request) -> bool:
+    """True when the request looks like a browser navigation (Accept
+    header contains text/html). False for fetch/XHR / range requests
+    from <audio>/<video>/<img> elements, which prefer the JSON 404
+    so they can fail silently."""
+    accept = (request.headers.get("accept") or "").lower()
+    return "text/html" in accept
 
 
 @router.get("/content")
 async def get_preview_content(
+    request: Request,
     path: str = Query(...),
     user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
 ):
@@ -415,14 +527,29 @@ async def get_preview_content(
     (e.g., a script doing a plain `curl` with no Range header
     against a 4 GB video). Browsers always send Range, so this is
     a defense-in-depth bound rather than a normal-traffic concern.
+
+    On missing files: returns a styled HTML error page when the
+    request comes from a browser navigation (Accept: text/html),
+    or the standard JSON 404 for media-element / fetch consumers.
     """
     p = _normalize_path(path)
     if not p.exists() or not p.is_file():
+        if _wants_html(request):
+            return _content_not_found_html(
+                str(p),
+                "The file does not exist on disk."
+                if not p.exists()
+                else "The path resolves to a directory, not a file.",
+            )
         raise HTTPException(status_code=404, detail="file not found")
 
     try:
         size = p.stat().st_size
     except OSError as exc:
+        if _wants_html(request):
+            return _content_not_found_html(
+                str(p), f"File not accessible: {type(exc).__name__}: {exc}",
+            )
         raise HTTPException(
             status_code=404, detail=f"file not accessible: {exc}",
         ) from exc
@@ -849,4 +976,594 @@ async def get_preview_markdown_output(
         "output_path": output_path,
         "converted_at": bulk_file.get("converted_at"),
         "markdown": markdown,
+    }
+
+
+# ── Force-action endpoint (v0.32.0) ──────────────────────────────────────────
+#
+# The preview-page "Process this file" button posts here. We pick the
+# action by extension via `pick_action_for_path`, prepare the right DB
+# row (bulk_files for transcribe/convert, analysis_queue for analyze),
+# kick off the work in a BackgroundTask, and record per-path progress
+# in `_FORCE_ACTION_STATE` for the polling status endpoint.
+#
+# Concurrency: a per-path entry serializes status. If you click the
+# button twice on the same file, the second call returns 409 unless
+# the prior run is finished (success/failed/idle).
+
+# Lifecycle of a force-action progress entry. Each phase is what gets
+# returned in the status endpoint's `phase` field. Frontend uses this
+# to render a stepper / human-readable label.
+_FA_STATE_QUEUED = "queued"          # Background task scheduled, work hasn't begun
+_FA_STATE_PREPARING = "preparing"    # Writing bulk_files / analysis_queue row
+_FA_STATE_RUNNING = "running"        # Engine is converting / transcribing / analyzing
+_FA_STATE_INDEXING = "indexing"      # Post-conversion: registering output + reindex
+_FA_STATE_SUCCESS = "success"
+_FA_STATE_FAILED = "failed"
+
+# In-memory progress dict. Keyed on resolved source_path. Process-local;
+# resets on container restart. Capped to prevent unbounded growth in
+# rare "operator clicks 10000 times" scenarios.
+_FORCE_ACTION_STATE: dict[str, dict] = {}
+_FORCE_ACTION_STATE_LOCK = asyncio.Lock()
+_FORCE_ACTION_STATE_MAX = 1000
+
+
+def _fa_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _fa_record(path: str, **fields) -> None:
+    """Update or insert the progress record for `path`. Called from
+    the background task at each phase transition. Caller should hold
+    no lock — this function takes its own."""
+    cur = _FORCE_ACTION_STATE.get(path) or {}
+    cur.update(fields)
+    cur["updated_at"] = _fa_now_iso()
+    _FORCE_ACTION_STATE[path] = cur
+
+    # Trim oldest entries if we hit the cap. LRU by `updated_at`.
+    if len(_FORCE_ACTION_STATE) > _FORCE_ACTION_STATE_MAX:
+        oldest = sorted(
+            _FORCE_ACTION_STATE.items(),
+            key=lambda kv: kv[1].get("updated_at", ""),
+        )
+        for k, _ in oldest[: len(_FORCE_ACTION_STATE) - _FORCE_ACTION_STATE_MAX]:
+            _FORCE_ACTION_STATE.pop(k, None)
+
+
+class ForceActionRequest(BaseModel):
+    path: str = Field(..., description="Absolute container path to force-process")
+
+
+async def _force_action_run_convert_or_transcribe(
+    path: Path, action: str, user_email: str,
+) -> None:
+    """Background runner for `transcribe` and `convert` actions.
+
+    Both verbs share the same conversion machinery — the converter
+    routes by extension internally (audio/video → Whisper, office →
+    handler, etc.). This function:
+
+      1. Upserts a bulk_files row (status='pending') so the converter
+         has a target for its UPDATE.
+      2. Looks up the actual row id (upsert returns a synthetic id on
+         conflict that doesn't match the persisted row).
+      3. Calls _convert_one_pending_file() — same path the v0.31.6
+         "Convert Selected" feature uses, so we get all the same
+         routing, output mapping, write-guard, indexing, etc.
+      4. Records phase transitions so the polling endpoint can show
+         progress to the operator.
+    """
+    from api.routes.pipeline import _convert_one_pending_file
+    from core.db.bulk import upsert_bulk_file
+
+    path_str = str(path)
+    try:
+        st = path.stat()
+    except OSError as exc:
+        _fa_record(
+            path_str, state=_FA_STATE_FAILED, phase=_FA_STATE_FAILED,
+            error=f"file not accessible: {exc}",
+            finished_at=_fa_now_iso(),
+        )
+        return
+
+    _fa_record(path_str, state=_FA_STATE_PREPARING, phase=_FA_STATE_PREPARING)
+    try:
+        await upsert_bulk_file(
+            job_id=f"force-{action}",
+            source_path=path_str,
+            file_ext=path.suffix.lower(),
+            file_size_bytes=st.st_size,
+            source_mtime=st.st_mtime,
+        )
+    except Exception as exc:
+        _fa_record(
+            path_str, state=_FA_STATE_FAILED, phase=_FA_STATE_FAILED,
+            error=f"upsert_bulk_file failed: {type(exc).__name__}: {exc}",
+            finished_at=_fa_now_iso(),
+        )
+        log.error(
+            "preview.force_action.upsert_failed",
+            path=path_str, action=action,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        return
+
+    # The upsert returns a synthetic uuid on conflict that doesn't
+    # match the persisted id. Fetch the real row instead.
+    row = await db_fetch_one(
+        "SELECT id, source_path, source_mtime, status, job_id, file_ext "
+        "FROM bulk_files WHERE source_path = ?",
+        (path_str,),
+    )
+    if not row:
+        _fa_record(
+            path_str, state=_FA_STATE_FAILED, phase=_FA_STATE_FAILED,
+            error="bulk_files row vanished after upsert",
+            finished_at=_fa_now_iso(),
+        )
+        return
+
+    file_dict = dict(row)
+    _fa_record(path_str, state=_FA_STATE_RUNNING, phase=_FA_STATE_RUNNING)
+    try:
+        await _convert_one_pending_file(file_dict, user_email)
+    except Exception as exc:
+        _fa_record(
+            path_str, state=_FA_STATE_FAILED, phase=_FA_STATE_FAILED,
+            error=f"{type(exc).__name__}: {exc}",
+            finished_at=_fa_now_iso(),
+        )
+        log.error(
+            "preview.force_action.convert_exception",
+            path=path_str, action=action,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        return
+
+    # Re-fetch to determine final status — _convert_one_pending_file
+    # writes back to bulk_files but doesn't return the result.
+    final = await db_fetch_one(
+        "SELECT status, output_path, error_msg FROM bulk_files WHERE source_path = ?",
+        (path_str,),
+    )
+    final_status = (final or {}).get("status")
+    output_path = (final or {}).get("output_path")
+    err = (final or {}).get("error_msg")
+
+    if final_status == "converted":
+        _fa_record(
+            path_str, state=_FA_STATE_SUCCESS, phase=_FA_STATE_SUCCESS,
+            output_path=output_path, error=None,
+            finished_at=_fa_now_iso(),
+        )
+        log.info(
+            "preview.force_action.converted",
+            path=path_str, action=action, output=output_path,
+        )
+    else:
+        _fa_record(
+            path_str, state=_FA_STATE_FAILED, phase=_FA_STATE_FAILED,
+            error=err or f"final status: {final_status}",
+            finished_at=_fa_now_iso(),
+        )
+        log.warning(
+            "preview.force_action.failed",
+            path=path_str, action=action,
+            final_status=final_status, error=err,
+        )
+
+
+async def _force_action_run_analyze(path: Path, user_email: str) -> None:
+    """Background runner for the `analyze` action. Enqueues the file
+    in analysis_queue (or re-uses an existing pending row) and then
+    kicks `run_analysis_drain` so we don't have to wait up to 5 min
+    for the next scheduled tick."""
+    from core.analysis_worker import run_analysis_drain
+    from core.db.analysis import enqueue_for_analysis
+
+    path_str = str(path)
+    _fa_record(path_str, state=_FA_STATE_PREPARING, phase=_FA_STATE_PREPARING)
+
+    try:
+        entry_id = await enqueue_for_analysis(
+            source_path=path_str,
+            content_hash=None,
+            job_id="force-analyze",
+            scan_run_id="force-analyze",
+            file_category="image",
+        )
+    except Exception as exc:
+        _fa_record(
+            path_str, state=_FA_STATE_FAILED, phase=_FA_STATE_FAILED,
+            error=f"enqueue_for_analysis failed: {type(exc).__name__}: {exc}",
+            finished_at=_fa_now_iso(),
+        )
+        return
+
+    _fa_record(
+        path_str, state=_FA_STATE_RUNNING, phase=_FA_STATE_RUNNING,
+        analysis_queue_id=entry_id,
+    )
+    try:
+        # Force one drain immediately. Caps + circuit breakers inside
+        # run_analysis_drain protect against thundering herds.
+        await run_analysis_drain()
+    except Exception as exc:
+        _fa_record(
+            path_str, state=_FA_STATE_FAILED, phase=_FA_STATE_FAILED,
+            error=f"analysis drain raised: {type(exc).__name__}: {exc}",
+            finished_at=_fa_now_iso(),
+        )
+        log.error(
+            "preview.force_action.analyze_exception",
+            path=path_str, error=f"{type(exc).__name__}: {exc}",
+        )
+        return
+
+    # Re-check the row: drain may have completed it, or it may still
+    # be 'batched' if the LLM call is in flight.
+    row = await db_fetch_one(
+        "SELECT status, error, description FROM analysis_queue WHERE source_path = ?",
+        (path_str,),
+    )
+    status = (row or {}).get("status")
+    if status == "completed":
+        _fa_record(
+            path_str, state=_FA_STATE_SUCCESS, phase=_FA_STATE_SUCCESS,
+            error=None, finished_at=_fa_now_iso(),
+        )
+    elif status == "failed":
+        _fa_record(
+            path_str, state=_FA_STATE_FAILED, phase=_FA_STATE_FAILED,
+            error=(row or {}).get("error") or "analysis failed",
+            finished_at=_fa_now_iso(),
+        )
+    else:
+        # Still pending/batched — drain probably saw the row but the
+        # provider call is still in flight, or the worker batched it
+        # for the next cycle. Tell the operator honestly.
+        _fa_record(
+            path_str, state=_FA_STATE_RUNNING, phase=_FA_STATE_RUNNING,
+            note=f"queued (status={status}); will resolve on the next worker tick",
+        )
+
+
+@router.post("/force-action")
+async def force_action(
+    body: ForceActionRequest,
+    background_tasks: BackgroundTasks,
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+) -> dict:
+    """Force-process a single file by absolute container path.
+
+    Picks the action by extension via `pick_action_for_path`:
+      - audio/video  → transcribe (Whisper)
+      - office/pdf/text/archive → convert
+      - image → analyze (LLM vision)
+      - unknown → 400
+
+    Rejects re-entrant clicks: if a prior run for this path is still
+    queued/preparing/running, returns 409. Use the status endpoint to
+    poll progress.
+    """
+    p = _normalize_path(body.path)
+    if not p.exists() or not p.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="file not found on disk",
+        )
+
+    action = pick_action_for_path(p)
+    if action == ACTION_NONE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"no force-action available for extension '{p.suffix}'",
+        )
+
+    path_str = str(p)
+    async with _FORCE_ACTION_STATE_LOCK:
+        existing = _FORCE_ACTION_STATE.get(path_str)
+        if existing and existing.get("state") in (
+            _FA_STATE_QUEUED, _FA_STATE_PREPARING, _FA_STATE_RUNNING,
+            _FA_STATE_INDEXING,
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "msg": "force-action already in flight for this file",
+                    "current": existing,
+                },
+            )
+        _fa_record(
+            path_str,
+            state=_FA_STATE_QUEUED,
+            phase=_FA_STATE_QUEUED,
+            action=action,
+            started_at=_fa_now_iso(),
+            finished_at=None,
+            error=None,
+            output_path=None,
+            user=user.email,
+        )
+
+    if action == ACTION_ANALYZE:
+        background_tasks.add_task(_force_action_run_analyze, p, user.email)
+    else:
+        # transcribe and convert share the same engine path.
+        background_tasks.add_task(
+            _force_action_run_convert_or_transcribe, p, action, user.email,
+        )
+
+    log.info(
+        "preview.force_action.scheduled",
+        user=user.email, path=path_str, action=action,
+    )
+    return {
+        "path": path_str,
+        "action": action,
+        "state": _FA_STATE_QUEUED,
+        "message": f"Scheduled {action} for {p.name}",
+    }
+
+
+@router.get("/force-action-status")
+async def force_action_status(
+    path: str = Query(..., description="Absolute container path to query"),
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+) -> dict:
+    """Return the current force-action progress for `path`.
+
+    Returns `state='idle'` if no action has been scheduled in this
+    process's lifetime. Otherwise returns the latest progress record
+    (state, phase, started_at, updated_at, finished_at, error,
+    output_path, action, elapsed_ms).
+    """
+    p = _normalize_path(path)
+    path_str = str(p)
+    rec = _FORCE_ACTION_STATE.get(path_str)
+    if not rec:
+        return {
+            "path": path_str,
+            "state": "idle",
+            "phase": "idle",
+            "action": pick_action_for_path(p),
+        }
+
+    # Compute elapsed_ms client-side-friendly. If finished, freeze at
+    # finished_at - started_at; otherwise it's now - started_at.
+    started_at = rec.get("started_at")
+    finished_at = rec.get("finished_at")
+    elapsed_ms: int | None = None
+    try:
+        if started_at:
+            t_start = datetime.fromisoformat(started_at)
+            t_end = (
+                datetime.fromisoformat(finished_at)
+                if finished_at else datetime.now(timezone.utc)
+            )
+            elapsed_ms = int((t_end - t_start).total_seconds() * 1000)
+    except (TypeError, ValueError):
+        pass
+
+    return {
+        "path": path_str,
+        **rec,
+        "elapsed_ms": elapsed_ms,
+    }
+
+
+# ── Related-files search (v0.32.0) ──────────────────────────────────────────
+#
+# The preview-page sidebar's search panel and auto-related card both
+# call this endpoint. Two modes:
+#   - keyword: Meilisearch full-text on the documents index
+#   - semantic: Qdrant vector search, mapped back to source_path via
+#               a Meili lookup keyed on the doc_id
+#
+# When `q` is empty, the query is derived from the file (transcript
+# excerpt → analysis description → filename + parent dir tokens) so
+# auto-population can work without the operator typing anything.
+
+# Cap the derived-query length sent to the search backends. Vector
+# embeddings tolerate longer inputs but Meili is happiest with short,
+# bag-of-terms queries; 1000 chars is more than enough for either.
+_RELATED_QUERY_MAX_CHARS = 1000
+
+# Cap the result set. The sidebar lists are short by design; a longer
+# list belongs on /search.html.
+_RELATED_LIMIT_DEFAULT = 10
+_RELATED_LIMIT_MAX = 25
+
+
+async def _read_markdown_excerpt(out_path: str, max_chars: int) -> str:
+    """Read the first `max_chars` of a converted-Markdown file. Used
+    to derive a similarity query from a file's own transcript."""
+    out = Path(out_path)
+    if not out.exists() or not out.is_file():
+        return ""
+
+    def _read() -> str:
+        with open(out, "r", encoding="utf-8", errors="replace") as f:
+            return f.read(max_chars)
+
+    try:
+        return await asyncio.to_thread(_read)
+    except OSError:
+        return ""
+
+
+async def _derive_related_query(p: Path) -> str:
+    """Build a search query for finding files similar to `p`.
+
+    Order of preference (richest signal first):
+      1. Converted Markdown excerpt — works for audio/video transcripts
+         and Office docs; the actual content is the strongest similarity
+         signal.
+      2. Analysis description — for images, this is the LLM-generated
+         summary which captures the semantic content of the picture.
+      3. Filename stem + parent directory name — better than nothing
+         for files that haven't been processed yet.
+    """
+    bulk_file = await _lookup_latest_bulk_file(str(p))
+    if bulk_file and bulk_file.get("status") == "success":
+        out_path = bulk_file.get("output_path")
+        if out_path:
+            text = await _read_markdown_excerpt(out_path, _RELATED_QUERY_MAX_CHARS)
+            if text.strip():
+                return text.strip()
+
+    analysis = await _lookup_analysis_row(str(p))
+    if analysis and analysis.get("description"):
+        return str(analysis["description"]).strip()
+
+    parent_name = p.parent.name or ""
+    fallback = f"{p.stem} {parent_name}".strip() or p.name
+    return fallback
+
+
+@router.get("/related")
+async def get_preview_related(
+    path: str = Query(..., description="Absolute container path"),
+    mode: str = Query("semantic", pattern="^(keyword|semantic)$"),
+    q: str | None = Query(
+        None,
+        description="Override query text. If omitted, the query is "
+                    "derived from the file (transcript / description / name).",
+    ),
+    limit: int = Query(
+        _RELATED_LIMIT_DEFAULT,
+        ge=1, le=_RELATED_LIMIT_MAX,
+    ),
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+) -> dict:
+    """Find files similar to `path` via Meili (keyword) or Qdrant (semantic).
+
+    Returns the list of hits with the current file filtered out so we
+    don't suggest "this very file" as a related result. When the
+    underlying backend is unavailable, returns an empty `results` array
+    plus a `warning` field so the frontend can show a graceful message
+    instead of an error.
+
+    Cost note: this endpoint deliberately does NOT call the AI Assist
+    synthesis pipeline — that would auto-fire LLM calls on every
+    preview-page open. The frontend exposes "AI Assist" as a deep-link
+    to /search.html?ai=1 instead, so token spend is operator-initiated.
+    """
+    p = _normalize_path(path)
+    path_str = str(p)
+
+    query = (q or "").strip()
+    derived = False
+    if not query:
+        query = await _derive_related_query(p)
+        derived = True
+    if not query:
+        return {
+            "path": path_str, "mode": mode, "query_used": "",
+            "derived": derived, "results": [],
+        }
+
+    query = query[: _RELATED_QUERY_MAX_CHARS]
+    results: list[dict] = []
+    warning: str | None = None
+
+    if mode == "keyword":
+        from core.search_client import get_meili_client
+        client = get_meili_client()
+        if not await client.health_check():
+            warning = "Search index is unavailable."
+        else:
+            meili_resp = await client.search(
+                "documents", query,
+                {
+                    "limit": limit + 1,  # +1 for self-filter
+                    "attributesToRetrieve": [
+                        "id", "source_path", "relative_path", "title",
+                        "source_format", "file_size_bytes", "modified_at",
+                    ],
+                },
+            )
+            for hit in meili_resp.get("hits", []):
+                hit_path = hit.get("source_path") or hit.get("relative_path")
+                if not hit_path or hit_path == path_str:
+                    continue
+                results.append({
+                    "path": hit_path,
+                    "name": hit.get("title") or Path(hit_path).name,
+                    "score": None,
+                    "source_format": hit.get("source_format"),
+                    "size_bytes": hit.get("file_size_bytes"),
+                    "modified_at": hit.get("modified_at"),
+                    "doc_id": hit.get("id"),
+                })
+                if len(results) >= limit:
+                    break
+    else:  # semantic
+        try:
+            from core.vector.index_manager import get_vector_indexer
+        except ImportError:
+            warning = "Vector backend module not present."
+            get_vector_indexer = None  # type: ignore[assignment]
+        if get_vector_indexer is not None:
+            try:
+                vec = await get_vector_indexer()
+            except Exception as exc:  # noqa: BLE001
+                vec = None
+                warning = f"Vector backend init failed: {exc}"
+            if vec is None and not warning:
+                warning = "Vector backend is offline (Qdrant unreachable?)."
+            if vec is not None:
+                try:
+                    hits = await vec.search(query=query, limit=limit + 1)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning(
+                        "preview.related.semantic_failed",
+                        error=f"{type(exc).__name__}: {exc}",
+                    )
+                    warning = f"Semantic search failed: {exc}"
+                    hits = []
+
+                # vec.search() returns dicts with `source_path` already
+                # populated — Qdrant payload includes it. No Meili
+                # roundtrip needed.
+                seen_paths: set[str] = set()
+                for hit in hits:
+                    hit_path = hit.get("source_path")
+                    if not hit_path or hit_path == path_str or hit_path in seen_paths:
+                        continue
+                    seen_paths.add(hit_path)
+                    results.append({
+                        "path": hit_path,
+                        "name": hit.get("title") or Path(hit_path).name,
+                        "score": hit.get("score"),
+                        "source_format": hit.get("source_format"),
+                        "size_bytes": None,
+                        "modified_at": None,
+                        "doc_id": hit.get("doc_id"),
+                        "snippet": (hit.get("chunk_text") or "")[:200],
+                    })
+                    if len(results) >= limit:
+                        break
+
+    log.info(
+        "preview.related",
+        user=user.email,
+        path=path_str,
+        mode=mode,
+        derived=derived,
+        query_len=len(query),
+        result_count=len(results),
+        warning=warning,
+    )
+
+    return {
+        "path": path_str,
+        "mode": mode,
+        "query_used": query,
+        "derived": derived,
+        "results": results,
+        "warning": warning,
     }

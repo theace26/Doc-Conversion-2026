@@ -84,6 +84,61 @@ opens the cited document in a new tab.
 
 ---
 
+## File Preview Page
+
+The Preview page (`/static/preview.html`) opens when you click
+the 📂 (folder) icon on a Pipeline Files row, or by direct URL
+(`/static/preview.html?path=<absolute container path>`).
+
+### Sibling navigation
+
+| Key | Action |
+|-----|--------|
+| `←` (Left Arrow) | Jump to the **previous** file in the same folder |
+| `→` (Right Arrow) | Jump to the **next** file in the same folder |
+| `Esc` | Jump back to **Pipeline Files** filtered to the parent folder of the current file |
+
+These work from anywhere on the page **except** when an
+`<input>`, `<textarea>`, or `<select>` element has focus —
+those eat the keystroke for cursor movement, exactly like
+`/` doesn't fire when you're typing into the Search page's
+search box.
+
+### Search panel (sidebar)
+
+| Key | Action |
+|-----|--------|
+| `Enter` (focused on Search input) | Run the typed search with the currently-selected mode (Semantic / Keyword) |
+
+### Highlight-to-search chip
+
+Highlight any text inside the file viewer, transcript pane,
+analysis description, or related-files list. A floating chip
+appears at the cursor with three options. The chip closes on:
+
+| Key / Action | Closes the chip |
+|---|---|
+| `Esc` | Yes |
+| Click outside the chip | Yes |
+| Scroll | Yes |
+| Window resize | Yes |
+
+### Force-action shortcuts (none yet)
+
+There is no keyboard shortcut to fire the **🎙 Transcribe / ⚙ Process /
+🔍 Analyze** button — by design, since the action is
+expensive (Whisper transcription costs minutes; LLM vision
+costs API tokens) and shouldn't be triggered by accident from
+a stray keystroke. Click the button to fire.
+
+> **Tip:** If the page is showing stale data (you came back
+> after a long absence), press `Ctrl+Shift+R` to do a hard
+> reload. The page also auto-detects this case and shows a
+> "page refreshed" banner — but a manual hard reload
+> guarantees you see the latest backend response.
+
+---
+
 ## Upload and Convert Page
 
 On the Convert page (`/index.html`), the file input area accepts files

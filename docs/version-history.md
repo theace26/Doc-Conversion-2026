@@ -225,6 +225,216 @@ Per the plan's acceptance criteria:
 - ✅ ← / → / Esc keyboard nav
 - ✅ `?path=/etc/passwd` returns 400 (path-traversal guard)
 
+### Late additions: force-process button + related-files context surface + staleness banner
+
+After the initial preview-page implementation landed, four
+follow-up surfaces shipped under the same v0.32.0 cut. The
+force-process button addresses "I see this file is stuck in
+pending — make it process NOW." The related-files / search /
+selection-chip surface addresses "while I'm looking at this
+file, find me other files like it without losing my place."
+The staleness banner addresses "I came back to this tab and
+something looks different." And the missing-file UX fix
+addresses raw `{"detail":"file not found"}` JSON greeting
+operators who clicked "Open in new tab" on a stale registry row.
+
+#### Force-process button (file-aware)
+
+A single button kicks off the full pipeline for one file:
+removes it from `pending` / `failed` / `batched` state, runs the
+appropriate engine (Whisper / converter / LLM vision), writes
+the output to the configured directory, and reindexes — without
+forcing the operator to wait for the next pipeline tick.
+
+`core.preview_helpers.pick_action_for_path(p)` returns one of:
+
+- `transcribe` for audio / video → button label "🎙 Transcribe"
+- `convert` for office / pdf / text / archive → button label "⚙ Process"
+- `analyze` for any preview-eligible image → button label "🔍 Analyze"
+- `none` — button hidden (unsupported format)
+
+The button is also hidden when `info.exists=false` (no point
+showing the action for a file MarkFlow can't read).
+
+Backend endpoints:
+
+`POST /api/preview/force-action` (OPERATOR+):
+- Body: `{"path": "<absolute container path>"}`
+- For `transcribe` / `convert`: upserts a `bulk_files` row
+  (status=`pending`), calls `_convert_one_pending_file()` from
+  v0.31.6 (so output mapping, write-guard, and indexing all
+  reuse the proven path).
+- For `analyze`: calls `enqueue_for_analysis(...)`, then
+  forces a `run_analysis_drain()` so the LLM call goes out
+  within the current request rather than waiting up to 5
+  minutes for the scheduled tick.
+- 409 if a prior run is still in-flight for this path.
+- Returns `{path, action, state: "queued", message}`; work
+  runs in a `BackgroundTask`.
+
+`GET /api/preview/force-action-status?path=<>`:
+- Returns the in-memory progress record:
+  `{state, phase, action, started_at, updated_at, finished_at,
+  elapsed_ms, error, output_path}`
+- `state` is one of `idle / queued / preparing / running /
+  indexing / success / failed`.
+- Process-local — resets on container restart.
+
+Frontend progress UI: clicking the button slides in an inline
+progress card under the action buttons with spinner + phase
+label + live elapsed-time ticker (decoupled from the 2 s
+HTTP poll cadence). On success the card turns green, the
+output path appears, and the page re-fetches `/info` so the
+sidebar Conversion / Analysis cards repopulate. The audio
+viewer additionally appends a transcript pane below the
+`<audio>` element on success — same endpoint
+(`/api/preview/markdown-output`) the office_with_markdown
+viewer uses.
+
+#### Related Files + typed-search panel + selection chip
+
+Three search surfaces on the preview page, all backed by the
+new `GET /api/preview/related` endpoint:
+
+1. **Auto-populated Related Files card** — fires on every
+   page load with `mode=semantic` by default. Tabs flip to
+   `keyword` (Meili). Backend derives the query when `q` is
+   empty via this priority: converted-Markdown excerpt
+   (first 1000 chars) → analysis description → filename
+   stem + parent dir name.
+2. **Typed-query Search panel** — `<input>` + mode `<select>` +
+   "🤖 AI Assist ↗" deep-link to `/search.html?q=…&ai=1` in a
+   new tab. AI Assist deliberately does NOT auto-fire (would
+   burn LLM tokens on every preview page open).
+3. **Highlight-to-search chip** — `mouseup` inside the viewer /
+   transcript pane / analysis description / related-list pops
+   a floating chip with `[🧠 Semantic | 🔎 Keyword | 🤖 AI ↗]`.
+   Position is computed from
+   `getBoundingClientRect()`, flips below if too close to the
+   viewport top. Auto-hides on `mousedown` outside, `Escape`,
+   scroll, or resize.
+
+`GET /api/preview/related` parameters:
+- `path` (required), `mode` (`keyword`|`semantic`, default `semantic`)
+- `q` (optional override — backend auto-derives when empty)
+- `limit` (1–25, default 10)
+
+Returns `{path, mode, query_used, derived, results, warning}`.
+Vector results use `source_path` from the Qdrant payload
+directly — no Meili roundtrip.
+
+#### Staleness banner (`info_version` + visibilitychange)
+
+`/api/preview/info` now returns `info_version` — a 16-char
+SHA256 prefix of the fields that an operator would notice
+changing: `(size, mtime, viewer_kind, conv.status,
+conv.converted_at, conv.output_path, analysis.status,
+analysis.analyzed_at, analysis.description[:64], len(flags))`.
+
+Frontend stores `info_version` on initial load. On
+`visibilitychange` (tab focus) it re-fetches `/info` and
+compares; if the version changed, it re-renders + surfaces
+a blue banner: *"This file changed while you were away —
+page refreshed with the latest data."* Auto-dismisses after
+12 s. Suppressed during force-action polling so we don't
+show it for our own work-in-progress.
+
+#### Better error UX on missing files
+
+Two-layer fix for "Open in new tab on a stale registry row
+returns raw JSON":
+
+- **Frontend** — when `info.exists=false`, Download / Open-in-
+  new-tab render as `<button disabled>` with a tooltip
+  *"File not found on disk — cannot serve content"*. Operator
+  never reaches the endpoint.
+- **Backend** — `/api/preview/content` sniffs `Accept: text/html`.
+  Browser navigations get a styled HTML 404 page with the
+  path, the failure reason, and links back to the preview
+  page + Pipeline Files. Media-element / fetch consumers still
+  get the original JSON 404 so `<img onerror>` fallback paths
+  in the page itself stay intact.
+
+#### Side fix: quiet shutdown for the lifecycle scan
+
+`core/scheduler.py:run_lifecycle_scan()` wrapped its body in
+`try / except Exception`. When the container received SIGTERM
+mid-scan, the asyncio task got cancelled while awaiting
+`aiosqlite.connect.__aexit__()` inside
+`mark_file_for_deletion → update_source_file → get_db()`, and
+the resulting `CancelledError` slipped past the broad
+`except Exception` (it inherits from `BaseException` in Python
+3.8+), surfacing inside apscheduler as a job-raised-exception
+traceback in `markflow.log` on every clean restart.
+
+Fix: explicit `except asyncio.CancelledError` clause that logs
+`scheduler.scan_cancelled_on_shutdown` at info level and
+returns. Cancellation has already done its job — the next
+scheduled interval picks up the work.
+
+#### Side cleanup: stale `db-*.log` files removed
+
+`core/db/contention_logger.py` was retired in v0.24.2 but its
+three temp files sat untouched on disk:
+
+| File | Size | Last write |
+|------|------|-----------|
+| `db-contention.log` | 375 MB | 2026-04-23 20:13 |
+| `db-queries.log`    | 272 MB | 2026-04-23 19:32 |
+| `db-active.log`     |  15 MB | 2026-04-23 20:13 |
+
+Total: 662 MB stale on disk. Removed during this release.
+
+#### API quick-reference
+
+```bash
+# File-aware force-process
+curl -sX POST http://localhost:8000/api/preview/force-action \
+  -H 'Content-Type: application/json' \
+  -d '{"path":"/host/c/Audio/meeting04.mp3"}'
+
+# Poll progress (poll every ~2s while in-flight)
+curl -s 'http://localhost:8000/api/preview/force-action-status?path=/host/c/Audio/meeting04.mp3'
+
+# Find related (semantic, query auto-derived from file)
+curl -s 'http://localhost:8000/api/preview/related?path=/host/c/Audio/meeting04.mp3&mode=semantic&limit=10'
+
+# Find related (keyword override)
+curl -s 'http://localhost:8000/api/preview/related?path=/host/c/Audio/meeting04.mp3&mode=keyword&q=union+meeting+resolution&limit=5'
+
+# /info now includes action + info_version
+curl -s 'http://localhost:8000/api/preview/info?path=/host/c/Audio/meeting04.mp3' | jq '{action, info_version, viewer_kind, exists}'
+```
+
+#### Late-addition file changes
+
+New: none beyond what was listed above (`preview.py`,
+`preview_helpers.py`, `preview_thumbnails.py`).
+
+Modified additionally:
+- `api/routes/preview.py` — force-action endpoints + state
+  tracker (~210 LOC), `/related` endpoint (~150 LOC),
+  `info_version` etag, friendly HTML 404 for browser hits on
+  missing-file content (~80 LOC)
+- `core/preview_helpers.py` — `pick_action_for_path()` +
+  `ACTION_*` constants (~70 LOC)
+- `core/scheduler.py` — `import asyncio` + new
+  `except asyncio.CancelledError` clause in `run_lifecycle_scan`
+- `static/preview.html` — force-action button + progress card +
+  Related/Search sidebar cards + selection chip + staleness
+  banner + audio transcript pane (~750 LOC of CSS + HTML + JS,
+  bringing the file to ~2050 LOC)
+- `CLAUDE.md`, `docs/help/whats-new.md`,
+  `docs/help/preview-page.md` (new),
+  `docs/help/_index.json`, `docs/help/keyboard-shortcuts.md`,
+  `docs/key-files.md`, `docs/version-history.md`
+
+Removed:
+- `/app/logs/db-{contention,queries,active}.log` — 662 MB
+  stale instrumentation, side cleanup
+
+No DB migration. No new dependencies. No new scheduler jobs.
+
 ---
 
 ## v0.31.6 — Selective conversion of pending files (2026-04-27)

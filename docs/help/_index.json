@@ -15,6 +15,7 @@
         {"slug": "ocr-pipeline", "title": "OCR & Scanned Documents", "description": "Automatic text extraction from images and scans"},
         {"slug": "bulk-conversion", "title": "Bulk Repository Conversion", "description": "Convert entire document libraries at once"},
         {"slug": "auto-conversion", "title": "Auto-Conversion", "description": "Automatic decision engine for new and changed files"},
+        {"slug": "preview-page", "title": "File Preview Page", "description": "Per-file inspection: inline viewer, force-process button, related-files context, and selection-driven search"},
         {"slug": "search", "title": "Searching Your Documents", "description": "Full-text search across your converted repository"},
         {"slug": "file-lifecycle", "title": "File Lifecycle & Versioning", "description": "Change tracking, version history, and trash management"}
       ]
