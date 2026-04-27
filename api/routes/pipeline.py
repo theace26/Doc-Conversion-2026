@@ -509,12 +509,30 @@ async def coordinator_status(
 
 @router.get("/stats")
 async def pipeline_stats(
+    include_trashed: bool = Query(
+        False,
+        description="If true, include trashed/marked-for-deletion files "
+                    "in the failed/unrecognized counters. Default false — "
+                    "matches the file-list view's default.",
+    ),
     user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
 ) -> dict:
-    """Pipeline funnel statistics across all processing stages."""
+    """Pipeline funnel statistics across all processing stages.
 
+    By default (`include_trashed=False`) the failed and unrecognized
+    counters apply a `source_files.lifecycle_status = 'active'` filter
+    so they reflect what's actually present on disk. Operators were
+    seeing the failed counter inflated by 100K+ rows for files the
+    lifecycle scanner had already moved through marked_for_deletion ->
+    in_trash. The `scanned` and `pending_conversion` counters already
+    filtered on `lifecycle_status = 'active'`; this commit makes the
+    failed/unrecognized pair consistent."""
+
+    # The default (active-only) view uses the existing flat cache.
+    # The trashed-included view bypasses cache — it's rare (operator
+    # toggles it on demand) so the freshness win outweighs caching.
     now = _time.time()
-    if _stats_cache["result"] and now - _stats_cache["time"] < _CACHE_TTL:
+    if not include_trashed and _stats_cache["result"] and now - _stats_cache["time"] < _CACHE_TTL:
         return _stats_cache["result"]
 
     async def _safe(coro):
@@ -537,13 +555,29 @@ async def pipeline_stats(
             total += stats.get("numberOfDocuments", 0)
         return total
 
+    # Build the JOIN-on-source_files lifecycle clause once; reuse for
+    # all three lifecycle-gated counters (pending_conversion, failed,
+    # unrecognized). When include_trashed=False we filter to active +
+    # NULL (NULL covers orphaned bulk_files rows from older data sets
+    # where source_file_id wasn't backfilled).
+    if include_trashed:
+        scanned_sql = "SELECT COUNT(*) AS cnt FROM source_files"
+        sf_active_clause = ""
+        bf_lifecycle_join = ""
+        bf_lifecycle_clause = ""
+    else:
+        scanned_sql = "SELECT COUNT(*) AS cnt FROM source_files WHERE lifecycle_status = 'active'"
+        sf_active_clause = "AND sf.lifecycle_status = 'active'"
+        bf_lifecycle_join = "LEFT JOIN source_files sf ON bf.source_file_id = sf.id"
+        bf_lifecycle_clause = "AND (sf.lifecycle_status = 'active' OR sf.lifecycle_status IS NULL)"
+
     # See pipeline_status() above for why pending_conversion uses a NOT EXISTS
     # join against bulk_files instead of `COUNT(*) WHERE status='pending'`.
     scanned, pending_conv, failed, unrecognized, analysis, search_count = await asyncio.gather(
-        _safe(_count("SELECT COUNT(*) AS cnt FROM source_files WHERE lifecycle_status = 'active'")),
+        _safe(_count(scanned_sql)),
         _safe(_count(
-            """SELECT COUNT(*) AS cnt FROM source_files sf
-               WHERE sf.lifecycle_status = 'active'
+            f"""SELECT COUNT(*) AS cnt FROM source_files sf
+               WHERE 1=1 {sf_active_clause}
                  AND NOT EXISTS (
                      SELECT 1 FROM bulk_files bf
                      WHERE bf.source_path = sf.source_path
@@ -551,8 +585,10 @@ async def pipeline_stats(
                  )"""
         )),
         _safe(_count(
-            """SELECT COUNT(DISTINCT bf.source_path) AS cnt FROM bulk_files bf
+            f"""SELECT COUNT(DISTINCT bf.source_path) AS cnt FROM bulk_files bf
+               {bf_lifecycle_join}
                WHERE bf.status = 'failed'
+                 {bf_lifecycle_clause}
                  AND NOT EXISTS (
                      SELECT 1 FROM bulk_files bf2
                      WHERE bf2.source_path = bf.source_path
@@ -560,8 +596,10 @@ async def pipeline_stats(
                  )"""
         )),
         _safe(_count(
-            """SELECT COUNT(DISTINCT bf.source_path) AS cnt FROM bulk_files bf
+            f"""SELECT COUNT(DISTINCT bf.source_path) AS cnt FROM bulk_files bf
+               {bf_lifecycle_join}
                WHERE bf.status = 'unrecognized'
+                 {bf_lifecycle_clause}
                  AND NOT EXISTS (
                      SELECT 1 FROM bulk_files bf2
                      WHERE bf2.source_path = bf.source_path
@@ -584,8 +622,11 @@ async def pipeline_stats(
         "analysis_failed": analysis.get("failed", 0),
         "in_search_index": search_count,
     }
-    _stats_cache["result"] = result
-    _stats_cache["time"] = _time.time()
+    # Only cache the active-only view; see comment at the top of the
+    # function. Trashed-included results are computed fresh each call.
+    if not include_trashed:
+        _stats_cache["result"] = result
+        _stats_cache["time"] = _time.time()
     return result
 
 
@@ -597,6 +638,13 @@ async def pipeline_files(
     per_page: int = Query(50, ge=10, le=200),
     sort: str = Query("source_path"),
     sort_dir: str = Query("asc", pattern="^(asc|desc)$"),
+    include_trashed: bool = Query(
+        False,
+        description="If true, include rows whose linked source_files row "
+                    "is in marked_for_deletion / in_trash / purged. "
+                    "Default false — most operators want only files that "
+                    "actually exist on disk.",
+    ),
     user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
 ) -> dict:
     """Paginated file list filtered by one or more pipeline status categories."""
@@ -622,6 +670,7 @@ async def pipeline_files(
             statuses=db_statuses, search=search,
             limit=per_page, offset=offset,
             sort=sort, sort_dir=sort_dir,
+            include_trashed=include_trashed,
         )
         files.extend(rows)
         total += db_total

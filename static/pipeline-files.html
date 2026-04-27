@@ -237,6 +237,22 @@
       <span class="result-count" id="result-count"></span>
     </div>
 
+    <!-- Include-trashed toggle (v0.32.0 follow-up). -->
+    <!--   Default OFF: list shows only files whose source_files row is -->
+    <!--   lifecycle_status='active' (i.e., still on disk). Lifecycle -->
+    <!--   scan moves disappeared files through marked_for_deletion -> -->
+    <!--   in_trash; without this filter, the page showed those rows -->
+    <!--   too — typically inflating the list 50-100x. -->
+    <div style="margin: 0.5rem 0; display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--text-secondary, #aaa);">
+      <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
+        <input type="checkbox" id="include-trashed" style="margin: 0;">
+        <span>Include trashed / marked-for-deletion files</span>
+      </label>
+      <span id="include-trashed-hint" style="font-size: 0.75rem; opacity: 0.7;">
+        (default: hide files MarkFlow has already marked as gone from disk)
+      </span>
+    </div>
+
     <!-- LLM provider status banner -->
     <div class="llm-banner" id="llm-banner" hidden></div>
 
@@ -282,6 +298,7 @@
     var totalFiles     = 0;
     var debounceTimer  = null;
     var expandedRows   = new Set();   // track which row keys are expanded
+    var includeTrashed = false;       // v0.32.0 follow-up filter
 
     // ── Helpers ───────────────────────────────────────────────────────────
     function shortPath(p) {
@@ -360,7 +377,9 @@
     // ── Load pipeline stats (chip counts) ────────────────────────────────
     async function loadStats() {
       try {
-        var res = await fetch('/api/pipeline/stats');
+        var statsUrl = '/api/pipeline/stats' +
+                       (includeTrashed ? '?include_trashed=true' : '');
+        var res = await fetch(statsUrl);
         if (!res.ok) return;
         var d = await res.json();
 
@@ -395,6 +414,7 @@
               + '&page=' + currentPage
               + '&per_page=' + perPage;
       if (searchQuery) url += '&search=' + encodeURIComponent(searchQuery);
+      if (includeTrashed) url += '&include_trashed=true';
 
       try {
         var res = await fetch(url);
@@ -697,6 +717,17 @@
       perPage = parseInt(this.value, 10) || 50;
       currentPage = 1;
       expandedRows.clear();
+      loadFiles();
+    });
+
+    // Include-trashed toggle wiring. Flips the filter, re-loads stats
+    // (counters change too) and the file list (often dramatically
+    // shorter when off, because it excludes the 60K+ in_trash rows).
+    document.getElementById('include-trashed').addEventListener('change', function () {
+      includeTrashed = this.checked;
+      currentPage = 1;
+      expandedRows.clear();
+      loadStats();
       loadFiles();
     });
 

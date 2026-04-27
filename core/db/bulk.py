@@ -377,12 +377,22 @@ async def get_pipeline_files(
     offset: int = 0,
     sort: str = "source_path",
     sort_dir: str = "asc",
+    include_trashed: bool = False,
 ) -> tuple[list[dict[str, Any]], int]:
     """Return files matching one or more pipeline status categories.
 
     Valid statuses: scanned, pending, failed, unrecognized,
                     pending_analysis, batched, analysis_failed.
     ('indexed' is handled separately via Meilisearch in the route.)
+
+    The `include_trashed` flag controls whether `bulk_files` rows
+    whose linked `source_files.lifecycle_status` is anything other
+    than `active` (i.e., `marked_for_deletion`, `in_trash`, `purged`)
+    appear in pending / failed / unrecognized results. Default
+    `False` so the page shows only files that actually exist on
+    disk — operators were seeing 100K+ trashed-but-not-purged
+    rows otherwise. The same filter applies to pending_analysis /
+    batched / analysis_failed via a JOIN on source_files.
 
     Returns (rows, total_count).
     """
@@ -391,6 +401,15 @@ async def get_pipeline_files(
         sort = "source_path"
     if sort_dir not in ("asc", "desc"):
         sort_dir = "asc"
+
+    # Lifecycle filter applied to JOIN-on-source_files queries below.
+    # Allowing NULL keeps orphaned bulk_files rows visible — they exist
+    # in older data sets where source_file_id wasn't backfilled.
+    lifecycle_clause = (
+        ""  # no filter when include_trashed=True
+        if include_trashed
+        else " AND (sf.lifecycle_status = 'active' OR sf.lifecycle_status IS NULL)"
+    )
 
     sub_queries: list[str] = []
     sub_params: list[Any] = []
@@ -402,6 +421,12 @@ async def get_pipeline_files(
                  "NULL AS skip_reason, NULL AS converted_at, "
                  "sf.last_seen_job_id AS job_id, sf.content_hash "
                  "FROM source_files sf WHERE sf.lifecycle_status = 'active'")
+            if include_trashed:
+                # Show all lifecycle states for the scanned bucket too.
+                q = q.replace(
+                    "WHERE sf.lifecycle_status = 'active'",
+                    "WHERE 1=1",
+                )
             if search:
                 q += " AND sf.source_path LIKE ?"
                 sub_params.append(f"%{search}%")
@@ -413,7 +438,7 @@ async def get_pipeline_files(
                  "bf.converted_at, bf.job_id, sf.content_hash "
                  "FROM bulk_files bf "
                  "LEFT JOIN source_files sf ON bf.source_file_id = sf.id "
-                 "WHERE bf.status = ?")
+                 "WHERE bf.status = ?" + lifecycle_clause)
             sub_params.append(s)
             if search:
                 q += " AND bf.source_path LIKE ?"
@@ -426,13 +451,19 @@ async def get_pipeline_files(
                 "batched": "batched",
                 "analysis_failed": "failed",
             }[s]
+            # Same lifecycle filter for the analysis_queue path: a row
+            # for a trashed source_file shouldn't show up as "pending
+            # analysis" anymore. JOIN on source_path is required because
+            # analysis_queue doesn't carry source_file_id.
             q = ("SELECT aq.id, aq.source_path, "
                  "NULL AS file_ext, NULL AS file_size_bytes, "
                  "NULL AS source_mtime, "
                  f"'{s}' AS status, aq.error AS error_msg, "
                  "NULL AS skip_reason, aq.analyzed_at AS converted_at, "
                  "aq.job_id, aq.content_hash "
-                 "FROM analysis_queue aq WHERE aq.status = ?")
+                 "FROM analysis_queue aq "
+                 "LEFT JOIN source_files sf ON aq.source_path = sf.source_path "
+                 "WHERE aq.status = ?" + lifecycle_clause)
             sub_params.append(aq_status)
             if search:
                 q += " AND aq.source_path LIKE ?"
