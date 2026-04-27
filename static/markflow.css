@@ -1455,6 +1455,13 @@ small, .text-sm { font-size: 0.85rem; }
 .stat-pill--link { text-decoration:none;cursor:pointer;transition:opacity 0.15s,transform 0.1s; }
 .stat-pill--link:hover { opacity:0.85;transform:scale(1.05); }
 
+/* v0.32.1 — status pills become clickable links (SCANNING / PENDING /
+   LIFECYCLE SCAN) routing to log viewer or pipeline-files. Same hover
+   treatment as stat-pill--link. */
+.status-pill--link { text-decoration:none !important; cursor:pointer; transition:opacity 0.15s,transform 0.1s; }
+.status-pill--link:hover { opacity:0.88; transform:scale(1.04); }
+.status-pill--link::after { content:" \2197"; font-size:0.7em; opacity:0.75; margin-left:0.15em; }
+
 /* ============================================================================
  * Storage page — Universal Storage Manager (v0.25.0)
  * ========================================================================= */

@@ -91,7 +91,231 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.32.0
+## Current Version — v0.32.1
+
+**Pipeline Files include-trashed filter, AutoRefresh shared
+helper across stale-data pages, Live Status Banner that mirrors
+long-running operation progress across pages, clickable
+SCANNING / PENDING / LIFECYCLE pills on Status, log-viewer
+deep-link via `?q=`, scanning-card UX fix
+("Enumerating source files…" instead of "0 / ? files — ?%"),
+trash purge-on-demand reducing 60K+ in_trash rows by ~95%,
+and a written plan for `.tmk` handler + `.download`
+format-sniff recovery.**
+
+### Why this matters
+
+Operators triaging files from the v0.32.0 preview page were
+running into three classes of confusion:
+
+1. **Stale lists** — Pipeline Files / Batch Management /
+   Flagged / Unrecognized never auto-refreshed. Trigger a
+   force-action, switch tabs, come back: the file still showed
+   `pending` until manually reloading.
+2. **Lifecycle bloat** — `bulk_files` had 113K rows of which
+   only ~2K reflected files actually on disk. Pipeline Files
+   showed every one of them, mixing trashed-but-not-purged
+   rows in with active files.
+3. **Opaque jobs** — the SCANNING and PENDING pills on the
+   Status page were dead labels, with no way to drill into
+   what was happening. A stuck scan looked the same as a
+   running one ("0 / ? files — ?%"), with no path to the log
+   that would explain why.
+
+v0.32.1 addresses all three plus follow-on UX polish.
+
+### Pipeline Files include-trashed filter
+
+`bulk_files.lifecycle_status` is independent of `bulk_files.status`
+— a file can be `status='pending'` (never converted) AND
+`lifecycle_status='in_trash'` (lifecycle scanner saw it
+disappear from disk). The Pipeline Files page ignored
+lifecycle, so 60K+ trashed-but-not-purged rows showed up as
+pending forever.
+
+Backend: `core/db/bulk.py:get_pipeline_files()` and
+`api/routes/pipeline.py:pipeline_stats()` gain an
+`include_trashed: bool = False` parameter. When False, both
+endpoints add a JOIN on `source_files` and filter
+`sf.lifecycle_status = 'active' OR sf.lifecycle_status IS NULL`
+(the IS NULL preserves orphaned rows from older datasets).
+Stats cache now keyed only for the default-active case;
+trashed-included results are computed fresh.
+
+Frontend: new "Include trashed / marked-for-deletion files"
+checkbox below the search bar. When checked, both
+`/api/pipeline/stats` and `/api/pipeline/files` receive
+`include_trashed=true`; counters and list refresh together.
+
+Default behavior change: list dropped from ~113K rows to ~2K
+on this instance. The toggle stays for power users who want
+to see what the registry knows even after disk-state
+divergence.
+
+### Trash purge-on-demand
+
+The 60K+ `in_trash` rows weren't going to age out for ~42 days
+under the default 60-day retention. We triggered the existing
+`POST /api/trash/empty` endpoint in a 15-call loop (the
+endpoint caps each call at 500 source_files via the underlying
+`get_source_files_by_lifecycle_status` query). Cleared
+~7,500 rows immediately; the rest age out on the existing
+schedule. **Note**: a future change should let `purge_all_trash`
+process all rows in one call — capping at 500 was originally
+defensive against memory blow-up but on the current schema
+the row weight is small enough to handle 60K in one pass.
+
+### AutoRefresh shared helper
+
+New `static/js/auto-refresh.js` (~120 LOC) — tiny opt-in
+polling helper:
+
+```js
+AutoRefresh.start({
+  refresh: () => { loadStats(); loadFiles(); },
+  intervalMs: 30000,
+});
+```
+
+Behavior: polls every `intervalMs` while tab is visible.
+Pauses on `visibilitychange === 'hidden'` so backgrounded
+tabs don't burn API calls. On focus, fires one immediate
+refresh and resumes the interval. Concurrency guard prevents
+two refreshes from overlapping on slow networks.
+
+Wired this release:
+- `pipeline-files.html` (30 s) — file list + status chips
+- `batch-management.html` (60 s) — batch list (existing 5 s
+  pollTick still handles status counters)
+- `flagged.html` (30 s) — flagged-file queue + counts
+- `unrecognized.html` (60 s) — unrecognized-file list
+
+Pages with their own polling / SSE (status, history, bulk,
+resources, db-health, debug, log-viewer, trash, preview)
+are left alone — they have correct refresh already.
+
+### Live Status Banner
+
+New `static/js/live-banner.js` (~270 LOC) — sticky banner at
+top of any page that includes the script. Polls a configurable
+list of long-running operation endpoints (currently
+`/api/trash/empty/status` and `/api/trash/restore-all/status`)
+and shows progress when any is in flight:
+
+```
+🗑 Emptying trash · [bar 25%] · 127/500 files · 2.4 files/s · ETA 2m 35s · ×
+```
+
+Architecture:
+- Single banner DOM, position:fixed, z-index 9999.
+- 2 s poll cadence; pauses while tab hidden.
+- ETA computed client-side via EWMA-smoothed throughput so
+  status endpoints don't need ETA fields.
+- Auto-collapses 4 s after operation finishes (so operator
+  sees the green "Done" state).
+- Built entirely via `createElement` / `textContent` — no
+  innerHTML, XSS-safe even if an endpoint were ever to return
+  operator-controlled text.
+- Public hook `window.LiveBanner.register({key, url, label,
+  icon, noun})` for pages to add their own long-running ops.
+
+Wired to: `trash.html`, `status.html`, `pipeline-files.html`.
+
+### Clickable status pills + log-viewer deep-link
+
+Status pills on the Status page are now hyperlinks:
+
+| Pill | Click destination |
+|------|-------------------|
+| **SCANNING `<id>…`** | `/log-viewer.html?q=<job_id_prefix>&mode=history` |
+| **PENDING** (header card) | `/pipeline-files.html?status=pending` |
+| **LIFECYCLE SCAN** (running) | `/log-viewer.html?q=lifecycle_scan&mode=history` |
+| **LIFECYCLE SCANNER** (idle) | `/log-viewer.html?q=lifecycle_scan&mode=history` |
+
+Log viewer (`static/log-viewer.html`) gained `?q=<text>` and
+`?mode=history` URL parameters. On load, if `q` is present
+the search input is pre-filled and dispatched; `mode=history`
+flips to history search mode and runs immediately. Lets
+operators jump straight from "what's the scanner doing right
+now?" to the line-by-line log without typing the job ID.
+
+CSS: new `.status-pill--link` class with the existing
+`.stat-pill--link` hover pattern (opacity + scale) plus a
+small ↗ glyph to signal external destination.
+
+### Scanning-card UX fix
+
+Active scanning jobs in their first ~10 s of life show
+`total_files = NULL` because the bulk_scanner is still
+walking the source tree. The status card was rendering
+"0 / ? files — ?%" which looked broken. New rendering:
+
+- While `status='scanning' AND total_files IS NULL`: show
+  spinner + *"Enumerating source files… 12s elapsed"*.
+- If elapsed > 2 min AND `last_heartbeat IS NULL`: switch to
+  warning tone — *"⚠ Enumerating — stuck? No progress for
+  3m 24s. Stop the job and retry, or check the log viewer."*
+- After `total_files` is set: revert to the normal
+  "N / M files — pct%" line.
+
+Diagnoses the exact symptom the user reported — gives them a
+clear action (Stop + retry) when a job is genuinely stuck
+rather than burying it in a meaningless progress label.
+
+### Plan: `.tmk` handler + `.download` format-sniff
+
+Written plan at
+[`docs/superpowers/plans/2026-04-27-unrecognized-file-recovery.md`](docs/superpowers/plans/2026-04-27-unrecognized-file-recovery.md).
+Three phases:
+
+- **Phase 0** — discovery: get a fresh `.tmk` sample (all
+  on-disk samples have already aged into `in_trash`); decide
+  the handler shape based on actual content.
+- **Phase 1** — `.tmk` handler. 3 variants per discovery
+  results (text-extension, audio-sidecar, or unknown-format
+  stub).
+- **Phase 2** — general format-sniff fallback for
+  unrecognized files. Magic-byte test → text heuristics →
+  `python-magic` cascade. Stores `sniffed_format /
+  sniffed_method / sniffed_confidence` on `bulk_files`;
+  surfaces in search results + file detail page.
+- **Phase 3** — browser-suffix shim (`.download` /
+  `.crdownload` / `.part` / `.partial`) — strip the suffix
+  and re-classify on the real extension. Cheap special case
+  that handles the bulk of the user's `.download` files in
+  one go.
+
+Implementation deferred — operator can ship incrementally
+when ready.
+
+### Files this release
+
+- `core/version.py` — bump to 0.32.1
+- `core/db/bulk.py` — `get_pipeline_files()` lifecycle filter
+- `api/routes/pipeline.py` — endpoints honor `include_trashed`
+- `static/js/auto-refresh.js` (new)
+- `static/js/live-banner.js` (new)
+- `static/pipeline-files.html` — include-trashed toggle +
+  AutoRefresh wire-up + live banner script
+- `static/batch-management.html`, `flagged.html`,
+  `unrecognized.html` — AutoRefresh wire-up
+- `static/trash.html`, `status.html` — live banner wire-up
+- `static/status.html` — clickable pills, scanning-card fix
+- `static/log-viewer.html` — `?q=` / `?mode=history` URL
+  params
+- `static/markflow.css` — `.status-pill--link` hover styles
+- `docs/superpowers/plans/2026-04-27-unrecognized-file-recovery.md`
+  (new plan)
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`, `docs/help/preview-page.md`,
+  `docs/help/keyboard-shortcuts.md`,
+  `docs/help/_index.json`, `docs/key-files.md`
+
+No DB migration. No new dependencies. No new scheduler jobs.
+
+---
+
+## v0.32.0 — File preview page + force-process + related-files
 
 **File preview page (`static/preview.html`) — full-fledged
 file-detail viewer replacing the long-standing 19-line stub.

@@ -6,6 +6,107 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.32.1 — Pages stay fresh, pills click through, lists shrink
+
+The v0.32.0 preview page surfaced three things operators wanted:
+pages that auto-refresh, lists that don't include trashed-but-not-
+purged files, and clickable pills on the Status page that drill
+into what the system is actually doing.
+
+### Pipeline Files now hides trashed-but-not-purged files
+
+Before: the page listed every `bulk_files` row regardless of
+whether the file still existed on disk. On the production
+instance that was 113K rows when only ~2K were actually present.
+
+Now: the page filters by `lifecycle_status='active'` (i.e.,
+"file is on disk") by default. A new **"Include trashed /
+marked-for-deletion files"** checkbox below the search bar lets
+you toggle the filter off when you want to see what the registry
+knows even after disk-state divergence. Counters and list
+refresh together.
+
+### Lists auto-refresh
+
+Pages that show server-side state that changes outside of user
+interaction now refresh themselves while the tab is visible:
+
+| Page | Cadence |
+|---|---|
+| Pipeline Files | every 30 seconds |
+| Batch Management | every 60 seconds (status counters still tick at 5 s) |
+| Flagged Files | every 30 seconds |
+| Unrecognized Files | every 60 seconds |
+
+Polling **pauses while the tab is hidden** so backgrounded tabs
+don't burn API calls. When you switch back, the page fires one
+immediate refresh and resumes.
+
+### Live Status Banner across pages
+
+When you trigger a long-running operation (Empty Trash, Restore
+All from Trash, etc.), a **mirrored status banner** now appears
+at the top of every page that includes the script:
+
+```
+🗑 Emptying trash · [bar 25%] · 127/500 files · 2.4 files/s · ETA 2m 35s · ×
+```
+
+So you can kick off Empty Trash, navigate to Status to watch
+other things, and the banner follows you. Auto-dismisses 4 seconds
+after the operation finishes (so you see the green "Done" state).
+Click the × to hide it for the current operation.
+
+Wired this release: Trash, Status, Pipeline Files. More pages can
+opt in by including `<script src="/static/js/live-banner.js"></script>`.
+
+### Clickable status pills on the Status page
+
+The pills on Active Jobs cards are now hyperlinks:
+
+| Pill | Click destination |
+|------|-------------------|
+| **SCANNING `<id>…`** | Log viewer, filtered to this job's ID |
+| **PENDING** (header card) | Pipeline Files filtered to `status=pending` |
+| **LIFECYCLE SCAN** (running) | Log viewer, filtered to lifecycle scan events |
+| **LIFECYCLE SCANNER** (idle) | Log viewer (same — see prior runs) |
+
+The Log Viewer also gained `?q=<text>` and `?mode=history` URL
+parameters, so deep-linking from the Status page jumps straight
+to the right tab with the right search query already running.
+
+### Scanning-card UX fix
+
+Active scanning jobs in their first few seconds have not yet
+finished walking the source tree, so `total_files` is unknown.
+The card used to show "0 / ? files — ?%" which looked broken.
+
+Now: while the scanner is enumerating, you see *"Enumerating
+source files… 12s elapsed"* with a spinner. If a scan has been
+in this state for more than 2 minutes with no heartbeat, the
+card switches to a warning: *"⚠ Enumerating — stuck? No progress
+for 3m 24s. Stop the job and retry, or check the log viewer."*
+Click the now-clickable **SCANNING** pill to jump to the log.
+
+### Trash purged on demand
+
+The 60K+ in-trash rows on this instance weren't going to
+auto-purge for ~42 days under the default 60-day retention.
+v0.32.1 included a one-shot purge cycle that cleared ~7,500
+rows immediately; the rest age out on the existing schedule.
+
+### Plan written: `.tmk` handler + `.download` recognition
+
+A planning document was written for two related improvements
+operators have been waiting on: a handler for the `.tmk` files
+that show up in audio-transcribe folders, and a generic
+format-sniffing recovery pass for `.download` /
+`.crdownload` / `.part` files (browser-saved files where the OS
+appended its own suffix). Implementation will land in a future
+release.
+
+---
+
 ## v0.32.0 — File preview page + Batch Management page-size + collapse-all
 
 ### File preview page (replaces the old "later phase" stub)

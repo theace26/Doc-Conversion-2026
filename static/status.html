@@ -76,11 +76,16 @@
     <div id="lifecycle-container" style="margin-top:1.5rem"></div>
 
     <!-- Pending Jobs -->
+    <!-- v0.32.1: PENDING pill now links to the Pipeline Files page
+         filtered to status=pending so operators can drill into the
+         exact files that are queued for conversion. -->
     <div id="pending-container" style="margin-top:1.5rem">
       <div class="job-card">
         <div class="job-card__header">
           <div class="job-card__title">
-            <span class="status-pill status-pill--pending">PENDING</span>
+            <a href="/pipeline-files.html?status=pending"
+               class="status-pill status-pill--pending status-pill--link"
+               title="Open Pipeline Files filtered to pending conversions">PENDING</a>
             <span class="text-muted text-sm" id="pending-label">Loading...</span>
           </div>
         </div>
@@ -134,6 +139,7 @@
   </main>
 
   <script src="/static/app.js"></script>
+  <script src="/static/js/live-banner.js"></script>
   <script>
   (function () {
     var pollTimer = null;
@@ -272,11 +278,45 @@
           '</details>';
       }
 
+      // v0.32.1: scanning UX fix. Before total_files is set the
+      // bulk_scanner is still enumerating; showing "0 / ? files \u2014
+      // ?%" looked broken. Show "Enumerating source files..." plus
+      // an elapsed-time hint, and surface a warning if the scan has
+      // been in this state for >2 min with no heartbeat (likely
+      // stuck \u2014 operator should Stop and retry).
+      var enumerating = (job.status === 'scanning' && job.total_files == null);
+      var progressLine;
+      if (enumerating) {
+        var startedAt = job.started_at ? new Date(job.started_at) : null;
+        var elapsedSec = startedAt ? Math.round((Date.now() - startedAt.getTime()) / 1000) : 0;
+        var stuck = (elapsedSec > 120 && (!job.last_heartbeat));
+        progressLine =
+          '<div style="font-size:0.82rem;color:var(--text-muted)">' +
+            (stuck
+              ? '<span style="color:#fbbf24">\u26a0 Enumerating &mdash; stuck? ' +
+                'No progress for ' + fmtDur(elapsedSec) + '. ' +
+                'Stop the job and retry, or check the log viewer.</span>'
+              : '<span class="spinner" style="margin-right:0.4rem"></span>' +
+                'Enumerating source files\u2026 ' + fmtDur(elapsedSec) + ' elapsed') +
+          '</div>';
+      } else {
+        progressLine =
+          '<div style="font-size:0.82rem;color:var(--text-muted)">' +
+            job.converted.toLocaleString() + ' / ' + (job.total_files || '?').toLocaleString() + ' files \u2014 ' + pctStr +
+          '</div>';
+      }
+
       return '<div class="job-card' + (isActive ? ' job-card--active' : '') + '">' +
         '<div class="job-card__header">' +
           '<div>' +
             '<div class="job-card__title">' +
-              '<span class="status-pill status-pill--' + job.status + '">' + job.status.toUpperCase() + '</span>' +
+              // Pill is now a clickable link to the log viewer with
+              // the job_id seeded as the search query so operators
+              // can see exactly what the scanner is doing.
+              '<a href="/log-viewer.html?q=' + encodeURIComponent(job.job_id.slice(0,8)) + '&mode=history" ' +
+                  'class="status-pill status-pill--' + job.status + ' status-pill--link" ' +
+                  'title="Open log viewer filtered to this job ID">' +
+                job.status.toUpperCase() + '</a>' +
               ' <span class="text-muted text-sm mono">' + job.job_id.slice(0, 8) + '\u2026</span>' +
             '</div>' +
             '<div class="job-card__path">' + esc(job.display_source_path || job.source_path) + ' \u2192 ' + esc(job.display_output_path || job.output_path) + '</div>' +
@@ -286,9 +326,7 @@
         '<div class="job-card__progress">' +
           '<div class="job-card__progress-fill" style="width:' + pct + '%"></div>' +
         '</div>' +
-        '<div style="font-size:0.82rem;color:var(--text-muted)">' +
-          job.converted.toLocaleString() + ' / ' + (job.total_files || '?').toLocaleString() + ' files \u2014 ' + pctStr +
-        '</div>' +
+        progressLine +
         '<div class="job-card__counts">' +
           '<span class="text-ok">\u2713 <span class="flp-counter cv-converted" data-flp-job="' + job.job_id + '" data-flp-status="converted" title="Click to view converted files">' + job.converted.toLocaleString() + '</span> converted</span>' +
           '<span class="text-err">\u2717 <span class="flp-counter cv-failed" data-flp-job="' + job.job_id + '" data-flp-status="failed" title="Click to view failed files">' + job.failed.toLocaleString() + '</span> failed</span>' +
@@ -312,7 +350,7 @@
           '<div class="job-card job-card--active">' +
             '<div class="job-card__header">' +
               '<div class="job-card__title">' +
-                '<span class="status-pill status-pill--running">LIFECYCLE SCAN</span>' +
+                '<a href="/log-viewer.html?q=lifecycle_scan&mode=history" class="status-pill status-pill--running status-pill--link" title="View lifecycle scan log activity">LIFECYCLE SCAN</a>' +
               '</div>' +
             '</div>' +
             '<div class="job-card__progress">' +
@@ -332,7 +370,7 @@
           '<div class="job-card">' +
             '<div class="job-card__header">' +
               '<div class="job-card__title">' +
-                '<span class="status-pill status-pill--done">LIFECYCLE SCANNER</span>' +
+                '<a href="/log-viewer.html?q=lifecycle_scan&mode=history" class="status-pill status-pill--done status-pill--link" title="View lifecycle scan log activity">LIFECYCLE SCANNER</a>' +
                 ' <span class="text-muted text-sm">idle</span>' +
               '</div>' +
             '</div>' +

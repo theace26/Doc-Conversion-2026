@@ -942,6 +942,13 @@
         const restored = restoreTabs();
         const params = new URLSearchParams(window.location.search);
         const initialFile = params.get('file') || '';
+        // v0.32.1: status-page pill clicks deep-link with `?q=<text>`
+        // and `?mode=history` so opening "SCANNING <job_id>" jumps
+        // straight to the history search filtered to that job. The
+        // value seeds the search input and triggers a search after
+        // the active tab is set up.
+        const initialQuery = params.get('q') || '';
+        const initialMode = params.get('mode') || '';
 
         if (restored && restored.tabs.length > 0) {
           // Filter out tabs that no longer exist on disk.
@@ -962,6 +969,26 @@
         // isn't a blank slate.
         if (tabs.length === 0 && availableLogs.length > 0) {
           addTab(availableLogs[0].name);
+        }
+
+        // Apply ?q=<query> + ?mode=history if present. Wait one tick
+        // so the active tab's input element exists.
+        if (initialQuery) {
+          setTimeout(() => {
+            try {
+              const qInput = document.getElementById('lv-search-input');
+              if (qInput) {
+                qInput.value = initialQuery;
+                qInput.dispatchEvent(new Event('input', {bubbles: true}));
+              }
+              if (initialMode === 'history' && activeTab) {
+                activeTab.q = initialQuery;
+                if (typeof activeTab.runHistorySearch === 'function') {
+                  activeTab.runHistorySearch(true);
+                }
+              }
+            } catch (e) { /* non-critical */ }
+          }, 50);
         }
       }
 
