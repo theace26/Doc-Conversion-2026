@@ -4,6 +4,89 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.32.5 — Cache-bust on live-banner.js (2026-04-27)
+
+**One-line fix per page: the `<script src="/static/js/live-banner.js">`
+tag on each of the three pages that load the banner now
+carries a `?v=0.32.5` query string. Forces returning
+browsers to re-fetch the script on every release that
+touches it, eliminating the "I deployed v0.32.3 but my
+browser is still running v0.32.1's live-banner.js" stale-
+cache class of bug.**
+
+### Why
+
+The v0.32.4 ship surfaced an honest user complaint: after
+upgrading to v0.32.4 the operator's browser was still
+serving the OLD `live-banner.js` from cache, so the global
+sticky banner didn't render even though the inline progress
+card (which is part of `trash.html` itself) did. FastAPI's
+`StaticFiles` doesn't add `Cache-Control: no-cache`, so
+browsers used heuristic freshness based on `Last-Modified`
+and held the old file. Hard refresh (Ctrl+F5) fixed it for
+each operator individually but isn't a sustainable solution.
+
+### What
+
+Three files changed, one-line edit each:
+
+```diff
+-  <script src="/static/js/live-banner.js"></script>
++  <!-- v0.32.5: cache-bust by version. Bump the ?v= when live-banner.js changes. -->
++  <script src="/static/js/live-banner.js?v=0.32.5"></script>
+```
+
+Files touched:
+- `static/trash.html`
+- `static/status.html`
+- `static/pipeline-files.html`
+
+Browsers treat URLs with different query strings as different
+resources for caching purposes, so a version bump forces a
+fresh fetch on the next page load. The query string is
+ignored by FastAPI's static-file handler (it serves the same
+file content regardless), so no backend change is needed.
+
+### The release convention going forward
+
+Every release that touches `static/js/live-banner.js` (or any
+other long-lived JS in `static/js/`) should bump the `?v=`
+query string in the loading `<script>` tags. Three files to
+update; grep `live-banner\.js` to find them.
+
+### What's deferred
+
+A future release could automate this with one of:
+
+1. **Auto-inject the version** at request time via a custom
+   `StaticFiles` subclass that rewrites HTML responses to
+   add `?v=<version>` to all `static/js/*` references.
+2. **Switch StaticFiles to `Cache-Control: no-cache,
+   must-revalidate`** so browsers always send a conditional
+   request. Still hits the network on every page load but
+   gets a cheap 304 Not Modified when nothing's changed.
+3. **Service Worker** that maintains a versioned asset
+   manifest. Cleanest UX, biggest engineering investment.
+
+Each has trade-offs; the manual convention is fine for now.
+The release process already touches `core/version.py` +
+multiple docs files, so a 3-file find-and-replace fits the
+existing rhythm.
+
+### Files
+
+- `core/version.py` — bump to 0.32.5
+- `static/trash.html` — `?v=0.32.5` on the live-banner tag
+- `static/status.html` — same
+- `static/pipeline-files.html` — same
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`
+
+No DB migration. No new dependencies. No backend changes. No
+behavioral changes — just cache hygiene on the JS asset.
+
+---
+
 ## v0.32.4 — Inline progress card on Trash page (2026-04-27)
 
 **Operator-feedback fix in response to a v0.32.3-shipped

@@ -208,7 +208,9 @@
   </div>
 
   <script src="/static/app.js"></script>
-  <script src="/static/js/live-banner.js"></script>
+  <!-- v0.32.5: cache-bust by version. Bump the ?v= when live-banner.js changes
+       so returning operators don't get stale JS from their browser cache. -->
+  <script src="/static/js/live-banner.js?v=0.32.5"></script>
   <script>
   let trashFiles = [];
 

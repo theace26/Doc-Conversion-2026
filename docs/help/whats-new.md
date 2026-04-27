@@ -6,6 +6,33 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.32.5 — Browser cache no longer holds onto old live-banner code
+
+**Tiny operator-quality-of-life fix.** When MarkFlow ships an
+update to the global sticky banner (the one that follows you
+between pages during long operations like Empty Trash), your
+browser's cache used to hold onto the old version until you
+manually did a hard refresh (Ctrl+F5). On v0.32.5+, the
+`<script>` tag carries a version query string, so a fresh
+release means a fresh fetch automatically. No more "I
+deployed the new version but my browser is still running
+the old one" head-scratching.
+
+This affects the three pages where the global banner appears:
+
+- **Trash** (`/static/trash.html`)
+- **Status** (`/static/status.html`)
+- **Pipeline Files** (`/static/pipeline-files.html`)
+
+Nothing about how the banner *behaves* changed in v0.32.5 —
+this release is purely a cache-hygiene fix. If the v0.32.3
+banner improvements never materialised for you (banner not
+appearing during Empty Trash, or appearing in the wrong
+position), v0.32.5 should fix it on the very next page load
+without you needing to hit Ctrl+F5.
+
+---
+
 ## v0.32.4 — Empty Trash now shows real progress in-page
 
 When you click **Empty Trash** (or **Restore All**), a

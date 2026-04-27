@@ -91,7 +91,64 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.32.4
+## Current Version — v0.32.5
+
+**Cache-bust on `live-banner.js` so returning operators get the
+latest banner code without a manual hard-refresh. The script
+tag on each of the three pages that load the banner
+(`trash.html`, `status.html`, `pipeline-files.html`) now
+carries a `?v=0.32.5` query string. Bump the `?v=` on every
+release that touches `live-banner.js`.**
+
+### Why this matters
+
+The v0.32.4 ship surfaced a real-world problem: even after a
+clean container rebuild, returning operators didn't see the
+v0.32.3 Live Banner because their browser had cached
+`live-banner.js` from an earlier deploy. FastAPI's
+`StaticFiles` doesn't add `Cache-Control: no-cache`, so
+browsers used heuristic freshness based on `Last-Modified` and
+held the old bytes.
+
+The fix is a one-line change to each page's script tag — add
+a `?v=<release>` query string. Browsers treat URLs with
+different query strings as different resources, so a version
+bump forces a fresh fetch on the next page load. No
+infrastructure change, no headers, no service worker.
+
+### The convention going forward
+
+Every release that touches `static/js/live-banner.js` (or any
+other cached JS in `static/js/`) should bump the `?v=` query
+string in the loading `<script>` tag(s). The convention:
+
+```html
+<!-- Bump the ?v= when live-banner.js changes. -->
+<script src="/static/js/live-banner.js?v=0.32.5"></script>
+```
+
+Three files to update: `trash.html`, `status.html`,
+`pipeline-files.html` (grep `live-banner\.js` to find them).
+A future release could automate this — read `__version__` at
+import time, inject into a base template — but the manual
+convention is fine for now: each release already touches
+`core/version.py` + multiple docs files, so a 3-file
+find-and-replace fits the existing rhythm.
+
+### Files
+
+- `core/version.py` — bump to 0.32.5
+- `static/trash.html` — `?v=0.32.5` on the live-banner tag
+- `static/status.html` — same
+- `static/pipeline-files.html` — same
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`
+
+No DB migration. No new dependencies. No backend changes.
+
+---
+
+## v0.32.4 — Inline progress card on Trash page
 
 **Inline progress card on the Trash page. Empty Trash and
 Restore All now show a prominent in-page progress card right
