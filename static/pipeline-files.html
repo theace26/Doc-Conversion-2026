@@ -269,6 +269,7 @@
   </main>
 
   <script src="/static/app.js"></script>
+  <script src="/static/js/auto-refresh.js"></script>
   <script>
   (function () {
     'use strict';
@@ -766,6 +767,21 @@
     loadStats();
     loadFiles();
     checkLlmStatus();
+
+    // Auto-refresh while the tab is visible — file statuses and the
+    // status-chip counters change as the bulk pipeline / force-action
+    // / image-analysis worker process files. Pause when the tab is
+    // hidden so we don't burn API calls on backgrounded windows.
+    // 30 s cadence matches the rest of MarkFlow (Status, History).
+    if (window.AutoRefresh) {
+      window.__pipelineAutoRefresh = window.AutoRefresh.start({
+        refresh: function () {
+          loadStats();
+          loadFiles();
+        },
+        intervalMs: 30000,
+      });
+    }
 
   })();
   </script>

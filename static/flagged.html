@@ -171,6 +171,7 @@
   </div>
 
   <script src="/static/app.js"></script>
+  <script src="/static/js/auto-refresh.js"></script>
   <script>
   /* --- State --- */
   let currentTab = 'active';
@@ -655,6 +656,17 @@
   /* --- Init --- */
   loadStats();
   loadData();
+
+  // Auto-refresh while the tab is visible — the flagged-files queue
+  // changes when operators flag new files, dismiss flags, or extend
+  // expiry. 30 s cadence matches Status / Pipeline Files; pauses
+  // while tab is hidden to avoid wasted API calls.
+  if (window.AutoRefresh) {
+    window.AutoRefresh.start({
+      refresh: function () { loadStats(); loadData(); },
+      intervalMs: 30000,
+    });
+  }
   </script>
 </body>
 </html>

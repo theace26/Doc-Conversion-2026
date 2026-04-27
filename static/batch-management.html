@@ -450,6 +450,7 @@
   </main>
 
   <script src="/static/app.js"></script>
+  <script src="/static/js/auto-refresh.js"></script>
   <script>
     (function(){
       'use strict';
@@ -2154,6 +2155,18 @@
       loadBatches();
 
       setTimeout(pollTick, 5000);
+
+      // Auto-refresh the batch list while the tab is visible. The
+      // existing pollTick handles the status counters every 5 s; this
+      // adds a slower (60 s) cadence for the batch table itself so
+      // the list reflects new batches that the analysis worker has
+      // claimed since the page loaded. Pauses while the tab is hidden.
+      if (window.AutoRefresh) {
+        window.AutoRefresh.start({
+          refresh: function () { return loadBatches(); },
+          intervalMs: 60000,
+        });
+      }
     })();
   </script>
 </body>

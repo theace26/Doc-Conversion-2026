@@ -89,6 +89,7 @@
   </div>
 
   <script src="/static/app.js"></script>
+  <script src="/static/js/auto-refresh.js"></script>
   <script>
   let currentPage = 1;
   let currentCategory = '';
@@ -232,6 +233,17 @@
 
   loadStats();
   loadFiles();
+
+  // Auto-refresh while the tab is visible — the unrecognized list
+  // grows as the bulk scanner discovers new file types it can't
+  // classify. 60 s cadence (slower than Status because new
+  // unrecognized files trickle in rather than burst).
+  if (window.AutoRefresh) {
+    window.AutoRefresh.start({
+      refresh: function () { loadStats(); loadFiles(); },
+      intervalMs: 60000,
+    });
+  }
   </script>
 </body>
 </html>
