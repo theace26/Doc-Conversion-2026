@@ -880,6 +880,7 @@ def get_scheduler_status() -> dict:
         "pipeline_watchdog": "pipeline_watchdog_next",
         "log_archive": "log_archive_next",
         "analysis_drain": "analysis_drain_next",
+        "eta_system_spec_snapshot": "eta_system_spec_snapshot_next",
     }
     for job_id, key in job_names.items():
         try:
