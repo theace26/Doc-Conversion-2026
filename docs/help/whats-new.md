@@ -6,6 +6,39 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.34.5 — Verification milestone
+
+This is a docs-only release that records proof the v0.34.3 + v0.34.4
+fixes are working in production. No new behavior; no setup steps to
+take. If you've already deployed v0.34.4 and restarted the container
+once, you don't need to do anything for v0.34.5.
+
+### What we verified
+
+After deploying v0.34.4, we triggered an immediate auto-conversion
+cycle and watched the logs:
+
+- The bulk-worker pre-flight passed (no more "× 3 buffer" rejection).
+- A bulk_job moved to `running` status — the first one to reach that
+  state on this machine since April 7.
+- The scanner started enumerating files at 130–360 files per second.
+- Both fixes confirmed end-to-end.
+
+### What you should see going forward
+
+- The Activity / Pipeline page's indexed counter should climb steadily
+  as the 92k-pending backlog drains. At the observed rate, expect
+  ~250 files per minute when actively working.
+- No need to keep manually triggering "Run now" — the scheduled
+  45-minute cycles will now actually do work.
+- If indexing stalls again in the future, the most likely causes are
+  (a) genuine disk-space pressure on the output volume, or (b) a
+  repeat of the orphan-stuck pattern on a different table that doesn't
+  have a startup reaper yet. Both are now detectable via the
+  `startup.orphan_cleanup` log line on container restart.
+
+---
+
 ## v0.34.4 — Auto-converter no longer wedges itself
 
 Companion patch to v0.34.3. Discovered while verifying that fix: the

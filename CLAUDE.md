@@ -66,41 +66,69 @@ live", `key-files.md`. For "is this bug already known", `bug-log.md`.
 
 ---
 
-## Current Version — v0.34.4
+## Current Version — v0.34.5
 
-**Companion fix to v0.34.3. The startup orphan-job reaper missed
-`auto_conversion_runs` rows entirely. 38 stale `status='running'`
-entries had accumulated since 2026-04-07 — the auto-converter gates
-"don't start a new run if one is already active," so a single failed
-pre-flight (or container restart mid-run) silently wedged the entire
-auto-conversion pipeline. Closes BUG-012.**
+**Verification milestone. v0.34.3 (BUG-011) + v0.34.4 (BUG-012)
+confirmed working end-to-end on the production K-drive workload via
+live-log evidence. No new code; this is a docs-only bump that captures
+the one-shot manual cleanup performed during investigation and the
+proof-of-fix evidence so future debugging has a clear reference.**
 
-Discovered while verifying the BUG-011 fix: the new pre-check should
-have been firing on every auto-conversion attempt but wasn't, because
-the auto-converter was refusing to start any new runs. Investigation
-showed the orphan reaper at `core/db/schema.py:cleanup_orphaned_jobs()`
-handled `bulk_jobs` and `scan_runs` but had no UPDATE for
-`auto_conversion_runs`. Every time a bulk_job died (legitimately or
-via container exit) before its driving auto_conversion_run wrote its
-`completed_at`, that run stayed `status='running'` forever.
+### What was verified in production
 
-### Highlights
+After v0.34.4 deployed, run-now triggered a fresh auto-conversion
+cycle. The `bulk_disk_precheck` log event fired with the new
+`multiplier=0.5`, the pre-check passed (250 GB × 0.5 = 125 GB needed
+vs 158 GB free), and a bulk_job entered `running` status. Live
+scan_progress events captured the worker enumerating files at
+130–360 files/sec:
 
-- **`core/db/schema.py:cleanup_orphaned_jobs()`** — added a third UPDATE that marks `auto_conversion_runs` rows with `status='running'` AND `completed_at IS NULL` as `status='failed'` with a fresh `completed_at`. Defensive: checks for the table's existence first (older / minimal-test schemas may lack it).
-- **Log payload** now includes `failed_auto_runs` count alongside `cancelled_jobs` and `interrupted_scans`.
-- **`tests/test_bugfix_patch.py:TestOrphanCleanup`** — two new tests: orphan reaping happens, completed runs aren't touched. Self-skip when the test DB doesn't have the table.
+```
+23:34:53 scan_coordinator.run_now_paused reason=bulk_job_started:8a472712...
+23:34:57 scan_progress completed=608   files_per_second=360
+23:35:02 scan_progress completed=1408  files_per_second=215
+23:35:07 scan_progress completed=2008  files_per_second=163
+23:35:33 scan_progress completed=5408  files_per_second=142
+```
 
-No new endpoints. No API contract changes. No env vars. Pure server-side fix that runs once on every startup.
+This is the first successful auto-triggered bulk_job since 2026-04-07
+on the affected machine — proof both fixes hold under real load.
 
-### Operator-visible change
+### One-shot manual cleanup performed during investigation
 
-- After this release ships, restart the container once to drain any accumulated stale `auto_conversion_runs`. The startup reaper handles them automatically; no manual SQL needed.
-- Subsequent auto-conversion cycles will start cleanly even if a prior run failed pre-flight or got killed mid-flight.
-- Combined with v0.34.3's disk-space fix, the K-drive auto-conversion path is now end-to-end functional.
+To unblock the verification (the v0.34.4 startup reaper hadn't yet
+been deployed when investigation began), 38 stale `auto_conversion_runs`
+rows accumulated since 2026-04-07 were cleaned manually via SQL:
 
-### Why this took 3 weeks to surface
+```sql
+UPDATE auto_conversion_runs SET status='failed', completed_at=now()
+WHERE status='running' AND completed_at IS NULL;
+```
 
-The auto-converter's "don't start a new run if one is already active" gate is correct behavior on its own. Combined with the v0.23.6 M2 disk-space pre-check that always failed on large shares, it created a slow-motion deadlock: the FIRST failed pre-flight orphaned its auto_conversion_run, and from then on the auto-converter saw "active run already exists" and quietly skipped every subsequent cycle. The whole thing is logged at `info` level — no operator-facing alert. That telemetry gap is on the upcoming UX-overhaul Notifications work.
+Plus zero stale `bulk_jobs` (the existing reaper had already cleaned
+those at the v0.34.3 container restart). Going forward, the v0.34.4
+startup reaper handles this on every container start — no operator
+intervention needed for future occurrences.
+
+### Loose ends captured for follow-up
+
+These were discovered during the investigation but are NOT shipping
+in this release. They're tracked as part of the upcoming UX overhaul
+spec (`docs/superpowers/specs/2026-04-28-ux-overhaul-search-as-home-design.md`):
+
+1. **No operator-facing alert** when auto-conversion fails N cycles
+   in a row. Currently logged at `info` level only. UX overhaul §13
+   (Notifications) covers the trigger-rule infrastructure that will
+   power this alert.
+2. **No "scanned vs indexed delta" surface** — the gap between
+   `source_files` count and Meilisearch index count is the leading
+   indicator that conversion is wedged. Plan 4 (UX IA shift) will
+   surface this on the Activity dashboard.
+3. **Failure-path explicit `completed_at` writes** — the bulk_job
+   pre-flight failure handler should write `auto_conversion_runs.completed_at`
+   directly rather than relying on the startup orphan reaper as a
+   backstop. Tracked as a future hardening pass; not urgent now that
+   the reaper exists.
 
 Full per-version detail (v0.34.2 and every prior release back to v0.13.x)
 lives in [`docs/version-history.md`](docs/version-history.md). **Do not

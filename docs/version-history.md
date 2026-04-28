@@ -4,6 +4,89 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.34.5 — Verification milestone for v0.34.3 + v0.34.4 (2026-04-28)
+
+**Docs-only bump. No code changes. Captures the live-log evidence that
+the v0.34.3 (BUG-011) and v0.34.4 (BUG-012) fixes work end-to-end on
+the production K-drive workload, plus the one-shot manual cleanup
+performed during investigation.**
+
+### Why a separate version
+
+Both fixes shipped earlier the same day, and the verification happened
+post-release. The verification evidence and the one-shot cleanup are
+operationally important enough to record at a stable version tag —
+future operators investigating similar wedge conditions will have a
+clear "this is what success looks like" reference.
+
+### Live-log proof of fix
+
+After v0.34.4 deployed, run-now triggered a fresh auto-conversion
+cycle. The pre-flight passed, a bulk_job entered `running`, and the
+worker started enumerating files. The `bulk_disk_precheck` event
+fired with the new `multiplier=0.5` (passes: 250 GB × 0.5 = 125 GB
+needed vs 158 GB free):
+
+```
+23:34:53 scan_coordinator.run_now_paused reason=bulk_job_started:8a472712e35743918aff46d36b7a05df
+23:34:57 scan_progress completed=608   files_per_second=360.7  job_id=8a472712...
+23:34:59 scan_progress completed=808   files_per_second=192.3
+23:35:02 scan_progress completed=1408  files_per_second=215.0
+23:35:04 scan_progress completed=1608  files_per_second=172.3
+23:35:07 scan_progress completed=2008  files_per_second=162.7
+23:35:12 scan_progress completed=3208  files_per_second=186.3
+23:35:33 scan_progress completed=5408  files_per_second=142.5
+```
+
+This is the first auto-triggered bulk_job to reach `running` status
+since 2026-04-07 on the affected machine. No `bulk_disk_precheck_failed`
+event in the watched window — the multiplier fix held.
+
+### One-shot manual cleanup performed during investigation
+
+Before v0.34.4 was written, 38 stale `auto_conversion_runs` rows had
+accumulated since 2026-04-07. To unblock investigation (the v0.34.4
+startup reaper hadn't yet been deployed), they were cleaned manually:
+
+```sql
+UPDATE auto_conversion_runs SET status='failed', completed_at=now()
+WHERE status='running' AND completed_at IS NULL;
+-- 38 rows updated
+```
+
+Plus zero stale `bulk_jobs` (the existing reaper had already cleaned
+those at the v0.34.3 container restart). v0.34.4's reaper handles
+this automatically going forward — no operator action needed for
+future similar conditions.
+
+### Loose ends captured for the upcoming UX overhaul
+
+Three observability gaps surfaced during investigation. None block
+operations now that v0.34.3 + v0.34.4 are deployed, but each would
+have made the original investigation dramatically faster:
+
+1. **No operator-facing alert when auto-conversion fails repeatedly.**
+   The `bulk_jobs.error_msg` carries the disk-space rejection but it
+   only surfaces if you query the DB. UX overhaul §13 (Notifications
+   trigger rules) is where this lands.
+2. **No "scanned vs indexed delta" surface.** The gap between the
+   `source_files` count and the Meilisearch index count is the
+   leading indicator that conversion is wedged. UX overhaul §5
+   (Activity dashboard) is where this surfaces.
+3. **Failure-path explicit `completed_at` writes.** The bulk_job
+   pre-flight failure handler should write the parent
+   `auto_conversion_runs.completed_at` directly rather than relying
+   on the startup orphan reaper as a backstop. Future hardening pass.
+
+### What didn't change
+
+- No code in this release. CLAUDE.md, version-history.md (this entry),
+  whats-new.md, bug-log.md, gotchas.md only.
+- Test count unchanged from v0.34.4.
+- No DB migration. No new endpoints. No env vars.
+
+---
+
 ## v0.34.4 — Orphan reaper extended to `auto_conversion_runs` (2026-04-28)
 
 **Companion fix to v0.34.3. Discovered while verifying the BUG-011 fix:
