@@ -264,3 +264,100 @@ async def test_update_op_first_error_forces_immediate_flush(client):
     assert write_count > write_count_before_error, (
         "first-error update did not force a flush"
     )
+
+
+@pytest.mark.asyncio
+async def test_finish_op_marks_finished_at_epoch(client):
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="x@x",
+    )
+    await active_ops.update_op(op_id, total=100, done=100)
+    before = time.time()
+    await active_ops.finish_op(op_id)
+    after = time.time()
+
+    op = await active_ops.get_op(op_id)
+    assert op.finished_at_epoch is not None
+    assert before <= op.finished_at_epoch <= after
+
+    # Persisted to DB
+    row = await db_fetch_one(
+        "SELECT finished_at_epoch FROM active_operations WHERE op_id=?",
+        (op_id,),
+    )
+    assert row["finished_at_epoch"] is not None
+
+
+@pytest.mark.asyncio
+async def test_finish_op_with_error_msg(client):
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="x@x",
+    )
+    await active_ops.finish_op(op_id, error_msg="failed: connection lost")
+
+    op = await active_ops.get_op(op_id)
+    assert op.error_msg == "failed: connection lost"
+    assert op.finished_at_epoch is not None
+
+
+@pytest.mark.asyncio
+async def test_update_after_finish_is_noop(client):
+    """Spec F1: update_op on a finished row is a no-op + WARN.
+
+    Sets a non-zero baseline before finish so the assertion proves
+    the post-finish update was REJECTED (not just trivially zero)."""
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="x@x",
+    )
+    await active_ops.update_op(op_id, done=50)   # baseline
+    await active_ops.finish_op(op_id)
+    finished_at = (await active_ops.get_op(op_id)).finished_at_epoch
+
+    # Try to update — should be ignored, baseline preserved
+    await active_ops.update_op(op_id, done=999)
+    op = await active_ops.get_op(op_id)
+    assert op.done == 50   # baseline preserved, 999 rejected
+    assert op.finished_at_epoch == finished_at   # not reopened
+
+
+@pytest.mark.asyncio
+async def test_finish_op_twice_is_noop(client):
+    """Second finish_op on same op is WARN-only — no DB write, no
+    overwrite of error_msg, no timestamp change."""
+    from core import active_ops
+    from core.active_ops import ActiveOperation
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="x@x",
+    )
+    await active_ops.finish_op(op_id, error_msg="first")
+    finished_at_1 = (await active_ops.get_op(op_id)).finished_at_epoch
+
+    write_count = 0
+    real_persist = active_ops._persist_op_update
+
+    async def counting_persist(op: ActiveOperation) -> None:
+        nonlocal write_count
+        write_count += 1
+        await real_persist(op)
+
+    active_ops._persist_op_update = counting_persist
+    try:
+        await active_ops.finish_op(op_id, error_msg="second")
+    finally:
+        active_ops._persist_op_update = real_persist
+
+    op = await active_ops.get_op(op_id)
+    assert op.error_msg == "first"   # second call did NOT overwrite
+    assert op.finished_at_epoch == finished_at_1   # timestamp unchanged
+    assert write_count == 0   # no second DB write

@@ -245,9 +245,17 @@ async def _persist_op_update(op: ActiveOperation) -> None:
 
 
 async def get_op(op_id: str) -> ActiveOperation | None:
-    """Lock-guarded lookup of an op by ID. Returns None if not found."""
+    """Read in-memory snapshot of op_id. Synchronous-style read; takes
+    the lock briefly to avoid mid-mutation reads. Returns a defensive
+    copy so callers cannot mutate registry state."""
     async with _lock:
-        return _ops.get(op_id)
+        op = _ops.get(op_id)
+        if op is None:
+            return None
+        # Defensive copy — caller mutations don't poison registry state
+        copy = ActiveOperation(**op.__dict__)
+        copy.extra = dict(op.extra)
+        return copy
 
 
 async def update_op(
@@ -302,3 +310,39 @@ async def update_op(
         # _persist_op_update is observed.
         from core import active_ops as _self
         await _self._persist_op_update(snapshot)
+
+
+async def finish_op(
+    op_id: str,
+    *,
+    error_msg: str | None = None,
+) -> None:
+    """Mark op as finished. Synchronously flushes to DB (final state
+    must persist — spec §10)."""
+    async with _lock:
+        op = _ops.get(op_id)
+        if op is None:
+            log.warning("active_ops.finish_unknown_op", op_id=op_id)
+            return
+        if op.finished_at_epoch is not None:
+            log.warning("active_ops.finish_already_finished",
+                        op_id=op_id)
+            return
+        op.finished_at_epoch = time.time()
+        op.last_progress_at_epoch = op.finished_at_epoch
+        if error_msg is not None:
+            op.error_msg = error_msg
+        snapshot = ActiveOperation(**op.__dict__)
+        snapshot.extra = dict(op.extra)
+        # Throttle entry is dead — no more update_op allowed (F1).
+        _last_persist_at.pop(op_id, None)
+
+    # Synchronous flush — final state is non-negotiable. Use module-attribute
+    # lookup so test monkey-patching of _persist_op_update is observed
+    # (consistent with update_op's pattern).
+    from core import active_ops as _self
+    await _self._persist_op_update(snapshot)
+    log.info("active_ops.finished",
+             op_id=op_id, op_type=snapshot.op_type,
+             error_msg=error_msg,
+             duration_s=round(snapshot.finished_at_epoch - snapshot.started_at_epoch, 2))
