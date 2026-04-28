@@ -51,7 +51,7 @@ not narrative.
 
 ## Open / Planned
 
-(BUG-001 through BUG-010 closed in v0.34.1 / v0.34.2 — see Shipped section.)
+(BUG-001 through BUG-011 closed in v0.34.1 / v0.34.2 / v0.34.3 — see Shipped section.)
 
 ### v0.35.0 follow-ups (drift bugs flagged by active-ops Phase 0 audit)
 
@@ -74,6 +74,20 @@ they don't get rolled into the registry commit but are not lost.
 ---
 
 ## Shipped (history)
+
+### v0.34.3 — Auto-conversion unblocked: disk-space pre-check multiplier
+
+Hardcoded `× 3` input-size buffer in the bulk-worker pre-flight check
+silently rejected every auto-conversion job once the source share grew
+past ~33% of free output space. Symptom on the affected machine: 92,257
+files stuck in `bulk_files.status='pending'`, `bulk_jobs` rows recording
+`status='failed'` with the disk-space error, and a stale Meilisearch
+count from a prior DB lifetime giving operators no visible signal that
+conversion had stopped.
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-011 | shipped-v0.34.3 | critical | Bulk-worker pre-flight `× 3` disk-space multiplier silently fails every auto-conversion on large shares | `core/bulk_worker.py:21` had `_DISK_SPACE_REQUIRED_MULTIPLIER = 3` (v0.23.6 M2) — assumed output ≈ input × 3 buffer. Markdown output is actually well under 50% of input. Fix: replaced constant with `_get_disk_space_multiplier()` helper reading `DISK_SPACE_MULTIPLIER` env var per-call (default `0.5`). 10 new tests in `tests/test_disk_space_multiplier.py`. Operator-facing error message now ends with "tune via DISK_SPACE_MULTIPLIER env var". See `docs/version-history.md` v0.34.3 entry for the full narrative + why no alarm fired (telemetry gap tracked in UX overhaul spec). |
 
 ### v0.34.2 — Audit follow-up: 5 missed OUTPUT_BASE consumers
 

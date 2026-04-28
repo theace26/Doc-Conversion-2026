@@ -66,34 +66,37 @@ live", `key-files.md`. For "is this bug already known", `bug-log.md`.
 
 ---
 
-## Current Version — v0.34.2
+## Current Version — v0.34.3
 
-**Audit follow-up to v0.34.1: five OUTPUT_BASE consumers that escaped
-the original blast-radius sweep. Closes BUG-010.**
+**Auto-conversion was silently failing every job on shares larger than
+~1/3 of free output space. The pre-flight disk-space check used a
+hardcoded 3× input-size buffer; in practice doc-to-markdown output
+runs well under 50% of input. Closes BUG-011.**
 
-v0.34.1's audit grep anchored on `OUTPUT_BASE` and missed five sites
-that read `BULK_OUTPUT_PATH` / `OUTPUT_DIR` directly or imported
-`lifecycle_manager.OUTPUT_REPO_ROOT` (itself a frozen-at-import
-snapshot of the resolver result, kept "for legacy compatibility").
+The check sums pending input-file sizes, multiplies, and demands that
+much free space on the output volume before any worker starts. With
+the legacy multiplier of 3, a 250 GB K-drive demanded 750 GB free —
+which no operator has — so every auto-triggered bulk job died at
+pre-flight with `bulk_jobs.status='failed'` and 0 files converted.
+Symptom on the user's side: 92,257 files in `bulk_files.status='pending'`
+and a stale Meilisearch count from a prior DB lifetime.
 
 ### Highlights
 
-- **`core/lifecycle_manager.py:53` — `OUTPUT_REPO_ROOT` alias dropped.** Its only importer was migrated in this same release; keeping the alias re-introduced the frozen-snapshot footgun v0.34.1 set out to eliminate.
-- **`core/db_maintenance.py`** dangling-trash health check resolves per-call.
-- **`api/routes/admin.py`** Disk Usage breakdown resolves per-request.
-- **`core/metrics_collector.py`** 6h disk-snapshot resolves per-snapshot — stops poisoning the metrics time-series under a divergent Storage Manager config.
-- **`core/lifecycle_scanner.py`** synthetic + auto-pipeline `create_bulk_job()` records resolved path.
-- Confirmed `core/converter.py:74 OUTPUT_BASE` is unused (zero importers across repo) — left in place to keep diff scoped to audit finding; future release can delete.
-- Confirmed `main.py:233` first-run env seed is intentional bootstrap, not a silent-failure consumer.
+- **`core/bulk_worker.py:21`** — `_DISK_SPACE_REQUIRED_MULTIPLIER = 3` replaced with a `_get_disk_space_multiplier()` helper that reads `DISK_SPACE_MULTIPLIER` env var (default **0.5**) per call. No import-time snapshot — runtime config changes take effect without a restart.
+- **`.env.example`** documents the new env var with tuning guidance.
+- **`tests/test_disk_space_multiplier.py`** — 10 tests covering default, override, edge cases (zero / negative / non-numeric / empty / whitespace), and per-call read semantics.
+- **Pre-flight error message** now ends with "tune via DISK_SPACE_MULTIPLIER env var" so the next operator who hits a real space crunch knows the lever exists.
 
-No DB migration. No new dependencies. No new endpoints. No API contract changes.
+No DB migration. No new endpoints. No API contract changes. Backward-
+compatible default keeps the check active (just at a sensible ratio).
 
 ### Operator-visible change
 
-- Admin Disk Usage panel shows correct paths/sizes after a Storage Manager reconfiguration with no restart needed.
-- Disk-metrics time-series corrects on the next 6h snapshot after reconfiguration.
-- Health summary `dangling_trash` count agrees with the actual `.trash/` tree on the configured root.
-- New `bulk_jobs` rows (synthetic + auto-pipeline) record the path the worker actually wrote to.
+- Auto-conversion runs on the K-drive (or any large share) start producing converted files instead of failing pre-flight.
+- The 92k `pending` rows in `bulk_files` will drain on the next auto-conversion cycle (or a manual "Run scan now" from Activity).
+- The Meilisearch index count will climb from the stale ghost number toward the real total as conversion completes.
+- If you need to tighten or loosen the check for a specific workload, set `DISK_SPACE_MULTIPLIER` in `.env`.
 
 Full per-version detail (v0.34.2 and every prior release back to v0.13.x)
 lives in [`docs/version-history.md`](docs/version-history.md). **Do not
