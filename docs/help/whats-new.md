@@ -6,6 +6,71 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.32.10 — Pipeline header on Bulk Jobs is now self-explanatory
+
+The Pipeline header at the top of the **Bulk Jobs** page used
+to show six bare values:
+
+```
+Mode         Last Scan      Next Scan      Source Files   Pending   Interval
+Immediate    7:22:56 PM     8:27:38 PM     1,493          1,493     45 min
+```
+
+Helpful, but only if you already knew what each value meant.
+v0.32.10 adds a small descriptive sub-line under each value
+plus a tooltip on hover, so a glance at the row tells you:
+
+```
+Mode                       Last Scan            ⚠ Interrupted
+Immediate                  7:22:56 PM (8 min ago)
+Convert on every           28,504 scanned · 0 new · 0 modified
+new-file detection
+                           Next Scan
+                           8:27:38 PM (in 5 min)
+                           Pipeline scan · every 45 min
+
+Source Files               Pending              Interval
+1,493                      1,493                45 min
+on disk                    awaiting conversion  between scheduled scans
+```
+
+### What you'll notice
+
+- **Last Scan** shows a colored status pill — ✓ Completed /
+  ⟳ Running / ⚠ Interrupted / ✗ Failed / ⊘ Cancelled — plus
+  files-scanned / new / modified counts. The scan that
+  finished at 7:22 wasn't just a time — you can see at a
+  glance it was Interrupted (probably by a container
+  restart) and processed 28,504 files before it stopped.
+- **Next Scan** describes what kind of scan is coming —
+  "Pipeline scan · every 45 min" by default, or "Pipeline
+  paused — Resume to enable" if you've paused it, or
+  "Mode is Off — use Run Now to scan manually" if you've
+  set the mode to Off.
+- **Times have a relative qualifier**: "7:22:56 PM (8 min
+  ago)" / "8:27:38 PM (in 5 min)". You don't have to
+  mentally subtract from the wall clock.
+- **Hover any cell** for a one-line tooltip explaining what
+  it is. Hover the **Mode** cell to see the scheduler's
+  most recent decision-reason — the full string MarkFlow
+  emits when it picks workers/batch-size, e.g.:
+
+  > Mode=immediate | 113354 files discovered | CPU now=4.9%
+  > | CPU historical avg=7.1% | Mon 20:00 | off hours |
+  > workers=8 | batch=175
+
+  Useful for understanding why a particular run picked the
+  parameters it did.
+
+### Nothing renamed, nothing moved
+
+All six existing cells stay in the same positions. The only
+visual change is the small grey sub-line under each value
+and the wider minimum cell width (170px → was 140px) to keep
+the row readable.
+
+---
+
 ## v0.32.9 — Status page card now shows scan progress + jumps to Bulk Jobs
 
 The active-job card on the **Status** page used to show

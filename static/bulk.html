@@ -4,7 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MarkFlow — Bulk Conversion</title>
-  <link rel="stylesheet" href="/static/markflow.css">
+  <!-- v0.32.10: cache-bust markflow.css since this page uses new
+       .pl-cell / .pl-cell-sub / .pl-status-pill rules. -->
+  <link rel="stylesheet" href="/static/markflow.css?v=0.32.10">
   <style>
     .job-form { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem; align-items: center; }
     .job-form label { font-weight: 500; font-size: 0.9rem; }
@@ -92,13 +94,41 @@
           <button class="btn btn-primary btn-sm" id="pl-run-now-btn" onclick="pipelineRunNow()">Run Now</button>
         </div>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.5rem;font-size:0.85rem">
-        <div><span class="text-muted">Mode</span><br><strong id="pl-mode">--</strong></div>
-        <div><span class="text-muted">Last Scan</span><br><strong id="pl-last-scan">--</strong></div>
-        <div><span class="text-muted">Next Scan</span><br><strong id="pl-next-scan">--</strong></div>
-        <div><span class="text-muted">Source Files</span><br><strong id="pl-total-files">--</strong></div>
-        <div><span class="text-muted">Pending</span><br><strong id="pl-pending">--</strong></div>
-        <div><span class="text-muted">Interval</span><br><strong id="pl-interval">--</strong></div>
+      <!-- v0.32.10: each cell now renders a multi-line block with a
+           descriptive sub-line so operators can tell at a glance
+           WHAT KIND of scan ran / is coming up next, not just a bare
+           timestamp. Hover any value for an info tooltip. -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:0.5rem;font-size:0.85rem">
+        <div class="pl-cell" id="pl-cell-mode" title="Auto-convert scheduler mode. Off = manual only. Immediate = trigger conversion as soon as a scan finds new files. Queued = wait for the next scheduler tick. Scheduled = run at the configured interval.">
+          <span class="text-muted">Mode</span><br>
+          <strong id="pl-mode">--</strong>
+          <div class="pl-cell-sub" id="pl-mode-sub"></div>
+        </div>
+        <div class="pl-cell" id="pl-cell-last-scan" title="The most recent pipeline scan that walked the source tree to find new/modified files. Interrupted = container restarted mid-scan. Completed = scan finished cleanly.">
+          <span class="text-muted">Last Scan</span><br>
+          <strong id="pl-last-scan">--</strong>
+          <div class="pl-cell-sub" id="pl-last-scan-sub"></div>
+        </div>
+        <div class="pl-cell" id="pl-cell-next-scan" title="When the next scheduled pipeline scan will run. Click Run Now to trigger immediately instead of waiting.">
+          <span class="text-muted">Next Scan</span><br>
+          <strong id="pl-next-scan">--</strong>
+          <div class="pl-cell-sub" id="pl-next-scan-sub"></div>
+        </div>
+        <div class="pl-cell" title="Total source files MarkFlow knows about (anything ever scanned). Files that were trashed are NOT counted here.">
+          <span class="text-muted">Source Files</span><br>
+          <strong id="pl-total-files">--</strong>
+          <div class="pl-cell-sub">on disk</div>
+        </div>
+        <div class="pl-cell" title="Files awaiting conversion to Markdown. The auto-convert worker picks these up on the next scheduler tick (or immediately if Mode=Immediate).">
+          <span class="text-muted">Pending</span><br>
+          <strong id="pl-pending">--</strong>
+          <div class="pl-cell-sub">awaiting conversion</div>
+        </div>
+        <div class="pl-cell" title="Pipeline scheduler interval. Change in Settings → Auto-convert.">
+          <span class="text-muted">Interval</span><br>
+          <strong id="pl-interval">--</strong>
+          <div class="pl-cell-sub">between scheduled scans</div>
+        </div>
       </div>
       <!-- Pipeline disabled warning -->
       <div id="pl-disabled-warning" style="margin-top:0.75rem;padding:0.75rem 1rem;background:rgba(220,38,38,0.08);border:1px solid var(--error);border-radius:var(--radius);color:var(--error);font-size:0.85rem" hidden>
@@ -406,17 +436,113 @@
       document.getElementById('pl-total-files').textContent = (data.total_source_files || 0).toLocaleString();
       document.getElementById('pl-pending').textContent = (data.pending_conversion || 0).toLocaleString();
 
+      // v0.32.10: descriptive sub-lines for Mode / Last Scan / Next Scan
+      const modeSubMap = {
+        off: 'Manual triggers only',
+        immediate: 'Convert on every new-file detection',
+        queued: 'Hold scan results for next tick',
+        scheduled: 'Convert at scheduler intervals',
+      };
+      const modeSub = document.getElementById('pl-mode-sub');
+      if (modeSub) modeSub.textContent = modeSubMap[data.auto_convert_mode] || '';
+
+      // Helper: render "1m 14s ago" / "in 2m 30s" relative to now.
+      function fmtRel(d, now) {
+        if (!d) return '';
+        const ms = d.getTime() - now.getTime();
+        const past = ms < 0;
+        let sec = Math.abs(Math.round(ms / 1000));
+        if (sec < 60) return past ? `${sec}s ago` : `in ${sec}s`;
+        const min = Math.floor(sec / 60);
+        sec = sec % 60;
+        if (min < 60) return past ? `${min}m ${sec}s ago` : `in ${min}m ${sec}s`;
+        const hr = Math.floor(min / 60);
+        const m2 = min % 60;
+        return past ? `${hr}h ${m2}m ago` : `in ${hr}h ${m2}m`;
+      }
+      const _now = new Date();
+
+      // Last Scan: time + relative + status pill + scanned/new/modified
+      const lsEl = document.getElementById('pl-last-scan');
+      const lsSub = document.getElementById('pl-last-scan-sub');
       if (data.last_scan && data.last_scan.finished_at) {
         const d = parseUTC(data.last_scan.finished_at);
-        document.getElementById('pl-last-scan').textContent = d ? d.toLocaleTimeString() : '';
+        lsEl.textContent = d
+          ? `${d.toLocaleTimeString()} (${fmtRel(d, _now)})`
+          : '';
+        // Build sub: status pill + counts
+        if (lsSub) {
+          while (lsSub.firstChild) lsSub.removeChild(lsSub.firstChild);
+          const statusRaw = (data.last_scan.status || 'unknown').toLowerCase();
+          const statusLabelMap = {
+            completed: { text: '✓ Completed', cls: 'pl-status-ok' },
+            running: { text: '⟳ Running', cls: 'pl-status-running' },
+            interrupted: { text: '⚠ Interrupted', cls: 'pl-status-warn' },
+            failed: { text: '✗ Failed', cls: 'pl-status-err' },
+            cancelled: { text: '⊘ Cancelled', cls: 'pl-status-muted' },
+          };
+          const sl = statusLabelMap[statusRaw] || { text: statusRaw, cls: 'pl-status-muted' };
+          const pill = document.createElement('span');
+          pill.className = 'pl-status-pill ' + sl.cls;
+          pill.textContent = sl.text;
+          lsSub.appendChild(pill);
+          const counts = (data.last_scan.files_scanned || 0).toLocaleString() + ' scanned';
+          if (data.last_scan.files_new) {
+            lsSub.appendChild(document.createTextNode(' · ' + counts +
+              ' · ' + data.last_scan.files_new.toLocaleString() + ' new'));
+          } else {
+            lsSub.appendChild(document.createTextNode(' · ' + counts));
+          }
+          if (data.last_scan.files_modified) {
+            lsSub.appendChild(document.createTextNode(' · ' +
+              data.last_scan.files_modified.toLocaleString() + ' modified'));
+          }
+        }
       } else {
-        document.getElementById('pl-last-scan').textContent = 'Never';
+        lsEl.textContent = 'Never';
+        if (lsSub) lsSub.textContent = 'No scan recorded yet';
       }
-      if (data.next_scan) {
+
+      // Next Scan: time + relative + type + paused/off handling
+      const nsEl = document.getElementById('pl-next-scan');
+      const nsSub = document.getElementById('pl-next-scan-sub');
+      if (data.disabled_info) {
+        nsEl.textContent = '—';
+        if (nsSub) nsSub.textContent = 'Disabled — fix shown below';
+      } else if (data.paused) {
+        // When paused, next_scan still ticks but won't actually fire.
+        nsEl.textContent = data.next_scan
+          ? `${new Date(data.next_scan).toLocaleTimeString()} (paused)`
+          : '— (paused)';
+        if (nsSub) nsSub.textContent = 'Pipeline paused — Resume to enable';
+      } else if (data.auto_convert_mode === 'off') {
+        nsEl.textContent = '— (off)';
+        if (nsSub) nsSub.textContent = 'Mode is Off — use Run Now to scan manually';
+      } else if (data.next_scan) {
         const d = new Date(data.next_scan);
-        document.getElementById('pl-next-scan').textContent = d.toLocaleTimeString();
+        nsEl.textContent = `${d.toLocaleTimeString()} (${fmtRel(d, _now)})`;
+        if (nsSub) {
+          const interval = data.scanner_interval_minutes || 0;
+          nsSub.textContent = `Pipeline scan · every ${interval} min`;
+        }
       } else {
-        document.getElementById('pl-next-scan').textContent = '--';
+        nsEl.textContent = '--';
+        if (nsSub) nsSub.textContent = 'Scheduler offline';
+      }
+
+      // v0.32.10: surface the latest auto-conversion REASON as a
+      // tooltip on the Mode cell. The reason field carries rich
+      // context like "Mode=immediate | 113354 files discovered |
+      // CPU now=4.9% | CPU historical avg=7.1% | Mon 20:00 |
+      // off hours | workers=8 | batch=175". Operators get the
+      // scheduler's full thinking on hover without cluttering the row.
+      const modeCell = document.getElementById('pl-cell-mode');
+      if (modeCell && data.last_auto_conversion && data.last_auto_conversion.reason) {
+        const lac = data.last_auto_conversion;
+        modeCell.title =
+          'Auto-convert scheduler mode.\n\n' +
+          `Last decision (${lac.status || 'unknown'}): ` +
+          (lac.reason || '');
       }
 
       // Disabled warning

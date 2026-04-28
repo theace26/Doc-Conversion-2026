@@ -91,7 +91,120 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.32.9
+## Current Version — v0.32.10
+
+**Pipeline header on the Bulk Jobs page is now descriptive
+instead of cryptic. Each cell renders a multi-line block: the
+value on top + a short "what this means" sub-line below. Last
+Scan gets a status pill (✓ Completed / ⚠ Interrupted / ✗
+Failed / ⟳ Running) plus scanned/new/modified counts; Next
+Scan describes the type of scan (Pipeline scan · every 45
+min) with paused/off/disabled handling; Mode shows what each
+mode means; and the scheduler's full decision-reason for the
+last auto-conversion is surfaced as a tooltip on the Mode
+cell.**
+
+### Why this matters
+
+User reported on v0.32.9: "it would be more helpful for a
+user to know what kind of scan is coming up next, what kind
+of scan had already happened, just a little bit more
+description."
+
+The Pipeline header had been showing 6 bare values:
+
+```
+Mode         Last Scan      Next Scan      Source Files   Pending   Interval
+Immediate    7:22:56 PM     8:27:38 PM     1,493          1,493     45 min
+```
+
+Useful, but minimal context. An operator looking at this
+couldn't tell:
+- Was that 7:22:56 PM scan **completed** or **interrupted**?
+- How many files were scanned in that run?
+- What type of scan is the next one — a manual Run Now, or
+  the scheduler tick?
+- What does "Mode: Immediate" actually do?
+
+All this data was already in `/api/pipeline/status` (the
+`last_scan.status`, `last_scan.files_scanned`,
+`last_auto_conversion.reason` fields) — we just weren't
+surfacing it. v0.32.10 surfaces it.
+
+### What changed
+
+#### Frontend — `static/bulk.html`
+
+Each Pipeline header cell now renders a `.pl-cell` block with:
+- Title (existing muted label)
+- Value (existing strong text)
+- Sub-line (`.pl-cell-sub` — small grey descriptive text)
+- Hover tooltip explaining the cell
+
+Per-cell sub-lines:
+
+| Cell | Sub-line content |
+|------|------------------|
+| Mode | "Convert on every new-file detection" / "Manual triggers only" / etc. (mode-dependent) |
+| Last Scan | Status pill + `28,504 scanned · 0 new · 0 modified` |
+| Next Scan | `Pipeline scan · every 45 min` (or `Pipeline paused — Resume to enable`, `Mode is Off — use Run Now`, `Disabled — fix shown below`) |
+| Source Files | "on disk" |
+| Pending | "awaiting conversion" |
+| Interval | "between scheduled scans" |
+
+Per-cell tooltips give a one-sentence "what this is" hint on
+hover. The Mode tooltip additionally shows the
+`last_auto_conversion.reason` field — the rich human-readable
+string the scheduler emits explaining its workers/batch-size
+decision (e.g., `"Mode=immediate | 113354 files discovered |
+CPU now=4.9% | CPU historical avg=7.1% | Mon 20:00 | off
+hours | workers=8 | batch=175"`). Operators get the
+scheduler's full thinking on hover without cluttering the
+visible row.
+
+Time displays now include a relative qualifier:
+
+- Last Scan: `7:22:56 PM (8 min ago)`
+- Next Scan: `8:27:38 PM (in 5 min)`
+
+The relative time is computed against `Date.now()` on each
+render so it stays accurate as the page polls.
+
+#### CSS — `static/markflow.css`
+
+New rule set:
+- `.pl-cell { line-height: 1.35; }`
+- `.pl-cell-sub` — small (0.72rem), muted, flex-wrap container
+  for the descriptive text
+- `.pl-status-pill` + variants `.pl-status-{ok,running,warn,err,muted}`
+  for the Last Scan status indicator
+
+### Cache-bust
+
+`?v=0.32.10` on `markflow.css` reference in `bulk.html` and
+`status.html` (both pages use the new CSS rules — bulk for
+`.pl-*`, status for the v0.32.9 progress rules).
+
+### Files
+
+- `core/version.py` — bump to 0.32.10
+- `static/bulk.html` — Pipeline header markup expanded to
+  multi-line cells with tooltips; `loadPipelineStatus`
+  populates sub-lines + status pill + relative-time qualifier
+- `static/markflow.css` — `.pl-cell-sub`, `.pl-status-pill`,
+  and the 5 status-color variants
+- `static/status.html` — `markflow.css` cache-bust bumped
+  `?v=0.32.9 → ?v=0.32.10`
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`
+
+No DB migration. No new dependencies. No backend changes —
+the existing `/api/pipeline/status` endpoint already returned
+all this data; v0.32.10 just surfaces more of it.
+
+---
+
+## v0.32.9 — Status card matches Bulk Jobs scan progress + click-to-jump
 
 **Status page active-job card now mirrors the Bulk Jobs page's
 rich scan-progress display: scanned-count + current-file +

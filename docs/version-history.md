@@ -4,6 +4,180 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.32.10 — Pipeline header descriptive scan info (2026-04-28)
+
+**Each cell of the Bulk Jobs page Pipeline header gains a
+sub-line describing what it means. Last Scan: status pill +
+scanned/new/modified counts. Next Scan: scan type +
+paused/off handling. Mode: meaning + tooltip with the
+scheduler's last full decision-reason. Time fields gain a
+relative qualifier ("8 min ago" / "in 5 min").**
+
+### Why
+
+User reported on v0.32.9: "it would be more helpful for a
+user to know what kind of scan is coming up next, what kind
+of scan had already happened, just a little bit more
+description."
+
+The Pipeline header was 6 bare values:
+
+```
+Mode         Last Scan      Next Scan      Source Files   Pending   Interval
+Immediate    7:22:56 PM     8:27:38 PM     1,493          1,493     45 min
+```
+
+Useful, but minimal. The operator couldn't tell:
+- Was that 7:22:56 PM scan completed cleanly or interrupted?
+- How many files did it actually process?
+- Is the next scan the scheduler tick, or a different kind
+  of run?
+- What does "Mode: Immediate" actually do?
+
+All this data was already on the `/api/pipeline/status`
+response (`last_scan.status`, `last_scan.files_scanned`,
+`last_scan.files_new`, `last_scan.files_modified`,
+`last_auto_conversion.reason`). v0.32.10 surfaces it.
+
+### Frontend changes — `static/bulk.html`
+
+The Pipeline header markup gains a `.pl-cell` wrapper per
+cell with a title attribute + a `.pl-cell-sub` div for the
+descriptive sub-line:
+
+```html
+<div class="pl-cell" title="…explanation…">
+  <span class="text-muted">Last Scan</span><br>
+  <strong id="pl-last-scan">--</strong>
+  <div class="pl-cell-sub" id="pl-last-scan-sub"></div>
+</div>
+```
+
+The `loadPipelineStatus` JS now populates:
+
+#### Mode sub-line
+
+Mode-dependent text:
+- **Off**: "Manual triggers only"
+- **Immediate**: "Convert on every new-file detection"
+- **Queued**: "Hold scan results for next tick"
+- **Scheduled**: "Convert at scheduler intervals"
+
+The Mode cell's title is also dynamically extended to include
+the last auto-conversion's `reason` field, e.g.:
+
+> Auto-convert scheduler mode.
+>
+> Last decision (running): Mode=immediate | 113354 files
+> discovered | CPU now=4.9% | CPU historical avg=7.1% |
+> samples=1 | Mon 20:00 | off hours | workers=8 | batch=175
+
+The scheduler emits this rich reasoning string for every
+auto-conversion run. Operators get the full decision context
+on hover without cluttering the visible row.
+
+#### Last Scan sub-line
+
+A `.pl-status-pill` + counts:
+- Status pill (color-coded): ✓ Completed / ⟳ Running /
+  ⚠ Interrupted / ✗ Failed / ⊘ Cancelled
+- "28,504 scanned · 12 new · 4 modified" (omits zero counts)
+
+#### Next Scan sub-line
+
+Type + interval, with paused/off/disabled fallbacks:
+
+| Backend state | Sub-line |
+|---|---|
+| `disabled_info` set | "Disabled — fix shown below" |
+| `paused = true` | "Pipeline paused — Resume to enable" |
+| `auto_convert_mode = 'off'` | "Mode is Off — use Run Now to scan manually" |
+| Otherwise | "Pipeline scan · every 45 min" |
+
+#### Time qualifiers
+
+Both Last Scan and Next Scan time displays now include a
+relative qualifier:
+
+- Last Scan: `7:22:56 PM (8 min ago)`
+- Next Scan: `8:27:38 PM (in 5 min)`
+
+The relative time is computed against `Date.now()` on each
+render, so it stays accurate across the polled refresh
+cadence.
+
+### CSS — `static/markflow.css`
+
+```css
+.pl-cell { line-height: 1.35; }
+.pl-cell-sub {
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-weight: 400;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+.pl-status-pill {
+  display: inline-block;
+  padding: 0.05em 0.4em;
+  border-radius: 3px;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+.pl-status-pill.pl-status-ok      { background: rgba(34,197,94,.15);  color: #4ade80; }
+.pl-status-pill.pl-status-running { background: rgba(96,165,250,.15); color: #60a5fa; }
+.pl-status-pill.pl-status-warn    { background: rgba(245,158,11,.18); color: #fbbf24; }
+.pl-status-pill.pl-status-err     { background: rgba(239,68,68,.18);  color: #f87171; }
+.pl-status-pill.pl-status-muted   { background: rgba(156,163,175,.18); color: #d1d5db; }
+```
+
+The grid template grew from `minmax(140px, 1fr)` to
+`minmax(170px, 1fr)` to accommodate the wider multi-line
+content without dropping below 6 cells per row on standard
+viewports.
+
+### Cache-bust
+
+`?v=0.32.10` on `markflow.css` for `bulk.html` and `status.html`
+(both pages now use the v0.32.9-introduced or v0.32.10-introduced
+CSS rules).
+
+### Files
+
+- `core/version.py` — bump to 0.32.10
+- `static/bulk.html` — Pipeline header markup with `.pl-cell`
+  wrappers + tooltips; `loadPipelineStatus` populates
+  sub-lines + status pill + relative-time qualifier;
+  `markflow.css` cache-bust
+- `static/markflow.css` — `.pl-cell` / `.pl-cell-sub` /
+  `.pl-status-pill` + 5 status-color variants
+- `static/status.html` — `markflow.css` cache-bust bumped
+  `?v=0.32.9 → ?v=0.32.10`
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`
+
+No DB migration. No new dependencies. No backend changes —
+the existing `/api/pipeline/status` endpoint already returned
+all this data; v0.32.10 just surfaces more of it.
+
+### Done criteria
+
+- ✅ Last Scan cell shows status pill + scanned/new/modified
+  counts beneath the timestamp
+- ✅ Next Scan cell shows scan type + interval ("Pipeline
+  scan · every 45 min") beneath the timestamp
+- ✅ Mode cell shows what the mode does + tooltip with
+  scheduler's last decision-reason
+- ✅ Time fields show relative qualifiers ("8 min ago" /
+  "in 5 min")
+- ✅ Paused / Off / Disabled states render context-appropriate
+  Next Scan sub-text instead of just hiding the value
+
+---
+
 ## v0.32.9 — Status card matches Bulk Jobs scan progress + click-to-jump (2026-04-28)
 
 **The Status page active-job card now renders the same rich
