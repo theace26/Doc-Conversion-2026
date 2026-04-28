@@ -4,6 +4,98 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.34.3 — Auto-conversion unblocked: disk-space pre-check multiplier (2026-04-28)
+
+**Closes BUG-011 in `docs/bug-log.md`. Auto-conversion was silently
+failing every job once the source share grew past roughly one-third of
+free output space — no errors surfaced to the operator, just an
+ever-growing pile of `bulk_files.status='pending'` and a stale
+Meilisearch index showing data from a previous DB lifetime.**
+
+### Symptom on the affected machine
+
+The K-drive ingest had reached 92,257 files (~250 GB). Every
+scheduled auto-conversion job ran the pre-flight check, calculated
+`required = 250 GB × 3 = 750 GB`, looked at the output volume's
+~158 GB free, and aborted with:
+
+```
+158729 MB free on output volume but 750775 MB needed
+(92257 files, 250258 MB input × 3 buffer)
+```
+
+The error landed in `bulk_jobs.error_msg` but had no surface in the
+nav, status banner, or any pulse indicator — operators saw "12,847
+indexed" (the stale Meilisearch count) and "94k scanned" (the
+discovery count from the in-progress scan code path) and had no
+visible reason for the gap.
+
+### Root cause
+
+`core/bulk_worker.py:21` declared `_DISK_SPACE_REQUIRED_MULTIPLIER = 3`
+(introduced in v0.23.6 M2). The comment said the multiplier covered
+"markdown output + sidecars + temp", but **markdown output is text and
+sidecars are tiny JSON** — actual ratio is well under 0.5×. The 3×
+assumption likely traced to a legacy extracted-image-files codepath
+that hasn't applied since the content-hash sidecar redesign.
+
+### What changed
+
+- **`core/bulk_worker.py:21`** — replaced the hardcoded constant with
+  a `_get_disk_space_multiplier()` helper that reads `DISK_SPACE_MULTIPLIER`
+  from the environment with a default of **0.5**. Per-call read (not
+  import-time snapshot) so runtime config takes effect without a
+  container restart, mirroring the v0.34.x lesson on output-path
+  resolvers.
+- **`core/bulk_worker.py:_precheck_disk_space()`** — captures
+  `multiplier` once at call time and uses it for the calculation, log
+  event, and operator-facing error message. Error message now ends
+  with `"tune via DISK_SPACE_MULTIPLIER env var"` so the next operator
+  who hits a real space crunch immediately knows the lever exists.
+- **`.env.example`** — new `DISK_SPACE_MULTIPLIER=0.5` entry with
+  inline guidance on when to tune up (extracted-image workflows,
+  dense vector indexing of large PDFs).
+- **`tests/test_disk_space_multiplier.py`** — 10 unit tests covering:
+  default, valid float override, integer-string override, small value
+  honored, zero falls back, negative falls back, non-numeric falls
+  back, empty falls back, whitespace falls back, per-call (not
+  snapshot) read semantics.
+
+No DB migration. No new endpoints. No API contract changes.
+
+### Operator-visible change
+
+- **Auto-conversion runs to completion** on shares that previously
+  failed pre-flight. The 92,257 pending files in `bulk_files` drain
+  on the next auto-conversion cycle (or a manual "Run scan now" from
+  Activity / Pipeline).
+- **Meilisearch index count climbs** from the stale ghost number
+  toward the actual indexed total as conversion completes.
+- **Tuning lever exists**: `DISK_SPACE_MULTIPLIER` in `.env` for
+  shares with unusually large output. Most operators won't need to
+  touch it.
+
+### Why the original 3× shipped
+
+Educated guess from the v0.23.6 M2 commit context: the check was
+probably designed when extracted images were saved as separate output
+files (legacy convertible path). The modern pipeline keeps content as
+markdown text + content-hash-keyed sidecar JSON — a fraction of input
+size. The multiplier never got revisited when the output model
+changed.
+
+### Why no alarm fired
+
+Auto-conversion failure was logged at `error` level but not routed
+through any operator-facing alert channel. The activity-events table
+recorded the failure as a generic `bulk_end` (no special status), so
+the existing dashboard surfaces showed normal-looking activity. This
+is the bigger lesson — auto-pipeline failures should page someone.
+Tracked separately as part of the upcoming UX overhaul (Notifications
+trigger rules, see `docs/superpowers/specs/2026-04-28-ux-overhaul-search-as-home-design.md` §13).
+
+---
+
 ## v0.34.2 — Audit follow-up: 5 OUTPUT_BASE consumers missed by v0.34.1 (2026-04-28)
 
 **Hotfix closing BUG-010 in `docs/bug-log.md`. Post-merge audit of

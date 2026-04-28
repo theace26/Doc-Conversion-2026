@@ -8,6 +8,7 @@ Adobe files. Supports pause, resume, and cancel operations.
 import asyncio
 import hashlib
 import json
+import os
 import shutil
 import statistics
 import time
@@ -16,9 +17,37 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-# v0.23.6 M2: multiplier applied to sum(input_file_sizes) when estimating
-# required disk space for a bulk job (markdown output + sidecars + temp).
-_DISK_SPACE_REQUIRED_MULTIPLIER = 3
+# Multiplier applied to sum(input_file_sizes) when estimating required disk
+# space for a bulk job's output volume. Default 0.5 — markdown + sidecars
+# + peak temp empirically run at <50% of input size for typical doc-to-MD
+# conversion (markdown is text; sidecars are tiny JSON; binary inputs like
+# PDFs/JPGs shrink dramatically). Override via DISK_SPACE_MULTIPLIER env var
+# if your source mix produces unusually large output (e.g., extracted-image
+# workflows). Set to 0 or non-numeric to fall back to default.
+#
+# History: v0.23.6 M2 introduced this check with a hardcoded 3 (assumed
+# MD output ~= input size, ×3 buffer). v0.34.3 (BUG-011) — the 3x assumption
+# silently rejected every auto-conversion job once total source size exceeded
+# 1/3 of free output space; the actual ratio is well under 1.
+_DISK_SPACE_MULTIPLIER_DEFAULT = 0.5
+
+
+def _get_disk_space_multiplier() -> float:
+    """Read DISK_SPACE_MULTIPLIER env var per-call (not import-time snapshot).
+
+    Per-call read mirrors the v0.34.x lesson on output-path resolution:
+    runtime config changes should take effect without a restart.
+    """
+    raw = os.environ.get("DISK_SPACE_MULTIPLIER")
+    if not raw:
+        return _DISK_SPACE_MULTIPLIER_DEFAULT
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return _DISK_SPACE_MULTIPLIER_DEFAULT
+    if v <= 0:
+        return _DISK_SPACE_MULTIPLIER_DEFAULT
+    return v
 
 import structlog
 
@@ -598,13 +627,14 @@ class BulkJob:
             deregister_job(self.job_id)
 
     async def _precheck_disk_space(self) -> str | None:
-        """v0.23.6 M2: return an error string if free disk space is insufficient.
+        """Return an error string if free disk space is insufficient.
 
         Sums the file sizes of every pending bulk_file for this job, multiplies
-        by `_DISK_SPACE_REQUIRED_MULTIPLIER` to cover markdown + sidecars + temp
-        files, and compares against `shutil.disk_usage(self.output_path).free`.
-        Returns None when there's enough headroom; otherwise a human-readable
-        error string to surface to the user.
+        by the disk-space multiplier (env-configurable via DISK_SPACE_MULTIPLIER,
+        default 0.5) to estimate output footprint (markdown + sidecars + temp),
+        and compares against `shutil.disk_usage(self.output_path).free`. Returns
+        None when there's enough headroom; otherwise a human-readable error
+        string to surface to the user.
         """
         try:
             pending_files = await get_unprocessed_bulk_files(self.job_id)
@@ -624,7 +654,8 @@ class BulkJob:
         if total_bytes == 0:
             return None
 
-        required = total_bytes * _DISK_SPACE_REQUIRED_MULTIPLIER
+        multiplier = _get_disk_space_multiplier()
+        required = int(total_bytes * multiplier)
 
         # Walk up to the nearest existing parent — the job's output_path may
         # not exist yet, but shutil.disk_usage needs a real directory.
@@ -648,7 +679,7 @@ class BulkJob:
             required_bytes=required,
             free_bytes=free,
             probe_path=str(probe),
-            multiplier=_DISK_SPACE_REQUIRED_MULTIPLIER,
+            multiplier=multiplier,
         )
         if free >= required:
             return None
@@ -659,7 +690,7 @@ class BulkJob:
         return (
             f"{_mb(free)} free on output volume but {_mb(required)} needed "
             f"({len(pending_files)} files, {_mb(total_bytes)} input × "
-            f"{_DISK_SPACE_REQUIRED_MULTIPLIER} buffer)"
+            f"{multiplier} buffer; tune via DISK_SPACE_MULTIPLIER env var)"
         )
 
     async def _worker(self, worker_id: int) -> None:

@@ -462,6 +462,26 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 ## Bulk & Lifecycle
 
+- **Pre-flight disk-space multipliers must reflect the actual conversion
+  output ratio, not assumed-worst-case (v0.34.3, BUG-011)**: `core/bulk_worker.py`
+  pre-checks free output space as `sum(input_sizes) * DISK_SPACE_MULTIPLIER`
+  before any worker starts, aborting the job cleanly if there isn't enough
+  headroom. v0.23.6 M2 introduced this with a hardcoded `× 3` constant — but
+  doc-to-markdown output is **well under 50% of input size** (markdown is
+  text, sidecars are tiny JSON, binary inputs shrink dramatically). The 3×
+  silently rejected every auto-conversion job once total source exceeded 1/3
+  of free output space, with NO operator-facing alarm — just an
+  ever-growing pile of `bulk_files.status='pending'` and a stale Meilisearch
+  count from a prior DB lifetime. Fix: `_get_disk_space_multiplier()`
+  reads `DISK_SPACE_MULTIPLIER` env var per call (default 0.5), no
+  import-time snapshot. **Lessons that generalize:** (1) disk-space
+  multipliers should be calibrated against actual output ratios, not
+  assumed-worst-case; (2) auto-pipeline failures need an operator-facing
+  alert path — silent retry-loops on the same bug masked this for months;
+  (3) the gap between "scanned" (source_files / discovery count) and
+  "indexed" (Meilisearch count) is a leading indicator that conversion is
+  stalled — surface that delta in any new dashboard.
+
 - **`~$*` Office lock files MUST be filtered at scan time (v0.22.19)**:
   Microsoft Office (Word/Excel/PowerPoint/Visio) creates a hidden ~162-byte
   sentinel file with the same name prefixed by `~$` whenever a document is

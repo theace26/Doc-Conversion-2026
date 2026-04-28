@@ -6,6 +6,50 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.34.3 — Auto-conversion unblocked on large shares
+
+If you have a source share larger than roughly one-third of your output
+volume's free space (e.g., a 250 GB K-drive feeding into a 500 GB
+output disk), auto-conversion has been silently failing every job
+since v0.23.6 — and there was no obvious signal on the operator-facing
+surfaces. This release fixes the pre-flight check that was rejecting
+every job and makes the threshold tunable.
+
+### What was broken
+
+Auto-conversion ran a pre-flight check that demanded **3× the source
+size** as free output space ("3× buffer for markdown + sidecars +
+temp"). For doc-to-markdown work that ratio is wrong by an order of
+magnitude — markdown is text and sidecars are tiny JSON, so actual
+output runs well under 50% of input. The check kept failing every job
+silently while scans continued to discover and queue more files.
+
+### What you'll see now
+
+- **Auto-conversion completes again**. The pile of `pending` files in
+  the catalog drains on the next scheduled run (or click "Run scan
+  now" from the Activity / Pipeline page to trigger immediately).
+- **The "indexed" counter climbs**. Previously stuck at the count from
+  before the share grew, it now rises as conversion catches up.
+- **No setup change required**. The default multiplier (0.5) is
+  appropriate for typical doc workloads.
+
+### If you want to tune
+
+Add `DISK_SPACE_MULTIPLIER=<float>` to your `.env`. Default is `0.5`.
+Tune higher (e.g., `1.0`) only if your specific workload produces
+unusually large output — extracted-image flows, dense vector indexing
+of huge PDFs. Most operators should leave it alone.
+
+### Lesson under the hood
+
+The auto-conversion failure was logged but never surfaced as an
+operator alert — no banner, no badge, no notification. Looking at this
+gap is on the upcoming UX overhaul list under Notifications trigger
+rules.
+
+---
+
 ## v0.34.2 — Disk Usage / health summary path consistency
 
 Quick follow-up to v0.34.1. Five more places in MarkFlow were still
