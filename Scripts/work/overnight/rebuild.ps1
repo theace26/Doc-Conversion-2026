@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-    Overnight unattended rebuild of MarkFlow with CUDA Whisper (v0.22.17+).
+    Overnight unattended rebuild of MarkFlow with CUDA Whisper (v0.22.17+,
+    extended for v0.34.0/.1 endpoint probes 2026-04-28).
 
 .DESCRIPTION
     Self-healing phased rebuild pipeline. Pulls the latest main branch,
@@ -21,7 +22,8 @@
                                     (runs BEFORE build - see spec §11)
       Phase 2    Image build     - docker build base + app         [retry 2x]
       Phase 3    Start           - docker-compose up -d             [race override]
-      Phase 4    Verify          - containers + health + GPU + MCP  [3x x 5s]
+      Phase 4    Verify          - containers + health + GPU + MCP +
+                                    v0.34.x endpoint probes            [6x10s]
       Phase 5    Success         - compact final-state block
 
     Exit codes:
@@ -451,6 +453,69 @@ function Test-McpHealth {
 }
 
 # -----------------------------------------------------------------------------
+# Test-V034Endpoints
+#   v0.34.0 + v0.34.1 regression probes:
+#
+#   v0.34.0 added:
+#     - GET /api/prproj/stats   (Premiere project cross-reference API)
+#     - migration v28 creating prproj_media_refs table
+#
+#   v0.34.1 added:
+#     - core/storage_paths.py resolver
+#     - GET /api/storage/output (Storage Manager configured path)
+#     - HTTP 422 rejection of out-of-allowed output_dir on /api/convert
+#       (BUG-001..009 closed in this release)
+#
+#   This function asserts the new endpoints respond and the migration
+#   landed. It does NOT assert specific row counts (operator's data
+#   varies) - just that the endpoints don't 5xx and the table exists.
+#   A 5xx here on a fresh build would indicate a v0.34.x regression.
+# -----------------------------------------------------------------------------
+function Test-V034Endpoints {
+    $ErrorActionPreference = "SilentlyContinue"
+
+    # 1) v0.34.0: /api/prproj/stats
+    $prprojStats = curl.exe -sf --max-time 5 http://localhost:8000/api/prproj/stats 2>$null
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$prprojStats)) {
+        Write-Host "    Test-V034Endpoints: /api/prproj/stats unreachable (v0.34.0 regression)" -ForegroundColor Red
+        return $false
+    }
+    if ($prprojStats -notmatch '"n_projects"' -or $prprojStats -notmatch '"top_5_most_referenced"') {
+        Write-Host "    Test-V034Endpoints: /api/prproj/stats response missing expected keys" -ForegroundColor Red
+        return $false
+    }
+    Write-Host "    Test-V034Endpoints: /api/prproj/stats OK (v0.34.0)" -ForegroundColor Green
+
+    # 2) v0.34.0: migration v28 (prproj_media_refs table) - check via the
+    #    /api/prproj/references endpoint which would 5xx if the table
+    #    didn't exist (the route's SELECT would explode at runtime).
+    $prprojRefs = curl.exe -sf --max-time 5 'http://localhost:8000/api/prproj/references?path=/never-exists.mp4' 2>$null
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$prprojRefs)) {
+        Write-Host "    Test-V034Endpoints: /api/prproj/references unreachable (migration v28 may have failed)" -ForegroundColor Red
+        return $false
+    }
+    if ($prprojRefs -notmatch '"projects"\s*:\s*\[\s*\]' -and $prprojRefs -notmatch '"projects"') {
+        Write-Host "    Test-V034Endpoints: /api/prproj/references response shape unexpected" -ForegroundColor Red
+        return $false
+    }
+    Write-Host "    Test-V034Endpoints: /api/prproj/references OK (migration v28 applied)" -ForegroundColor Green
+
+    # 3) v0.34.1: /api/storage/output (Storage Manager path resolver)
+    $storageOutput = curl.exe -sf --max-time 5 http://localhost:8000/api/storage/output 2>$null
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$storageOutput)) {
+        Write-Host "    Test-V034Endpoints: /api/storage/output unreachable (v0.34.1 regression)" -ForegroundColor Red
+        return $false
+    }
+    if ($storageOutput -notmatch '"path"') {
+        Write-Host "    Test-V034Endpoints: /api/storage/output response missing 'path' key" -ForegroundColor Red
+        return $false
+    }
+    Write-Host "    Test-V034Endpoints: /api/storage/output OK (v0.34.1)" -ForegroundColor Green
+
+    return $true
+}
+
+# -----------------------------------------------------------------------------
 # Write-Diagnostics
 #   13-item diagnostic dump, emitted to the transcript on any non-success
 #   exit. Budget ~20s total. Every command wrapped in Invoke-Logged
@@ -689,6 +754,16 @@ function Invoke-Rollback {
     $mcpOk = Test-McpHealth
     if (-not $mcpOk) {
         Write-Host "  Rollback FAILED: rolled-back stack failed MCP /health" -ForegroundColor Red
+        return 3
+    }
+    # v0.34.x: rolled-back image must also satisfy the v0.34 endpoint
+    # contract. If the last-good was a pre-v0.34 build this WILL fail
+    # cleanly (404 on /api/prproj/stats) and signal the operator that
+    # the rollback target is too old for this script's verification.
+    $v034Ok = Test-V034Endpoints
+    if (-not $v034Ok) {
+        Write-Host "  Rollback FAILED: rolled-back stack failed v0.34.x endpoint probes" -ForegroundColor Red
+        Write-Host "    (last-good may pre-date v0.34.0; consider tagging a fresh :last-good once a known-good v0.34+ build is verified)" -ForegroundColor DarkYellow
         return 3
     }
 
@@ -936,10 +1011,15 @@ try {
         if (-not $mcpOk) {
             throw "PHASE4_FAIL: Test-McpHealth (MCP /health on port 8001)"
         }
+        # v0.34.x regression probes (added 2026-04-28 alongside v0.34.0/v0.34.1)
+        $v034Ok = Test-V034Endpoints
+        if (-not $v034Ok) {
+            throw "PHASE4_FAIL: Test-V034Endpoints (prproj API / migration v28 / storage output)"
+        }
         Write-Host ""
         Write-Host "  Phase 4 verification: ALL CHECKS PASSED" -ForegroundColor Green
     } else {
-        Write-Host "    DRY RUN: would run Test-StackHealthy + Test-GpuExpectation + Test-McpHealth"
+        Write-Host "    DRY RUN: would run Test-StackHealthy + Test-GpuExpectation + Test-McpHealth + Test-V034Endpoints"
     }
 
     # -------------------------------------------------------------------------
