@@ -295,3 +295,35 @@ def document_model_with_all_elements():
         attributes={"id": "1"},
     ))
     return model
+
+
+# ── Active Operations Registry test fixtures (v0.35.0) ──────────────────────
+
+@pytest_asyncio.fixture(autouse=True)
+async def _set_hydration_event():
+    """Tests don't run lifespan hydration — fake the event so register_op
+    doesn't block. Also register a stub cancel hook for the op_types that
+    Task 3's tests exercise as cancellable=True. Real hooks are registered
+    by their owning subsystems at module import (Tasks 14, 16, 17, 18, 19,
+    20, 23); until those land, tests that need cancellable=True for a
+    given op_type must wire it up here.
+
+    Caveat: this fixture leaves `_cancel_hooks["pipeline.run_now"]`
+    populated for the entire suite (no teardown — `setdefault` is
+    idempotent). Any future test that needs to assert "no real hook
+    is registered for pipeline.run_now" must explicitly
+    `_cancel_hooks.pop("pipeline.run_now", None)` inside the test
+    body — or this fixture should be reshaped to yield-then-clear."""
+    from core import active_ops
+    active_ops._hydration_complete.set()
+
+    # Stub hook for pipeline.run_now so test_register_op_returns_unique_uuid_and_persists
+    # (which passes cancellable=True) succeeds. Intentionally NOT registering
+    # for db.backup so test_register_op_cancellable_without_hook_raises still raises.
+    async def _stub_cancel(op_id: str) -> None:
+        return None
+
+    active_ops._cancel_hooks.setdefault("pipeline.run_now", _stub_cancel)
+
+    yield
+    # Don't clear — once set, leave set for the rest of the suite

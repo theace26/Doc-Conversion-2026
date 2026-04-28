@@ -15,10 +15,13 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
 import structlog
+
+from core.db.connection import db_execute, db_write_with_retry
 
 log = structlog.get_logger(__name__)
 
@@ -124,3 +127,94 @@ class ActiveOperation:
             "cancel_url": self.cancel_url,
             "extra": self.extra,
         }
+
+
+# ── Registry state ─────────────────────────────────────────────────────
+_lock = asyncio.Lock()
+_ops: dict[str, ActiveOperation] = {}
+_cancel_hooks: dict[str, Callable[[str], Awaitable[None]]] = {}
+_hydration_complete = asyncio.Event()
+
+
+def register_cancel_hook(op_type: str, hook: Callable[[str], Awaitable[None]]) -> None:
+    """Subsystems call this at module import time to register their
+    cancel mechanism. Spec §9, P5."""
+    if op_type not in OP_TYPES:
+        raise ValueError(f"unknown op_type: {op_type}")
+    _cancel_hooks[op_type] = hook
+    log.info("active_ops.cancel_hook_registered", op_type=op_type)
+
+
+# ── Public surface ─────────────────────────────────────────────────────
+async def register_op(
+    *,
+    op_type: str,
+    label: str,
+    icon: str,
+    origin_url: str,
+    started_by: str,
+    cancellable: bool = False,
+    cancel_url: str | None = None,
+    extra: dict | None = None,
+) -> str:
+    """Register a new operation in the registry. Returns op_id (uuid4).
+
+    Blocks on _hydration_complete to ensure the registry has hydrated
+    from DB before any new op can be registered (spec §10, F5).
+
+    Raises:
+        ValueError: unknown op_type.
+        RuntimeError: cancellable=True but no cancel hook registered
+                      for op_type.
+    """
+    if op_type not in OP_TYPES:
+        raise ValueError(f"unknown op_type: {op_type}")
+    if cancellable and op_type not in _cancel_hooks:
+        raise RuntimeError(
+            f"no cancel hook registered for op_type {op_type!r}; "
+            "register one at module import via register_cancel_hook()"
+        )
+
+    await _hydration_complete.wait()
+
+    now = time.time()
+    op = ActiveOperation(
+        op_id=str(uuid.uuid4()),
+        op_type=op_type,
+        label=label,
+        icon=icon,
+        origin_url=origin_url,
+        started_by=started_by,
+        started_at_epoch=now,
+        last_progress_at_epoch=now,
+        cancellable=cancellable,
+        cancel_url=cancel_url,
+        extra=extra or {},
+    )
+
+    async with _lock:
+        _ops[op.op_id] = op
+
+    # Persist to DB via the single-writer queue. In-memory state is
+    # canonical during the process lifetime; DB is for restart-survival
+    # so persist failures are logged but do not propagate.
+    async def _do_insert() -> None:
+        row = op.to_db_row()
+        cols = ", ".join(row.keys())
+        placeholders = ", ".join("?" for _ in row)
+        await db_execute(
+            f"INSERT INTO active_operations ({cols}) VALUES ({placeholders})",
+            tuple(row.values()),
+        )
+
+    try:
+        await db_write_with_retry(_do_insert)
+    except Exception as exc:
+        log.error("active_ops.register_persist_failed",
+                  op_id=op.op_id, op_type=op_type,
+                  started_by=started_by, error=str(exc))
+
+    log.info("active_ops.registered",
+             op_id=op.op_id, op_type=op_type,
+             started_by=started_by)
+    return op.op_id

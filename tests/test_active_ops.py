@@ -103,3 +103,73 @@ def test_op_type_whitelist_rejects_unknown():
     assert "db.restore" in OP_TYPES
     assert "bulk.job" in OP_TYPES
     assert "bogus.op" not in OP_TYPES
+
+
+@pytest.mark.asyncio
+async def test_register_op_returns_unique_uuid_and_persists(client):
+    """register_op returns a UUID4 string, persists to DB,
+    and adds the op to the in-memory dict."""
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now",
+        label="Force Transcribe",
+        icon="⚙",
+        origin_url="/history.html",
+        started_by="test@example.com",
+        cancellable=True,
+        cancel_url=None,
+        extra={"scan_run_id": 99},
+    )
+    assert isinstance(op_id, str)
+    assert len(op_id) == 36   # uuid4 length
+
+    # Two registrations get different IDs
+    op_id_2 = await active_ops.register_op(
+        op_type="pipeline.run_now",
+        label="X",
+        icon="⚙",
+        origin_url="/history.html",
+        started_by="test@example.com",
+    )
+    assert op_id_2 != op_id
+
+    # Persisted to DB
+    row = await db_fetch_one(
+        "SELECT * FROM active_operations WHERE op_id=?", (op_id,)
+    )
+    assert row is not None
+    assert row["label"] == "Force Transcribe"
+    assert row["cancellable"] == 1
+    assert json.loads(row["extra_json"])["scan_run_id"] == 99
+    assert row["finished_at_epoch"] is None    # still running
+    assert row["total"] == 0
+    assert row["done"] == 0
+
+
+@pytest.mark.asyncio
+async def test_register_op_unknown_op_type_raises():
+    from core import active_ops
+    with pytest.raises(ValueError, match="unknown op_type"):
+        await active_ops.register_op(
+            op_type="bogus.op",
+            label="X", icon="?",
+            origin_url="/", started_by="x@x",
+        )
+
+
+@pytest.mark.asyncio
+async def test_register_op_cancellable_without_hook_raises():
+    """If cancellable=True but no cancel hook is registered for the
+    op_type, register_op refuses (spec F9). The hook itself is registered
+    by the subsystem at module import — for this test, we use an op_type
+    we know hasn't had its hook registered yet (use db.backup which is
+    uncancellable; flip cancellable=True to force the error)."""
+    from core import active_ops
+    with pytest.raises(RuntimeError, match="no cancel hook"):
+        await active_ops.register_op(
+            op_type="db.backup",
+            label="X", icon="?",
+            origin_url="/", started_by="x@x",
+            cancellable=True,
+        )
