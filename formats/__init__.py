@@ -23,6 +23,10 @@ from formats.epub_handler import EpubHandler  # noqa: F401
 from formats.eml_handler import EmlHandler  # noqa: F401
 from formats.xml_handler import XmlHandler  # noqa: F401
 from formats.adobe_handler import AdobeHandler  # noqa: F401
+# v0.34.0: dedicated deep handler for Premiere Pro projects. Imported AFTER
+# adobe_handler so its `prproj` registration wins routing (registry is
+# last-writer-wins). adobe_handler.EXTENSIONS also drops `prproj` for clarity.
+from formats.prproj.handler import PrprojHandler  # noqa: F401
 from formats.json_handler import JsonHandler  # noqa: F401
 from formats.yaml_handler import YamlHandler  # noqa: F401
 from formats.ini_handler import IniHandler  # noqa: F401

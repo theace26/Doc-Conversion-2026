@@ -4,6 +4,247 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.34.0 — `.prproj` deep handler (parser + cross-reference + UI) (2026-04-28)
+
+**Premiere Pro project files (`.prproj`) now go through a dedicated
+deep handler instead of `AdobeHandler`'s metadata-only treatment. The
+new handler streams the gzipped XML through `lxml.iterparse`, harvests
+every clip path / sequence / bin defensively, renders a structured
+Markdown summary, and persists the media-refs cross-reference to a
+new `prproj_media_refs` table. Three new OPERATOR+ API endpoints
+expose the cross-reference; the preview page gains a "Used in Premiere
+projects" sidebar card. All three plan phases shipped as a single
+release per operator request. Plus a new comprehensive
+`developer-reference.md` help article.**
+
+### Why this matters
+
+Premiere project files are gzipped XML — they're machine-readable,
+but the v0.33.x handler chain ran them through AdobeHandler which
+extracted only filename + creator + modify date. Operators editing
+in shared NAS environments routinely lose track of which Premiere
+project a given clip belongs to. With the deep handler, MarkFlow
+becomes the authority on that relationship — searchable by clip
+filename and queryable via API.
+
+### Deviation from the plan
+
+The plan called for **three separate releases** (v0.34.0 / v0.34.1 /
+v0.34.2 — one per phase). Operator chose option (1): one release
+covering all three phases. Phase 0 (real-world fixtures) was deferred
+— the suite ships with synthetic fixtures generated inside the test
+file and a `test_real_fixtures_if_present` sweep that auto-runs
+against any `.prproj` files dropped into `tests/fixtures/prproj/`.
+
+### Phase 1 — parser + handler + Markdown rendering
+
+**New module `formats/prproj/parser.py`** (~430 LOC). Public surface:
+`parse_prproj(path) -> PrprojDocument`. `PrprojDocument` is a frozen
+dataclass tree (`MediaRef`, `Sequence`, `Bin`). Implementation:
+
+- **gzip + plain-XML autodetect** on the first 2 magic bytes.
+- **Streaming `lxml.iterparse`** with element clearing for memory
+  safety on 100 MB+ uncompressed XML.
+- **Defensive tag-name heuristics** — substring matching against
+  known Premiere tag fragments (`Clip`, `MasterClip`, `ClipDef`,
+  `Sequence`, `Bin`, `FilePath`, `URL`, `MediaSource`, etc.) instead
+  of fixed XPath. A small false-positive rate beats missing real refs.
+- **Schema-confidence scoring** — `high` (known root + media + seqs),
+  `medium` (one or the other), `low` (unknown root or empty harvest).
+- **Security hardening** — `resolve_entities=False`, `no_network=True`,
+  `recover=False`. No XXE, no external DTD fetch, no eval / exec / shell.
+
+**New module `formats/prproj/handler.py`** (~340 LOC). `PrprojHandler`
+extends `FormatHandler`, registered via `@register_handler` for
+extension `prproj`. Renders a `DocumentModel` with H1 (project name),
+metadata table, sequence list, media list (grouped by type), bin tree
+(ASCII art), and parse-warning list. Exports as Markdown via the
+existing handler chain.
+
+**Routing change**: `formats/__init__.py` imports `PrprojHandler`
+**after** `AdobeHandler`. The format registry is last-writer-wins, so
+the new handler takes the `prproj` slot. `AdobeHandler.EXTENSIONS`
+also drops `prproj` defensively.
+
+### Phase 2 — DB + API
+
+**New table `prproj_media_refs`** (DDL in `_SCHEMA_SQL` + idempotent
+migration v28):
+
+```sql
+CREATE TABLE prproj_media_refs (
+    id              TEXT PRIMARY KEY,
+    project_id      TEXT NOT NULL REFERENCES bulk_files(id) ON DELETE CASCADE,
+    project_path    TEXT NOT NULL,
+    media_path      TEXT NOT NULL,
+    media_name      TEXT,
+    media_type      TEXT,
+    duration_ticks  INTEGER,
+    in_use_in_sequences TEXT,
+    recorded_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_prproj_refs_media_path  ON prproj_media_refs(media_path);
+CREATE INDEX idx_prproj_refs_project_id  ON prproj_media_refs(project_id);
+CREATE INDEX idx_prproj_refs_project_path ON prproj_media_refs(project_path);
+```
+
+**New module `core/db/prproj_refs.py`** (~270 LOC). Two parallel
+surfaces:
+
+- **Async** (`upsert_media_refs`, `get_projects_referencing`,
+  `get_media_for_project`, `delete_refs_for_project`, `stats`) — used
+  by the API routes.
+- **Sync** (`upsert_media_refs_sync`) — used by the handler, which
+  runs in worker threads where the async pool isn't reachable. Opens a
+  short-lived `sqlite3.Connection` with WAL + busy_timeout. Failures
+  log + swallow — never fail an ingest because of cross-ref persistence.
+
+The handler's `_best_effort_persist_refs` hook fires only when at
+least one ref was harvested (skips on metadata-only fallback). FK
+`ON DELETE CASCADE` ensures cleanup when a `.prproj`'s `bulk_files`
+row is removed.
+
+**New router `api/routes/prproj.py`** mounted at `/api/prproj`. Three
+OPERATOR+ endpoints:
+
+- `GET /api/prproj/references?path=<media_path>` — reverse lookup
+- `GET /api/prproj/{project_id}/media` — forward lookup
+- `GET /api/prproj/stats` — aggregate counts (n_projects, n_media_refs,
+  top_5_most_referenced)
+
+### Phase 3 — UI surface
+
+**New shared module `static/js/prproj-refs.js`** (~120 LOC). Public
+surface on `window.PrprojRefs`:
+
+- `fetchProjectsReferencing(mediaPath)` — `/api/prproj/references` call
+- `renderReferencesCard(container, refs)` — populates the sidebar card
+- `isLikelyMediaPath(path)` — extension check (video / audio / image
+  / graphic) used to decide whether to show the card
+
+All DOM via `createElement` + `textContent` (XSS-safe per project
+gotcha — mirrors `cost-estimator.js`).
+
+**Preview page card**. `static/preview.html` gains
+`#pv-prproj-refs-card` between the Flags and Related cards. Mounted
+only when `info.path` looks like media. Empty state: *"Not referenced
+by any indexed Premiere project."*
+
+**Search page**. The existing dynamic facet-chip system surfaces
+`prproj` as a filterable type once Premiere projects are indexed —
+no static markup change needed.
+
+### Phase 1.5 placeholders (deferred)
+
+- **Sequence-clip linkage** — `MediaRef.in_use_in_sequences` is empty
+  in v0.34.0; populating it requires a second iterparse pass to walk
+  sequence-track-clip nodes. `merge_sequence_usage()` exists as a
+  stub-shaped no-op.
+- **Title text** + **marker comments** — denser schemas; deferred.
+
+### Tests
+
+`tests/test_prproj_handler.py` (~280 LOC):
+- `test_parse_minimal_project` — 1 sequence, 5 clips
+- `test_parse_medium_project` — 10 sequences, 100 clips
+- `test_parse_handles_unknown_schema` — unrecognised root
+- `test_parse_handles_truncated_gzip` — fallback path
+- `test_parse_records_warnings_in_document` — malformed sequence node
+- `test_handler_priority_wins_over_adobe` — routing
+- `test_adobe_handler_no_longer_lists_prproj`
+- `test_empty_document_fallback`
+- `test_handler_renders_markdown_with_media_paths`
+- `test_media_type_classification`
+- `test_dedup_repeated_paths`
+- `test_real_fixtures_if_present` (auto-skipped when no fixtures)
+
+`tests/test_prproj_refs.py` (~250 LOC):
+- `test_upsert_sync_writes_refs`
+- `test_upsert_sync_replaces_not_duplicates`
+- `test_upsert_sync_no_bulk_row_returns_zero`
+- `test_reverse_lookup_3_projects_one_clip`
+- `test_forward_lookup_returns_all_media`
+- `test_cascade_delete_on_project_removal`
+- `test_stats_aggregates`
+
+### Help wiki additions
+
+**New article `docs/help/developer-reference.md`** — comprehensive
+deep-dive covering: quick-start, auth model, full API surface, all
+new v0.34.0 endpoints, LLM cost subsystem, search + AI Assist,
+pipeline + bulk endpoints, lifecycle + trash, storage + mounts,
+analysis queue, log management, **database schema**, **log event
+taxonomy**, format handler architecture, Docker / CLI workflows,
+environment variables, and an **operational runbook**. Linked from
+`_index.json` Integration category.
+
+**Updated `docs/help/adobe-files.md`** — `.prproj` row in the
+supported-formats table updated to "deep parse"; new section
+"Premiere Pro Projects (Deep Parse)" with worked example, fallback
+behaviour, cross-reference API pointer, and limitations.
+
+**Updated `docs/help/admin-tools.md`** — new "Premiere project
+cross-reference -- v0.34.0" section with operator + integrator
+treatment, curl/Python/JavaScript samples, response-shape examples,
+and audit-trail event reference.
+
+**Updated `docs/help/whats-new.md`** — v0.34.0 entry with worked
+examples ("which projects reference this clip?").
+
+### Files
+
+- `formats/prproj/__init__.py` — NEW (marker)
+- `formats/prproj/parser.py` — NEW (~430 LOC, defensive iterparse
+  walker)
+- `formats/prproj/handler.py` — NEW (~340 LOC, render + Phase 2 hook)
+- `formats/__init__.py` — register PrprojHandler after AdobeHandler
+- `formats/adobe_handler.py` — drop `prproj` from EXTENSIONS + 4 inline
+  comment cleanups
+- `core/db/schema.py` — `prproj_media_refs` DDL added to `_SCHEMA_SQL`;
+  migration v28 appended to `_MIGRATIONS`
+- `core/db/prproj_refs.py` — NEW (~270 LOC, async + sync surface)
+- `api/routes/prproj.py` — NEW (3 endpoints)
+- `main.py` — register `prproj_routes.router`
+- `static/js/prproj-refs.js` — NEW shared module (~120 LOC)
+- `static/preview.html` — `#pv-prproj-refs-card` mount + 2 CSS rules
+  + `loadPrprojRefsCard(info)` hook + cache-busted script tag
+- `tests/test_prproj_handler.py` — NEW (12 tests + auto-fixture sweep)
+- `tests/test_prproj_refs.py` — NEW (7 tests, async + sync)
+- `tests/fixtures/prproj/README.md` — NEW (placeholder explaining
+  Phase 0 deferral)
+- `docs/help/developer-reference.md` — NEW comprehensive integrator
+  reference
+- `docs/help/_index.json` — register developer-reference article
+- `docs/help/adobe-files.md`, `docs/help/admin-tools.md`,
+  `docs/help/whats-new.md` — v0.34.0 sections
+- `docs/version-history.md`, `docs/key-files.md`, `CLAUDE.md` —
+  version blocks
+- `core/version.py` — bump to 0.34.0
+
+No breaking schema changes (purely additive). No new pip dependencies
+(`lxml>=5.0.0` already present). One new scheduler job? No — the
+cross-ref persists synchronously inside the existing bulk pipeline.
+
+### Operator-visible change
+
+- `.prproj` files now produce a structured Markdown summary instead
+  of the metadata-only stub.
+- Search page surfaces `prproj` as a facet chip when there are
+  matching results.
+- Preview page (for video / audio / image / graphic files) shows
+  "Used in Premiere projects" card.
+- New `/api/prproj/*` endpoints; new help article at
+  `/help.html#developer-reference`.
+
+### External integrators
+
+External programs (asset management, IP2A, ops scripts) can hit the
+new endpoints with the existing JWT or X-API-Key auth. Full curl /
+Python / JavaScript samples live in `docs/help/admin-tools.md` and
+`docs/help/developer-reference.md`.
+
+---
+
 ## v0.33.3 — LLM token + cost estimation, Phase 3 (operational hardening) (2026-04-28)
 
 **Closes the cost-estimation subsystem with finance-grade exports,

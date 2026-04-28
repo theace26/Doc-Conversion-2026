@@ -6,6 +6,94 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.34.0 — Deep handler for Adobe Premiere project files (`.prproj`)
+
+Premiere Pro project files used to get the same metadata-only treatment
+as `.indd` and `.aep` -- filename, file type, modify date, that's it.
+v0.34.0 makes them genuinely useful: every project is parsed into a
+structured Markdown summary that lists every clip path it references,
+every sequence, and the full bin tree. And there's a cross-reference
+table + API so you can answer **"which Premiere projects use this
+clip?"** in one click.
+
+### What you can do now
+
+**1. Search across Premiere projects by clip filename.** Drop a folder
+of `.prproj` files into your source share, run a bulk pass, and
+search for any referenced clip's filename. Every project that imports
+that clip surfaces in results -- because the rendered Markdown lists
+every clip path.
+
+**2. See "Used in Premiere projects" on every clip's preview page.**
+Open the [preview page](/help.html#preview-page) for a video, audio,
+image, or graphic file. The right sidebar now has a **Used in Premiere
+projects** card listing every indexed Premiere project that references
+that file. Click any project to open its preview page.
+
+**3. Operators triaging shared NAS storage** can finally answer the
+classic question:
+
+> *"Is this clip safe to delete?"*
+
+Just check the cross-ref card. If 5 projects reference it, deleting
+breaks 5 deliverables -- you'll know before the editor does.
+
+### What gets extracted
+
+Each project's Markdown output now contains:
+
+- **Project metadata** -- name, Premiere version, frame rate, dimensions,
+  schema confidence (high / medium / low).
+- **Sequences** -- one row per timeline with name, duration, resolution,
+  clip count, marker count.
+- **Media** -- every master clip path, grouped by type (video / audio /
+  image / graphic / unknown). Listed with full path + basename.
+- **Bin tree** -- the project's folder organisation as ASCII art.
+- **Parse warnings** -- anything ambiguous flagged for the operator.
+
+### Cross-reference API
+
+Three new endpoints (OPERATOR+ role):
+
+```bash
+GET /api/prproj/references?path=<clip_path>
+GET /api/prproj/{project_id}/media
+GET /api/prproj/stats
+```
+
+Full curl / Python / JavaScript samples are documented in
+[Administration -> Premiere project cross-reference](/help.html#admin-tools)
+and the [Developer Reference](/help.html#developer-reference). Same
+JWT / X-API-Key auth as everywhere else.
+
+### Defensive parsing
+
+Premiere has shipped multiple XML schemas across versions. Encrypted
+projects, truncated files, and non-standard schemas all degrade
+gracefully -- the handler falls back to AdobeHandler-style metadata-
+only output if the deep parse fails. Every outcome is traceable in
+the Log Viewer with `?q=prproj`.
+
+### New developer-reference help page
+
+While we were at it, we wrote a new [Developer Reference](/help.html#developer-reference)
+help article -- a deep-dive on every API endpoint, the full database
+schema, the structured-log event taxonomy, format-handler
+architecture, Docker / CLI workflows, environment variables, and an
+operational runbook. Bookmark it.
+
+### Limitations
+
+- Sequence-clip linkage isn't recorded yet ("clip X used in sequence
+  Y"). Reserved for a Phase 1.5 walk.
+- Title text and marker comments aren't extracted yet -- the schema is
+  denser than time allowed for v0.34.0.
+- Phase 0 fixtures are still wanted: drop a real `.prproj` into
+  `tests/fixtures/prproj/` and the test suite will sweep it
+  automatically.
+
+---
+
 ## v0.33.3 — Token + cost estimation: CSV export, stale-rate warning, audit trail
 
 The third and final phase of the cost-estimation subsystem. Adds the

@@ -787,6 +787,150 @@ row. Suitable for spreadsheet imports without further parsing.
 
 ---
 
+## Premiere project cross-reference -- v0.34.0
+
+When MarkFlow ingests Adobe Premiere project files (`.prproj`), it
+records every media path each project references in a queryable cross-
+reference table (`prproj_media_refs`). External programs (asset-
+management dashboards, IP2A, custom ops scripts) can hit three OPERATOR+
+endpoints to surface the relationship.
+
+### Why integrators care
+
+The most common operator question -- *"which Premiere projects use this
+clip?"* -- becomes a single API call. Useful for:
+
+- Asset-management dashboards displaying a "Used in N projects" badge
+  next to every clip.
+- Pre-deletion safety checks: query before retiring a clip from
+  storage, see which active projects break.
+- Audit trails: prove a specific clip ended up in a specific deliverable.
+
+### Endpoint reference
+
+| Method | Path | Role | Returns |
+|--------|------|------|---------|
+| GET    | `/api/prproj/references?path=<media_path>` | OPERATOR+ | `{media_path, projects, count}` |
+| GET    | `/api/prproj/{project_id}/media`           | OPERATOR+ | `{project_id, media, count}` |
+| GET    | `/api/prproj/stats`                        | OPERATOR+ | `{n_projects, n_media_refs, top_5_most_referenced}` |
+
+### curl samples
+
+```bash
+# Reverse lookup: which projects reference this clip?
+curl -H "X-API-Key: $MARKFLOW_KEY" \
+  "http://markflow.local:8000/api/prproj/references?path=/footage/C0042.MP4"
+
+# Forward lookup: what does this project reference?
+# project_id is the bulk_files.id of the indexed .prproj
+curl -H "X-API-Key: $MARKFLOW_KEY" \
+  http://markflow.local:8000/api/prproj/abc123def456/media
+
+# Aggregate stats: how many projects, how many refs, top-referenced clips
+curl -H "X-API-Key: $MARKFLOW_KEY" \
+  http://markflow.local:8000/api/prproj/stats
+```
+
+### Python sample
+
+```python
+import os, requests
+
+MF = os.environ["MARKFLOW_URL"]
+KEY = os.environ["MARKFLOW_KEY"]
+HEADERS = {"X-API-Key": KEY}
+
+def projects_using(media_path: str) -> list[dict]:
+    """Return every Premiere project that references the given media path."""
+    r = requests.get(
+        f"{MF}/api/prproj/references",
+        params={"path": media_path},
+        headers=HEADERS,
+        timeout=10,
+    )
+    r.raise_for_status()
+    return r.json()["projects"]
+
+def safe_to_retire(media_path: str) -> bool:
+    """Quick pre-deletion sanity check."""
+    return len(projects_using(media_path)) == 0
+```
+
+### JavaScript sample
+
+```javascript
+async function projectsUsing(mediaPath) {
+  const url = '/api/prproj/references?path=' + encodeURIComponent(mediaPath);
+  const r = await fetch(url, {
+    credentials: 'same-origin',
+    headers: { 'X-API-Key': MARKFLOW_KEY },
+  });
+  if (!r.ok) return [];
+  return (await r.json()).projects;
+}
+```
+
+### Response shapes
+
+`/references` returns:
+
+```json
+{
+  "media_path": "/footage/C0042.MP4",
+  "count": 3,
+  "projects": [
+    {
+      "project_id": "ab12cd34...",
+      "project_path": "/projects/promo_v3.prproj",
+      "media_name": "C0042.MP4",
+      "media_type": "video",
+      "recorded_at": "2026-04-28T15:42:01+00:00"
+    }
+  ]
+}
+```
+
+`count: 0` and an empty `projects: []` array (HTTP 200) means nothing
+references the path. HTTP 404 is reserved for routing errors.
+
+`/stats` returns:
+
+```json
+{
+  "n_projects": 12,
+  "n_media_refs": 1843,
+  "top_5_most_referenced": [
+    {"media_path": "/library/intro_sting.wav", "n_projects": 11}
+  ]
+}
+```
+
+### Audit trail
+
+Every parse + cross-ref event emits a structured log line:
+
+- `prproj.parsed` -- successful deep parse (with schema_confidence,
+  counts).
+- `prproj.media_ref_recorded` -- DB write succeeded; `n_refs` shows
+  how many rows were upserted.
+- `prproj.cross_ref_lookup` -- API `/references` call with
+  `n_results`.
+- `prproj.deep_parse_failed` -- gzip / XML error; handler fell back.
+- `prproj.schema_unknown` -- root element wasn't `PremiereData` /
+  `Project` / `xmeml`; probably a Premiere version we haven't seen.
+
+Search via `/api/logs/search?q=prproj` -- same pattern as the LLM cost
+audit-trail.
+
+### See also
+
+- [Adobe File Indexing -> Premiere Pro Projects (Deep Parse)](/help.html#adobe-files)
+  -- operator-friendly explanation + worked example.
+- [Developer Reference -> Premiere project cross-reference](/help.html#developer-reference)
+  -- full endpoint coverage with response schemas.
+
+---
+
 ## System Info
 
 At the bottom of the Admin page, the **System Info** card shows:

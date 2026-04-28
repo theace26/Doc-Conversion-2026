@@ -493,6 +493,10 @@ app.include_router(llm_costs_routes.router)
 from api.routes import preview as preview_routes
 app.include_router(preview_routes.router)
 
+# v0.34.0: Premiere project (.prproj) cross-reference API
+from api.routes import prproj as prproj_routes
+app.include_router(prproj_routes.router)
+
 log.info("markflow.all_routes_registered")
 
 # ── Static files ──────────────────────────────────────────────────────────────

@@ -476,6 +476,40 @@
     }
     .pv-related-item .score { color: #86efac; }
 
+    /* v0.34.0: Premiere project cross-reference list */
+    .pv-prproj-refs-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    .pv-prproj-refs-item {
+      padding: 0.45rem 0.55rem;
+      border-radius: 4px;
+      background: var(--bg-tertiary, #25253a);
+      border: 1px solid var(--border, #2b2b3f);
+    }
+    .pv-prproj-refs-item a {
+      color: var(--accent, #60a5fa);
+      text-decoration: none;
+      font-family: ui-monospace, monospace;
+      font-size: 0.85rem;
+      word-break: break-all;
+    }
+    .pv-prproj-refs-item a:hover { text-decoration: underline; }
+    .pv-prproj-refs-sub {
+      font-size: 0.72rem;
+      color: var(--text-muted, #888);
+      margin-top: 0.15rem;
+    }
+    .pv-card-badge {
+      font-size: 0.78rem;
+      color: var(--text-muted, #aaa);
+      font-weight: normal;
+    }
+
     .pv-search-row {
       display: flex;
       gap: 0.35rem;
@@ -609,6 +643,11 @@
           <h3>Flags</h3>
           <div id="pv-flags-body"></div>
         </div>
+        <!-- v0.34.0: cross-reference card. Mounted only for file types
+             that .prproj projects can reference (video / audio / image /
+             graphic). Population is best-effort — silent empty state on
+             API error. -->
+        <div id="pv-prproj-refs-card" class="pv-card" hidden></div>
         <div id="pv-related-card" class="pv-card">
           <h3>Related Files
             <a id="pv-related-fullpage" class="pv-card-link" href="#" target="_blank" rel="noopener">Full search ↗</a>
@@ -647,6 +686,9 @@
   </div>
 
   <script src="/static/app.js"></script>
+  <!-- v0.34.0: Premiere project cross-reference card (sidebar). Bump
+       ?v= when prproj-refs.js changes. -->
+  <script src="/static/js/prproj-refs.js?v=0.34.0"></script>
   <script>
     /*
      * File Detail / Preview page (v0.32.0).
@@ -2026,10 +2068,32 @@
         renderSiblings(info);
         renderViewer(info);
         refreshSearchPageLinks(info);
+        // v0.34.0: cross-reference card. Only fires for media-shaped paths.
+        loadPrprojRefsCard(info);
         // Auto-populate the Related card with the currently-selected
         // mode (default: semantic). Cheap — it's Meili / Qdrant only,
         // no LLM cost.
         runRelatedSearch(state.relatedMode, '');
+      }
+
+      function loadPrprojRefsCard(info) {
+        var card = document.getElementById('pv-prproj-refs-card');
+        if (!card) return;
+        // Hide by default; show on success when there's something to show.
+        if (!window.PrprojRefs || !info || !info.path) {
+          card.hidden = true;
+          return;
+        }
+        if (!window.PrprojRefs.isLikelyMediaPath(info.path)) {
+          card.hidden = true;
+          return;
+        }
+        // Always render the card (with empty state if no refs) — gives
+        // operators visual confirmation the lookup ran.
+        card.hidden = false;
+        window.PrprojRefs.fetchProjectsReferencing(info.path).then(function (refs) {
+          window.PrprojRefs.renderReferencesCard(card, refs);
+        });
       }
 
       // ── Keyboard shortcuts ─────────────────────────────────────

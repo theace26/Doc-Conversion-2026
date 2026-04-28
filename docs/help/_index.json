@@ -45,6 +45,7 @@
       "name": "Integration",
       "articles": [
         {"slug": "mcp-integration", "title": "AI Assistant Integration", "description": "Connect MarkFlow to Claude.ai"},
+        {"slug": "developer-reference", "title": "Developer Reference", "description": "Deep dive on every API endpoint, CLI workflow, DB schema, log event taxonomy, and operational runbook"},
         {"slug": "troubleshooting", "title": "Troubleshooting", "description": "Common issues and how to fix them"},
         {"slug": "keyboard-shortcuts", "title": "Keyboard Shortcuts", "description": "Quick navigation reference"}
       ]

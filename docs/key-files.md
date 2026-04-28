@@ -20,6 +20,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `core/db/lifecycle.py` | Lifecycle queries, file versions, path issues, scan runs, maintenance log |
 | `core/db/analysis.py` | Analysis queue: enqueue, dedup, claim batch, write results, token summary |
 | `core/db/auth.py` | API key management (create, lookup, revoke, list, touch) |
+| `core/db/prproj_refs.py` | Cross-reference accessors for `prproj_media_refs` — async + sync surfaces (v0.34.0) |
 | `core/validation/markitdown_compare.py` | CLI tool for comparing MarkFlow output against Microsoft markitdown (v0.23.0) |
 | `core/health.py` | Startup checks for Tesseract, LibreOffice, Poppler, WeasyPrint, disk, DB |
 | `core/logging_config.py` | structlog JSON logging, rotating file handler |
@@ -109,7 +110,10 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `formats/epub_handler.py` | EPUB ingest/export |
 | `formats/txt_handler.py` | Plain text / log / list / C++ / CSS ingest/export |
 | `formats/eml_handler.py` | EML/MSG email with recursive attachment conversion |
-| `formats/adobe_handler.py` | PSD/PSB/AI/INDD/AEP/PRPROJ/XD — unified Adobe handler |
+| `formats/adobe_handler.py` | PSD/PSB/AI/INDD/AEP/XD — unified Adobe handler (`.prproj` moved to `formats/prproj/` in v0.34.0) |
+| `formats/prproj/__init__.py` | Marker for the Premiere project deep-handler package (v0.34.0) |
+| `formats/prproj/parser.py` | `parse_prproj()` — defensive `lxml.iterparse` walker that streams gzipped Premiere XML into `PrprojDocument` (v0.34.0) |
+| `formats/prproj/handler.py` | `PrprojHandler` — renders parsed `PrprojDocument` as Markdown + persists media-refs cross-reference (v0.34.0) |
 | `formats/archive_handler.py` | ZIP/TAR/7z/RAR/CAB/ISO — recursive extraction + conversion |
 | `formats/image_handler.py` | Image file handler (.jpg, .png, .tif, .bmp, .gif, .eps, .cr2) |
 | `formats/audio_handler.py` | Audio file handler (.mp3, .wav, .flac, .ogg, .m4a, .wma, .aac) |
@@ -204,9 +208,11 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `static/js/deletion-banner.js` | Dismissible banner for deleted files in search |
 | `static/js/pipeline-card.js` | Shared Pipeline card module: `mountPipelineCard(el, opts)` polls `/api/pipeline/status` every 30s, renders rich card (compact:false) or 1-line summary (compact:true). Used by status.html + bulk.html (v0.33.0) |
 | `static/js/cost-estimator.js` | Shared LLM cost render module: `window.CostEstimator.{formatUsd, formatTokens, formatRate, renderBatchCostPanel, renderPeriodCostCard}`. Used by batch-management.html (per-batch cost panel) + admin.html (Provider Spend card). All DOM via createElement+textContent (XSS-safe). (v0.33.2) |
+| `static/js/prproj-refs.js` | Shared Premiere cross-reference render module: `window.PrprojRefs.{fetchProjectsReferencing, renderReferencesCard, isLikelyMediaPath}`. Used by preview.html "Used in Premiere projects" sidebar card. All DOM via createElement+textContent (XSS-safe). (v0.34.0) |
 | `core/llm_costs.py` | LLM cost lookup + arithmetic + period aggregation. Frozen-dataclass loader, strict schema validation, `estimate_cost`/`aggregate_batch_cost`/`aggregate_period_cost`/`is_data_stale`. Soft-fails to empty table on disk errors. (v0.33.1) |
 | `core/data/llm_costs.json` | Operator-curated LLM rate table (Anthropic / OpenAI / Gemini / Ollama, 11 models). Hot-reloadable via POST `/api/admin/llm-costs/reload` — no container restart needed. (v0.33.1) |
 | `api/routes/llm_costs.py` | LLM cost API: GET /api/admin/llm-costs (OPERATOR+), POST /reload (ADMIN), GET /api/analysis/cost/{file/batch/period/staleness} (OPERATOR+). External integrators (IP2A, finance dashboards) consume these via X-API-Key. (v0.33.1) |
+| `api/routes/prproj.py` | Premiere project cross-reference API (v0.34.0): GET /api/prproj/references?path=… (reverse lookup), GET /api/prproj/{project_id}/media (forward lookup), GET /api/prproj/stats. OPERATOR+ on all reads. |
 
 ## MCP, Tools & Config
 

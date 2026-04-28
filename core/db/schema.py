@@ -476,6 +476,26 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     description TEXT,
     applied_at  DATETIME DEFAULT (datetime('now'))
 );
+
+-- v0.34.0: cross-reference table populated by PrprojHandler. Maps every
+-- media path referenced by an indexed Premiere project to that project's
+-- bulk_files row. Indexed both directions so reverse lookup ("which projects
+-- use this clip?") and forward lookup ("what does this project reference?")
+-- are sub-millisecond up to ~100K rows.
+CREATE TABLE IF NOT EXISTS prproj_media_refs (
+    id              TEXT PRIMARY KEY,
+    project_id      TEXT NOT NULL REFERENCES bulk_files(id) ON DELETE CASCADE,
+    project_path    TEXT NOT NULL,
+    media_path      TEXT NOT NULL,
+    media_name      TEXT,
+    media_type      TEXT,
+    duration_ticks  INTEGER,
+    in_use_in_sequences TEXT,
+    recorded_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_prproj_refs_media_path  ON prproj_media_refs(media_path);
+CREATE INDEX IF NOT EXISTS idx_prproj_refs_project_id  ON prproj_media_refs(project_id);
+CREATE INDEX IF NOT EXISTS idx_prproj_refs_project_path ON prproj_media_refs(project_path);
 """
 
 # ── Versioned schema migrations ──────────────────────────────────────────────
@@ -772,6 +792,26 @@ _MIGRATIONS: list[tuple[int, str, list[str]]] = [
         "ALTER TABLE bulk_files_new RENAME TO bulk_files",
         "CREATE INDEX IF NOT EXISTS idx_bulk_files_job_status ON bulk_files(job_id, status)",
         "CREATE INDEX IF NOT EXISTS idx_bulk_files_source_path ON bulk_files(source_path)",
+    ]),
+    (28, "prproj_media_refs cross-reference table (v0.34.0)", [
+        # Idempotent: matches the DDL in _SCHEMA_SQL above. Older databases
+        # don't have it; this migration creates it. Newer fresh installs
+        # already got it via _SCHEMA_SQL — CREATE IF NOT EXISTS keeps it
+        # safe.
+        """CREATE TABLE IF NOT EXISTS prproj_media_refs (
+            id              TEXT PRIMARY KEY,
+            project_id      TEXT NOT NULL REFERENCES bulk_files(id) ON DELETE CASCADE,
+            project_path    TEXT NOT NULL,
+            media_path      TEXT NOT NULL,
+            media_name      TEXT,
+            media_type      TEXT,
+            duration_ticks  INTEGER,
+            in_use_in_sequences TEXT,
+            recorded_at     TEXT NOT NULL DEFAULT (datetime('now'))
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_prproj_refs_media_path  ON prproj_media_refs(media_path)",
+        "CREATE INDEX IF NOT EXISTS idx_prproj_refs_project_id  ON prproj_media_refs(project_id)",
+        "CREATE INDEX IF NOT EXISTS idx_prproj_refs_project_path ON prproj_media_refs(project_path)",
     ]),
 ]
 

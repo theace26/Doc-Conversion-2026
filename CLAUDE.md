@@ -16,6 +16,7 @@ Read on demand — none of these are auto-loaded. Listed by role.
 
 | File | Role / read it when... |
 |------|------------------------|
+| [`docs/bug-log.md`](docs/bug-log.md) | **Forward-looking register of open / planned bugs.** Single source of truth for "what's broken right now." Status-tracked (open / planned / in-progress / shipped-vX.Y.Z / wontfix). **Read FIRST when triaging a new bug report** — it may already be tracked. **MUST be updated on every release that fixes a bug** (move row to Shipped section + set `shipped-vX.Y.Z` status) AND when any new bug is discovered (add a row with `open` status). Cross-references plans, gotchas, security-audit by ID — does NOT duplicate their content. |
 | [`docs/gotchas.md`](docs/gotchas.md) | Hard-won subsystem-specific lessons (~100 items, organized by subsystem). **Always check the relevant section before modifying or debugging code in that area** — most foot-guns here have already been hit. |
 | [`docs/key-files.md`](docs/key-files.md) | 189-row file reference table mapping every important file to its purpose. Read when locating a file by what it does or understanding what an unfamiliar file is for. |
 | [`docs/version-history.md`](docs/version-history.md) | Detailed per-version changelog (one entry per release, full context: problem, fix, modified files, why-it-matters). The canonical "why was this built" reference. Append a new entry on every release. |
@@ -91,87 +92,133 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.33.3
+## Current Version — v0.34.0
 
-**Token + cost estimation subsystem — Phase 3 (operational hardening).
-Adds CSV export of period cost data (for finance), an amber stale-rate
-warning surfaced both in the API + the Admin Provider Spend card, a
-daily 03:30 scheduler job (`check_llm_costs_staleness`, scheduler job
-count 18→19) that emits a `llm_costs.stale` warning event when
-`llm_costs.json:updated_at` is older than 90 days, and an audit-trail
-section in the help docs documenting how to grep cost calculations
-via `/api/logs/search?q=llm_cost`.**
+**`.prproj` deep handler — Premiere Pro project files now go through
+a dedicated parser instead of `AdobeHandler`'s metadata-only treatment.
+Streams the gzipped XML through `lxml.iterparse`, harvests every clip
+path / sequence / bin defensively, renders a structured Markdown
+summary, and persists the media-refs cross-reference to a new
+`prproj_media_refs` table. Three OPERATOR+ API endpoints expose the
+relationship; the preview page gains a "Used in Premiere projects"
+sidebar card. All three plan phases shipped as a single release. New
+comprehensive `developer-reference.md` help article covers the full
+API surface, DB schema, log event taxonomy, and operational runbook
+for engineers + integrators.**
 
 ### Why this matters
 
-v0.33.1 + v0.33.2 shipped cost estimation but didn't address two
-operational concerns:
-1. **Finance can't read JSON.** They need a parseable file format
-   for spreadsheet imports.
-2. **Rate data goes stale.** Providers update pricing periodically
-   and there's no signal that the rate table is now wrong. Audit
-   reviewers also need to be able to point at "every cost
-   calculation that fired in the past N days."
-
-v0.33.3 closes both gaps.
+Premiere project files are gzipped XML — they're machine-readable but
+the previous handler chain extracted only filename + creator + modify
+date. Operators editing in shared NAS environments routinely lose
+track of which Premiere project a given clip belongs to. With the
+deep handler, MarkFlow becomes the authority on that relationship —
+searchable by clip filename and queryable via API.
 
 ### What changed
 
-**1. CSV export** — `GET /api/analysis/cost/period.csv` (OPERATOR+).
-Same data as the JSON endpoint, flattened into one row per
-provider/model/day with columns: `date, provider, model,
-files_analyzed, tokens, cost_usd`. Trailing TOTAL row. Honors the
-same `?days=N` query parameter as the JSON endpoint. Audit-trail
-log line `llm_cost.csv_exported` records actor + cycle label.
+**1. New parser** — `formats/prproj/parser.py` (~430 LOC). Defensive
+`lxml.iterparse` walker. Tag-name substring matching (Premiere's
+`Clip` / `MasterClip` / `ClipDef` / `Sequence` / `Bin` /
+`FilePath` / `URL` / `MediaSource` etc. vary by version).
+`schema_confidence` heuristic (`high` / `medium` / `low`). Security
+hardened: `resolve_entities=False`, `no_network=True`, no
+`recover=False` mode. `parse_prproj(path) -> PrprojDocument` is the
+public entry point; `PrprojDocument` is a frozen dataclass tree with
+`MediaRef`, `Sequence`, `Bin`.
 
-**2. Stale-rate warning surfaced in UI**. The Admin Provider Spend
-card now displays an amber warning footer when `is_stale=true`:
-*"⚠ Rate data is N days old (threshold 90). Check provider pricing
-pages and update llm_costs.json."* Driven by the existing
-`/api/analysis/cost/staleness` endpoint that v0.33.1 shipped.
+**2. New handler** — `formats/prproj/handler.py` (~340 LOC). Renders
+project metadata table, sequence list, media list (grouped by type),
+ASCII-art bin tree, parse warnings. Falls back to AdobeHandler-style
+metadata-only on hard parse failure (gzip corruption, encrypted
+project, unknown root). `formats/__init__.py` imports it after
+`AdobeHandler` so the registry's last-writer-wins behaviour gives the
+new handler the `prproj` slot. `AdobeHandler.EXTENSIONS` also drops
+`prproj` defensively.
 
-**3. Daily scheduler job** — `check_llm_costs_staleness` runs at
-03:30 daily (quiet window before the 04:00 trash auto-purge).
-Emits a `llm_costs.stale` warning event with `updated_at`,
-`threshold_days`, `source_url`, and a `hint` field telling the
-admin exactly which file to edit + which endpoint to hit. Job
-count: 18 → 19.
+**3. New `prproj_media_refs` table** — schema in `_SCHEMA_SQL` +
+idempotent migration v28. FK `ON DELETE CASCADE` on `bulk_files.id`.
+Indexed on `media_path` and `project_id` for sub-millisecond lookups
+in either direction.
 
-**4. Audit trail documented**. Help doc points to
-`/api/logs/search?q=llm_cost` for cost-calculation history.
-Already-emitted events: `llm_cost.computed` (every estimate),
-`llm_cost.no_rate` (rate-table miss), `llm_cost.csv_exported`
-(CSV download), `llm_costs.stale` (daily check), and
-`llm_costs.loaded` / `llm_cost.rate_table_reloaded` (lifecycle).
+**4. New module `core/db/prproj_refs.py`** (~270 LOC). Two parallel
+surfaces: async (used by API routes) + sync (used by handler, which
+runs in worker threads). The sync path opens a short-lived sqlite3
+connection with WAL + busy_timeout. Failures log + swallow — never
+fail an ingest because of cross-ref persistence.
 
-**5. CSV export button** on the Provider Spend card. Adds an
-"↓ Export CSV" link to the existing footer (alongside "Set cycle
-start day" + "Edit rate table"). Browser triggers the standard
-download flow via `download` attribute.
+**5. New router `api/routes/prproj.py`** at `/api/prproj` — three
+OPERATOR+ endpoints:
+- `GET /api/prproj/references?path=<media_path>` — reverse lookup
+- `GET /api/prproj/{project_id}/media` — forward lookup
+- `GET /api/prproj/stats` — `{n_projects, n_media_refs, top_5_most_referenced}`
+
+**6. Preview page card** — `static/preview.html` gains a "Used in
+Premiere projects" card in the right sidebar, mounted only for
+media-shaped paths (video / audio / image / graphic). New shared
+module `static/js/prproj-refs.js` (~120 LOC) — public surface
+`window.PrprojRefs.{fetchProjectsReferencing, renderReferencesCard,
+isLikelyMediaPath}`. All DOM via `createElement` + `textContent`
+(XSS-safe per project gotcha — mirrors `cost-estimator.js`).
+
+**7. New comprehensive help article** — `docs/help/developer-reference.md`.
+Deep-dive on every API endpoint, DB schema overview, log event
+taxonomy, format handler architecture, Docker / CLI workflows,
+environment variables, operational runbook. Linked from
+`_index.json` Integration category.
+
+**8. Updated help wiki** — `adobe-files.md` gains a "Premiere Pro
+Projects (Deep Parse)" section. `admin-tools.md` gains a "Premiere
+project cross-reference -- v0.34.0" section with operator +
+integrator treatment + curl/Python/JS samples. `whats-new.md` v0.34.0
+entry with worked example.
+
+### Phase 1.5 deferred
+
+- **Sequence-clip linkage** — `MediaRef.in_use_in_sequences` is empty
+  in v0.34.0; populating it requires a second iterparse pass.
+- **Title text** + **marker comments** — denser schemas; deferred.
+- **Phase 0 fixtures** — synthetic fixtures generated inside the test
+  suite; `test_real_fixtures_if_present` auto-sweeps any `.prproj`
+  files dropped into `tests/fixtures/prproj/`.
 
 ### Files
 
-- `core/version.py` — bump to 0.33.3
-- `core/scheduler.py` — `check_llm_costs_staleness()` helper +
-  scheduler job; jobs count log line bumped from 18 to 19
-- `api/routes/llm_costs.py` — `GET /api/analysis/cost/period.csv`
-  endpoint with the same auth + window logic as the JSON variant
-- `static/js/cost-estimator.js` — Export CSV link + (existing)
-  stale-rate warning footer
-- `tests/test_llm_costs.py` — explicit stale path test +
-  zero-cost (Ollama) period-aggregation test
-- `docs/help/admin-tools.md`, `docs/help/whats-new.md`,
-  `docs/version-history.md`, `docs/key-files.md`, `CLAUDE.md`
+- `core/version.py` — bump to 0.34.0
+- `formats/prproj/__init__.py` — NEW (marker)
+- `formats/prproj/parser.py` — NEW (~430 LOC)
+- `formats/prproj/handler.py` — NEW (~340 LOC)
+- `formats/__init__.py` — register PrprojHandler after AdobeHandler
+- `formats/adobe_handler.py` — drop `prproj` from EXTENSIONS + clean
+  up 4 inline references
+- `core/db/schema.py` — `prproj_media_refs` DDL + migration v28
+- `core/db/prproj_refs.py` — NEW (~270 LOC)
+- `api/routes/prproj.py` — NEW
+- `main.py` — register the new router
+- `static/js/prproj-refs.js` — NEW (~120 LOC)
+- `static/preview.html` — sidebar card mount + 2 CSS rules + load hook
+- `tests/test_prproj_handler.py` — NEW (12 tests)
+- `tests/test_prproj_refs.py` — NEW (7 tests)
+- `tests/fixtures/prproj/README.md` — NEW (Phase 0 placeholder)
+- `docs/help/developer-reference.md` — NEW (comprehensive reference)
+- `docs/help/_index.json` — register developer-reference article
+- `docs/help/adobe-files.md`, `docs/help/admin-tools.md`,
+  `docs/help/whats-new.md` — v0.34.0 sections
+- `docs/version-history.md`, `docs/key-files.md`, `CLAUDE.md`
 
-No DB migration. No new dependencies. One new endpoint
-(`period.csv`). One new scheduler job (`check_llm_costs_staleness`).
+No new pip dependencies (`lxml>=5.0.0` already present). No new
+scheduler job. Migration v28 is idempotent.
 
 ### Operator-visible change
 
-- Admin → Provider Spend card: new "↓ Export CSV" link.
-- Admin → Provider Spend card: amber warning when rate data is
-  stale (>90 days old).
-- Log Viewer: searchable `llm_cost.*` and `llm_costs.*` events.
+- `.prproj` files now produce a structured Markdown summary instead
+  of metadata-only stubs.
+- Search page surfaces `prproj` as a facet chip when there are
+  matching results.
+- Preview page (for video / audio / image / graphic files) shows
+  "Used in Premiere projects" card.
+- New `/api/prproj/*` endpoints; new help article at
+  `/help.html#developer-reference`.
 
 ---
 
@@ -350,1622 +397,209 @@ dashboards. Full curl + Python + JS snippets land in
 
 ---
 
-## v0.33.0 — Pipeline + Lifecycle + Pending cards merged; banner click-to-enlarge
-
-**UX consolidation release: one canonical Pipeline card across
-all pages, instead of three overlapping ones. Status loses its
-standalone Lifecycle Scanner + Pending cards; both their data
-folds into the Pipeline card it already had. Bulk Jobs gets the
-same Pipeline card in compact mode (one-line summary +
-"view full status →"). And the Background scan banner that
-shows on every page is now click-to-enlarge — a modal pops up
-with run-id, scanned-vs-total, ETA, elapsed, current file, and
-last-update age.**
-
-### Why this matters
-
-v0.32.11 closed by flagging the structural problem out loud:
-
-> The Status page presents Pipeline + Lifecycle Scanner +
-> Pending as parallel top-level cards even though they all
-> read overlapping subsets of the same scan data. The right
-> fix is to **promote the rich Pipeline card** to be the
-> canonical card on Status, drop the standalone Lifecycle
-> Scanner card, and add a summary card with link-to-status
-> on the home page. Single source of truth, no mirroring.
-
-That's this release. The Lifecycle Scanner card on Status duplicated
-`/api/scanner/progress` data that the Pipeline card already showed
-under Last Scan. The Pending card duplicated `pending` count + auto-
-conversion sub-line. Operators looked at three boxes and got the same
-information three ways. Worse, the v0.32.11 hydration fix had to
-patch *only one* of the three; the other two read different
-endpoints. Drift was inevitable.
-
-### What changed
-
-**1. New `static/js/pipeline-card.js` shared module** (~430 LOC).
-Exposes `mountPipelineCard(containerEl, opts)` returning
-`{refresh, destroy}`. Polls `/api/pipeline/status` every 30 s.
-Renders the rich card (status pill, Mode/Last Scan/Next Scan/
-Source Files/Pending/Interval cells with sub-lines + tooltips
-inherited from v0.32.10) when `opts.compact === false`, or a
-1-line summary plus a "view full status →" link when
-`opts.compact === true`. Action buttons (Pause/Resume, Rebuild
-Index, Run Now) wired through a `postAction()` helper. All DOM
-built via `createElement` + `textContent` (XSS-safe per the
-project gotcha).
-
-**2. Status page (`static/status.html`)**
-- Removed the standalone `<div id="lifecycle-container">` markup
-  + its `renderLifecycle()` IIFE (~40 LOC)
-- Removed the `<div id="pending-container">` markup + its
-  `loadPending()` IIFE (~40 LOC)
-- Replaced both with a single `<div id="pipeline-card-mount">` that
-  the new module hydrates with the full (non-compact) card
-- Auto-conversion sub-line is folded into the Pipeline card's
-  Last Scan cell (Phase 4 of the merge plan)
-
-**3. Bulk Jobs page (`static/bulk.html`)**
-- Removed ~150 LOC of inline `loadPipelineStatus` + helpers (now
-  lives in `pipeline-card.js`)
-- Mounts the same module in compact mode — one-line summary keeps
-  Bulk Jobs visually focused on jobs, while still surfacing
-  "scanner is running / paused / disabled" state for context
-- Removed `togglePipelinePause`, `pipelineRunNow`, and
-  `rebuildSearchIndex` functions (now in the module)
-
-**4. Banner click-to-enlarge** (`static/bulk.html`, status banner
-follows the same pattern via `live-banner.js` on other pages)
-- The Background scan banner is now `role="button" tabindex="0"`
-  with a "click to enlarge" hint
-- New `#scan-detail-backdrop` modal renders run-id, files
-  scanned, total estimated, ETA, elapsed, current file path,
-  last-update-age, plus a short "What's a background scan?"
-  educational box and a link to the scanner log
-- Keyboard support: Enter/Space on the focused banner opens the
-  modal; Escape closes; click-outside closes
-- All 8 modal fields hydrate from `/api/scanner/progress`
-
-### Files
-
-- `core/version.py` — bump to 0.33.0
-- `static/js/pipeline-card.js` — NEW, shared module
-- `static/status.html` — Lifecycle + Pending cards removed,
-  Pipeline card mount added, cache-bust to `?v=0.33.0`
-- `static/bulk.html` — inline Pipeline replaced with compact mount,
-  scan-detail modal markup + handlers added, cache-bust to `?v=0.33.0`
-- `CLAUDE.md`, `docs/version-history.md`, `docs/help/whats-new.md`,
-  `docs/help/status-page.md`, `docs/help/file-lifecycle.md`,
-  `docs/key-files.md`
-
-No DB migration. No new endpoints. No new dependencies. Pure
-frontend reorganization + one new shared module.
-
-### Operator-visible change
-
-- Status page: 3 cards (Pipeline + Lifecycle Scanner + Pending) →
-  1 card (Pipeline). Same data, no duplication.
-- Bulk Jobs: Pipeline header collapses to a 1-line summary that
-  links to the full Status page when more detail is wanted.
-- Every page with the live scan banner: click the banner (or focus
-  + press Enter) to open the rich detail modal.
-
-### Why a shared module instead of three copies of the same logic
-
-The Pipeline card data has been rendered three different ways
-across `static/index.html` (originally), `static/bulk.html`, and
-`static/status.html`. Every release that touched any of `mode`,
-`last_scan`, `next_scan`, or `pending` had to be applied N times.
-v0.32.10's descriptive sub-lines, v0.32.11's hydration fix, and
-this release's consolidation all stemmed from "it changed in one
-place but not the others." `pipeline-card.js` makes the next
-change a 1-file edit.
-
----
-
-## v0.32.11 — Lifecycle scan state hydrates from DB on startup
-
-**Single bug fix: the Status page Lifecycle Scanner card
-showed `Last scan: never` after every container restart
-because the in-memory `_scan_state` dict reset to None on
-process boot — even though the `scan_runs` table had dozens
-of completed rows the card could have read from. Hydration
-function now runs on startup (in main.py's lifespan) to
-populate `last_scan_at` + `last_scan_run_id` from the most
-recent finished scan_run before the API endpoint serves its
-first request.**
-
-### Why the bug existed
-
-`/api/scanner/progress` reads
-`core.lifecycle_scanner._scan_state` — a module-level dict
-that initializes with `last_scan_at=None`. Only updated
-in-process when a scan completes. Container restart →
-process restart → dict resets → endpoint returns
-`last_scan_at: null` → frontend renders "never."
-
-`/api/pipeline/status` reads from the DB's `scan_runs` table
-directly, so it had accurate data the whole time. Two
-endpoints, two data sources, opposite results — same scan,
-different stories.
-
-### Fix
-
-`hydrate_scan_state_from_db()` in
-`core/lifecycle_scanner.py`:
-- Queries the most recent `scan_runs` row with
-  `finished_at IS NOT NULL`
-- Populates `_scan_state["last_scan_at"]` and
-  `_scan_state["last_scan_run_id"]` if they're currently None
-- Safe to call repeatedly (no-op if state is populated)
-- Best-effort: failures log a warning, never raise
-
-Called once on app startup in main.py's `lifespan` (Phase 9,
-right before `start_scheduler`).
-
-### Files
-
-- `core/version.py` — bump to 0.32.11
-- `core/lifecycle_scanner.py` — new
-  `hydrate_scan_state_from_db()` + `db_fetch_one` import
-- `main.py` — call hydration in lifespan startup before
-  scheduler start
-- `CLAUDE.md`, `docs/version-history.md`,
-  `docs/help/whats-new.md`
-
-No DB migration. No new dependencies. No new endpoints.
-
-### Operator-visible change
-
-Status page → Lifecycle Scanner card now shows the actual
-last scan timestamp instead of "never" — matches the data
-the Pending card already shows.
-
-### Best-practice note (deferred)
-
-The Status page presents Pipeline + Lifecycle Scanner +
-Pending as parallel top-level cards even though they all
-read overlapping subsets of the same scan data. The right
-fix is to **promote the rich Pipeline card** (the one on
-/index.html — Mode/Last Scan/Next Scan/Source Files/
-Pending/Interval) to be the canonical card on Status, drop
-the standalone Lifecycle Scanner card (its data is already
-in the Pipeline card), and add a summary card with a
-link-to-status on the home page. Single source of truth, no
-mirroring. **Not in this release** — that's a UX redesign
-with implications across pages; planning + shipping
-separately.
-
----
-
-## v0.32.10 — Pipeline header on the Bulk Jobs page is now descriptive
-
-**Pipeline header on the Bulk Jobs page is now descriptive
-instead of cryptic. Each cell renders a multi-line block: the
-value on top + a short "what this means" sub-line below. Last
-Scan gets a status pill (✓ Completed / ⚠ Interrupted / ✗
-Failed / ⟳ Running) plus scanned/new/modified counts; Next
-Scan describes the type of scan (Pipeline scan · every 45
-min) with paused/off/disabled handling; Mode shows what each
-mode means; and the scheduler's full decision-reason for the
-last auto-conversion is surfaced as a tooltip on the Mode
-cell.**
-
-### Why this matters
-
-User reported on v0.32.9: "it would be more helpful for a
-user to know what kind of scan is coming up next, what kind
-of scan had already happened, just a little bit more
-description."
-
-The Pipeline header had been showing 6 bare values:
-
-```
-Mode         Last Scan      Next Scan      Source Files   Pending   Interval
-Immediate    7:22:56 PM     8:27:38 PM     1,493          1,493     45 min
-```
-
-Useful, but minimal context. An operator looking at this
-couldn't tell:
-- Was that 7:22:56 PM scan **completed** or **interrupted**?
-- How many files were scanned in that run?
-- What type of scan is the next one — a manual Run Now, or
-  the scheduler tick?
-- What does "Mode: Immediate" actually do?
-
-All this data was already in `/api/pipeline/status` (the
-`last_scan.status`, `last_scan.files_scanned`,
-`last_auto_conversion.reason` fields) — we just weren't
-surfacing it. v0.32.10 surfaces it.
-
-### What changed
-
-#### Frontend — `static/bulk.html`
-
-Each Pipeline header cell now renders a `.pl-cell` block with:
-- Title (existing muted label)
-- Value (existing strong text)
-- Sub-line (`.pl-cell-sub` — small grey descriptive text)
-- Hover tooltip explaining the cell
-
-Per-cell sub-lines:
-
-| Cell | Sub-line content |
-|------|------------------|
-| Mode | "Convert on every new-file detection" / "Manual triggers only" / etc. (mode-dependent) |
-| Last Scan | Status pill + `28,504 scanned · 0 new · 0 modified` |
-| Next Scan | `Pipeline scan · every 45 min` (or `Pipeline paused — Resume to enable`, `Mode is Off — use Run Now`, `Disabled — fix shown below`) |
-| Source Files | "on disk" |
-| Pending | "awaiting conversion" |
-| Interval | "between scheduled scans" |
-
-Per-cell tooltips give a one-sentence "what this is" hint on
-hover. The Mode tooltip additionally shows the
-`last_auto_conversion.reason` field — the rich human-readable
-string the scheduler emits explaining its workers/batch-size
-decision (e.g., `"Mode=immediate | 113354 files discovered |
-CPU now=4.9% | CPU historical avg=7.1% | Mon 20:00 | off
-hours | workers=8 | batch=175"`). Operators get the
-scheduler's full thinking on hover without cluttering the
-visible row.
-
-Time displays now include a relative qualifier:
-
-- Last Scan: `7:22:56 PM (8 min ago)`
-- Next Scan: `8:27:38 PM (in 5 min)`
-
-The relative time is computed against `Date.now()` on each
-render so it stays accurate as the page polls.
-
-#### CSS — `static/markflow.css`
-
-New rule set:
-- `.pl-cell { line-height: 1.35; }`
-- `.pl-cell-sub` — small (0.72rem), muted, flex-wrap container
-  for the descriptive text
-- `.pl-status-pill` + variants `.pl-status-{ok,running,warn,err,muted}`
-  for the Last Scan status indicator
-
-### Cache-bust
-
-`?v=0.32.10` on `markflow.css` reference in `bulk.html` and
-`status.html` (both pages use the new CSS rules — bulk for
-`.pl-*`, status for the v0.32.9 progress rules).
-
-### Files
-
-- `core/version.py` — bump to 0.32.10
-- `static/bulk.html` — Pipeline header markup expanded to
-  multi-line cells with tooltips; `loadPipelineStatus`
-  populates sub-lines + status pill + relative-time qualifier
-- `static/markflow.css` — `.pl-cell-sub`, `.pl-status-pill`,
-  and the 5 status-color variants
-- `static/status.html` — `markflow.css` cache-bust bumped
-  `?v=0.32.9 → ?v=0.32.10`
-- `CLAUDE.md`, `docs/version-history.md`,
-  `docs/help/whats-new.md`
-
-No DB migration. No new dependencies. No backend changes —
-the existing `/api/pipeline/status` endpoint already returned
-all this data; v0.32.10 just surfaces more of it.
-
----
-
-## v0.32.9 — Status card matches Bulk Jobs scan progress + click-to-jump
-
-**Status page active-job card now mirrors the Bulk Jobs page's
-rich scan-progress display: scanned-count + current-file +
-indeterminate animated bar during the enumeration window. Plus
-the card is click-through — clicking the progress region (or
-the new ↗ Open button) jumps to `/bulk.html?job_id=<id>` and
-scrolls the active job into view with a brief highlight flash.**
-
-### Why this matters
-
-User reported on v0.32.7: "the progress bar on the status page
-should be the same type as the one on bulk jobs. Since, it is
-the one that I manually triggered. and when you click on the
-card or progress bars, it would take you to bulk jobs and
-center on the active scan."
-
-Status page card was showing only `[spinner] Enumerating source
-files… 33s elapsed` (v0.32.7's fix to render any feedback at
-all), while the Bulk Jobs page on the same job was showing
-`Scanning source files / 10,696 files scanned / JOB SITE
-VISITS/.../IMG_1979.jpg` with a filled progress bar. The
-two views of the same operation were unequal — and the Status
-card was the one operators were watching.
-
-### What changed
-
-#### Backend — `core/bulk_worker.py`
-
-- BulkJob gains 3 new state fields: `_scan_scanned`,
-  `_scan_total`, `_scan_current_file`. All initialized to 0/""
-  in `__init__`.
-- The `_scan_progress_cb` callback (which fires on every
-  scan_progress event from `BulkScanner`) now stashes the
-  latest values onto the job instance in addition to emitting
-  the SSE event.
-- `get_all_active_jobs()` returns a new `scan_progress` dict
-  with `scanned`, `total`, `current_file` so the polled API
-  surfaces the same data the SSE stream emits.
-
-#### Frontend — `static/status.html`
-
-- The enumerating block now renders a `Scanning source files —
-  10,696 / 51,684 files scanned — 33s elapsed` line plus a
-  monospace current-file path beneath, when `scan_progress.scanned > 0`.
-  Falls back to the v0.32.7 spinner+elapsed display before the
-  first scan_progress event lands.
-- The `<div class="job-card__progress">` becomes
-  `<div class="job-card__progress job-card__progress--indeterminate">`
-  during scanning — a sliding gradient sweep replaces the
-  static empty bar.
-- The whole progress region (bar + line + current-file) is
-  wrapped in an `<a class="job-card__progress-link"
-  href="/bulk.html?job_id=<id>">` — large click target that
-  jumps to the dedicated Bulk Jobs page.
-- A small `↗ Open` button next to the job-id chip provides a
-  more deliberate alternative click target.
-
-#### Frontend — `static/bulk.html`
-
-- New IIFE on page load reads `?job_id=` from the URL. If
-  present, polls every 250 ms (up to 5 s) for the
-  `active-job-section` to be rendered by `loadJobHistory`,
-  then `scrollIntoView({behavior: 'smooth', block: 'start'})`
-  + a 1.8 s box-shadow highlight flash to draw the operator's
-  eye to the freshly-navigated card.
-
-#### CSS additions — `static/markflow.css`
-
-- `.job-card__progress--indeterminate` modifier with a
-  `jc-indeterminate-sweep` keyframe animation
-- `.job-card__progress-link` hover-styled wrapper for the
-  click-through
-- `.job-card__open-link` styling for the small ↗ Open button
-
-### Cache-bust
-
-`?v=0.32.9` added to:
-- `markflow.css` reference on `status.html` (since this page
-  uses the new CSS rules — previously markflow.css had no
-  version query string and relied on browser ETag
-  revalidation, which can be unreliable for stylesheets)
-- `live-banner.js` reference on `status.html` bumped from
-  `?v=0.32.7` to `?v=0.32.9` (file itself unchanged; bumping
-  for consistency)
-
-`bulk.html` doesn't need a CSS bust (uses no new CSS rules);
-its inline JS changes are picked up via standard HTML
-revalidation.
-
-### Files
-
-- `core/version.py` — bump to 0.32.9
-- `core/bulk_worker.py` — `_scan_*` state fields, callback
-  updates, `get_all_active_jobs` returns `scan_progress`
-- `static/status.html` — rich scan-phase rendering,
-  click-through wrapper, ↗ Open button, CSS + JS cache-bust
-- `static/bulk.html` — `?job_id=` honoring with smooth scroll
-  + highlight flash
-- `static/markflow.css` — indeterminate-bar modifier +
-  click-through link styling + open-link button styling
-- `CLAUDE.md`, `docs/version-history.md`,
-  `docs/help/whats-new.md`
-
-No DB migration. No new dependencies. No new scheduler jobs.
-
----
-
-## v0.32.8 — Storage page verifies every source on page load + on tab focus
-
-**Storage page: every configured source path is verified on
-page load (was: only the output path was). Each source row
-now shows a momentary "⟳ Verifying…" state then resolves to
-✓ Readable · N items / ✗ Unreachable. Plus a small ↻ Re-verify
-button per section for manual on-demand re-check, and an
-auto-re-verify when the tab regains focus after being hidden
->30 s (catches USB plug/unplug + network share drops).**
-
-### Why this matters
-
-User reported on v0.32.7: "we should have the green check mark
-show up everytime markflow starts up and the user navigates
-to the page... a verification everytime the page is refreshed".
-
-The Output Directory section already verified on page load
-(v0.29.1 shipped that). But `loadSources()` only rendered the
-table rows with label / path / Remove button — no verification
-widget. The green ✓ that was sometimes visible at the top of
-the Sources section was a leftover from a recent **Add**
-action (the `#source-add-verify` widget) and didn't survive a
-page refresh.
-
-This release closes the gap: every source gets verified on
-every page load.
-
-### What changed
-
-**Per-source inline verification** — `loadSources()` now
-renders each row with a multi-line "Path & Status" cell:
-- Line 1: the path (monospace)
-- Line 2: a `.storage-verify-inline` widget that starts in the
-  pending `⟳ Verifying…` state and async-resolves to
-  ✓ Readable · N items / ✗ Unreachable
-
-Verifications run **in parallel** across all sources; the table
-renders synchronously and each row resolves at its own pace.
-Slow-network sources don't block fast-local ones.
-
-**Per-section ↻ Re-verify buttons** — small button next to each
-section's content header. One click → all that section's
-widgets flip back to pending and re-resolve. Buttons disable
-themselves while in flight to prevent click-storm.
-
-**Auto-re-verify on tab focus** — `visibilitychange` listener
-tracks how long the tab was hidden. Returning to the tab after
-**>30 s** triggers `reverifyAll()` (sources + output). Catches:
-- USB drives plugged or unplugged while you were away
-- SMB / NFS shares that dropped due to a network blip
-- Any path that became inaccessible (permission change, etc.)
-
-The 30-second threshold avoids hammering `/api/storage/validate`
-on every micro-tab-switch.
-
-### Files
-
-- `core/version.py` — bump to 0.32.8
-- `static/storage.html` — section content headers gain
-  Re-verify buttons; sources table column renamed
-  `Path` → `Path & Status`; `?v=0.32.8` cache-bust on
-  `storage.js`
-- `static/js/storage.js` — `_sourceVerifyWidgets` Map for
-  per-row widget tracking, `renderPendingVerify` helper for
-  the ⟳ pending state, `reverifyAll` / `reverifySources` /
-  `reverifyOutput` drivers, Page Visibility listener in
-  `init()`
-- `static/markflow.css` — `.sv-pending` style with
-  `sv-pending-spin` keyframe + `.storage-verify-inline`
-  compact variant + `.storage-reverify-btn` button styling
-- `CLAUDE.md`, `docs/version-history.md`,
-  `docs/help/whats-new.md`
-
-No DB migration. No new dependencies. No backend changes —
-the existing `/api/storage/validate` endpoint already does
-all the heavy lifting; this release just calls it more often.
-
----
-
-## v0.32.7 — Status page Enumerating UI now actually renders during scans
-
-**One-line frontend fix: the Status page's "Enumerating
-source files…" UI from v0.32.1 now actually renders during
-the bulk-scanner phase instead of silently falling through
-to the misleading `0 / ? files — ?%` legacy display.**
-
-### The bug
-
-v0.32.1 added an "Enumerating source files… Xs elapsed" UI
-for jobs in the scanning phase, with a stuck-warning if the
-scan hangs >2 min. The intent was to replace the broken
-`0 / ? files — ?%` placeholder during enumeration. The
-condition was:
-
-```js
-var enumerating = (job.status === 'scanning' && job.total_files == null);
-```
-
-But `job.total_files` is **never null** during scanning — it's
-always **0**. Looking at `core/bulk_worker.py:get_all_active_jobs`,
-the field is sourced from `job._total_pending` which is
-initialized to 0 and only set to the real count AFTER the
-scanner returns. So during the entire scanning phase
-`total_files == 0` (not null), the enumerating condition is
-False, and the UI falls through to the legacy display.
-
-A user reported the symptom on a 20-minute slow-HDD scan: the
-job was genuinely making progress in `BulkScanner.scan()`,
-but the Status page showed `0 / ? files — ?%` the whole
-time, making the operator think the job was stuck.
-
-### The fix
-
-```js
-var enumerating = (job.status === 'scanning');
-```
-
-The backend's `_scanning` flag is True for the entire
-scanner call and flipped False right before `update_bulk_job_status(...,
-'running', total_files=...)`. So `status === 'scanning'`
-alone is the authoritative signal — no need to also check
-total_files.
-
-After the fix:
-- **0–120 s into scanning**: spinner + "Enumerating source
-  files… 1m 30s elapsed"
-- **120 s+**: the existing v0.32.1 stuck warning fires —
-  `⚠ Enumerating — stuck? No progress for X. Stop the job and
-  retry, or check the log viewer.` (the heartbeat field
-  `job.last_heartbeat` isn't surfaced for scanner-phase jobs,
-  so the `(!job.last_heartbeat)` check in the stuck condition
-  is always true during scanning — which means after 2min any
-  scan correctly gets the warning. Honest signal.)
-
-### Backend not changed
-
-The original v0.32.7 plan included a backend "auto-complete
-scan when total_files=0" fix. Re-reading `bulk_worker.py`
-confirmed it's not actually broken: the worker DOES transition
-`scanning → running → completed` on a zero-file scan via the
-existing path (line 474 sets `_scanning=False`, then 476
-calls `update_bulk_job_status(..., 'running', total_files=0)`,
-then the empty file queue is drained at line 528, then 542
-transitions to `'completed'`). The user's stuck-at-scanning
-case was a slow HDD walk, not a missing transition. Withdrawn.
-
-### Cache-bust
-
-`?v=0.32.6 → ?v=0.32.7` on `live-banner.js` for all 3 pages
-that load it. Same convention as before.
-
-### Files
-
-- `core/version.py` — bump to 0.32.7
-- `static/status.html` — `enumerating` condition simplified
-  + extended comment explaining why
-- `static/trash.html`, `static/status.html`,
-  `static/pipeline-files.html` — `?v=0.32.7` cache-bust
-- `CLAUDE.md`, `docs/version-history.md`,
-  `docs/help/whats-new.md`
-
-No DB migration. No new dependencies. No backend changes.
-
----
-
-## v0.32.6 — Server-authoritative timers on Trash progress card
-
-**Trash progress timers are now server-authoritative.
-`/api/trash/empty/status` and `/api/trash/restore-all/status`
-return `started_at_epoch` and `last_progress_at_epoch` (set
-by the worker when it enters and bumped on every total/done
-change). The Trash-page progress card reads these on every
-poll and renders elapsed time + "last update" against the
-true op clock — so navigating away and back no longer resets
-either timer.**
-
-### Why this matters
-
-Reported by the operator after upgrading to v0.32.4: clicked
-Empty Trash, watched the card, navigated away to Status, came
-back to Trash. Card showed "Starting…" with "elapsed 12s" —
-implying the op had only been running 12 seconds, when in
-reality the worker had been chewing through the 51,684-row
-pile for several minutes already. Confusing and undermines
-trust in the progress card.
-
-Root cause: the v0.32.4 frontend computed elapsed-time as
-`Date.now() - opStartTs`, where `opStartTs` was set to
-`Date.now()` whenever the card was shown. Returning to the
-page meant `checkInFlightOps` re-instantiated the card with
-a fresh `opStartTs`, so the timer reset.
-
-The fix is server-side timestamps. The backend already had
-authoritative knowledge of when the worker started; we just
-weren't surfacing it.
-
-### Implementation
-
-**Backend (`core/lifecycle_manager.py`):**
-
-- Both `_empty_trash_status` and `_restore_all_status` dicts
-  now carry `started_at_epoch` and `last_progress_at_epoch`
-  fields.
-- Workers set both fields on entry (`time.time()`).
-- `_bump_empty_progress()` / `_bump_restore_progress()`
-  helpers stamp `last_progress_at_epoch = time.time()`
-  whenever total or done changes (Phase 1 enumeration
-  finishing, Phase 2 batch updates, Phase 3 source_files
-  updates, per-row restore increments).
-- `finally` block does NOT reset the timestamps — the
-  post-finish "Done" frame should still reflect the true
-  elapsed time the operation took.
-
-**Backend (`api/routes/trash.py`):**
-
-- POST `/empty` and POST `/restore-all` flatten
-  `started_at_epoch`, `last_progress_at_epoch`, `total`,
-  `done` into the top-level `already_running` response so
-  the frontend can adopt them immediately (no need to wait
-  for the first GET poll).
-
-**Frontend (`static/trash.html`):**
-
-- `opStartTs` and `lastProgressTs` module-level state
-  variables now refer to server-authoritative values
-  (server `*_epoch * 1000` to align with `Date.now()`
-  millisecond units).
-- New `adoptServerTimestamps(s)` helper called on every poll
-  + on the initial mid-op recovery fetch + on the
-  `already_running` POST response.
-- `showCard()` no longer resets `opStartTs` /
-  `lastProgressTs` — `checkInFlightOps` may have pre-seeded
-  them with server values.
-- `updateTimers()` (the 250 ms ticker) renders elapsed +
-  last-update directly from server-anchored timestamps.
-
-### Cache-bust
-
-Bumped `?v=0.32.5` → `?v=0.32.6` on the `live-banner.js`
-script tag in all 3 pages that load it. The trash.html JS
-itself doesn't need a bust (the inline script is part of
-trash.html which is freshly fetched with the page), but
-keeping the convention is cheap.
-
-### Files
-
-- `core/version.py` — bump to 0.32.6
-- `core/lifecycle_manager.py` — `time` import +
-  `started_at_epoch` / `last_progress_at_epoch` fields +
-  `_bump_empty_progress` / `_bump_restore_progress` helpers
-  + non-reset on `finally`
-- `api/routes/trash.py` — flatten timestamps into
-  `already_running` POST responses
-- `static/trash.html` — `adoptServerTimestamps` helper,
-  `opStartTs` / `lastProgressTs` semantic shift,
-  `showCard` no longer resets, `checkInFlightOps`
-  pre-seeds, cache-bust to `?v=0.32.6`
-- `static/status.html`, `static/pipeline-files.html` —
-  cache-bust live-banner to `?v=0.32.6` (consistency)
-- `CLAUDE.md`, `docs/version-history.md`,
-  `docs/help/whats-new.md`
-
-No DB migration. No new dependencies. No new scheduler jobs.
-
----
-
-## v0.32.5 — Cache-bust on live-banner.js
-
-**Cache-bust on `live-banner.js` so returning operators get the
-latest banner code without a manual hard-refresh. The script
-tag on each of the three pages that load the banner
-(`trash.html`, `status.html`, `pipeline-files.html`) now
-carries a `?v=0.32.5` query string. Bump the `?v=` on every
-release that touches `live-banner.js`.**
-
-### Why this matters
-
-The v0.32.4 ship surfaced a real-world problem: even after a
-clean container rebuild, returning operators didn't see the
-v0.32.3 Live Banner because their browser had cached
-`live-banner.js` from an earlier deploy. FastAPI's
-`StaticFiles` doesn't add `Cache-Control: no-cache`, so
-browsers used heuristic freshness based on `Last-Modified` and
-held the old bytes.
-
-The fix is a one-line change to each page's script tag — add
-a `?v=<release>` query string. Browsers treat URLs with
-different query strings as different resources, so a version
-bump forces a fresh fetch on the next page load. No
-infrastructure change, no headers, no service worker.
-
-### The convention going forward
-
-Every release that touches `static/js/live-banner.js` (or any
-other cached JS in `static/js/`) should bump the `?v=` query
-string in the loading `<script>` tag(s). The convention:
-
-```html
-<!-- Bump the ?v= when live-banner.js changes. -->
-<script src="/static/js/live-banner.js?v=0.32.5"></script>
-```
-
-Three files to update: `trash.html`, `status.html`,
-`pipeline-files.html` (grep `live-banner\.js` to find them).
-A future release could automate this — read `__version__` at
-import time, inject into a base template — but the manual
-convention is fine for now: each release already touches
-`core/version.py` + multiple docs files, so a 3-file
-find-and-replace fits the existing rhythm.
-
-### Files
-
-- `core/version.py` — bump to 0.32.5
-- `static/trash.html` — `?v=0.32.5` on the live-banner tag
-- `static/status.html` — same
-- `static/pipeline-files.html` — same
-- `CLAUDE.md`, `docs/version-history.md`,
-  `docs/help/whats-new.md`
-
-No DB migration. No new dependencies. No backend changes.
-
----
-
-## v0.32.4 — Inline progress card on Trash page
-
-**Inline progress card on the Trash page. Empty Trash and
-Restore All now show a prominent in-page progress card right
-between the action buttons and the file table — impossible to
-miss, with progress bar, X / Y counter, EWMA rate, ETA,
-elapsed-time ticker, last-poll-age indicator, and a
-"backend may still be enumerating" hint when the worker
-silently chews through a 50K+ row pile during its initial
-SQL COUNT.**
-
-### Why this matters
-
-The user reported: clicked Empty Trash on the production
-instance (51,684 rows). The button went disabled and showed
-"Purging 0 / 51684...", but stayed at 0 for tens of seconds.
-The global Live Banner from v0.32.1 didn't appear in the
-viewport. Operator couldn't tell whether MarkFlow was actually
-processing the command or was hung.
-
-The fix is in-page. The new `.trash-progress` card lives right
-under the action buttons. It appears immediately on click,
-runs an indeterminate animated bar during the worker's
-enumeration window (SQL COUNT over 50K+ rows takes 30-60s
-before the first done count comes back), then transitions to
-a real progress bar once `done` starts moving. The card is
-self-contained — the card works even when the global Live
-Banner has a positioning / z-index / cache issue.
-
-### Card surfaces
-
-- **Pulse dot + icon + label** ("🗑 Emptying trash" /
-  "♻ Restoring all from trash" / "Done" / "Failed")
-- **Progress bar** — animated indeterminate during
-  enumeration, deterministic once total > 0
-- **Counter** — "12,047 / 51,684 files (23%)"
-- **Rate** — EWMA-smoothed, "437 files/s"
-- **ETA** — derived from rate; "ETA 1m 30s"
-- **Elapsed timer** — "elapsed 0s" → "elapsed 2m 15s",
-  ticks every 250 ms client-side
-- **Last-poll-age** — "last update just now" /
-  "last update 12s ago" — operator sees whether polling
-  is alive
-- **Sticky hint** — appears after 30s if `done` is still 0:
-  "Backend may still be enumerating the trash pile — large
-  counts (50K+) can take 30-60s before progress numbers
-  appear. The worker is alive as long as 'last update' is
-  recent."
-- **Dismiss button** — appears when finished or errored
-
-### Other improvements bundled in
-
-- **Poll cadence sped up** from 2 s to 1 s. Operator sees
-  movement faster.
-- **Mid-op recovery** — on page load, the trash page now
-  checks `/api/trash/empty/status` and `/api/trash/restore-all/status`;
-  if either is running, the inline card appears with the
-  current progress (so an operator who refreshes the page
-  mid-op doesn't lose feedback).
-- **Network blip resilience** — transient poll failures no
-  longer abort the operation tracking; the card just stops
-  updating, the "last update" timer grows, and polling
-  resumes on the next tick.
-
-### Files
-
-- `core/version.py` — bump to 0.32.4
-- `static/trash.html` — new `.trash-progress` card CSS
-  block + HTML element + unified `runTrashOp` driver +
-  `checkInFlightOps` recovery path
-- `CLAUDE.md`, `docs/version-history.md`,
-  `docs/help/whats-new.md`
-
-No DB migration. No new dependencies. No new scheduler jobs.
-No backend changes — the existing `/api/trash/empty` +
-`/api/trash/restore-all` endpoints (and their `/status`
-companions) are unchanged.
-
----
-
-## v0.32.3 — Trash 500-row cap removed, banner positioned below nav, banner UX polish
-
-**Three bug fixes that surfaced from v0.32.1's Empty Trash +
-Live Banner deploy. Trash list 500-row cap removed (was
-showing "500 files in trash" indefinitely on a 60K-row pile);
-single Empty Trash click now clears the whole pile in one
-shot (was capped at 500 per click); banner positioned below
-the nav bar instead of on top of it; banner shows "Starting…"
-during the 100–500 ms enumeration window instead of
-confusing "0 / 0 files".**
-
-### What was broken
-
-The v0.32.1 Empty Trash workflow + Live Banner combo had three
-issues that confused operators using them end-to-end:
-
-1. **Trash list capped at 500 rows.**
-   `core/db/lifecycle.py:get_source_files_by_lifecycle_status`
-   silently defaulted `limit=500`. Every caller that didn't pass
-   an explicit limit got the first 500 rows. `/api/trash` then
-   ran `total = len(files)` and reported `total: 500` — operators
-   saw "500 files in trash" indefinitely on instances with much
-   bigger trash piles. `purge_all_trash()` had the same bug, so
-   one Empty Trash click only ever cleared the first 500 rows.
-2. **Banner covered the nav bar.** `position: fixed; top: 0;
-   z-index: 9999` painted over the sticky nav (`top: 0; z-index:
-   100; height: 56px`). Operators couldn't navigate while a
-   purge was in flight.
-3. **Banner showed "0 / 0 files" during the kickoff window.**
-   The empty-trash worker flips `running=true` before the SQL
-   count completes — there's a 100–500 ms window where the
-   banner sees `running=true AND total=0`, and it rendered "0 /
-   0 files · — files/s · ETA —" which looked broken.
-
-### Fixes
-
-**Bug 1 — Trash 500-cap removed:**
-- `get_source_files_by_lifecycle_status` accepts `limit=None`
-  to fetch all matching rows in a single query (default still
-  500 for legacy callers that paginate by hand).
-- New helper `count_source_files_by_lifecycle_status(status)`
-  runs a dedicated `SELECT COUNT(*)` for true totals.
-- `/api/trash` (list) — uses count helper for `total`,
-  paginated `LIMIT/OFFSET` for the `files` array.
-- `/api/trash/empty` and `/api/trash/restore-all` (POST) —
-  report true total via count helper.
-- `core/lifecycle_manager.purge_all_trash` and
-  `restore_all_trash` — pass `limit=None` so one click clears
-  everything.
-
-**Bug 2 — Banner below nav:**
-- `position: fixed; top: 56px; z-index: 90` (nav is z-index
-  100). Banner pins directly below the nav; both stay
-  anchored as the page scrolls.
-- Body gains `padding-top: 44px` when the banner is visible
-  (via inline-injected `<style>` rule) so page content isn't
-  hidden under the banner.
-
-**Bug 3 — Banner "Starting…" UX:**
-- When `running=true && total<=0 && !finished`, render
-  "Starting…" instead of the zero-counter line. Rate / ETA
-  lines collapse during this window. Once `total` populates
-  on the next 2 s tick, normal counter format takes over.
-
-### Files
-
-- `core/version.py` — bump to 0.32.3
-- `core/db/lifecycle.py` — `limit=None` support + count
-  helper
-- `core/lifecycle_manager.py` — purge/restore use
-  `limit=None`
-- `api/routes/trash.py` — three endpoints use count helper +
-  LIMIT/OFFSET on the SQL side
-- `static/js/live-banner.js` — top:56px, z-index:90,
-  body padding, "Starting…" UX
-- `CLAUDE.md`, `docs/version-history.md`,
-  `docs/help/whats-new.md`
-
-No DB migration. No new dependencies. No new scheduler jobs.
-
-### Operator-visible API change
-
-```bash
-# /api/trash now returns the TRUE total
-curl -s 'http://localhost:8000/api/trash?per_page=25&page=1'
-# was: {"total": 500, ...}; now: {"total": 51684, ...}
-
-# /api/trash/empty reports true total in kickoff
-curl -sX POST 'http://localhost:8000/api/trash/empty'
-# was: {"status":"started","total":500}; now: {"total": 51684}
-
-# A single click now clears the entire pile (~30 s for 50K rows)
-```
-
----
-
-## v0.32.2 — Unrecognized-file recovery: `.tmk` handler + browser-download suffix shim
-
-**Unrecognized-file recovery: `.tmk` handler + browser-download
-suffix shim. Files that were stranded in the Unrecognized
-bucket because they had a `.download` / `.crdownload` /
-`.part` / `.partial` suffix (browser save-page-as / interrupted-
-download artifacts) or a `.tmk` extension (small markers next
-to `.mp3` recordings) now flow through the existing
-`SniffHandler` delegation chain.**
-
-The fix is small and surgical:
-
-- `formats/sniff_handler.py` registers for the new extensions.
-  A new `_strip_browser_suffix(path)` helper strips the
-  trailing suffix and checks the inner extension; if it has
-  a registered handler, the file is routed there directly
-  (e.g. `add-to-cart.min.js.download` → `.js` → text/code
-  handler). No content-sniffing round-trip required.
-- For `.tmk` (and other unfamiliar extensions reaching
-  SniffHandler), the existing 3-layer recovery — MIME-byte
-  detection via libmagic, UTF-8 text-content heuristic →
-  TxtHandler, metadata-only stub last-resort — is unchanged.
-- The metadata-only stub now records the **actual originating
-  extension** in `DocumentMetadata.source_format` (e.g.
-  `"tmk"`, `"download"`) rather than always `"tmp"` so
-  operators triaging the converted output can see what they're
-  looking at without back-tracing the source path.
-
-This is **Phase 1c + Phase 3** of
-[`docs/superpowers/plans/2026-04-27-unrecognized-file-recovery.md`](docs/superpowers/plans/2026-04-27-unrecognized-file-recovery.md).
-Phase 0 (operator places a fresh `.tmk` sample for byte-level
-discovery) and Phase 2 (general format-sniff fallback for any
-unrecognized extension, with `bulk_files.sniffed_*` columns +
-search/preview UI surfacing) are deferred. The shipped pieces
-already recover the operator's actual stuck files; Phase 2
-adds breadth at the cost of a DB migration + Meili re-index.
-
-### Files
-
-- `formats/sniff_handler.py` — `EXTENSIONS` expanded to
-  `["tmp", "tmk", "download", "crdownload", "part", "partial"]`;
-  `_strip_browser_suffix` helper; Step 0 in `ingest`;
-  metadata-only stub records the originating extension.
-- `core/version.py` — bump to 0.32.2
-- `docs/help/unrecognized-files.md`,
-  `docs/version-history.md`, `docs/help/whats-new.md` —
-  user + engineering docs
-
-No DB migration. No new dependencies. No new scheduler jobs.
-No frontend changes.
-
----
-
-## v0.32.1 — Pipeline-files filter + AutoRefresh + Live Banner + clickable status pills
-
-**Pipeline Files include-trashed filter, AutoRefresh shared
-helper across stale-data pages, Live Status Banner that mirrors
-long-running operation progress across pages, clickable
-SCANNING / PENDING / LIFECYCLE pills on Status, log-viewer
-deep-link via `?q=`, scanning-card UX fix
-("Enumerating source files…" instead of "0 / ? files — ?%"),
-trash purge-on-demand reducing 60K+ in_trash rows by ~95%,
-and a written plan for `.tmk` handler + `.download`
-format-sniff recovery.**
-
-### Why this matters
-
-Operators triaging files from the v0.32.0 preview page were
-running into three classes of confusion:
-
-1. **Stale lists** — Pipeline Files / Batch Management /
-   Flagged / Unrecognized never auto-refreshed. Trigger a
-   force-action, switch tabs, come back: the file still showed
-   `pending` until manually reloading.
-2. **Lifecycle bloat** — `bulk_files` had 113K rows of which
-   only ~2K reflected files actually on disk. Pipeline Files
-   showed every one of them, mixing trashed-but-not-purged
-   rows in with active files.
-3. **Opaque jobs** — the SCANNING and PENDING pills on the
-   Status page were dead labels, with no way to drill into
-   what was happening. A stuck scan looked the same as a
-   running one ("0 / ? files — ?%"), with no path to the log
-   that would explain why.
-
-v0.32.1 addresses all three plus follow-on UX polish.
-
-### Pipeline Files include-trashed filter
-
-`bulk_files.lifecycle_status` is independent of `bulk_files.status`
-— a file can be `status='pending'` (never converted) AND
-`lifecycle_status='in_trash'` (lifecycle scanner saw it
-disappear from disk). The Pipeline Files page ignored
-lifecycle, so 60K+ trashed-but-not-purged rows showed up as
-pending forever.
-
-Backend: `core/db/bulk.py:get_pipeline_files()` and
-`api/routes/pipeline.py:pipeline_stats()` gain an
-`include_trashed: bool = False` parameter. When False, both
-endpoints add a JOIN on `source_files` and filter
-`sf.lifecycle_status = 'active' OR sf.lifecycle_status IS NULL`
-(the IS NULL preserves orphaned rows from older datasets).
-Stats cache now keyed only for the default-active case;
-trashed-included results are computed fresh.
-
-Frontend: new "Include trashed / marked-for-deletion files"
-checkbox below the search bar. When checked, both
-`/api/pipeline/stats` and `/api/pipeline/files` receive
-`include_trashed=true`; counters and list refresh together.
-
-Default behavior change: list dropped from ~113K rows to ~2K
-on this instance. The toggle stays for power users who want
-to see what the registry knows even after disk-state
-divergence.
-
-### Trash purge-on-demand
-
-The 60K+ `in_trash` rows weren't going to age out for ~42 days
-under the default 60-day retention. We triggered the existing
-`POST /api/trash/empty` endpoint in a 15-call loop (the
-endpoint caps each call at 500 source_files via the underlying
-`get_source_files_by_lifecycle_status` query). Cleared
-~7,500 rows immediately; the rest age out on the existing
-schedule. **Note**: a future change should let `purge_all_trash`
-process all rows in one call — capping at 500 was originally
-defensive against memory blow-up but on the current schema
-the row weight is small enough to handle 60K in one pass.
-
-### AutoRefresh shared helper
-
-New `static/js/auto-refresh.js` (~120 LOC) — tiny opt-in
-polling helper:
-
-```js
-AutoRefresh.start({
-  refresh: () => { loadStats(); loadFiles(); },
-  intervalMs: 30000,
-});
-```
-
-Behavior: polls every `intervalMs` while tab is visible.
-Pauses on `visibilitychange === 'hidden'` so backgrounded
-tabs don't burn API calls. On focus, fires one immediate
-refresh and resumes the interval. Concurrency guard prevents
-two refreshes from overlapping on slow networks.
-
-Wired this release:
-- `pipeline-files.html` (30 s) — file list + status chips
-- `batch-management.html` (60 s) — batch list (existing 5 s
-  pollTick still handles status counters)
-- `flagged.html` (30 s) — flagged-file queue + counts
-- `unrecognized.html` (60 s) — unrecognized-file list
-
-Pages with their own polling / SSE (status, history, bulk,
-resources, db-health, debug, log-viewer, trash, preview)
-are left alone — they have correct refresh already.
-
-### Live Status Banner
-
-New `static/js/live-banner.js` (~270 LOC) — sticky banner at
-top of any page that includes the script. Polls a configurable
-list of long-running operation endpoints (currently
-`/api/trash/empty/status` and `/api/trash/restore-all/status`)
-and shows progress when any is in flight:
-
-```
-🗑 Emptying trash · [bar 25%] · 127/500 files · 2.4 files/s · ETA 2m 35s · ×
-```
-
-Architecture:
-- Single banner DOM, position:fixed, z-index 9999.
-- 2 s poll cadence; pauses while tab hidden.
-- ETA computed client-side via EWMA-smoothed throughput so
-  status endpoints don't need ETA fields.
-- Auto-collapses 4 s after operation finishes (so operator
-  sees the green "Done" state).
-- Built entirely via `createElement` / `textContent` — no
-  innerHTML, XSS-safe even if an endpoint were ever to return
-  operator-controlled text.
-- Public hook `window.LiveBanner.register({key, url, label,
-  icon, noun})` for pages to add their own long-running ops.
-
-Wired to: `trash.html`, `status.html`, `pipeline-files.html`.
-
-### Clickable status pills + log-viewer deep-link
-
-Status pills on the Status page are now hyperlinks:
-
-| Pill | Click destination |
-|------|-------------------|
-| **SCANNING `<id>…`** | `/log-viewer.html?q=<job_id_prefix>&mode=history` |
-| **PENDING** (header card) | `/pipeline-files.html?status=pending` |
-| **LIFECYCLE SCAN** (running) | `/log-viewer.html?q=lifecycle_scan&mode=history` |
-| **LIFECYCLE SCANNER** (idle) | `/log-viewer.html?q=lifecycle_scan&mode=history` |
-
-Log viewer (`static/log-viewer.html`) gained `?q=<text>` and
-`?mode=history` URL parameters. On load, if `q` is present
-the search input is pre-filled and dispatched; `mode=history`
-flips to history search mode and runs immediately. Lets
-operators jump straight from "what's the scanner doing right
-now?" to the line-by-line log without typing the job ID.
-
-CSS: new `.status-pill--link` class with the existing
-`.stat-pill--link` hover pattern (opacity + scale) plus a
-small ↗ glyph to signal external destination.
-
-### Scanning-card UX fix
-
-Active scanning jobs in their first ~10 s of life show
-`total_files = NULL` because the bulk_scanner is still
-walking the source tree. The status card was rendering
-"0 / ? files — ?%" which looked broken. New rendering:
-
-- While `status='scanning' AND total_files IS NULL`: show
-  spinner + *"Enumerating source files… 12s elapsed"*.
-- If elapsed > 2 min AND `last_heartbeat IS NULL`: switch to
-  warning tone — *"⚠ Enumerating — stuck? No progress for
-  3m 24s. Stop the job and retry, or check the log viewer."*
-- After `total_files` is set: revert to the normal
-  "N / M files — pct%" line.
-
-Diagnoses the exact symptom the user reported — gives them a
-clear action (Stop + retry) when a job is genuinely stuck
-rather than burying it in a meaningless progress label.
-
-### Plan: `.tmk` handler + `.download` format-sniff
-
-Written plan at
-[`docs/superpowers/plans/2026-04-27-unrecognized-file-recovery.md`](docs/superpowers/plans/2026-04-27-unrecognized-file-recovery.md).
-Three phases:
-
-- **Phase 0** — discovery: get a fresh `.tmk` sample (all
-  on-disk samples have already aged into `in_trash`); decide
-  the handler shape based on actual content.
-- **Phase 1** — `.tmk` handler. 3 variants per discovery
-  results (text-extension, audio-sidecar, or unknown-format
-  stub).
-- **Phase 2** — general format-sniff fallback for
-  unrecognized files. Magic-byte test → text heuristics →
-  `python-magic` cascade. Stores `sniffed_format /
-  sniffed_method / sniffed_confidence` on `bulk_files`;
-  surfaces in search results + file detail page.
-- **Phase 3** — browser-suffix shim (`.download` /
-  `.crdownload` / `.part` / `.partial`) — strip the suffix
-  and re-classify on the real extension. Cheap special case
-  that handles the bulk of the user's `.download` files in
-  one go.
-
-Implementation deferred — operator can ship incrementally
-when ready.
-
-### Files this release
-
-- `core/version.py` — bump to 0.32.1
-- `core/db/bulk.py` — `get_pipeline_files()` lifecycle filter
-- `api/routes/pipeline.py` — endpoints honor `include_trashed`
-- `static/js/auto-refresh.js` (new)
-- `static/js/live-banner.js` (new)
-- `static/pipeline-files.html` — include-trashed toggle +
-  AutoRefresh wire-up + live banner script
-- `static/batch-management.html`, `flagged.html`,
-  `unrecognized.html` — AutoRefresh wire-up
-- `static/trash.html`, `status.html` — live banner wire-up
-- `static/status.html` — clickable pills, scanning-card fix
-- `static/log-viewer.html` — `?q=` / `?mode=history` URL
-  params
-- `static/markflow.css` — `.status-pill--link` hover styles
-- `docs/superpowers/plans/2026-04-27-unrecognized-file-recovery.md`
-  (new plan)
-- `CLAUDE.md`, `docs/version-history.md`,
-  `docs/help/whats-new.md`, `docs/help/preview-page.md`,
-  `docs/help/keyboard-shortcuts.md`,
-  `docs/help/_index.json`, `docs/key-files.md`
-
-No DB migration. No new dependencies. No new scheduler jobs.
-
----
-
-## v0.32.0 — File preview page + force-process + related-files
-
-**File preview page (`static/preview.html`) — full-fledged
-file-detail viewer replacing the long-standing 19-line stub.
-Click the folder icon on a Pipeline Files row and a real page
-opens with inline content preview, metadata sidebar, conversion +
-analysis status, sibling navigation, and operator actions. Plus
-side polish on Batch Management (page-size selector, collapse/
-expand-all toggle).**
-
-The preview page is the source-file inspection surface — a peer
-of the converted-Markdown viewer at `static/viewer.html`. Where
-viewer.html renders the Markdown OUTPUT, preview.html shows the
-INPUT: the original file, its metadata, where it sits in the
-pipeline, and what neighbors live next to it.
-
-### What clicking the folder icon now produces
-
-A page with a sticky toolbar (breadcrumb · title · status pill ·
-flag pill · action buttons) and a two-pane layout:
-
-- **Left**: per-format viewer — image, audio player, video
-  player, PDF iframe, text excerpt, rendered Markdown (for
-  converted Office docs), archive listing, or "no inline
-  preview" metadata-only fallback.
-- **Right**: metadata cards — file stats, source_files
-  registry row, latest bulk_files conversion, latest
-  analysis_queue row, active file_flags, sibling listing with
-  ← Prev / Next → buttons + clickable file list.
-
-Action buttons:
-- **Download** — direct file download via Content-Disposition
-- **Open in new tab** — same content URL, new tab
-- **Copy path** — `navigator.clipboard.writeText` (with a
-  document.execCommand fallback for non-secure contexts)
-- **Show in folder** — jumps to Pipeline Files filtered to
-  the parent directory (uses the new `?folder=` query param)
-- **View converted →** — only when a successful conversion
-  exists; opens viewer.html for the full Markdown experience
-- **Re-analyze** — only when an analysis row exists; uses
-  the v0.31.0 delete-and-re-insert endpoint
-
-Keyboard shortcuts: `←` / `→` navigate to prev / next sibling
-file; `Esc` jumps back to Pipeline Files filtered to the
-parent folder.
-
-### Backend — new `/api/preview/*` router
-
-Six endpoints, all `OPERATOR+`-gated and path-keyed (verified
-by `core.path_utils.is_path_under_allowed_root`):
-
-- `GET /api/preview/info` — composite metadata + status +
-  sibling listing (cap 200 entries, 10 s wall-clock)
-- `GET /api/preview/content` — raw bytes via `FileResponse`
-  with HTTP range support (so video/audio seek)
-- `GET /api/preview/thumbnail` — server-rendered JPEG via
-  the shared `core.preview_thumbnails` cache
-- `GET /api/preview/text-excerpt` — first N bytes UTF-8
-  decoded (`errors='replace'`, hard cap 512 KB)
-- `GET /api/preview/archive-listing` — zip / tar (auto-detect
-  gz/bz2/xz) / 7z entries (cap 500)
-- `GET /api/preview/markdown-output` — converted Markdown if
-  a successful `bulk_files` row exists, else 404
-
-### Refactor: thumbnail machinery in `core/preview_thumbnails.py`
-
-Extracted the thumbnail cache + dispatch logic out of
-`api/routes/analysis.py` into a shared module. Cache key is
-now path-based (resolved + mtime + size), so a thumbnail
-rendered via the source_file_id-keyed analysis endpoint AND
-the path-keyed preview endpoint share the same cache hit.
-The existing `/api/analysis/files/:id/preview` endpoint stays
-externally identical — it just delegates to the shared
-module.
-
-### Helpers: `core/preview_helpers.py`
-
-Pure functions for `classify_viewer_kind(path)`,
-`get_mime_type(path)`, `get_file_category(path)`. Used by the
-info endpoint to compute the dispatch hint server-side so the
-frontend doesn't repeat extension classification logic.
-
-### Side polish: Batch Management
-
-The Batch Management page now has:
-
-- **Page-size dropdown** (10 / 30 / 50 / 100 / All — default
-  30, persists to localStorage)
-- **Expand all / Collapse all** toggle that uses the existing
-  card-header click handler so lazy-loading of file lists
-  fires on expand
-- **Pagination footer** with `← Prev` / `Next →` and
-  "Showing 1-30 of 247 batches" indicator
-
-The page sometimes lists hundreds of batches; the previous
-"render every card on page load" behavior was unwieldy.
-Client-side pagination is good enough — the API already
-returns the full list, we just slice it for display.
-
-### Pipeline Files `?folder=` filter
-
-Small addition (~30 LOC). The "Show in folder" button on the
-preview page sends users to Pipeline Files filtered to a
-specific directory; this required teaching pipeline-files.html
-to honor a `?folder=<path>` query parameter that pre-fills
-the search box.
-
-### Side fix: quiet shutdown for the lifecycle scan
-
-`core/scheduler.py:run_lifecycle_scan()` wrapped its body in
-`try / except Exception`. When the container received SIGTERM
-mid-scan, the asyncio task got cancelled while awaiting
-`aiosqlite.connect.__aexit__()` inside
-`mark_file_for_deletion → update_source_file → get_db()`, and
-the resulting `CancelledError` slipped past the broad
-`except Exception` (it's a `BaseException` in Python 3.8+),
-surfacing inside apscheduler as a job-raised-exception
-traceback in `markflow.log` on every clean restart.
-
-Fix: explicit `except asyncio.CancelledError` clause that logs
-`scheduler.scan_cancelled_on_shutdown` at info level and
-returns. Cancellation has already done its job — the next
-scheduled interval picks up the work. Other apscheduler-facing
-job functions in `scheduler.py` use the same broad-except
-pattern but haven't been observed crashing on shutdown; left
-alone for now.
-
-### Side cleanup: stale `db-*.log` files removed
-
-`core/db/contention_logger.py` was retired in v0.24.2 but its
-three temp files (`db-contention.log` 375 MB,
-`db-queries.log` 272 MB, `db-active.log` 15 MB — last write
-2026-04-23) sat untouched on disk. Removed during this release.
-No code path writes to those filenames anymore.
-
-### Force-process button + real-time progress (file-aware)
-
-A new "🎙 Transcribe" / "⚙ Process" / "🔍 Analyze" button on
-the preview page kicks off the full pipeline for a single file:
-removes it from `pending` / `failed` / `batched` state, runs the
-appropriate engine (Whisper / converter / LLM vision), writes
-the output to the configured directory, and reindexes — without
-forcing the operator to wait for the next pipeline tick.
-
-- **File-aware label** — picked from `info.action` returned by
-  `/api/preview/info`. Backed by a single-line dispatcher
-  `core.preview_helpers.pick_action_for_path(p)`:
-    - audio/video → `transcribe`
-    - office/pdf/text/archive → `convert`
-    - image (any preview-eligible extension) → `analyze`
-    - everything else → `none` (button hidden)
-- **Backend** — `POST /api/preview/force-action {path}` schedules
-  a `BackgroundTask`. Two paths:
-    - `transcribe` / `convert` → upserts a `bulk_files` row, then
-      reuses `_convert_one_pending_file` from v0.31.6 (so the
-      same routing / output-mapping / write-guard / index logic
-      applies).
-    - `analyze` → calls `enqueue_for_analysis`, then forces a
-      `run_analysis_drain()` so the LLM call goes out within the
-      current request rather than waiting up to 5 minutes for
-      the scheduled tick.
-- **Real-time progress** — in-memory dict
-  (`_FORCE_ACTION_STATE`) keyed on resolved source path,
-  exposed via `GET /api/preview/force-action-status?path=…`.
-  Frontend polls every 2 s; each phase
-  (`queued → preparing → running → success/failed`) renders an
-  inline card under the action buttons with a live elapsed-time
-  ticker. The poll loop quits on success/failed and re-fetches
-  `/info`, which re-runs the dispatch — sidebar Conversion /
-  Analysis cards repopulate, and the audio viewer adds a new
-  transcript pane below its `<audio>` element.
-- **Re-entrancy guard** — a second click while a prior run is
-  still in-flight returns 409. Works across browser refreshes
-  (state is process-local, not session-local).
-
-### Related-Files sidebar + selection-driven search
-
-The preview page now has two new sidebar cards plus a global
-text-selection chip — operators can find context-similar files
-without leaving the file detail.
-
-- **Auto-populated "Related Files" card** — fires
-  `/api/preview/related` on every page load with `mode=semantic`
-  by default. Toggle to `keyword` (Meilisearch) via tabs.
-  Backend derives the query in this order: converted Markdown
-  excerpt (first 1000 chars) → analysis description →
-  filename + parent directory tokens.
-- **Sidebar search panel** — typed-query `<input>` + mode
-  dropdown (semantic / keyword) + "🤖 AI Assist ↗" deep-link
-  to `/search.html?q=…&ai=1` in a new tab. AI Assist intentionally
-  does NOT auto-fire — preview-page opens shouldn't burn LLM
-  tokens, so the synthesize action is operator-initiated.
-- **Highlight-to-search chip** — `mouseup` inside the viewer,
-  transcript pane, analysis description, or any related-file
-  list pops a floating chip with [🧠 Semantic | 🔎 Keyword |
-  🤖 AI ↗] options. Position is computed from the selection's
-  `getBoundingClientRect()` and flips below if the selection
-  is too close to the viewport top.
-- **`Find related ↗` action button** — opens `/search.html` in
-  a new tab seeded with the file's content as the query, so the
-  operator gets the full search page without losing the preview
-  context.
-
-Backend endpoint `GET /api/preview/related` accepts:
-`path`, `mode` (`keyword`|`semantic`), optional `q` override,
-`limit` (1–25 default 10). Returns hits filtered to exclude the
-current file, with `path / name / score / source_format /
-size_bytes / doc_id / snippet`. Vector hits use
-`source_path` from the Qdrant payload directly — no Meili
-roundtrip.
-
-### Staleness banner (don't lose the view)
-
-When the user is away from a preview tab and a force-action /
-pipeline tick changes the underlying state, the page detects it
-on `visibilitychange`:
-
-- `/info` now returns `info_version` — a 16-char SHA256 prefix
-  of `(size, mtime, viewer_kind, conv.status, conv.converted_at,
-  conv.output_path, analysis.status, analysis.analyzed_at,
-  analysis.description[:64], len(flags))`.
-- Frontend stores it on load. On tab-focus it re-fetches `/info`
-  and compares; if the version changed, it re-renders + shows a
-  blue banner: *"This file changed while you were away — page
-  refreshed with the latest data."* Auto-dismisses after 12 s.
-- Suppressed during force-action polling so we don't show the
-  banner for our own work-in-progress.
-
-### Better error UX on missing files
-
-Click "Open in new tab" / "Download" on a file the registry
-remembers but disk has lost? Two fixes:
-
-- **Frontend** — when `info.exists=false`, the buttons render
-  as `<button disabled>` with tooltip *"File not found on
-  disk — cannot serve content"* instead of linking to a
-  404-returning endpoint.
-- **Backend** — `/api/preview/content` sniffs `Accept: text/html`.
-  Browser navigations get a styled error page (path + reason +
-  back-to-preview link); media-element / fetch consumers still
-  get the JSON 404 so `<img onerror>` fallback paths keep
-  working.
-
-### Files
-
-- `core/version.py` — bump to 0.32.0
-- `core/preview_thumbnails.py` (new) — shared thumbnail cache
-- `core/preview_helpers.py` (new) — classification helpers
-- `api/routes/preview.py` (new) — six endpoints
-- `api/routes/analysis.py` — thumbnail helpers replaced by
-  imports from `core.preview_thumbnails`; preview endpoint
-  unchanged externally
-- `core/scheduler.py` — `import asyncio` + new
-  `except asyncio.CancelledError` clause in
-  `run_lifecycle_scan` (side fix)
-- `core/preview_helpers.py` — added
-  `pick_action_for_path()` + ACTION_* constants for the
-  force-action dispatcher
-- `api/routes/preview.py` — added force-action endpoints
-  + state tracker, `/related` endpoint with keyword/semantic
-  modes, `info_version` etag, friendly HTML 404 for browser
-  hits on missing-file content
-- `main.py` — register the new preview router
-- `static/preview.html` — full rewrite + force-action button +
-  progress card + Related/Search sidebar cards + selection
-  chip + staleness banner + audio transcript pane
-  (~1500 LOC after this release)
-- `static/pipeline-files.html` — `?folder=` query param honored
-- `static/batch-management.html` — page-size selector +
-  Expand/Collapse-all toggle + pagination footer
-- removed: `/app/logs/db-{contention,queries,active}.log` (662
-  MB stale instrumentation, side cleanup)
-- `CLAUDE.md`, `docs/version-history.md`,
-  `docs/help/whats-new.md`
-
-No DB migration. No new dependencies. No new scheduler jobs.
-
----
-
-## v0.31.6 — Selective conversion of pending files
-
-**Selective conversion on the History page's Pending Files
-section — checkboxes per row + select-all + a "Convert Selected
-(N)" / "Retry Selected (N)" bulk-action bar that lets operators
-test a hand-picked subset of pending files instead of committing
-to the full pipeline run.**
-
-### Why this matters
-
-The Pending Files card on the History page shows a paginated
-view of every `bulk_files` row with `status='pending'` /
-`'failed'` (113,354 entries on this instance). The existing
-**Force Transcribe / Convert Pending** button kicks off
-`/api/pipeline/run-now` which processes ALL of them in one
-sweep. Operators wanted to **test a few specific files** (a
-handful of MP3s, one problematic PDF) without committing to
-the full sweep — especially given audio/video files take
-minutes each via Whisper.
-
-### Frontend (`static/history.html`)
-
-- Checkbox column on the pending table (header has select-all,
-  rows have per-file checkboxes bound to `bulk_files.id`).
-- Bulk-action bar appears when ≥1 row is checked:
-  - "N selected" count + summary "3× .mp3, 1× .pdf · 287.5 MB"
-  - Cap warning if N > 100 (matches backend cap)
-  - **Convert Selected (N)** / **Retry Selected (N)** button —
-    verb switches based on status-filter dropdown
-  - Clear selection button
-- Selection persists across pagination via in-memory Set keyed
-  on `bulk_files.id`. Switching the status filter
-  (pending↔failed) clears selection (different eligibility
-  sets). Select-all toggles current-page rows only — not all
-  113k.
-- Indeterminate state on select-all when partial selection.
-
-### Backend (`api/routes/pipeline.py`)
-
-`POST /api/pipeline/convert-selected` (OPERATOR+):
-
-- `ConvertSelectedRequest` Pydantic body: `file_ids` (1–100).
-- Validates each id has eligible status (`pending` / `failed`
-  / `adobe_failed`). Returns 400 with structured
-  `{not_found, ineligible, eligible_statuses}` if no eligible
-  rows.
-- Schedules a background batch with `asyncio.Semaphore(4)`
-  concurrency (matches `BULK_WORKER_COUNT` default).
-- Each file routes through `_convert_one_pending_file()`:
-  - Resolves output dir from
-    `core.storage_manager.get_output_path()` (Universal Storage
-    Manager since v0.25.0); falls back to `/mnt/output-repo`.
-  - Reconstructs source root by walking up the path until one
-    of the mount roots matches (`/mnt/source`, `/host/c`,
-    `/host/d`, `/host/rw`, `/host/root`); falls back to
-    `source_path.parent`.
-  - Uses `_map_output_path` to compute destination, mirroring
-    `BulkJob._process_convertible`.
-  - Honors `is_write_allowed()` write guard.
-  - Calls `_convert_file_sync` in a worker thread; updates
-    `bulk_files` via `db_write_with_retry`.
-- Per-file exceptions never abort the batch — logged and
-  recorded on the row.
-- Returns immediately with `{queued, not_found, ineligible,
-  message}`. Frontend's existing 30s pending-list refresh
-  reflects status changes.
-
-### Files
-
-- `core/version.py` — bump to 0.31.6
-- `api/routes/pipeline.py` — `ConvertSelectedRequest`,
-  `convert_selected_files`, `_convert_one_pending_file`,
-  `_run_convert_selected_batch` (~210 LOC)
-- `static/history.html` — checkbox column, bulk-action bar,
-  selection state Set, all handlers (~150 LOC)
-- `CLAUDE.md`, `docs/version-history.md`,
-  `docs/help/whats-new.md`
-
-No DB migration. No new dependencies. No new scheduler jobs.
-
----
+## Recent release summaries
+
+Every block below is a one-paragraph carried-forward summary. Full
+context (problem, fix, modified files, why-it-matters) for each
+release lives in [`docs/version-history.md`](docs/version-history.md).
+On each new release the outgoing "Current Version" block is moved
+into `version-history.md` and replaced here with a short summary.
+
+### v0.33.3 (carried-forward summary) — Cost estimation Phase 3 (operational hardening)
+
+CSV export of period cost data (`/api/analysis/cost/period.csv`) for
+finance imports. Stale-rate amber warning surfaced in API + Admin
+Provider Spend card. New daily 03:30 scheduler job
+`check_llm_costs_staleness` (job count 18→19) emits `llm_costs.stale`
+warning event when `llm_costs.json:updated_at` is older than 90 days.
+Help docs gain audit-trail section pointing at
+`/api/logs/search?q=llm_cost`.
+
+### v0.33.0 (carried-forward summary) — Pipeline / Lifecycle / Pending cards merged; click-to-enlarge banner
+
+Status page consolidates three overlapping cards (Pipeline +
+Lifecycle Scanner + Pending) into a single canonical Pipeline card.
+Bulk Jobs gets the same card in compact mode (one-line summary +
+"view full status →"). Shared module `static/js/pipeline-card.js`
+replaces the per-page copies. Background scan banner is now
+click-to-enlarge with a detail modal (run-id, ETA, current file,
+last-update age) plus keyboard support (Enter / Esc).
+
+### v0.32.11 (carried-forward summary) — Lifecycle scan state hydrates from DB on startup
+
+Status page Lifecycle Scanner card showed "Last scan: never" after
+every container restart because `_scan_state` reset to None on
+process boot. New `hydrate_scan_state_from_db()` runs in lifespan
+startup and populates `last_scan_at` / `last_scan_run_id` from the
+most recent finished `scan_runs` row.
+
+### v0.32.10 (carried-forward summary) — Pipeline header descriptive scan info
+
+Bulk Jobs Pipeline header gains multi-line cells with descriptive
+sub-lines (Last Scan status pill + scanned/new/modified counts;
+Next Scan type + cadence; Mode behavior summary; relative-time
+qualifiers like "8 min ago"). Scheduler decision-reason surfaced as
+hover tooltip on Mode cell. New `.pl-cell-sub` + `.pl-status-pill`
+CSS rules.
+
+### v0.32.9 (carried-forward summary) — Status card matches Bulk Jobs scan progress + click-to-jump
+
+Status-page active-job card now mirrors the Bulk Jobs scan-progress
+display (scanned-count + current-file + indeterminate animated bar).
+BulkJob gains 3 state fields (`_scan_scanned`, `_scan_total`,
+`_scan_current_file`); `get_all_active_jobs()` returns a new
+`scan_progress` dict. Whole progress region is a click-through link
+to `/bulk.html?job_id=<id>` with smooth-scroll + 1.8s highlight.
+
+### v0.32.8 (carried-forward summary) — Storage page verifies on load + on tab focus
+
+Every configured source path is verified on Storage page load (was:
+only the output path). New per-row `.storage-verify-inline` widget
+resolves async (parallel) to ✓ Readable · N items / ✗ Unreachable.
+Per-section ↻ Re-verify buttons + auto-re-verify on tab focus after
+>30s hidden (catches USB plug/unplug + network share drops).
+
+### v0.32.7 (carried-forward summary) — Enumerating UI now actually renders during scans
+
+Status page's "Enumerating source files…" UI from v0.32.1 was
+silently falling through to the misleading `0 / ? files — ?%`
+display because `total_files` is **0** during scanning, not null.
+One-line fix: drop the `total_files == null` check; `status ===
+'scanning'` alone is the authoritative signal.
+
+### v0.32.6 (carried-forward summary) — Server-authoritative trash timers
+
+Trash progress timers no longer reset when the operator navigates
+away and back. `_empty_trash_status` and `_restore_all_status`
+gain `started_at_epoch` + `last_progress_at_epoch` set by the
+worker; frontend reads these on every poll instead of computing
+elapsed-time client-side from the show-card moment.
+
+### v0.32.5 (carried-forward summary) — Cache-bust convention on `live-banner.js`
+
+Establishes the `?v=<release>` query-string convention on
+`live-banner.js` script tags so returning operators get the latest
+banner code without a hard-refresh. Three pages bumped
+(`trash.html`, `status.html`, `pipeline-files.html`).
+
+### v0.32.4 (carried-forward summary) — Inline progress card on Trash page
+
+Empty Trash + Restore All now show a prominent in-page progress
+card (between action buttons and file table) with bar / counter /
+EWMA rate / ETA / elapsed timer / last-poll-age / sticky
+"backend may still be enumerating" hint. Mid-op recovery: page
+load checks `/status` endpoints and re-shows the card if either
+op is in flight. No backend change.
+
+### v0.32.3 (carried-forward summary) — Trash 500-cap removed, banner positioning, "Starting…" UX
+
+Three v0.32.1 follow-up bugs: Trash list 500-row cap removed (new
+`count_source_files_by_lifecycle_status` helper, `limit=None`
+support; single Empty Trash click clears the whole pile); Live
+Banner positioned below nav (`top:56px; z-index:90`) with body
+padding-top adjustment; banner shows "Starting…" during the
+100–500 ms enumeration window instead of "0 / 0 files".
+
+### v0.32.2 (carried-forward summary) — `.tmk` handler + browser-download suffix shim
+
+Files stranded in Unrecognized because of `.download` /
+`.crdownload` / `.part` / `.partial` suffix or `.tmk` extension
+now flow through `SniffHandler`. New `_strip_browser_suffix(path)`
+strips trailing suffix and routes by inner extension.
+Metadata-only stub records the actual originating extension in
+`source_format` (was always `"tmp"`). Phase 2 (general format-sniff
+fallback with `bulk_files.sniffed_*` columns) deferred.
+
+### v0.32.1 (carried-forward summary) — Pipeline Files filter + AutoRefresh + Live Banner + clickable pills
+
+Pipeline Files include-trashed toggle (default false; backend
+JOIN on `source_files.lifecycle_status`). New
+`static/js/auto-refresh.js` (visibility-aware polling helper) wired
+to four stale-data pages. New `static/js/live-banner.js`
+(long-running-op progress mirrored across pages). Status pills are
+now hyperlinks (`SCANNING` → log viewer; `PENDING` → pipeline-files;
+`LIFECYCLE SCAN` → log viewer). Log viewer accepts `?q=` +
+`?mode=history` deep-link. Scanning-card UX fix. Written
+`.tmk` recovery plan.
+
+### v0.32.0 (carried-forward summary) — File preview page + force-process + related-files
+
+`/preview.html` replaces the 19-line stub — full file viewer with
+inline content (image / audio / video / PDF / text / Markdown /
+archive / metadata-only fallback), metadata sidebar, sibling
+navigation (← / →), force-process button (transcribe / convert /
+analyze with real-time progress polling), Related Files sidebar
+(semantic + keyword) and highlight-to-search chip, info-version
+etag for staleness banner, friendly HTML 404 for missing files.
+Six new `/api/preview/*` endpoints; thumbnail logic extracted to
+shared `core/preview_thumbnails.py`. Plus Batch Management
+page-size selector + Expand/Collapse-all + pagination footer. Side
+fix: `run_lifecycle_scan` swallows `asyncio.CancelledError`
+quietly on shutdown. Side cleanup: 662 MB stale `db-*.log` files
+removed.
+
+### v0.31.6 (carried-forward summary) — Selective conversion of pending files
+
+History page Pending Files section gains checkboxes + select-all
++ "Convert Selected (N)" / "Retry Selected (N)" bulk-action bar.
+New `POST /api/pipeline/convert-selected` (cap 100; routes via
+new `_convert_one_pending_file` reusing Universal Storage Manager
+output paths + write-guard). Lets operators test a hand-picked
+subset without committing to a full pipeline sweep.
 
 ### v0.31.5 (carried-forward summary) — Preview format expansion + dynamic ETA framework
 
-Hover preview now covers HEIC / HEIF (modern phone photos), ~30
-RAW camera formats (Canon / Nikon / Sony / Fuji / Olympus /
-Panasonic / etc), and SVG (rasterized server-side via cairosvg,
-no XSS surface). Plus a dynamic ETA framework: log searches
-now show "estimated 1.4s (12 prior obs)" hints based on EWMA
-throughput observed on the host's actual hardware. Daily
-scheduler job (count 18→19) captures CPU / RAM / load history.
-Full context: [`docs/version-history.md`](docs/version-history.md).
-
----
+Hover preview now covers HEIC / HEIF / ~30 RAW camera formats /
+SVG (rasterized server-side via cairosvg). Plus a dynamic ETA
+framework: log searches show "estimated 1.4s (12 prior obs)"
+hints based on EWMA throughput observed on this host's hardware.
+Daily scheduler job (count 18→19) captures CPU / RAM / load
+history.
 
 ### v0.31.4 (carried-forward summary) — Server-side ZIP bulk download
 
-Multi-file download on Batch Management now produces a single
+Multi-file download on Batch Management produces a single
 streaming ZIP via `POST /api/analysis/files/download-bundle`
 instead of the v0.29.6 sequential synthetic-anchor loop. Cap
-raised from 100 to 500 files; server enforces 500 files OR
-~2 GiB uncompressed (whichever first). Smart compression
-(`ZIP_STORED` for already-compressed extensions). Single-file
-fast path skips the bundle endpoint entirely. Full context:
-[`docs/version-history.md`](docs/version-history.md).
+raised from 100 → 500 files; server enforces 500 files OR ~2 GiB
+uncompressed (whichever first). Smart compression (`ZIP_STORED`
+for already-compressed extensions). Single-file fast path skips
+the bundle endpoint entirely.
 
 ### v0.31.2 (carried-forward summary) — Multi-provider 5-layer vision resilience
 
-OpenAI, Gemini, and Ollama vision batch paths now get the same
-v0.29.9 Anthropic resilience pipeline: preflight validation,
-exponential backoff with `Retry-After`, per-image bisection on
-400, circuit breaker, operator banner. The breaker module is
-process-wide so a 429 storm on one provider pauses any other
-provider's calls — by design (one active provider at a time;
-fail-fast on storms). Full context:
-[`docs/version-history.md`](docs/version-history.md).
+OpenAI, Gemini, Ollama vision batch paths get the v0.29.9
+Anthropic resilience pipeline (preflight, exponential backoff
+with `Retry-After`, per-image bisection on 400, circuit breaker,
+operator banner). Breaker module is process-wide so a 429 storm
+on one provider pauses any other provider's calls — by design
+(fail-fast on storms).
 
 ### v0.31.1 (carried-forward summary) — `.7z` viewer safety controls + system snapshot
 
-Three polish items on top of v0.31.0's `.7z` viewability:
-operator-tunable `.7z` byte cap (DB pref, 200 MB default, warn
-above 1024 MB / above 50% free RAM, hard max 4096 MB), Log
-Management Settings card host snapshot row (CPU model + cores,
-RAM total/free, load 1m/5m/15m), and a live spinner + ticking
-elapsed time on the log viewer while a search is in flight.
-Full context: [`docs/version-history.md`](docs/version-history.md).
+Operator-tunable `.7z` byte cap (DB pref, 200 MB default, warn
+above 1024 MB / above 50% free RAM, hard max 4096 MB). Log
+Management Settings card host-snapshot row (CPU / RAM / load 1m
+/5m/15m). Live spinner + ticking elapsed time on the log viewer
+during in-flight searches.
 
 ### v0.31.0 (carried-forward summary) — Five-item deferred-items bundle
 
-
-Five-item bundle release: multi-provider filename interleaving
-in vision_adapter.py (OpenAI/Gemini/Ollama, mirroring v0.29.8
-Anthropic), time-range UI on the log viewer history search,
-bulk re-analyze with DELETE + re-INSERT semantics, multi-log
-tabbed live view (LogTab class refactor), and log subsystem
-consolidation (deleted core/log_archiver.py; scheduler now
-calls core/log_manager). Plus .7z archives readable in-place
-via _SevenZReader subprocess wrapper with three-layer headless
-safety (500k-line / 60s wall-clock / 200 MB byte caps). Full
-context: [`docs/version-history.md`](docs/version-history.md).
-
----
-
+Multi-provider filename interleaving (OpenAI/Gemini/Ollama,
+mirroring v0.29.8 Anthropic), time-range UI on log viewer history
+search, bulk re-analyze with DELETE + re-INSERT semantics,
+multi-log tabbed live view (LogTab class refactor), log subsystem
+consolidation (`core/log_archiver.py` deleted; scheduler now
+calls `core/log_manager`). Plus `.7z` archives readable in-place
+via `_SevenZReader` subprocess wrapper with three-layer headless
+safety (500k-line / 60s wall-clock / 200 MB byte caps).
 
 ### v0.30.4 (carried-forward summary) — per-row Re-analyze
 
 Re-analyze button on the analysis-result modal so operators can
-refresh stale results that pre-date v0.29.8's filename-context
-prompt or v0.29.9's resilience improvements. UPDATE-in-place
-semantics; superseded by v0.31.0's DELETE + re-INSERT. Full
-context: [`docs/version-history.md`](docs/version-history.md).
+refresh stale results pre-dating v0.29.8's filename-context prompt
+or v0.29.9's resilience improvements. UPDATE-in-place semantics;
+superseded by v0.31.0's DELETE + re-INSERT.
 
 ### v0.30.3 (carried-forward summary) — Operations bundle
 
@@ -1973,9 +607,8 @@ Active Jobs displays user-facing Storage-Manager paths via
 `/api/admin/active-jobs` enrichment, stuck-scanning auto-cleanup
 extends `cleanup_stale_jobs` to status='scanning', `du -sb` makes
 `/api/admin/disk-usage` ~100× faster (with 5-min TTL cache and
-`?refresh=true` bypass), and a Force Transcribe / Convert Pending
-button on the History page. Full context:
-[`docs/version-history.md`](docs/version-history.md).
+`?refresh=true` bypass), Force Transcribe / Convert Pending
+button on the History page.
 
 ### v0.30.2 (carried-forward summary) — admin.html parse-error hot fix
 
@@ -1983,874 +616,215 @@ button on the History page. Full context:
 entire `<script>` block and leaving the admin page on a static
 "Loading..." skeleton. Three-char fix: prepend `async`. Also
 `await renderStats(d)` in the caller so exceptions surface.
-Full context: [`docs/version-history.md`](docs/version-history.md).
 
 ### v0.30.1 (carried-forward summary) — Log Management subsystem
 
 `/log-management.html` (admin inventory + bundle download +
 manual triggers) and `/log-viewer.html` (SSE live tail +
 paginated history search). New `core/log_manager.py` +
-`api/routes/log_management.py` (ADMIN-gated). At v0.30.1 ship,
-the legacy `core/log_archiver.py` still ran the automated
-6-hour cron with hardcoded defaults — consolidated into
-`log_manager` in v0.31.0. Full context:
-[`docs/version-history.md`](docs/version-history.md).
-
----
-
-## v0.30.0 — Pause 500 fix + pause-with-duration presets + explicit Resume
-
-Urgent fix: `/api/analysis/pause` 500 under queue load, plus
-pause-with-duration presets and an explicit Resume button.
-
-### The 500 (primary fix)
-
-`POST /api/analysis/pause` was reliably 500'ing with
-`sqlite3.OperationalError: database is locked` whenever the
-analysis worker held a write transaction. Root cause: the
-underlying `core/db/preferences.set_preference()` did raw
-`aiosqlite` writes without going through the single-writer retry
-path that everything else in the app uses. Fixed by wrapping the
-body of `set_preference` in `db_write_with_retry` — race-safe
-with exponential backoff, mirroring the pattern in
-`bulk_worker.py` and the migration helpers.
-
-### Pause-with-duration + explicit Resume (UX)
-
-The top bar on the Batch Management page now has two distinct
-buttons: a **Pause ▾** dropdown (six presets) and an always-
-visible **Resume** button.
-
-Pause dropdown options:
-- 1 hour / 2 hours / 6 hours / 8 hours
-- Until off-hours (uses `scanner_business_hours_end` preference
-  to compute the next off-hours boundary)
-- Indefinite (legacy behavior)
-
-Backend additions:
-- New preference `analysis_pause_until` stores the ISO deadline
-  (empty string = indefinite).
-- `POST /api/analysis/pause` accepts optional body with
-  `duration_hours` (float, 0 < h ≤ 168) or `until_off_hours: true`.
-  Empty body keeps the legacy "pause indefinitely" behavior.
-- `POST /api/analysis/resume` now also clears `pause_until` so a
-  future Pause click doesn't inherit a stale deadline.
-- `GET /api/analysis/status` returns `pause_until` and
-  auto-resumes (clears both prefs) when the deadline has passed —
-  so an expired pause self-heals even if no worker tick has
-  occurred.
-- The analysis worker itself also auto-resumes on expired
-  `pause_until` at its next claim cycle (fail-safe if the
-  status endpoint hasn't been polled recently).
-
-UI status label now reads "Submission: Paused until 4/24/2026,
-9:00:00 PM" instead of just "Paused" when a timed pause is
-active.
-
-### Files
-
-- `core/db/preferences.py` — `set_preference` goes through
-  `db_write_with_retry`
-- `api/routes/analysis.py` — pause endpoint takes optional body;
-  new helpers for off-hours computation + auto-resume
-- `core/analysis_worker.py` — honors + auto-clears expired
-  `pause_until` at claim time
-- `static/batch-management.html` — new Pause dropdown + Resume
-  button + CSS; JS wired to the six presets
-- `core/version.py` — bump to 0.30.0
-- `CLAUDE.md` / `docs/version-history.md`
-
-No database migration needed — new preference just starts
-uninitialized (treated as "indefinite" by the code). No new
-Python dependency.
-
----
-
-## v0.29.9 — Vision API resilience
-
-Financial-best-practices resilience on the Anthropic vision
-pipeline: 5-layer defense against wasted API spend — preflight,
-backoff, bisection, circuit breaker, operator banner.
-
-API calls are money. v0.29.9 minimizes wasted requests on known-bad
-inputs and upstream flakiness, and surfaces outages to the operator
-before the quota drains.
-
-### Five layers (in order of request life-cycle)
-
-1. **Preflight validation** (`core/vision_preflight.py` — new):
-   every image is run through PIL `verify()` + dimension sanity
-   (100-8000px per edge) + MIME allow-list check *before* encoding
-   to base64. Failures are recorded as `[preflight] ...` errors with
-   zero API cost. Catches corrupt bytes, truncated uploads,
-   micro-thumbnails, and out-of-range-dimension files.
-2. **Exponential backoff + Retry-After** — 429 / 500 / 502 / 503 /
-   504 / 529 trigger a retry with exponential delay (1/2/4/8 s with
-   ±15% jitter, cap 30 s) across up to 4 attempts. If Anthropic
-   sends a `Retry-After` header (seconds or HTTP-date), it's
-   honored verbatim (capped at 30 s). Idle during backoff, not
-   spinning.
-3. **Per-image bisection on 400** — if a sub-batch of N images
-   returns 400 (payload error), the batch is split in half and each
-   half retried. Recursion continues until the bad image is isolated
-   in a solo sub-batch (~log2 N extra calls worst case). The other
-   N-1 files complete cleanly instead of being tossed with the bad
-   one. Financial impact: one malformed file in a batch of 10 no
-   longer costs 10 failed requests.
-4. **Circuit breaker** (`core/vision_circuit_breaker.py` — new):
-   process-local state machine (closed → open → half-open). 5
-   consecutive upstream failures open the circuit; short-circuit
-   rejects new calls for a cooldown window (60 s → 2 min → 4 min
-   → 8 min, cap 15 min). 400s don't count toward the threshold —
-   those are payload issues, not upstream outages. After cooldown
-   one trial call is permitted; success closes the circuit, failure
-   doubles the cooldown.
-5. **Operator banner** — `/api/analysis/circuit-breaker` (new
-   endpoint) exposes breaker state to the Batch Management page.
-   When open or half-open, a red/amber banner appears above the
-   top bar with the error class, consecutive-failure count,
-   countdown to next trial, and a "Reset breaker" button
-   (MANAGER+ only) for operators who've fixed the upstream issue
-   manually.
-
-### What still 400s
-
-Intentionally scoped out: 400s that preflight can't predict
-(policy violations in image content, unusually-formatted JPEG
-variants Anthropic sometimes rejects, rare token-count overruns).
-Those feed into bisection (isolate to a single file, mark failed,
-move on) rather than block the whole queue.
-
-### Scope: Anthropic only this pass
-
-All 5 layers apply to `_batch_anthropic`. OpenAI / Gemini / Ollama
-handlers get no new resilience this release — the primary Anthropic
-user traffic was the motivator. Extending the same machinery to the
-other three providers is a straightforward follow-up (the backoff
-helpers + circuit breaker are provider-agnostic; each handler just
-needs the same try/except shape).
-
-### Files
-
-- `core/vision_preflight.py` — NEW, 100 lines
-- `core/vision_circuit_breaker.py` — NEW, 150 lines
-- `core/vision_adapter.py` — `_batch_anthropic` rewritten with
-  preflight + split into `_anthropic_sub_batch` helper supporting
-  backoff + bisection + circuit-breaker gate
-- `api/routes/analysis.py` — GET `/circuit-breaker` +
-  POST `/circuit-breaker/reset`
-- `static/batch-management.html` — banner slot + CSS + poller +
-  reset handler
-- `core/version.py`, `CLAUDE.md`, `docs/version-history.md`
-
-No new dependencies. No database migration. Per-image
-`retry_count` cap in `analysis_queue` (max 3 per row) still applies
-as the outer safety net — the 5-layer pipeline just ensures each
-retry is qualitatively different from the last rather than a
-pointless re-send of the same failing request.
-
----
-
-## v0.29.8 — Stale-error cleanup + filename context + wider preview formats
-
-Three-in-one follow-up: stale-error cleanup on the analysis
-queue, filenames now inform Claude's image descriptions, and the
-hover-preview format set is widened to every photo format PIL
-recognizes (no new dependencies).
-
-- **Stale `error` on completed rows** — `write_batch_results`
-  success branch did not clear `error` or reset `retry_count`.
-  Rows that failed, retried, and eventually succeeded kept the old
-  error string forever, which the batch-management UI faithfully
-  showed alongside a correct `description` + `extracted_text`.
-  Fixed by adding `error = NULL, retry_count = 0` to the success
-  UPDATE, plus a one-time migration `clear_stale_analysis_errors()`
-  (gated `analysis_stale_errors_cleared_v0_29_8` preference) that
-  cleans existing rows on startup.
-- **Filename context for Claude** — the Anthropic vision call now
-  prepends a `{"type": "text", "text": "Image N filename: foo.jpg"}`
-  block before each image block. The default prompt instructs Claude
-  to name recognizable subjects (buildings, landmarks, etc.) when
-  the filename identifies them AND the image content agrees —
-  fallback to a generic description if they disagree. Fixes the
-  "Benaroya_Hall,_Seattle,_Washington,_USA.jpg → 'a large modern
-  building' without ever identifying Benaroya Hall" case.
-- **Wider preview format coverage** — every photo format PIL can
-  decode in the current base image is now previewable, split the
-  same way as v0.29.7:
-  - **Browser-native** (14 total): `.jpg`, `.jpeg`, `.jfif`, `.jpe`,
-    `.png`, `.apng`, `.gif`, `.bmp`, `.dib`, `.webp`, `.avif`,
-    `.avifs`, `.ico`, `.cur`
-  - **PIL-thumbnailed** (23 total): `.tif`, `.tiff`, `.eps`, `.ps`,
-    JPEG 2000 family (`.jp2`, `.j2k`, `.jpx`, `.jpc`, `.jpf`, `.j2c`),
-    Netpbm family (`.ppm`, `.pgm`, `.pbm`, `.pnm`), Targa family
-    (`.tga`, `.icb`, `.vda`, `.vst`), SGI family (`.sgi`, `.rgb`,
-    `.rgba`, `.bw`), plus `.pcx`, `.dds`, `.icns`, `.psd`
-  - **Still deferred**: `.svg` (needs XSS sanitization), `.heic` /
-    `.heif` (needs `pillow-heif` dep), RAW camera formats (need
-    `rawpy` dep).
-
-Files: `core/version.py`, `core/db/analysis.py`,
-`core/db/migrations.py`, `core/vision_adapter.py`, `main.py`,
-`api/routes/analysis.py`, `static/batch-management.html`,
-`CLAUDE.md`, `docs/version-history.md`.
-
----
-
-## v0.29.7 — Thumbnail preview for TIFF, EPS, and WebP
-
-Hover preview now works for TIFF, EPS, and WebP — PIL thumbnail
-fallback with LRU cache, no more silent `onerror` flickers.
-
-- **Before:** hovering a `.tif`/`.tiff` row fired `/preview`, the
-  endpoint served the raw bytes, and the browser's `<img>` tag
-  couldn't decode TIFF (every mainstream browser except Safari/macOS
-  rejects it) → `img.onerror` hid the tooltip silently. `.eps` was
-  worse: the endpoint 404'd outright because `is_image_extension()`
-  didn't include vector formats. Both looked like "is the preview
-  broken?" to users.
-- **After:** `/api/analysis/files/:id/preview` now splits its file
-  types two ways:
-  - **Native** (`.jpg`, `.jpeg`, `.png`, `.gif`, `.bmp`, `.webp`):
-    streamed as `FileResponse`, same as before.
-  - **Thumbnailed** (`.tif`, `.tiff`, `.eps`): opened with PIL,
-    thumbnailed to 400px on the longest edge via `Image.LANCZOS`,
-    saved as JPEG (quality 78) and returned as an
-    `image/jpeg` response. PIL's `EpsImagePlugin` shells out to
-    Ghostscript (`/usr/bin/gs`, 10.05 in the base image) to
-    rasterize PostScript. All PIL work runs in
-    `asyncio.to_thread` so it never blocks the event loop.
-- **LRU cache** (64 entries, ~13 MB ceiling) keyed on
-  `(source_file_id, mtime_ns, size)` so unchanged files serve from
-  memory on subsequent hovers and any edit to the file invalidates
-  automatically. Response carries `Cache-Control: private,
-  max-age=300` so the browser also caches short-term.
-- **Failure path**: thumbnail errors surface as HTTP 500 with the
-  PIL/Ghostscript error class + message (easy to diagnose in the
-  browser network tab) and log as `analysis.thumbnail_generation_failed`.
-- **Frontend**: `_IMG_EXT` now includes `.webp` for symmetry with
-  the backend's native list. `.tif/.tiff/.eps` were already there;
-  they used to silently fail, now they actually work.
-
-Files: `core/version.py`, `api/routes/analysis.py`,
-`static/batch-management.html`, `CLAUDE.md`,
-`docs/version-history.md`.
-
----
-
-## v0.29.6 — Multi-file download on Batch Management
-
-Multi-file download on Batch Management — "Download selected (N)"
-in the context menu + a Download Selected button in the bulk bar.
-
-- **Bulk toolbar**: the existing "Exclude Selected" bar above each
-  file table now also has a "Download Selected (N)" button that
-  activates once any checkboxes are checked. N counts only rows with
-  a `source_file_id` (rows without one can't be downloaded —
-  usually because `source_files` lost the row).
-- **Context menu**: right-clicking any file row with 1+ rows
-  checkbox-selected shows "Download selected (N)" at the top of the
-  menu with its own separator. Matches standard file-explorer
-  convention — if a selection exists, the context menu can operate
-  on it.
-- **Execution**: sequential synthetic-anchor clicks with a 120 ms
-  stagger between each. Browsers will usually prompt once on the
-  first attempt ("allow this site to download multiple files?")
-  and then batch the rest. Hard cap at **100 files per trigger** —
-  above that, the user is asked to select fewer and try again.
-  Rationale: 100+ simultaneous downloads reliably exhaust the browser's
-  download manager and rate-limits on most sites.
-- **No backend change**. Reuses the existing
-  `/api/analysis/files/:id/download` endpoint once per selected file.
-
-Files: `core/version.py`, `static/batch-management.html`,
-`CLAUDE.md`, `docs/version-history.md`.
-
----
-
-## v0.29.5 — Right-click context menu on Batch Management file rows
-
-Right-click context menu on Batch Management file rows — per-file
-actions without hunting for the right button.
-
-- **Right-click any file row** on `/batch-management.html` to open a
-  7-item context menu: Open in new tab · Download · Save as… · Copy
-  path · Copy source directory · View analysis result · Exclude from
-  analysis. Escape / click-outside / scroll / resize all close the
-  menu. Keyboard-accessible (Enter/Space on focused items).
-- **Open in new tab** uses the existing `/api/analysis/files/:id/preview`
-  (for images) or `/download` URL. The browser's back button restores
-  the batch page at the same scroll position.
-- **Save as…** uses `showSaveFilePicker()` where available
-  (Chrome/Edge). Non-Chromium browsers fall back to the normal
-  download with a toast nudging the user to enable their browser's
-  "ask where to save each file" preference.
-- **View analysis result** opens a modal showing the analysis
-  `description` + `extracted_text` (for completed rows), the error
-  message (for failed), or a status note (pending/batched/excluded).
-  Modal fetches from the new `GET /api/analysis/queue/:id` endpoint.
-- **Copy path / Copy source directory** use the Clipboard API with
-  a `document.execCommand('copy')` fallback for non-secure contexts.
-  Toast confirms the copy.
-- **Exclude from analysis** matches the existing Action-column
-  button but is duplicated into the menu so operators don't have to
-  hunt across columns for a single action.
-
-Files: `core/version.py`, `api/routes/analysis.py` (new
-`/queue/{entry_id}` endpoint), `static/batch-management.html`
-(context-menu CSS, modal CSS, ~260 lines of new JS),
-`CLAUDE.md`, `docs/version-history.md`.
-
----
-
-## v0.29.4 — Clickable status filters on Batch Management
-
-Batch Management page: status counters are clickable filters, with
-a pending pseudo-batch so the 4000+ unbatched files are actually
-browsable.
-
-- **Status counters** (Pending / Batched / Completed / Failed /
-  Excluded) in the top bar are now buttons. Clicking one filters the
-  batch list below to only batches containing files of that status.
-  Per-card counts + sizes reflect the filtered rows only, so the sum
-  across all cards equals the clicked counter. Click the same counter
-  again (or the "Show all" pill) to clear the filter. A banner at the
-  top of the filtered view calls out what's being shown.
-- **Pending pseudo-batch**: `analysis_queue` rows in `status='pending'`
-  have `batch_id=NULL`, so the existing `/api/analysis/batches`
-  endpoint never saw them — they were effectively invisible. Added
-  `GET /api/analysis/pending-files?limit=&offset=` (paginated at
-  100 per page), and the Pending filter renders a single "Pending
-  (not yet batched)" card that expands to show the full paginated
-  list.
-- **Expanded file lists are filtered too**: clicking into a batch
-  while the Completed filter is active shows only that batch's
-  completed files — no need to scan a wall of rows to find the ones
-  relevant to the counter you clicked.
-- **Backend additions**: `get_batches(status_filter)`,
-  `get_batch_files(batch_id, status_filter)`, `get_pending_files()`
-  in `core/db/analysis.py`; API routes validate the filter against
-  the canonical `{pending, batched, completed, failed, excluded}`
-  set (400 on bad input).
-
-Files: `core/version.py`, `core/db/analysis.py`,
-`api/routes/analysis.py`, `static/batch-management.html`,
-`CLAUDE.md`, `docs/version-history.md`, `docs/help/whats-new.md` (if
-present).
-
----
-
-## v0.29.3 — Restored GPU reservation on NVIDIA hosts
-
-`docker-compose.override.yml` un-committed + gitignored so GPU hosts
-get their `deploy:` reservation back.
-
-- **Bug:** v0.28.0 committed `docker-compose.override.yml` for Apple
-  Silicon developers. Because Docker Compose auto-merges any file with
-  that exact name, every GPU-equipped host that pulled `main` silently
-  lost its NVIDIA `deploy.resources.reservations` block — the override's
-  `deploy: !reset null` wiped it out. Result: containers started
-  without a GPU even when the host had one, and `/api/health` reported
-  `gpu.ok=false` / `execution_path: container_cpu`.
-- **Fix:** renamed the checked-in file to
-  `docker-compose.apple-silicon.yml` (NOT auto-loaded under that name —
-  it's now a sample). Added `docker-compose.override.yml` to
-  `.gitignore` so it's truly per-machine, per the Docker convention.
-- **Apple Silicon / no-GPU dev machines**: the three macOS scripts
-  (`Scripts/macos/{refresh,reset,switch-branch}.sh`) now auto-seed
-  `docker-compose.override.yml` from the sample on first run. Idempotent
-  — won't clobber a customized local copy.
-- **GPU hosts (Linux + nvidia-container-toolkit, Windows Docker Desktop
-  with WSL2 GPU support)**: nothing to do. No override file means the
-  base compose's GPU reservation takes effect. A `docker-compose up -d
-  --force-recreate` after pulling is required to drop the stale
-  overridden deploy config from the running container.
-
-**Prerequisite for GPU passthrough** (unchanged): NVIDIA driver on the
-host and nvidia-container-toolkit visible to Docker. Verified working
-on this machine via `docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi`
-showing the GTX 1660 Ti with 6 GB VRAM.
-
-Files: `core/version.py`, `.gitignore`,
-`docker-compose.override.yml` → `docker-compose.apple-silicon.yml`
-(git rename with updated header comment),
-`Scripts/macos/refresh-markflow.sh`, `Scripts/macos/reset-markflow.sh`,
-`Scripts/macos/switch-branch.sh`, `CLAUDE.md`, `docs/gotchas.md`,
-`docs/version-history.md`.
-
----
-
-## v0.29.2 — Drive mounts writable for output paths
-
-Drive mounts made writable so a drive path can be used as the output
-directory.
-
-- **`/host/c` and `/host/d` were mounted `:ro`** in `docker-compose.yml`
-  — a pre-v0.25.0 leftover. Picking `/host/d/Doc-Conv_Test` (or any
-  drive-letter path) as the output directory failed the write check
-  inside `validate_path`, producing "MarkFlow can't write to this
-  folder — check permissions" — even though the filesystem on the host
-  itself was writable.
-- **Fix:** removed `:ro` from the two drive-browser lines. The
-  app-level write guard in `core/storage_manager.is_write_allowed` is
-  now the sole barrier — same enforcement model already used for the
-  broad `/host/rw` mount (v0.25.0). Drive paths and `/host/rw` paths
-  now behave consistently, and users can pick whatever destination is
-  intuitive in the folder-picker without a mental translation step.
-- **Requires `docker-compose up -d --force-recreate`** to take effect
-  (volume flag changes are only applied on container recreate).
-- **Docs updated:** `docs/drive-setup.md` drops the `:ro` from the
-  walkthrough + adds a v0.29.2 note; CLAUDE.md this block; new
-  gotcha in `docs/gotchas.md` → Container & Dependencies.
-
-Files: `core/version.py`, `docker-compose.yml`, `CLAUDE.md`,
-`docs/drive-setup.md`, `docs/gotchas.md`, `docs/version-history.md`.
-
----
-
-## v0.29.1 — Folder-picker fix + inline path verification
-
-Storage page polish — folder-picker output-drive regression fix +
-inline path verification after Save/Add.
-
-- **Folder-picker `output` mode hid drives** (`static/js/folder-picker.js`).
-  `_renderDrives` early-returned in output mode and rendered only the
-  Output Repo shortcut, making it impossible to pick C:/D: as the
-  output directory. Unified the sidebar: always show Drives, append
-  Output Repo for modes that write output (`any` + `output`). Mode
-  still controls initial navigation (output mode still lands at
-  `/mnt/output-repo` by default). Rewrote `_renderDrives` to use
-  `createElement` + `textContent` instead of `innerHTML` while at it
-  — aligns with the XSS-hardening guidance.
-- **Inline path verification** on the Storage page. After clicking
-  **Save** on Output Directory or **Add** on Sources, the UI now
-  renders a verification pill right below the input showing the path
-  as markflow sees it, a green ✓ (or red ✗), and the access-status
-  summary: Writable/Readable, item count, free space, warnings. On
-  page load, the currently-saved output path is also re-validated so
-  users can confirm nothing has drifted. Backend unchanged — the
-  existing `POST /api/storage/validate` endpoint serves this.
-- **Docs-only change in parallel:** CLAUDE.md's "Running the App"
-  section now clarifies that `Dockerfile.base` changes require a
-  full base rebuild (not just "first time only"). Matching gotcha
-  added to `docs/gotchas.md` → Container & Dependencies. Caught when
-  v0.28.0's `cifs-utils` + `smbclient` additions didn't land until a
-  base rebuild was run.
-
-Files: `core/version.py`, `static/js/folder-picker.js`,
-`static/js/storage.js`, `static/storage.html`, `static/markflow.css`,
-`CLAUDE.md`, `docs/gotchas.md`, `docs/version-history.md`.
-
----
-
-## v0.29.0 — Storage polish + security hardening pass
-
-Same-day polish follow-up to v0.28.0 plus a security hardening pass.
-Storage page got proper Add-Share / Discovery modal forms (replacing
-the prompt() chains), a host-OS override dropdown, folder-picker
-integration on source/output path inputs, and a migrated Cloud Prefetch
-section. Legacy "Storage Connections" and "Cloud Prefetch" sections
-deleted from `static/settings.html`. **Eight security-audit items
-addressed** — most notably ZIP path-traversal (SEC-C08 Critical),
-security response headers on every request (SEC-H12), the long-standing
-dead guard in `password_handler.cleanup_temp_file` (SEC-H16), and a
-hardened SECRET_KEY validation in lifespan (SEC-H13). **105 storage
-tests + 22 integration tests pass** in Docker.
-
-Full context: [`docs/version-history.md`](docs/version-history.md). Plan
-executed autonomously from
-[`docs/superpowers/plans/2026-04-22-v0.28.0-polish.md`](docs/superpowers/plans/2026-04-22-v0.28.0-polish.md).
-
-Files changed on this release: `api/middleware.py`, `api/routes/db_health.py`,
-`api/routes/scanner.py`, `api/routes/storage.py`, `core/gpu_detector.py`,
-`core/libreoffice_helper.py`, `core/password_handler.py`, `core/version.py`,
-`formats/archive_handler.py`, `main.py`, `static/app.js`,
-`static/js/storage.js`, `static/js/storage-restart-banner.js`,
-`static/markflow.css`, `static/settings.html`, `static/storage.html`,
-`tests/test_storage_api.py`, `docs/version-history.md`, `CLAUDE.md`,
-`docker-compose.override.yml` (new for Apple Silicon dev).
-
----
-
-## v0.28.0 — Universal Storage Manager
-
-**Universal Storage Manager — replace manual `.env` / `docker-compose.yml`
-storage config with a GUI Storage page, first-run wizard, and runtime
-network-share management. Three architectural layers: Docker grants broad
-host mounts (`/host/root:ro` + `/host/rw`) and `SYS_ADMIN` cap; the
-application enforces write restriction through `storage_manager.is_write_allowed()`
-at every file-writing site (12 sites in converter.py + bulk_worker.py,
-covered by `tests/test_write_guard_coverage.py`); the new `/storage.html`
-page consolidates sources, output, network shares, exclusions, and a
-5-step onboarding wizard.**
-
-- **5 new core modules**: `host_detector` (OS detection from
-  `/host/root` filesystem signatures), `credential_store` (Fernet+PBKDF2
-  encrypted SMB/NFS credentials), `storage_manager` (validation +
-  write-guard + DB persistence), `mount_manager` extended with
-  multi-mount + discovery + 5-min health probe, plus the new
-  `api/routes/storage.py` consolidated API surface.
-- **Scheduler grows from 17 to 18 jobs** — `mount_health` runs every 5
-  minutes and yields to active bulk jobs (matches MarkFlow convention).
-- **8 new DB preferences** (storage_output_path, storage_sources_json,
-  storage_exclusions_json, pending_restart_*, setup_wizard_dismissed,
-  host_os_override).
-- **Frontend**: new `/storage.html` with collapsible sections + wizard
-  modal; `static/js/storage.js` builds all DOM via createElement
-  (XSS-safe per CLAUDE.md gotcha); `static/js/storage-restart-banner.js`
-  is injected on every page via a dynamic script tag in `app.js` so we
-  don't have to edit 20+ HTML files.
-- **Settings page migration**: prominent "Open Storage Page →" link card
-  at top; legacy storage sections left in place for backward
-  compatibility (full removal deferred to v0.29.x once UI parity is
-  proven).
-- **Pragmatic deviations**: plan called for v0.25.0 (already taken — EPS
-  rasterization shipped that version), bumped to v0.28.0. Plan called for
-  full Settings page section removal, deferred to v0.29.x.
-- **Tests**: 83 host-venv unit tests pass; 9 integration tests run inside
-  the container.
-
-Files: `core/version.py`, `core/host_detector.py`, `core/credential_store.py`,
-`core/storage_manager.py`, `core/mount_manager.py`, `core/scheduler.py`,
-`core/db/preferences.py`, `api/routes/storage.py`, `api/routes/browse.py`,
-`main.py`, `static/storage.html`, `static/js/storage.js`,
-`static/js/storage-restart-banner.js`, `static/app.js`, `static/markflow.css`,
-`static/settings.html`, `tests/test_host_detector.py`,
-`tests/test_credential_store.py`, `tests/test_storage_manager.py`,
-`tests/test_mount_manager.py`, `tests/test_write_guard_coverage.py`,
-`tests/test_storage_api.py`, `docs/help/storage.md`, `docs/help/_index.json`,
-`docs/gotchas.md`, `docs/key-files.md`, `docs/version-history.md`,
-`CLAUDE.md`, `docker-compose.yml`, `Dockerfile.base`.
-
----
-
-## v0.24.2 — Hardening pass
-
-**Audit-accuracy correction, DB backup
-schema-version guard, PPTX pref read no longer bypasses the pool,
-Whisper inference serialized so timed-out threads can't stack, and
-the temporary DB contention logging instrumentation was retired.**
-
-- **Security audit count corrected** — CLAUDE.md had "3 critical + 5
-  high"; actual doc has 10 critical + 18 high + 22 medium + 12
-  low/info. Still the one pre-prod blocker.
-- **DB backup schema-version guard** (`core/db_backup.py`) — restore
-  refuses a backup whose highest applied `schema_migrations.version`
-  is newer than the current build. Prevents "passes integrity check,
-  crashes on first migration-dependent query."
-- **PPTX pref read** (`formats/pptx_handler.py`) — was opening a raw
-  sqlite3 connection on every ingest. Now reads through the
-  preferences cache (new `peek_cached_preference` sync helper in
-  `core/preferences_cache.py`), with a one-time sync sqlite read on
-  cold cache to warm it.
-- **Whisper serialization** (`core/whisper_transcriber.py`) —
-  `asyncio.wait_for` times out the awaiter but can't cancel the
-  underlying inference thread. Added a `threading.Lock` inside the
-  worker thread + an `asyncio.Lock` around the outer await; orphan
-  threads from a prior timeout block all subsequent calls at the
-  thread-level lock instead of stacking on the GPU. Honest
-  `whisper_orphan_thread` warning logged on timeout.
-- **DB contention logging retired** — `core/db/contention_logger.py`
-  deleted, call sites in `core/db/connection.py`, `main.py`,
-  `api/routes/debug.py`, `api/routes/preferences.py` removed, settings
-  UI section deleted, `db_contention_logging` preference removed from
-  defaults. Gotchas + key-files updated.
-- **Convert-page SSE** — listed in v0.22.15 follow-ups; on static
-  review in v0.24.2, `api/routes/batch.py:100-207` +
-  `core/converter.py:40-53` appear functional. Leaving a watch on
-  this with no code change; if a reproducible failure surfaces,
-  revisit with an actual repro.
-- **Corrupt-audio tensor reshape** — listed in v0.22.15 follow-ups;
-  no `.reshape()` calls exist anywhere in the audio/transcription
-  paths. Assumed resolved in an earlier patch. Removing from
-  outstanding list.
-
-Files: `core/version.py`, `core/db_backup.py`, `formats/pptx_handler.py`,
-`core/preferences_cache.py`, `core/whisper_transcriber.py`,
-`core/db/connection.py`, `core/db/preferences.py`,
-`api/routes/debug.py`, `api/routes/preferences.py`, `main.py`,
-`static/settings.html`, `CLAUDE.md`, `docs/gotchas.md`,
-`docs/key-files.md`, `docs/version-history.md`. Module deleted:
-`core/db/contention_logger.py`.
-
----
-
-## v0.24.1 — AI Assist toggle feedback
-
-Targeted UX fix on the Search page AI Assist toggle. Active state
-now solid accent fill + `ON` pill; pre-search intent hint; inline
-"Synthesize these results" button when toggled on after results are
-already showing. Files: `static/css/ai-assist.css`,
-`static/search.html`, `static/js/ai-assist.js`. Design spec at
-`docs/superpowers/specs/2026-04-13-ai-assist-toggle-feedback-design.md`,
-full notes in `docs/version-history.md`.
-
----
-
-## v0.24.0 — Spec A (quick wins) + Spec B (batch management)
-
-**Spec A (quick wins) + Spec B (batch management) — substantial UX
-release addressing the "UX is atrocious" feedback: operators can now
-drill into bulk/status counters inline, back up and restore the DB
-from the UI, and manage image-analysis batches on a dedicated page.**
-
-### Inline file lists (Spec A1 / A2)
-
-Bulk page and Status page counter values (converted / failed /
-skipped / pending) are now clickable. Clicking a count opens an
-inline panel with the actual file list for that bucket, paginated
-with "Load more." Status page uses event delegation so the same
-handler works across per-card polls, and pagination state is
-preserved across the 5s polling interval (fix in 5e6a84c) so users
-don't get bounced back to page 1 mid-scroll.
-
-### DB Backup / Restore (Spec A3-A6)
-
-New `core/db_backup.py` module wrapping `sqlite3.Connection.backup()`
-— the SQLite online backup API, which is WAL-safe and handles live
-committed transactions still in `-wal` correctly. A naive
-`shutil.copy2` of the `.db` file would silently miss those and
-produce a corrupt/stale snapshot. Sentinel-row test proves the
-backup captures the latest commit.
-
-New endpoints in `api/routes/db_backup.py`:
-`POST /api/db/backup`, `POST /api/db/restore`, `GET /api/db/backups`.
-Typed error codes, audit-log entries for every backup/restore/
-download, admin-only role guard.
-
-UI on the DB Health page (`static/health.html` + `static/js/db-backup.js`):
-drag-drop restore modal, download-backup button with auth cookie,
-Esc-to-close, focus management. Matching "Database Maintenance"
-section on `static/settings.html`.
-
-### Hardware specs help article (A7)
-
-`docs/help/hardware-specs.md` (already present) wired into the help
-drawer TOC (`docs/help/_index.json`). Covers minimum / recommended
-hardware, CPU / RAM / GPU / storage guidance, user capacity estimates.
-
-### Batch management page (Spec B1-B6)
-
-New `static/batch-management.html` page with full batch CRUD for
-the image-analysis queue. Four new DB helpers in
-`core/db/analysis.py` (`get_batches`, `get_batch_files`,
-`exclude_files`, `cancel_all_batched`) — 10 unit tests.
-
-New `analysis_submission_paused` boolean preference (default false).
-The analysis worker checks this gate on each loop iteration and
-skips submission when paused, so operators can drain in-flight
-batches without triggering new ones.
-
-New `/api/analysis` router with 9 endpoints (list batches, get
-batch files, cancel batch, exclude files, cancel all batched,
-toggle pause, etc.). Path-traversal guard on file-access endpoints,
-`is_image_extension` deduplicated, audit logs for exclude / cancel
-actions.
-
-Nav entry added to the sidebar; the pipeline pill on the status
-page links directly to the batch management page.
-
-- **Files created:** `core/db_backup.py`, `core/db/analysis.py`,
-  `api/routes/db_backup.py`, `api/routes/analysis.py`,
-  `static/batch-management.html`, `static/js/db-backup.js`,
-  `tests/test_db_backup.py`, `tests/test_analysis_batches.py`,
-  `docs/help/hardware-specs.md` (content finalized)
-- **Files modified:** `core/version.py`, `core/db/preferences.py`,
-  `core/image_analysis_worker.py`, `main.py`,
-  `static/bulk.html`, `static/status.html`,
-  `static/health.html`, `static/settings.html`,
-  `static/help.html` / `docs/help/_index.json`,
-  navigation includes, `CLAUDE.md`, `docs/version-history.md`,
-  `docs/help/whats-new.md`, `docs/gotchas.md`
-- **Tests:** 21 new tests total (10 batch-mgmt DB + 11 DB backup).
-- **New gotcha** added: SQLite online backup API is the correct
-  approach for WAL databases — `shutil.copy2` of `.db` can miss
-  committed transactions still in the `-wal` file.
-
-Full context: [`docs/version-history.md`](docs/version-history.md).
-
----
-
-### v0.23.8 (carried-forward summary) — Spec remediation Batch 2
-
-Three items: content-hash sidecar collision fix (occurrence-indexed
+`api/routes/log_management.py` (ADMIN-gated). Legacy
+`core/log_archiver.py` consolidated into `log_manager` in
+v0.31.0.
+
+### v0.30.0 (carried-forward summary) — Pause-500 fix + pause presets + Resume
+
+`POST /api/analysis/pause` was 500'ing under queue load because
+`set_preference` did raw aiosqlite writes outside the
+single-writer retry path. Wrapped in `db_write_with_retry`. Plus
+pause-with-duration presets (1h / 2h / 6h / 8h / off-hours /
+indefinite) + an explicit Resume button. New
+`analysis_pause_until` preference; status endpoint and worker
+both auto-resume on expired deadline.
+
+### v0.29.9 (carried-forward summary) — Vision API resilience
+
+Five-layer defense on the Anthropic vision pipeline: preflight
+validation (PIL.verify + dimension/MIME), exponential backoff
+honoring `Retry-After`, per-image bisection on 400 (one bad image
+in a batch of 10 no longer costs 10 failed requests), process-wide
+circuit breaker (open → half-open → closed), operator banner via
+`/api/analysis/circuit-breaker`. New `core/vision_preflight.py` +
+`core/vision_circuit_breaker.py`. OpenAI/Gemini/Ollama got the
+same in v0.31.2.
+
+### v0.29.8 (carried-forward summary) — Stale-error cleanup + filename context + wider previews
+
+`write_batch_results` success branch now clears `error` + resets
+`retry_count` (one-time `clear_stale_analysis_errors()` migration
+gated by preference). Anthropic vision call prepends `Image N
+filename: foo.jpg` text block before each image so Claude can
+name buildings / landmarks when filename + content agree. Preview
+format set widened to 14 browser-native + 23 PIL-thumbnailed
+extensions.
+
+### v0.29.7 (carried-forward summary) — Thumbnail preview for TIFF / EPS / WebP
+
+`/api/analysis/files/:id/preview` splits into native
+(FileResponse) and thumbnailed (PIL → JPEG 78 quality, 400px
+longest edge) paths. EPS rasterized via PIL `EpsImagePlugin` →
+Ghostscript. LRU cache (64 entries, mtime-keyed, ~13 MB
+ceiling). All PIL work in `asyncio.to_thread`.
+
+### v0.29.6 (carried-forward summary) — Multi-file download on Batch Management
+
+"Download Selected (N)" button + context-menu item; sequential
+synthetic-anchor clicks with 120 ms stagger; hard cap 100 files
+per trigger. Reuses existing `/download` endpoint; no backend
+change. (Superseded by v0.31.4 server-side ZIP.)
+
+### v0.29.5 (carried-forward summary) — Right-click context menu on Batch Management
+
+7-item menu on file rows: Open in new tab / Download / Save as…
+/ Copy path / Copy source directory / View analysis result /
+Exclude from analysis. Save as… uses `showSaveFilePicker()` where
+available. View analysis modal fetches from new `GET
+/api/analysis/queue/:id` endpoint.
+
+### v0.29.4 (carried-forward summary) — Clickable status filters on Batch Management
+
+Status counters (Pending / Batched / Completed / Failed /
+Excluded) on Batch Management are now clickable filters. Pending
+pseudo-batch surfaces 4000+ unbatched `analysis_queue` rows
+(`batch_id=NULL`) that were previously invisible. New
+`get_batches(status_filter)`, `get_batch_files(batch_id,
+status_filter)`, `get_pending_files()` helpers; new `GET
+/api/analysis/pending-files` endpoint.
+
+### v0.29.3 (carried-forward summary) — GPU reservation restored on NVIDIA hosts
+
+v0.28.0 committed `docker-compose.override.yml` for Apple Silicon
+devs, which Docker Compose auto-merges, silently wiping NVIDIA
+`deploy.resources.reservations` from every GPU host. Renamed the
+checked-in file to `docker-compose.apple-silicon.yml` (no longer
+auto-loaded) and gitignored the override name. macOS scripts
+auto-seed the override on first run.
+
+### v0.29.2 (carried-forward summary) — Drive mounts writable for output paths
+
+`/host/c` and `/host/d` were mounted `:ro` (pre-v0.25.0 leftover),
+so picking a drive-letter path as the output directory failed the
+write check. Removed `:ro` from both lines; app-level
+`is_write_allowed()` is now the sole barrier (consistent with
+`/host/rw`). Requires `--force-recreate`.
+
+### v0.29.1 (carried-forward summary) — Folder-picker fix + inline path verification
+
+Folder-picker `output` mode early-returned in `_renderDrives`,
+hiding C: / D: drives. Unified sidebar to always show drives.
+Inline path verification pill on Storage page Save (Output) / Add
+(Sources) shows the path as MarkFlow sees it with green ✓ /
+red ✗ + access-status summary. Backend unchanged — uses existing
+`POST /api/storage/validate`.
+
+### v0.29.0 (carried-forward summary) — Storage polish + security hardening
+
+v0.28.0 polish + 8 security-audit items addressed (notably ZIP
+path-traversal SEC-C08, security response headers SEC-H12, dead
+guard in `password_handler.cleanup_temp_file` SEC-H16, hardened
+SECRET_KEY validation SEC-H13). Storage page got proper modal
+forms (replacing prompt() chains), host-OS override dropdown,
+folder-picker integration, migrated Cloud Prefetch section.
+Legacy "Storage Connections" + "Cloud Prefetch" sections deleted
+from `settings.html`. 105 storage tests + 22 integration tests
+pass.
+
+### v0.28.0 (carried-forward summary) — Universal Storage Manager
+
+Storage page (`/storage.html`) replaces manual `.env` /
+`docker-compose.yml` config with a GUI + first-run wizard +
+runtime SMB/NFS share management. Three-layer architecture:
+Docker grants broad host mounts (`/host/root:ro` + `/host/rw`)
++ `SYS_ADMIN` cap; app enforces write restriction via
+`storage_manager.is_write_allowed()` at 12 sites; new
+`/api/storage/*` consolidates the surface. Five new core modules
+(`host_detector`, `credential_store` with Fernet+PBKDF2,
+`storage_manager`, extended `mount_manager` with 5-min health
+probe). Scheduler 17 → 18 jobs.
+
+### v0.24.2 (carried-forward summary) — Hardening pass
+
+Audit count corrected (62 findings, not "3 critical + 5 high").
+DB backup schema-version guard refuses backups whose highest
+applied migration is newer than the current build. PPTX pref
+read goes through preferences cache (new `peek_cached_preference`
+sync helper). Whisper inference serialized at thread-level so
+timed-out threads can't stack on the GPU. DB contention logging
+instrumentation retired (`core/db/contention_logger.py` deleted).
+
+### v0.24.1 (carried-forward summary) — AI Assist toggle feedback
+
+Targeted UX fix on the Search page AI Assist toggle. Active
+state now solid accent fill + `ON` pill; pre-search intent hint;
+inline "Synthesize these results" button when toggled on after
+results are already showing.
+
+### v0.24.0 (carried-forward summary) — Spec A (quick wins) + Spec B (batch management)
+
+Spec A: inline file-list drill-down on Bulk + Status counters;
+DB Backup/Restore via SQLite online backup API (WAL-safe) with
+typed errors + audit log; hardware specs help article. Spec B:
+full Batch Management page with batch CRUD; new
+`analysis_submission_paused` preference (worker checks each
+loop iteration so operators can drain in-flight batches without
+new ones starting); 9 endpoints under `/api/analysis`. New
+`core/db_backup.py` + `core/db/analysis.py`. 21 new tests.
+
+### v0.23.x (carried-forward summary) — audit remediation + incremental polish
+
+**v0.23.8:** content-hash sidecar collision fix (occurrence-indexed
 keys `{hash}:{n}`, schema v2.0.0 with v1 auto-migrate, 4-level
-cascade lookup incl. fuzzy match), PPTX chart/SmartArt extraction
-(opt-in `pptx_chart_extraction_mode=libreoffice` renders charts via
-LibreOffice+PyMuPDF), and C5 remaining OCR signals
-(`text_layer_is_garbage` + `text_encoding_is_suspect` in
-`core/ocr.py`). Full context:
-[`docs/version-history.md`](docs/version-history.md).
+cascade lookup), PPTX chart/SmartArt extraction
+(`pptx_chart_extraction_mode=libreoffice`), C5 remaining OCR
+signals.
+**v0.23.7:** Bulk vector indexer fix
+(`asyncio.Semaphore.acquire_nowait()` doesn't exist — that's
+threading.Semaphore).
+**v0.23.6:** Six-item hardening — image dim hints in Markdown,
+pre-flight disk-space check on bulk + single-file paths,
+configurable trash auto-purge (scheduler 16 → 17 jobs), per-job
+force-OCR override, unified structural-hash helper, enhanced
+`/api/convert/preview` endpoint.
+**v0.23.5:** Ten new Search page keyboard shortcuts; two startup
+crash fixes (migration FK enforcement, MCP server race).
+**v0.23.4:** Settings page reorganized into Files-and-Locations /
+Conversion-Options / AI-Options clusters.
+**v0.23.3:** Migration hardening, batch empty-trash with progress
+polling, bulk restore, extension exclude
+(`scan_skip_extensions`). **Lifecycle timers landed at production
+values: grace=36h, retention=60d.**
+**v0.23.2:** Critical bug fixes — bulk upsert ON CONFLICT,
+scheduler coroutine, vision MIME detection.
+**v0.23.1:** Database file handler — SQLite, Access, dBase,
+QuickBooks schema + sample data extraction into Markdown.
+**v0.23.0:** 20-task overhaul — DB connection pool, preferences
+cache, bulk_files dedup, incremental scanning, counter batching,
+PyMuPDF default, vision MIME fix, frontend polling reduction.
 
----
+### v0.22.x (carried-forward summary) — overnight rebuild + production-readiness
 
-### v0.23.7 (carried-forward summary) — Bulk vector indexer fix
+**v0.22.19:** Scan-time junk-file filter + one-time historical
+cleanup (~$* Office locks, Thumbs.db, desktop.ini, .DS_Store).
+**v0.22.18:** Four production-readiness fixes from runtime-log
+audit (~2,500 noisy events/24h eliminated).
+**v0.22.17:** Six-phase overnight rebuild self-healing pipeline
+(preflight → source sync → anchor last-good → image build →
+start + verify → success / blue-green rollback). Five exit
+codes covering pre-commit failure / rollback success / rollback
+failure / compose-divergence-refusal. Phase 4 catches v0.22.15-
+class GPU regressions via `/api/health` `execution_path` +
+`whisper.cuda` assertion. `expectGpu` auto-detect via
+`nvidia-smi.exe` makes the same script work on CPU-only deploys.
+Two new PowerShell gotchas documented (Start-Transcript +
+docker-compose ps JSON parsing).
 
-Bulk vector indexing was 100% broken in v0.23.6 due to
-`asyncio.Semaphore.acquire_nowait()` (doesn't exist — that's
-`threading.Semaphore`). Fix: `async with _vector_semaphore:`.
-Full context: [`docs/version-history.md`](docs/version-history.md).
+**All earlier versions** (v0.13.x – v0.22.16) are documented
+per-release in [`docs/version-history.md`](docs/version-history.md).
+**Do NOT duplicate that changelog here.** On each release the
+outgoing "Current Version" block above moves into
+`version-history.md` and is replaced with the new release notes.
 
----
-
-### v0.23.6 (carried-forward summary) — Spec remediation Batch 1
-
-Six-item hardening release: image dim hints in Markdown (M1),
-pre-flight disk-space check on bulk + single-file paths (M2),
-configurable trash auto-purge with a dedicated 04:00 daily job
-(M4, scheduler job count 16→17), per-job force-OCR override +
-default preference (C5), unified structural-hash helper with
-round-trip test (S4), and an enhanced `/api/convert/preview`
-endpoint with zip-bomb check + estimated duration +
-`ready_to_convert` verdict (S1). Full context:
-[`docs/version-history.md`](docs/version-history.md).
-
----
-
-### v0.23.5 (carried-forward summary) — Search shortcuts + startup crash fix
-
-Ten new Search page keyboard shortcuts (`/`, `Esc`, `Alt+Shift+A`,
-`Alt+A`, `Alt+Shift+D`, `Alt+Click`, `Shift+Click`, and more). Plus
-two critical startup crash fixes: migration FK enforcement
-(`_run_migrations` now runs with `PRAGMA foreign_keys=OFF`) and MCP
-server race (MCP no longer calls `init_db()`, polls for
-`schema_migrations` instead). Full context:
-[`docs/version-history.md`](docs/version-history.md).
-
----
-
-### v0.23.4 (carried-forward summary) — Settings page reorganization
-
-Renamed and regrouped 21 Settings sections into logical clusters:
-Files and Locations (with Password Recovery, File Flagging, Info,
-Storage Connections), Conversion Options (with OCR, Path Safety),
-AI Options (with Vision, Claude MCP, Transcription, AI-Assisted
-Search). Full context:
-[`docs/version-history.md`](docs/version-history.md).
-
----
-
-### v0.23.3 (carried-forward summary) — UX responsiveness + features
-
-Migration hardening (migration 27 re-runs bulk_files rebuild, narrowed
-except:pass to ALTER only), batch empty-trash with progress polling,
-bulk restore, extension exclude (`scan_skip_extensions`), progress
-feedback on all heavy UI actions.
-Full context: [`docs/version-history.md`](docs/version-history.md).
-
----
-
-### v0.23.1-v0.23.2 (carried-forward summaries)
-
-**v0.23.2:** Critical bug fixes — bulk upsert ON CONFLICT, scheduler
-coroutine, vision MIME detection.
-**v0.23.1:** Database file handler — SQLite, Access, dBase, QuickBooks
-schema + sample data extraction into Markdown.
-Full context: [`docs/version-history.md`](docs/version-history.md).
-
----
-
-### v0.23.0 (carried-forward summary) — audit remediation
-
-20-task overhaul: DB connection pool, preferences cache, bulk_files
-dedup, incremental scanning, counter batching, PyMuPDF default,
-vision MIME fix, frontend polling reduction.
-Full context: [`docs/version-history.md`](docs/version-history.md).
-
----
-
-### v0.22.18-v0.22.19 (carried-forward summaries)
-
-**v0.22.19:** Scan-time junk-file filter + one-time historical cleanup
-(~$* Office lock files, Thumbs.db, desktop.ini, .DS_Store).
-**v0.22.18:** Four production-readiness fixes from runtime-log audit
-(~2,500 noisy events/24h eliminated).
-Full context: [`docs/version-history.md`](docs/version-history.md).
-
----
-
-### v0.22.17 (carried-forward summary) — overnight rebuild self-healing pipeline
-
-**Six phases (0-5):** 0 Preflight (prereqs + `expectGpu` auto-detect
-via `nvidia-smi.exe`) -> 1 Source sync (retry 3x) -> 1.5 Anchor
-last-good (capture `:latest` IDs, tag as `:last-good`, write
-`Scripts/work/overnight/last-good.json` sidecar — **runs BEFORE
-build** because BuildKit GCs the old image the moment `:latest` is
-reassigned) -> 2 Image build (retry 2x) -> 3 Start + 20s lifespan
-pause + race override -> 4 Verify (`Test-StackHealthy` + `Test-
-GpuExpectation` + `Test-McpHealth` on port 8001) -> 5 Success. On
-verification failure after the `up -d` commit point, `Invoke-Rollback`
-retags `:last-good` -> `:latest` and recreates with `--force-recreate`,
-then re-verifies.
-
-**Five exit codes:** 0 clean / 1 pre-commit failure (old build still
-running) / 2 rollback succeeded (old build running, new build needs
-investigation) / 3 rollback attempted but failed (stack DOWN) / 4
-rollback refused because `docker-compose.yml`, `Dockerfile`, or
-`Dockerfile.base` changed since the last-good commit (stack DOWN,
-compose-old-image mismatch would silently half-work).
-
-**No auto-remediation.** Crashed containers, disk-pressure pruning,
-git reset-on-conflict were all explicitly rejected in the brainstorm
-and stay rejected — they hide real bugs. The only recovery is
-blue/green to a known-good image pair.
-
-**Phase 4 catches the v0.22.15 / v0.22.16 regression class.**
-`Test-GpuExpectation` parses `components.gpu.execution_path` and
-`components.whisper.cuda` from `/api/health` and asserts a GPU host
-actually sees its GPU end-to-end. The field name was corrected during
-implementation against the live payload: CLAUDE.md v0.22.16 referenced
-`cuda_available`, which is a structlog event field, NOT the HTTP
-response key (which is just `cuda`).
-
-**Portable via auto-detect.** `$expectGpu` resolves to `container` on
-hosts with `nvidia-smi.exe` and `none` otherwise, so the same script
-works unchanged on CPU-only friend-deploys. The design spec originally
-called for `wsl.exe -e nvidia-smi` but that's wrong on the reference
-host (the default WSL2 distro doesn't have nvidia-smi installed —
-Docker Desktop's GPU path is independent) — see spec §11 for the
-deviation rationale.
-
-**Two new PowerShell gotchas documented** in `docs/gotchas.md` under
-a new "Overnight Rebuild & PowerShell Native-Command Handling" section:
-(1) `Start-Transcript` doesn't capture native-command output in PS 5.1,
-and the only reliable fix is `SilentlyContinue` + variable capture
-(not `ForEach-Object`); (2) `docker-compose ps --format json` cannot
-be regex'd across fields because `Publishers` has nested `{}` — parse
-NDJSON line-by-line with `ConvertFrom-Json`.
-
-**Validation performed:** parser clean; dry-run end-to-end; **three
-staged live runs**, the last of which went fully green (exit 0 in
-1:36). The first two caught four real bugs: (A) Phase 2.5
-retag-after-build was structurally impossible because BuildKit GCs
-the old image on tag reassignment — fix was moving retag + sidecar
-into Phase 1.5 before the build; (B) `Test-StackHealthy` leaked
-`NativeCommandError` decoration on every compose-ps call because it
-used `EAP=Continue` instead of `SilentlyContinue` (same class as the
-v0.22.16 follow-up); (C) `Invoke-RetagImage` swallowed stderr with
-`Out-Null`, hiding the Bug A error from the morning log; (D) Phase
-3's race-override path probed health immediately after `up -d`,
-without the 20s lifespan wait, causing a FALSE ROLLBACK of a
-functionally-identical build on the second staged run — fix moved
-the lifespan pause into Phase 3 (both clean-exit and race-override
-branches) and added the same pause to `Invoke-Rollback`'s recreate
-step. **Still deferred:** forced-rollback rehearsal with a
-deliberately-broken runtime build, and compose-divergence rehearsal
-(exit 4 path). Recommended before the next unattended cycle — though
-the Bug D false-rollback did inadvertently exercise the rollback
-path end-to-end.
-
-v0.22.15 known follow-ups (broken Convert-page SSE, uncancellable
-`asyncio.wait_for` on Whisper, corrupt-audio tensor reshape) are still
-outstanding.
-
-**All prior versions** (v0.13.x – v0.22.14) are documented per-release in
-[`docs/version-history.md`](docs/version-history.md). **Do NOT duplicate that
-changelog here.** On each release, the outgoing "Current Version" block above
-moves into `version-history.md` and is replaced with the new release notes.
-
-**Planned:** External log shipping to Grafana Loki / ELK. The current local
-log archive system is interim.
+**Planned:** External log shipping to Grafana Loki / ELK. The
+current local log archive system is interim.
 
 ---
 

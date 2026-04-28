@@ -28,7 +28,7 @@ ever opening the original application.
 | `.psd` | Adobe Photoshop | Text layers (including nested groups) + XMP/EXIF metadata |
 | `.indd` | Adobe InDesign | XMP/EXIF metadata only |
 | `.aep` | Adobe After Effects | XMP/EXIF metadata only |
-| `.prproj` | Adobe Premiere Pro | XMP/EXIF metadata only |
+| `.prproj` | Adobe Premiere Pro | **Deep parse** -- structured Markdown with sequence list, every referenced clip path, bin tree, and parse warnings. See "Premiere Pro Projects (Deep Parse)" below. |
 | `.xd` | Adobe XD | XMP/EXIF metadata only |
 
 ### Text Extraction Details
@@ -59,7 +59,7 @@ metadata fields. Common fields include:
 - Color profile
 - Page / artboard dimensions
 - Layer count (PSD)
-- Duration and frame rate (AEP, PRPROJ)
+- Duration and frame rate (AEP)
 
 Metadata fields longer than 2,000 characters are truncated. Binary fields
 (thumbnails, embedded previews) are excluded.
@@ -150,6 +150,94 @@ You can see what MarkFlow extracted from an Adobe file in several places:
    with format type "adobe" and a link to view the extracted data.
 3. **API** -- `GET /api/search?q=your+query&index=adobe-files` returns the
    raw indexed data including text layers and metadata.
+
+---
+
+## Premiere Pro Projects (Deep Parse)
+
+As of v0.34.0, Premiere Pro project files (`.prproj`) get a structured
+**deep parse** instead of the metadata-only treatment used by other Adobe
+formats. Every Premiere project is searchable by the full path of every
+clip it references, and operators can answer "which Premiere projects
+use this video file?" without leaving MarkFlow.
+
+### What gets extracted
+
+Premiere project files are gzipped XML under the hood. MarkFlow streams
+each project through a defensive XML parser and produces a Markdown
+summary that contains:
+
+- **Project metadata** -- name, Premiere version (when stamped), frame
+  rate / resolution / color space (when present in the root settings),
+  schema confidence (`high` / `medium` / `low`), and the count of XML
+  elements processed.
+- **Sequences** -- one row per timeline with name, duration, resolution,
+  clip count, and marker count where the schema exposes them.
+- **Media** -- every master clip path, grouped by media type (video,
+  audio, image, graphic, unknown) and rendered as a search-friendly
+  list. The clip's basename is shown next to the absolute path.
+- **Bin tree** -- the project's folder organisation rendered as an
+  ASCII tree.
+- **Parse warnings** -- anything the parser couldn't make sense of
+  (unknown root, malformed sequence node, etc.).
+
+### Worked example
+
+You import `C0042.MP4` into 5 different Premiere projects. After bulk
+conversion runs, MarkFlow has indexed all 5 projects. Now:
+
+1. Search for `C0042.MP4` on the Search page -> all 5 projects appear
+   as results because the Markdown for each project lists the clip path.
+2. Open the **preview page** for `C0042.MP4` -> the right sidebar shows
+   a "Used in Premiere projects" card listing all 5 projects with
+   click-through links.
+3. Click any project -> opens its preview page with the full Markdown
+   summary visible.
+
+### When the parser falls back
+
+Premiere has shipped multiple XML schema variants over its history.
+Real-world projects can also be encrypted, truncated, or saved by
+third-party tools that produce non-standard XML. MarkFlow handles each
+case gracefully:
+
+- **Unknown XML root element** -> `schema_confidence` is `low` and the
+  parser still records whatever path-shaped strings it found.
+- **Truncated or corrupt gzip** -> the handler falls back to
+  AdobeHandler-style metadata-only output. The bulk job continues.
+- **Encrypted project** -> detected at the gzip layer; same fallback
+  with a `prproj.encrypted` log line.
+
+The Markdown output always includes a `Schema confidence` row, so you
+can immediately tell whether the deep parse succeeded or fell back.
+
+### Cross-reference API
+
+External programs (asset-management dashboards, IP2A, custom scripts)
+can hit the cross-reference endpoints directly. See
+[Administration -> Programmatic API access](/help.html#admin-tools)
+or the [Developer Reference](/help.html#developer-reference) for full
+curl / Python / JavaScript examples covering:
+
+- `GET /api/prproj/references?path=<media_path>` -- reverse lookup
+- `GET /api/prproj/{project_id}/media` -- forward lookup
+- `GET /api/prproj/stats` -- aggregate counts
+
+All three respect the standard JWT / `X-API-Key` auth.
+
+### Limitations
+
+- **Sequence-clip linkage is not yet recorded.** The Markdown lists
+  every sequence and every media path, but does not yet pair them up
+  ("clip X was used in sequence Y"). Reserved for a Phase 1.5 walk.
+- **Title text is not extracted.** Premiere built-in title text overlays
+  use a separate, denser schema. Out of scope for v0.34.0.
+- **Marker comment text is not extracted.** Sequence-level markers
+  often contain operator-typed comments that are highly searchable.
+  Reserved for Phase 1.5.
+
+If your team relies on any of those, drop a `.prproj` sample into
+`tests/fixtures/prproj/` and open a follow-up.
 
 ---
 

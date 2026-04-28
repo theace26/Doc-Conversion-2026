@@ -1,5 +1,10 @@
 """
-Adobe format handler — PSD, AI, INDD, AEP, PRPROJ, XD files.
+Adobe format handler — PSD, AI, INDD, AEP, XD files.
+
+PRPROJ files have moved to formats/prproj/handler.py as of v0.34.0 for
+structured deep parsing. AdobeHandler keeps PSD text-layer extraction
+(via psd-tools) and AI text extraction (via pdfplumber) and runs
+exiftool over the rest for metadata-only output.
 
 Ingest:
   Extracts text layers and metadata using psd-tools (PSD), pdfplumber (AI),
@@ -30,9 +35,16 @@ log = structlog.get_logger(__name__)
 
 @register_handler
 class AdobeHandler(FormatHandler):
-    """Handler for Adobe creative suite files: PSD, AI, INDD, AEP, PRPROJ, XD."""
+    """Handler for Adobe creative suite files: PSD, AI, INDD, AEP, XD.
 
-    EXTENSIONS = ["psd", "ai", "indd", "aep", "prproj", "xd", "ait", "indt", "psb"]
+    Premiere project (.prproj) files moved to PrprojHandler in v0.34.0 —
+    they get a structured deep-parse rather than metadata-only output.
+    """
+
+    # v0.34.0: `prproj` removed — Premiere projects now go through
+    # PrprojHandler (formats/prproj/handler.py) for a structured Markdown
+    # summary instead of metadata-only.
+    EXTENSIONS = ["psd", "ai", "indd", "aep", "xd", "ait", "indt", "psb"]
 
     # ── Ingest ────────────────────────────────────────────────────────────────
 
@@ -113,9 +125,9 @@ class AdobeHandler(FormatHandler):
                             content=para,
                         ))
 
-        # For INDD, AEP, PRPROJ, XD — metadata only (no text extraction available
-        # without proprietary SDKs)
-        if ext in ("indd", "aep", "prproj", "xd") and not any(
+        # For INDD, AEP, XD — metadata only (no text extraction available
+        # without proprietary SDKs). v0.34.0: prproj moved to PrprojHandler.
+        if ext in ("indd", "aep", "xd") and not any(
             e.type == ElementType.PARAGRAPH for e in model.elements
         ):
             model.add_element(Element(
@@ -204,7 +216,6 @@ class AdobeHandler(FormatHandler):
         return {
             "indd": "InDesign",
             "aep": "After Effects",
-            "prproj": "Premiere Pro",
             "xd": "Adobe XD",
         }.get(ext, "Adobe application")
 
