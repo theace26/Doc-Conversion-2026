@@ -53,6 +53,18 @@ not narrative.
 
 (BUG-001 through BUG-010 closed in v0.34.1 / v0.34.2 — see Shipped section.)
 
+### v0.35.0 follow-ups (drift bugs flagged by active-ops Phase 0 audit)
+
+Drift bugs newly discovered during the Phase 0 pre-flight reconnaissance
+for the Active Operations Registry plan (`docs/superpowers/plans/2026-04-28-active-operations-registry.md`).
+Both are orthogonal to the active-ops feature itself; tracked here so
+they don't get rolled into the registry commit but are not lost.
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-011 | open | low | `tests/test_phase9/test_scheduler.py` imports renamed `_is_business_hours` symbol | `core/scheduler.py` renamed `_is_business_hours` (sync) to `_is_business_hours_async` (async, reads DB preferences for the window). The two test bodies (`test_business_hours_weekday_10am`, `test_business_hours_sunday_3am`) call it as if synchronous and the file is broken at import time. Fix is to either delete the two test bodies or rewrite them as async tests that mock the preference reads. Out of scope for active-ops registry plan; pick up as a separate ticket. Discovered in active-ops recon §A.4 (line 2694-2702). |
+| BUG-012 | open | medium | `pipeline-card.js` POSTs to non-existent `/api/pipeline/rebuild-index` endpoint | `static/js/pipeline-card.js:285` POSTs to `/api/pipeline/rebuild-index`, but no such handler exists on the backend. The actual search-rebuild endpoint is `POST /api/search/index/rebuild` at `api/routes/search.py:703`. Pre-existing bug, orthogonal to active-ops registry. Fix is to update the frontend URL in `pipeline-card.js` (and possibly verify there are no other consumers of the bogus URL). Discovered in active-ops recon §D.5 (line 2781-2786). |
+
 ### Security audit findings (long-running)
 
 | ID | Status | Sev | Summary | Details |

@@ -2667,6 +2667,13 @@ above", with no further discovery needed.
 Any deviation between spec assumption and reality goes here, with
 the affected plan task number(s) and the corrected instruction.
 
+> **Status: applied to plan in v0.35.0 amendment commit (Task 0.7).**
+> All breadcrumbs below have been transcribed into the affected plan
+> tasks via `**§G amendment applies**` notes. Pre-existing test
+> breakage (`tests/test_phase9/test_scheduler.py`) and the
+> orthogonal `pipeline-card.js` URL bug are tracked separately as
+> BUG-011 and BUG-012 in `docs/bug-log.md`.
+
 ### Breadcrumbs from §A (full reconciliation deferred to Task 0.7)
 
 - **`LATEST_VERSION` does not exist.** No constant by that name in
