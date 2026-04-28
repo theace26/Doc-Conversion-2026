@@ -134,6 +134,10 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     # Manual override for the auto-detected host OS — empty = use detection.
     # Valid values: "windows", "wsl", "macos", "linux", "unknown".
     "host_os_override": "",
+    # v0.33.1: billing cycle start day for the Provider Spend card on Admin.
+    # Day-of-month (1-28; capped to avoid Feb edge case) when the operator's
+    # provider invoice cycle begins. Default 1 = calendar month.
+    "billing_cycle_start_day": "1",
 }
 
 

@@ -1,6 +1,12 @@
 # SQLite database
 markflow.db
 data/
+# v0.33.1: core/data/ holds shipped static data files (LLM rate table)
+# that MUST be tracked. The blanket data/ rule above is for runtime
+# data directories (SQLite, indexes); this negation re-includes the
+# in-source data files.
+!core/data/
+!core/data/**
 *.db
 
 # Output and logs (runtime generated)

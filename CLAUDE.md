@@ -91,7 +91,94 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.33.0
+## Current Version — v0.33.1
+
+**Token + cost estimation subsystem — Phase 1 (backend foundation).
+Ships the rate-table data file, the loader + arithmetic module,
+and six API endpoints that translate `analysis_queue.tokens_used`
+counts into USD cost estimates per-row, per-batch, and per-
+billing-cycle. No UI yet — that's v0.33.2. External programs
+like IP2A can already hit these endpoints with the existing
+JWT / X-API-Key auth.**
+
+### Why this matters
+
+The image-analysis queue stores `tokens_used` per row but never
+translated that into dollars. Operators had no way to estimate
+provider-bill exposure without manually running token counts
+through a calculator with the published per-1M-token rates.
+v0.33.1 closes the gap with a single source of truth
+(`core/data/llm_costs.json`) and a clean API. UI surfaces and
+operational hardening land in v0.33.2 + v0.33.3.
+
+### Files
+
+- `core/data/llm_costs.json` — NEW. Rate table for
+  Anthropic / OpenAI / Gemini / Ollama. Editable; hot-reload
+  via POST `/api/admin/llm-costs/reload` (no container restart).
+- `core/llm_costs.py` — NEW (~470 LOC). Frozen dataclasses
+  (`TokenRate`, `CostEstimate`, `BatchCostSummary`,
+  `PeriodCostSummary`, `CostTable`), loader with strict schema
+  validation, arithmetic helpers, billing-cycle window math,
+  staleness check. Soft-fails to an empty table on disk
+  errors so the app keeps starting.
+- `api/routes/llm_costs.py` — NEW. Six endpoints:
+  - `GET  /api/admin/llm-costs` (OPERATOR+)
+  - `POST /api/admin/llm-costs/reload` (ADMIN)
+  - `GET  /api/analysis/cost/file/{entry_id}` (OPERATOR+)
+  - `GET  /api/analysis/cost/batch/{batch_id}` (OPERATOR+)
+  - `GET  /api/analysis/cost/period[?days=N]` (OPERATOR+)
+  - `GET  /api/analysis/cost/staleness` (OPERATOR+)
+- `main.py` — call `load_costs()` in lifespan after init_db;
+  register the new router.
+- `core/db/preferences.py` — add `billing_cycle_start_day = "1"`
+  default.
+- `tests/test_llm_costs.py` — NEW. 17 tests covering schema
+  validation, arithmetic, batch extrapolation, cycle-window
+  math (start_day=31 cap, year boundary, today-before-start),
+  staleness check.
+
+### Best practices baked in
+
+- **Single source of truth**: every caller goes through
+  `core.llm_costs` — no scattered rate constants.
+- **Schema validation on load**: malformed top-level shape
+  raises; bad individual rate rows are skipped + logged
+  rather than killing all cost reporting.
+- **Defensive degradation**: missing rate → `cost_usd=null`
+  + descriptive `error` string. Never blanks, never raises.
+- **Operator transparency**: every estimate displays the rate
+  used in `rate_used` so calculations are verifiable.
+- **Observable**: every `estimate_cost` / `aggregate_*` call
+  emits a `llm_cost.computed` (or `llm_cost.no_rate`) log
+  line. Searchable in Log Viewer with `?q=llm_cost`.
+- **Operational**: hot-reload endpoint avoids restarts.
+- **No mutable global state**: `_CACHE` swaps the whole
+  frozen dataclass atomically.
+- **Backwards compatible**: purely additive — no DB
+  migration, no existing endpoint changed.
+
+### Operator-visible change
+
+None yet — v0.33.1 is backend-only. Verify with curl:
+
+```bash
+curl -s http://localhost:8000/api/admin/llm-costs | jq .
+curl -s 'http://localhost:8000/api/analysis/cost/period' | jq .
+curl -s 'http://localhost:8000/api/analysis/cost/staleness' | jq .
+```
+
+### External integrators
+
+The cost endpoints respect the existing JWT / `X-API-Key`
+auth, so consumers like IP2A can mirror MarkFlow's
+source-of-truth rate data + period totals into their own
+dashboards. Full curl + Python + JS snippets land in
+`docs/help/admin-tools.md` with v0.33.2.
+
+---
+
+## v0.33.0 — Pipeline + Lifecycle + Pending cards merged; banner click-to-enlarge
 
 **UX consolidation release: one canonical Pipeline card across
 all pages, instead of three overlapping ones. Status loses its

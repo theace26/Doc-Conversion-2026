@@ -6,6 +6,77 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.33.1 — Token + cost estimation: backend foundation
+
+This is the **first of three releases** that build out a full
+"how much am I spending on LLM analysis?" subsystem. v0.33.1
+ships the backend only — there's no UI yet (that's v0.33.2),
+but if you're API-savvy you can already pull cost data with
+curl. v0.33.3 adds CSV export + stale-rate warning + audit
+trail.
+
+### What you can do today
+
+If you're comfortable with the command line, three new
+endpoints work right now:
+
+```bash
+# Show the rate table MarkFlow uses (Anthropic, OpenAI,
+# Gemini, Ollama)
+curl -H "X-API-Key: <your-key>" \
+  http://localhost:8000/api/admin/llm-costs
+
+# Show your spend so far this month (using the "calendar
+# month" default — Phase 2 lets you set the cycle start day)
+curl -H "X-API-Key: <your-key>" \
+  http://localhost:8000/api/analysis/cost/period
+
+# Show the cost of one specific batch
+curl -H "X-API-Key: <your-key>" \
+  http://localhost:8000/api/analysis/cost/batch/<batch-id>
+```
+
+The response is plain JSON with `total_cost_usd`, a
+`by_provider` breakdown, and a `projected_full_cycle_cost_usd`
+estimate so you can budget for month-end before it arrives.
+
+### What's coming
+
+- **v0.33.2 (next)**: clickable cost panel on every batch
+  card on the Batch Management page; "Provider spend" card on
+  the Admin page with a monthly running total + by-provider
+  breakdown + month-end projection; Settings entry for your
+  billing-cycle start day; full operator + developer
+  documentation in the help wiki.
+- **v0.33.3**: CSV export for finance, "rate data is X days
+  old — check provider pricing pages" warning, daily
+  staleness check.
+
+### How rates are kept current
+
+The rate table lives in a single editable JSON file in the
+container at `/app/core/data/llm_costs.json`. To update
+rates without a container restart:
+
+1. Edit the file (host-mounted)
+2. `curl -X POST -H "X-API-Key: <admin-key>" http://localhost:8000/api/admin/llm-costs/reload`
+
+The file ships with current rates for 11 models across 4
+providers. Providers update their pricing periodically (some
+quarterly, some yearly) — Phase 3 surfaces a banner when
+your loaded rates are >90 days old to remind you to verify.
+
+### For external integrators (IP2A, dashboards, finance
+pipelines)
+
+Every cost endpoint respects the existing API-key /
+JWT auth. Pull the rate table directly to mirror MarkFlow's
+source-of-truth pricing into your own system. Full curl +
+Python + JavaScript snippets land in
+[`docs/help/admin-tools.md`](admin-tools.md) with v0.33.2.
+
+---
+
 ## v0.33.0 — One status card to rule them all + click-to-enlarge scan banner
 
 Two-part UX cleanup.

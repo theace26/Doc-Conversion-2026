@@ -4,6 +4,124 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.33.1 — LLM token + cost estimation subsystem, Phase 1 (2026-04-28)
+
+**Backend foundation for the per-batch / per-month cost-estimate
+feature. No UI yet — Phase 2 (v0.33.2) wires the modal + admin card.**
+
+### Problem
+
+`analysis_queue.tokens_used` has been populated for every
+analysed image since v0.18.x but has never been translated into
+USD. Operators wanted "what does this batch cost?" + "what's my
+running monthly total?" without leaving MarkFlow. Until v0.33.1
+that meant manually multiplying token counts against the
+provider's published per-1M-token rate.
+
+### Fix
+
+Three new files form the Phase-1 backend:
+
+**`core/data/llm_costs.json`** — the single source of truth for
+rate data. Schema-versioned (current: v1), externally editable,
+hot-reloadable via API. Ships with current rates for Anthropic
+(opus-4-6, opus-4-7, sonnet-4-6, haiku-4-5), OpenAI (gpt-4o,
+gpt-4o-mini, gpt-4-turbo), Gemini (1.5-pro, 1.5-flash, 2.0-
+flash), and Ollama (`*` wildcard at $0).
+
+**`core/llm_costs.py`** — frozen-dataclass loader, arithmetic,
+and aggregation. Strict schema validation rejects bad top-level
+shape; bad individual rate rows are skipped + logged. Soft-
+fails to an empty table on disk errors. Public surface:
+
+```python
+load_costs() / reload_costs() / get_costs()
+estimate_cost(provider, model, tokens) -> CostEstimate
+aggregate_batch_cost(batch_id, rows) -> BatchCostSummary
+aggregate_period_cost(rows, cycle_start_day) -> PeriodCostSummary
+is_data_stale(threshold_days=90) -> bool
+```
+
+Every cost calculation emits a `llm_cost.computed` (or
+`llm_cost.no_rate`) structured log line. Searchable in Log
+Viewer with `?q=llm_cost.computed` — Phase 3 promotes this to
+a documented audit trail.
+
+**`api/routes/llm_costs.py`** — six endpoints:
+
+| Endpoint | Role | Returns |
+|----------|------|---------|
+| `GET  /api/admin/llm-costs` | OPERATOR+ | full rate table JSON |
+| `POST /api/admin/llm-costs/reload` | ADMIN | `{ok, schema_version, ...}` |
+| `GET  /api/analysis/cost/file/{entry_id}` | OPERATOR+ | `CostEstimate` for one analysis row |
+| `GET  /api/analysis/cost/batch/{batch_id}` | OPERATOR+ | `BatchCostSummary` |
+| `GET  /api/analysis/cost/period[?days=N]` | OPERATOR+ | `PeriodCostSummary` |
+| `GET  /api/analysis/cost/staleness` | OPERATOR+ | `{is_stale, age_days, threshold_days}` |
+
+### Cost arithmetic detail
+
+`analysis_queue` stores a single `tokens_used` per row (the
+per-image share of the batch's input+output total). The
+estimator uses a 50/50 blended rate `(input_per_million +
+output_per_million) / 2` rather than splitting input/output
+because the underlying data isn't broken out. Documented as
+such in the help doc; Phase 2 may surface "rate used: blended
+$45/1M" so operators understand the calculation.
+
+For batches with mixed analysed/pending rows, the aggregator
+extrapolates pending-row cost from the batch's per-file
+average. UI in v0.33.2 will label these clearly as
+"Estimated" rather than mixing them into "Actual".
+
+### Billing-cycle window
+
+`compute_billing_cycle_window(cycle_start_day, today)`:
+
+- Clamps `cycle_start_day` to 1..28 (avoids February edge case)
+- If `today.day >= start_day`, current cycle = `today.replace(day=start_day)` → +1 month
+- Otherwise, rolls back one month
+- Year-boundary handled (Jan today + day=15 → Dec 15 prev year)
+
+Operators set their `billing_cycle_start_day` preference in
+v0.33.2's Settings entry (default 1 = calendar month) so the
+"running total this cycle" matches their actual provider
+invoice window.
+
+### External integrators
+
+All cost endpoints respect the existing JWT / `X-API-Key` auth.
+External consumers (IP2A, dashboards, finance pipelines) can
+mirror the rate table or pull period totals straight from the
+API:
+
+```bash
+curl -H "X-API-Key: $KEY" http://markflow:8000/api/admin/llm-costs
+curl -H "X-API-Key: $KEY" http://markflow:8000/api/analysis/cost/period
+```
+
+Full curl + Python + JS samples ship in `docs/help/admin-tools.md`
+with v0.33.2.
+
+### Files
+
+- `core/data/llm_costs.json` (NEW)
+- `core/llm_costs.py` (NEW, ~470 LOC)
+- `api/routes/llm_costs.py` (NEW, ~210 LOC)
+- `tests/test_llm_costs.py` (NEW, 17 tests)
+- `main.py` — `load_costs()` in lifespan + register router
+- `core/db/preferences.py` — `billing_cycle_start_day = "1"` default
+- `CLAUDE.md`, `docs/version-history.md`, `docs/help/whats-new.md`
+- `core/version.py` — bump to 0.33.1
+
+No DB migration. No new dependencies. No new scheduler jobs.
+No frontend changes.
+
+### Operator-visible change
+
+None until v0.33.2 ships the UI. Verify backend with curl above.
+
+---
+
 ## v0.33.0 — Pipeline + Lifecycle + Pending cards merged; banner click-to-enlarge (2026-04-28)
 
 **UX consolidation: one canonical Pipeline card across all pages,

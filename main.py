@@ -39,6 +39,7 @@ from api.routes import mounts as mounts_routes
 from api.routes import storage as storage_routes
 from api.routes import auth as auth_routes
 from api.routes import admin as admin_routes
+from api.routes import llm_costs as llm_costs_routes
 from api.middleware import add_middleware
 
 # ── Logging (initial config — level updated from DB in lifespan) ─────────────
@@ -86,6 +87,16 @@ async def lifespan(app: FastAPI):
     # Initialize SQLite schema + default preferences
     await init_db()
     log.info("markflow.db_ready")
+
+    # v0.33.1: load LLM cost rate table from disk so cost-estimate
+    # endpoints have data ready before any request lands. Soft-fails
+    # if the file is missing/malformed (operator can edit + reload via
+    # POST /api/admin/llm-costs/reload without container restart).
+    try:
+        from core.llm_costs import load_costs
+        load_costs()
+    except Exception as exc:  # noqa: BLE001 — never block startup
+        log.warning("markflow.llm_costs_load_failed", error=str(exc))
 
     # Clean up any jobs stuck from a previous container run
     from core.database import cleanup_orphaned_jobs
@@ -474,6 +485,9 @@ app.include_router(analysis_routes.router)
 # v0.30.1: Log Management subsystem
 from api.routes import log_management as log_management_routes
 app.include_router(log_management_routes.router)
+
+# v0.33.1: LLM token-cost estimation subsystem
+app.include_router(llm_costs_routes.router)
 
 # v0.32.0: file detail / preview page (path-keyed, OPERATOR+)
 from api.routes import preview as preview_routes
