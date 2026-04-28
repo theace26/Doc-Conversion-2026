@@ -4,9 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MarkFlow — Bulk Conversion</title>
-  <!-- v0.32.10: cache-bust markflow.css since this page uses new
-       .pl-cell / .pl-cell-sub / .pl-status-pill rules. -->
-  <link rel="stylesheet" href="/static/markflow.css?v=0.32.10">
+  <!-- v0.33.0: cache-bust markflow.css; bulk now mounts the shared
+       Pipeline card via static/js/pipeline-card.js (which carries
+       its own ?v=0.33.0) and adds the .scan-detail-* modal classes
+       inline below. Bump on every release that touches the CSS
+       used by this page. -->
+  <link rel="stylesheet" href="/static/markflow.css?v=0.33.0">
   <style>
     .job-form { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem; align-items: center; }
     .job-form label { font-weight: 500; font-size: 0.9rem; }
@@ -81,63 +84,24 @@
   <div class="container page-content">
     <div id="error-banner" role="alert" hidden></div>
 
-    <!-- Pipeline status card -->
-    <div id="pipeline-card" class="card mb-2" style="padding:1rem 1.25rem">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
-        <div style="display:flex;align-items:center;gap:0.75rem">
-          <h3 style="margin:0">Pipeline</h3>
-          <span id="pl-status-pill" class="job-status">Loading</span>
-        </div>
-        <div style="display:flex;gap:0.5rem">
-          <button class="btn btn-ghost btn-sm" id="pl-pause-btn" onclick="togglePipelinePause()">Pause</button>
-          <button class="btn btn-ghost btn-sm" id="pl-rebuild-btn" onclick="rebuildSearchIndex()">Rebuild Index</button>
-          <button class="btn btn-primary btn-sm" id="pl-run-now-btn" onclick="pipelineRunNow()">Run Now</button>
-        </div>
-      </div>
-      <!-- v0.32.10: each cell now renders a multi-line block with a
-           descriptive sub-line so operators can tell at a glance
-           WHAT KIND of scan ran / is coming up next, not just a bare
-           timestamp. Hover any value for an info tooltip. -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:0.5rem;font-size:0.85rem">
-        <div class="pl-cell" id="pl-cell-mode" title="Auto-convert scheduler mode. Off = manual only. Immediate = trigger conversion as soon as a scan finds new files. Queued = wait for the next scheduler tick. Scheduled = run at the configured interval.">
-          <span class="text-muted">Mode</span><br>
-          <strong id="pl-mode">--</strong>
-          <div class="pl-cell-sub" id="pl-mode-sub"></div>
-        </div>
-        <div class="pl-cell" id="pl-cell-last-scan" title="The most recent pipeline scan that walked the source tree to find new/modified files. Interrupted = container restarted mid-scan. Completed = scan finished cleanly.">
-          <span class="text-muted">Last Scan</span><br>
-          <strong id="pl-last-scan">--</strong>
-          <div class="pl-cell-sub" id="pl-last-scan-sub"></div>
-        </div>
-        <div class="pl-cell" id="pl-cell-next-scan" title="When the next scheduled pipeline scan will run. Click Run Now to trigger immediately instead of waiting.">
-          <span class="text-muted">Next Scan</span><br>
-          <strong id="pl-next-scan">--</strong>
-          <div class="pl-cell-sub" id="pl-next-scan-sub"></div>
-        </div>
-        <div class="pl-cell" title="Total source files MarkFlow knows about (anything ever scanned). Files that were trashed are NOT counted here.">
-          <span class="text-muted">Source Files</span><br>
-          <strong id="pl-total-files">--</strong>
-          <div class="pl-cell-sub">on disk</div>
-        </div>
-        <div class="pl-cell" title="Files awaiting conversion to Markdown. The auto-convert worker picks these up on the next scheduler tick (or immediately if Mode=Immediate).">
-          <span class="text-muted">Pending</span><br>
-          <strong id="pl-pending">--</strong>
-          <div class="pl-cell-sub">awaiting conversion</div>
-        </div>
-        <div class="pl-cell" title="Pipeline scheduler interval. Change in Settings → Auto-convert.">
-          <span class="text-muted">Interval</span><br>
-          <strong id="pl-interval">--</strong>
-          <div class="pl-cell-sub">between scheduled scans</div>
-        </div>
-      </div>
-      <!-- Pipeline disabled warning -->
-      <div id="pl-disabled-warning" style="margin-top:0.75rem;padding:0.75rem 1rem;background:rgba(220,38,38,0.08);border:1px solid var(--error);border-radius:var(--radius);color:var(--error);font-size:0.85rem" hidden>
-        <strong>Pipeline is disabled.</strong> <span id="pl-disabled-msg"></span>
-      </div>
-    </div>
+    <!-- v0.33.0: compact Pipeline summary. The full rich card now
+         lives on /static/status.html (canonical surface for "what's
+         happening?"); Bulk Jobs gets a 1-2 line summary that
+         deep-links there. Same pipeline-card.js module powers both;
+         compact:true mode renders fewer cells and a "view full
+         status →" link. Pause / Run Now buttons stay here so
+         operators in the middle of managing a bulk job have quick
+         access without navigating. -->
+    <div id="pipeline-card-mount" class="mb-2"></div>
 
-    <!-- Lifecycle scan status bar -->
-    <div id="lifecycle-scan-bar" class="lifecycle-scan-status">
+    <!-- Lifecycle scan status bar — v0.33.0: click-to-enlarge.
+         The compact strip stays as the always-visible signal; clicking
+         it opens a modal with full scan detail (current file, ETA,
+         rate, run id, started-at, last-update-age). Cursor + hint
+         appear only when a scan is actually running. -->
+    <div id="lifecycle-scan-bar" class="lifecycle-scan-status"
+         role="button" tabindex="0"
+         title="Click for full scan detail">
       <span id="lsb-icon">&#128269;</span>
       <span id="lsb-text">Loading scan status...</span>
       <div id="lsb-progress-wrap" hidden>
@@ -145,6 +109,54 @@
           <div id="lsb-fill" class="lsb-fill" style="width:0%"></div>
         </div>
         <span id="lsb-eta" class="lsb-eta"></span>
+      </div>
+      <span id="lsb-expand-hint" class="text-sm text-muted" style="margin-left:auto;display:none">click for detail →</span>
+    </div>
+
+    <!-- v0.33.0: Background scan detail modal. Opens on click of the
+         lifecycle-scan-bar above. Updated from the same
+         /api/scanner/progress poll while open. -->
+    <div id="scan-detail-backdrop"
+         style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:200;align-items:center;justify-content:center;padding:1rem"
+         role="dialog" aria-modal="true" aria-labelledby="scan-detail-title">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem 1.5rem;max-width:560px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,0.4)">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;margin-bottom:0.85rem">
+          <h3 id="scan-detail-title" style="margin:0;display:flex;align-items:center;gap:0.4rem">
+            <span id="scan-detail-icon" aria-hidden="true">&#128269;</span>
+            <span id="scan-detail-headline">Background scan</span>
+          </h3>
+          <button id="scan-detail-close" type="button" class="btn btn-ghost btn-sm" aria-label="Close">&times;</button>
+        </div>
+        <div id="scan-detail-summary" class="text-sm text-muted" style="margin-bottom:0.75rem"></div>
+
+        <div id="scan-detail-bar-wrap" style="margin-bottom:0.85rem" hidden>
+          <div style="height:8px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden">
+            <div id="scan-detail-bar-fill" style="height:100%;width:0%;background:linear-gradient(90deg,#6366f1,#3b82f6);transition:width 0.4s ease"></div>
+          </div>
+          <div id="scan-detail-bar-label" class="text-sm text-muted" style="margin-top:0.25rem;font-family:ui-monospace,monospace"></div>
+        </div>
+
+        <dl id="scan-detail-grid" style="display:grid;grid-template-columns:auto 1fr;gap:0.4rem 1rem;font-size:0.85rem;margin:0 0 0.85rem 0"></dl>
+
+        <div id="scan-detail-current" style="margin-bottom:0.85rem" hidden>
+          <div class="text-muted text-sm" style="margin-bottom:0.2rem">Currently scanning</div>
+          <code id="scan-detail-current-file" style="display:block;padding:0.45rem 0.6rem;background:rgba(0,0,0,0.25);border-radius:4px;font-size:0.78rem;word-break:break-all"></code>
+        </div>
+
+        <div class="text-sm text-muted" style="margin-bottom:0.85rem;padding:0.5rem 0.75rem;background:rgba(96,165,250,0.06);border-left:3px solid rgba(96,165,250,0.6);border-radius:3px">
+          <strong>What's a background scan?</strong>
+          The lifecycle scanner walks the source tree on a schedule
+          (every 45 min by default) to find new / modified / deleted
+          files. It updates the scan_dir_mtimes cache so subsequent
+          scans skip unchanged folders. This is separate from the
+          one-shot Bulk Job scans you trigger manually.
+        </div>
+
+        <div style="display:flex;gap:0.5rem;justify-content:flex-end;flex-wrap:wrap">
+          <a href="/static/log-viewer.html?q=lifecycle_scan&amp;mode=history" class="btn btn-ghost btn-sm" target="_blank" rel="noopener">View scanner log →</a>
+          <a href="/static/status.html" class="btn btn-ghost btn-sm">Open Status page →</a>
+          <button id="scan-detail-close-2" type="button" class="btn btn-primary btn-sm">Close</button>
+        </div>
       </div>
     </div>
 
@@ -401,222 +413,33 @@
   </div>
 
   <script src="/static/app.js"></script>
+  <!-- v0.33.0: shared Pipeline card module. Bulk Jobs uses the
+       compact variant; the rich version mounts on /static/status.html. -->
+  <script src="/static/js/pipeline-card.js?v=0.33.0"></script>
   <script>
   let activeJobId = null;
   let eventSource = null;
   let totalPending = 0;
 
-  // ── Pipeline controls ──────────────────────────────────────────────────────
-  let _plPaused = false;
+  // v0.33.0: Pipeline status rendering moved to the shared
+  // pipeline-card.js module. Bulk Jobs uses the compact variant
+  // (1-line summary + Pause / Run Now + "view full status →"
+  // link). The full rich card lives on /static/status.html as
+  // the canonical surface.
+  //
+  // togglePipelinePause / pipelineRunNow / rebuildSearchIndex
+  // are no longer wired here — pipeline-card.js handles all
+  // three actions internally via its action-button row.
 
-  async function loadPipelineStatus() {
-    try {
-      const data = await API.get('/api/pipeline/status');
-      _plPaused = data.paused;
-
-      // Status pill
-      const pill = document.getElementById('pl-status-pill');
-      if (!data.pipeline_enabled) {
-        pill.textContent = 'Disabled'; pill.className = 'job-status cancelled';
-      } else if (data.paused) {
-        pill.textContent = 'Paused'; pill.className = 'job-status paused';
-      } else if (data.is_scan_running) {
-        pill.textContent = 'Scanning'; pill.className = 'job-status scanning';
-      } else {
-        pill.textContent = 'Active'; pill.className = 'job-status completed';
-      }
-
-      // Pause button label
-      document.getElementById('pl-pause-btn').textContent = data.paused ? 'Resume' : 'Pause';
-
-      // Stats
-      const modeLabels = { off: 'Off', immediate: 'Immediate', queued: 'Queued', scheduled: 'Scheduled' };
-      document.getElementById('pl-mode').textContent = modeLabels[data.auto_convert_mode] || data.auto_convert_mode;
-      document.getElementById('pl-interval').textContent = data.scanner_interval_minutes + ' min';
-      document.getElementById('pl-total-files').textContent = (data.total_source_files || 0).toLocaleString();
-      document.getElementById('pl-pending').textContent = (data.pending_conversion || 0).toLocaleString();
-
-      // v0.32.10: descriptive sub-lines for Mode / Last Scan / Next Scan
-      const modeSubMap = {
-        off: 'Manual triggers only',
-        immediate: 'Convert on every new-file detection',
-        queued: 'Hold scan results for next tick',
-        scheduled: 'Convert at scheduler intervals',
-      };
-      const modeSub = document.getElementById('pl-mode-sub');
-      if (modeSub) modeSub.textContent = modeSubMap[data.auto_convert_mode] || '';
-
-      // Helper: render "1m 14s ago" / "in 2m 30s" relative to now.
-      function fmtRel(d, now) {
-        if (!d) return '';
-        const ms = d.getTime() - now.getTime();
-        const past = ms < 0;
-        let sec = Math.abs(Math.round(ms / 1000));
-        if (sec < 60) return past ? `${sec}s ago` : `in ${sec}s`;
-        const min = Math.floor(sec / 60);
-        sec = sec % 60;
-        if (min < 60) return past ? `${min}m ${sec}s ago` : `in ${min}m ${sec}s`;
-        const hr = Math.floor(min / 60);
-        const m2 = min % 60;
-        return past ? `${hr}h ${m2}m ago` : `in ${hr}h ${m2}m`;
-      }
-      const _now = new Date();
-
-      // Last Scan: time + relative + status pill + scanned/new/modified
-      const lsEl = document.getElementById('pl-last-scan');
-      const lsSub = document.getElementById('pl-last-scan-sub');
-      if (data.last_scan && data.last_scan.finished_at) {
-        const d = parseUTC(data.last_scan.finished_at);
-        lsEl.textContent = d
-          ? `${d.toLocaleTimeString()} (${fmtRel(d, _now)})`
-          : '';
-        // Build sub: status pill + counts
-        if (lsSub) {
-          while (lsSub.firstChild) lsSub.removeChild(lsSub.firstChild);
-          const statusRaw = (data.last_scan.status || 'unknown').toLowerCase();
-          const statusLabelMap = {
-            completed: { text: '✓ Completed', cls: 'pl-status-ok' },
-            running: { text: '⟳ Running', cls: 'pl-status-running' },
-            interrupted: { text: '⚠ Interrupted', cls: 'pl-status-warn' },
-            failed: { text: '✗ Failed', cls: 'pl-status-err' },
-            cancelled: { text: '⊘ Cancelled', cls: 'pl-status-muted' },
-          };
-          const sl = statusLabelMap[statusRaw] || { text: statusRaw, cls: 'pl-status-muted' };
-          const pill = document.createElement('span');
-          pill.className = 'pl-status-pill ' + sl.cls;
-          pill.textContent = sl.text;
-          lsSub.appendChild(pill);
-          const counts = (data.last_scan.files_scanned || 0).toLocaleString() + ' scanned';
-          if (data.last_scan.files_new) {
-            lsSub.appendChild(document.createTextNode(' · ' + counts +
-              ' · ' + data.last_scan.files_new.toLocaleString() + ' new'));
-          } else {
-            lsSub.appendChild(document.createTextNode(' · ' + counts));
-          }
-          if (data.last_scan.files_modified) {
-            lsSub.appendChild(document.createTextNode(' · ' +
-              data.last_scan.files_modified.toLocaleString() + ' modified'));
-          }
-        }
-      } else {
-        lsEl.textContent = 'Never';
-        if (lsSub) lsSub.textContent = 'No scan recorded yet';
-      }
-
-      // Next Scan: time + relative + type + paused/off handling
-      const nsEl = document.getElementById('pl-next-scan');
-      const nsSub = document.getElementById('pl-next-scan-sub');
-      if (data.disabled_info) {
-        nsEl.textContent = '—';
-        if (nsSub) nsSub.textContent = 'Disabled — fix shown below';
-      } else if (data.paused) {
-        // When paused, next_scan still ticks but won't actually fire.
-        nsEl.textContent = data.next_scan
-          ? `${new Date(data.next_scan).toLocaleTimeString()} (paused)`
-          : '— (paused)';
-        if (nsSub) nsSub.textContent = 'Pipeline paused — Resume to enable';
-      } else if (data.auto_convert_mode === 'off') {
-        nsEl.textContent = '— (off)';
-        if (nsSub) nsSub.textContent = 'Mode is Off — use Run Now to scan manually';
-      } else if (data.next_scan) {
-        const d = new Date(data.next_scan);
-        nsEl.textContent = `${d.toLocaleTimeString()} (${fmtRel(d, _now)})`;
-        if (nsSub) {
-          const interval = data.scanner_interval_minutes || 0;
-          nsSub.textContent = `Pipeline scan · every ${interval} min`;
-        }
-      } else {
-        nsEl.textContent = '--';
-        if (nsSub) nsSub.textContent = 'Scheduler offline';
-      }
-
-      // v0.32.10: surface the latest auto-conversion REASON as a
-      // tooltip on the Mode cell. The reason field carries rich
-      // context like "Mode=immediate | 113354 files discovered |
-      // CPU now=4.9% | CPU historical avg=7.1% | Mon 20:00 |
-      // off hours | workers=8 | batch=175". Operators get the
-      // scheduler's full thinking on hover without cluttering the row.
-      const modeCell = document.getElementById('pl-cell-mode');
-      if (modeCell && data.last_auto_conversion && data.last_auto_conversion.reason) {
-        const lac = data.last_auto_conversion;
-        modeCell.title =
-          'Auto-convert scheduler mode.\n\n' +
-          `Last decision (${lac.status || 'unknown'}): ` +
-          (lac.reason || '');
-      }
-
-      // Disabled warning
-      const warnEl = document.getElementById('pl-disabled-warning');
-      if (data.disabled_info) {
-        document.getElementById('pl-disabled-msg').textContent = data.disabled_info.message;
-        warnEl.hidden = false;
-      } else {
-        warnEl.hidden = true;
-      }
-    } catch (e) {
-      document.getElementById('pl-status-pill').textContent = 'Error';
-      document.getElementById('pl-status-pill').className = 'job-status failed';
-    }
+  // v0.33.0: pipelineRunNow + rebuildSearchIndex moved into
+  // pipeline-card.js's action-button row. The shared module
+  // owns the polling cadence (30s) too.
+  if (typeof window.mountPipelineCard === 'function') {
+    window.mountPipelineCard(
+      document.getElementById('pipeline-card-mount'),
+      { compact: true, pollMs: 30000 }
+    );
   }
-
-  async function togglePipelinePause() {
-    const endpoint = _plPaused ? '/api/pipeline/resume' : '/api/pipeline/pause';
-    try {
-      await API.post(endpoint);
-      await loadPipelineStatus();
-    } catch (e) { showToast('Failed: ' + e.message, 'error'); }
-  }
-
-  async function pipelineRunNow() {
-    try {
-      await API.post('/api/pipeline/run-now');
-      showToast('Pipeline cycle triggered', 'success');
-      setTimeout(loadPipelineStatus, 2000);
-    } catch (e) { showToast('Failed: ' + e.message, 'error'); }
-  }
-
-  async function rebuildSearchIndex() {
-    const btn = document.getElementById('pl-rebuild-btn');
-    btn.disabled = true;
-    btn.textContent = 'Rebuilding\u2026';
-    try {
-      await API.post('/api/search/index/rebuild');
-      showToast('Search index rebuild started', 'success');
-      // Poll until all three sub-indexes finish
-      const poll = setInterval(async () => {
-        try {
-          const st = await API.get('/api/search/index/status');
-          const docs = st.documents || {};
-          const adobe = st.adobe_files || {};
-          const trans = st.transcripts || {};
-          const anyIndexing = docs.is_indexing || adobe.is_indexing || trans.is_indexing;
-          if (anyIndexing) {
-            const total = (docs.number_of_documents || 0)
-              + (adobe.number_of_documents || 0)
-              + (trans.number_of_documents || 0);
-            btn.textContent = 'Rebuilding (' + total.toLocaleString() + ' docs)\u2026';
-          } else {
-            clearInterval(poll);
-            btn.disabled = false;
-            btn.textContent = 'Rebuild Index';
-            showToast('Search index rebuild complete', 'success');
-          }
-        } catch {
-          clearInterval(poll);
-          btn.disabled = false;
-          btn.textContent = 'Rebuild Index';
-        }
-      }, 3000);
-    } catch (e) {
-      showToast('Rebuild failed: ' + e.message, 'error');
-      btn.disabled = false;
-      btn.textContent = 'Rebuild Index';
-    }
-  }
-
-  // Refresh pipeline status every 30 seconds
-  loadPipelineStatus();
-  setInterval(loadPipelineStatus, 30000);
 
   // Active workers state
   const activeWorkers = {};
@@ -1361,7 +1184,172 @@
     return `${Math.floor(diff / 86400)} days ago`;
   }
 
+  // v0.33.0: cache the latest scanner-progress snapshot so the
+  // click-to-enlarge modal can render immediately from current
+  // state instead of waiting for the next poll.
+  let _lastScannerState = null;
+  let _scanDetailLastUpdateTs = null;
+
+  function _v33UpdateScanBarExtras(state) {
+    _lastScannerState = state;
+    _scanDetailLastUpdateTs = Date.now();
+    const bar = document.getElementById('lifecycle-scan-bar');
+    const hint = document.getElementById('lsb-expand-hint');
+    if (bar) {
+      bar.style.cursor = (state && (state.running || state.last_scan_at)) ? 'pointer' : 'default';
+    }
+    if (hint) {
+      hint.style.display = (state && (state.running || state.last_scan_at)) ? '' : 'none';
+    }
+    const backdrop = document.getElementById('scan-detail-backdrop');
+    if (backdrop && backdrop.style.display === 'flex') {
+      _v33RenderScanDetail(state);
+    }
+  }
+
+  function _v33RenderScanDetail(state) {
+    const backdrop = document.getElementById('scan-detail-backdrop');
+    if (!backdrop) return;
+    const headline = document.getElementById('scan-detail-headline');
+    const summary = document.getElementById('scan-detail-summary');
+    const iconEl = document.getElementById('scan-detail-icon');
+    const barWrap = document.getElementById('scan-detail-bar-wrap');
+    const barFill = document.getElementById('scan-detail-bar-fill');
+    const barLabel = document.getElementById('scan-detail-bar-label');
+    const grid = document.getElementById('scan-detail-grid');
+    const currentWrap = document.getElementById('scan-detail-current');
+    const currentFileEl = document.getElementById('scan-detail-current-file');
+
+    function appendDt(label, value) {
+      const dt = document.createElement('dt');
+      dt.className = 'text-muted';
+      dt.textContent = label;
+      const dd = document.createElement('dd');
+      dd.style.margin = '0';
+      dd.textContent = value == null ? '-' : String(value);
+      grid.appendChild(dt);
+      grid.appendChild(dd);
+    }
+    while (grid.firstChild) grid.removeChild(grid.firstChild);
+
+    if (!state || !state.running) {
+      iconEl.textContent = '✓';
+      headline.textContent = 'Background scan - idle';
+      summary.textContent = state && state.last_scan_at
+        ? 'Last completed ' + formatRelativeTime(state.last_scan_at)
+        : 'No background scan has run yet.';
+      barWrap.hidden = true;
+      currentWrap.hidden = true;
+      if (state && state.last_scan_at) {
+        appendDt('Last scan at', new Date(state.last_scan_at).toLocaleString());
+      }
+      if (state && state.last_scan_run_id) {
+        appendDt('Last run ID', state.last_scan_run_id.slice(0, 16) + '...');
+      }
+      return;
+    }
+
+    iconEl.textContent = '⟳';
+    headline.textContent = 'Background scan running';
+    const scanned = state.scanned || 0;
+    const total = state.total || 0;
+    const pct = state.pct != null ? state.pct : (total > 0 ? Math.round((scanned / total) * 100) : null);
+    summary.textContent = total > 0
+      ? 'Scanning the source tree - ' + scanned.toLocaleString() + ' of ' + total.toLocaleString() + ' files'
+        + (pct != null ? ' (' + pct + '%)' : '')
+      : 'Enumerating source - ' + scanned.toLocaleString() + ' files counted so far';
+
+    if (pct != null) {
+      barWrap.hidden = false;
+      barFill.style.width = pct + '%';
+      barLabel.textContent = scanned.toLocaleString() + ' / ' + total.toLocaleString() + ' files (' + pct + '%)';
+    } else {
+      barWrap.hidden = true;
+    }
+
+    appendDt('Scanned', scanned.toLocaleString() + (total ? ' / ' + total.toLocaleString() : ''));
+    appendDt('ETA', state.eta_seconds != null
+      ? '~' + formatScanDuration(state.eta_seconds) + ' remaining'
+      : 'computing...');
+    if (state.started_at) {
+      const startedDate = new Date(state.started_at);
+      const elapsedSec = Math.round((Date.now() - startedDate.getTime()) / 1000);
+      appendDt('Started at', startedDate.toLocaleTimeString()
+        + ' (' + formatScanDuration(elapsedSec) + ' elapsed)');
+    }
+    if (_scanDetailLastUpdateTs) {
+      const ageSec = Math.round((Date.now() - _scanDetailLastUpdateTs) / 1000);
+      appendDt('Last update', ageSec < 5 ? 'just now' : ageSec + 's ago');
+    }
+    if (state.run_id) {
+      appendDt('Run ID', state.run_id.slice(0, 16) + '...');
+    }
+    if (state.current_file) {
+      currentWrap.hidden = false;
+      currentFileEl.textContent = state.current_file;
+    } else {
+      currentWrap.hidden = true;
+    }
+  }
+
+  function _v33OpenScanDetail() {
+    const backdrop = document.getElementById('scan-detail-backdrop');
+    if (!backdrop) return;
+    backdrop.style.display = 'flex';
+    _v33RenderScanDetail(_lastScannerState);
+    fetch('/api/scanner/progress', { credentials: 'same-origin' })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) { updateLifecycleScanBar(d); _v33UpdateScanBarExtras(d); } })
+      .catch(() => {});
+  }
+  function _v33CloseScanDetail() {
+    const backdrop = document.getElementById('scan-detail-backdrop');
+    if (backdrop) backdrop.style.display = 'none';
+  }
+
+  // Wire the click-to-enlarge interactions once on first load.
+  (function _v33WireScanDetailModal() {
+    const bar = document.getElementById('lifecycle-scan-bar');
+    if (bar) {
+      bar.addEventListener('click', () => {
+        if (_lastScannerState && (_lastScannerState.running || _lastScannerState.last_scan_at)) {
+          _v33OpenScanDetail();
+        }
+      });
+      bar.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') {
+          ev.preventDefault();
+          if (_lastScannerState && (_lastScannerState.running || _lastScannerState.last_scan_at)) {
+            _v33OpenScanDetail();
+          }
+        }
+      });
+    }
+    const closeBtn = document.getElementById('scan-detail-close');
+    const closeBtn2 = document.getElementById('scan-detail-close-2');
+    const backdrop = document.getElementById('scan-detail-backdrop');
+    if (closeBtn) closeBtn.addEventListener('click', _v33CloseScanDetail);
+    if (closeBtn2) closeBtn2.addEventListener('click', _v33CloseScanDetail);
+    if (backdrop) {
+      backdrop.addEventListener('click', (ev) => {
+        if (ev.target === backdrop) _v33CloseScanDetail();
+      });
+    }
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') {
+        const bd = document.getElementById('scan-detail-backdrop');
+        if (bd && bd.style.display === 'flex') _v33CloseScanDetail();
+      }
+    });
+  })();
+
+  // The original updateLifecycleScanBar function follows. v0.33.0
+  // adds a one-line call to _v33UpdateScanBarExtras at the top of
+  // the function body to cache the state for the click-to-enlarge
+  // modal — see the matching Edit below the function declaration.
+
   function updateLifecycleScanBar(state) {
+    _v33UpdateScanBarExtras(state);
     const text = document.getElementById('lsb-text');
     const wrap = document.getElementById('lsb-progress-wrap');
     const fill = document.getElementById('lsb-fill');

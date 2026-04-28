@@ -13,6 +13,8 @@ A background scanner runs every 15 minutes during business hours. It walks throu
 
 > **Tip:** The scanner only runs during business hours (Mon–Fri, 6 AM – 6 PM by default). You can change these hours in Settings.
 
+> **Where do I see scan status?** Since v0.33.0, scan progress and history live on the single **Pipeline** card on the [Status page](/help.html#status-page) — the older standalone "Lifecycle Scanner" and "Pending" cards were merged into it. While a scan is running, the orange banner at the top of every page summarizes progress; click it to open a detail modal.
+
 ### Adding a new exclusion marks existing files for deletion
 
 Worth knowing before you add an entry to **Excluded paths** in

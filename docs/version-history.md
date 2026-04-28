@@ -4,6 +4,97 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.33.0 — Pipeline + Lifecycle + Pending cards merged; banner click-to-enlarge (2026-04-28)
+
+**UX consolidation: one canonical Pipeline card across all pages,
+plus click-to-enlarge on the live scan banner.**
+
+### Problem
+
+The Status page presented three top-level cards — Pipeline, Lifecycle
+Scanner, and Pending — that read overlapping subsets of the same scan
+data from three different endpoints. Operators saw the same number
+three different ways. Worse, every release that touched scan-progress
+display had to be applied to all three or they'd drift.
+
+v0.32.11 closed by acknowledging the structural problem in writing:
+"The right fix is to promote the rich Pipeline card to be the
+canonical card on Status, drop the standalone Lifecycle Scanner card
+(its data is already in the Pipeline card), and add a summary card
+with link-to-status on the home page. Single source of truth, no
+mirroring."
+
+### Fix
+
+**1. Shared module `static/js/pipeline-card.js`** (~430 LOC). Exposes
+`mountPipelineCard(containerEl, opts)` returning `{refresh, destroy}`.
+Polls `/api/pipeline/status` every 30 s. Renders the rich card (status
+pill, Mode/Last Scan/Next Scan/Source Files/Pending/Interval cells
+with sub-lines + tooltips inherited from v0.32.10) when
+`opts.compact === false`, or a 1-line summary plus a "view full
+status →" link when `opts.compact === true`. Action buttons
+(Pause/Resume, Rebuild Index, Run Now) wired through a `postAction()`
+helper. All DOM built via `createElement` + `textContent` (XSS-safe
+per the project gotcha).
+
+**2. Status page** drops `<div id="lifecycle-container">` (and its
+`renderLifecycle()` IIFE that polled `/api/scanner/progress`) and
+`<div id="pending-container">` (and its `loadPending()` IIFE).
+Replaces them with `<div id="pipeline-card-mount">` hydrated by the
+new module in non-compact mode. Auto-conversion sub-line folds into
+the Pipeline card's Last Scan cell.
+
+**3. Bulk Jobs page** removes ~150 LOC of inline `loadPipelineStatus`
++ helpers (now in the module). Mounts the same module in compact
+mode — one-line summary keeps Bulk Jobs visually focused on jobs while
+still surfacing scanner state for context. Removed
+`togglePipelinePause`, `pipelineRunNow`, `rebuildSearchIndex`
+(now in the module).
+
+**4. Banner click-to-enlarge** (`static/bulk.html`). The Background
+scan banner is now `role="button" tabindex="0"` with a "click to
+enlarge" hint. New `#scan-detail-backdrop` modal renders run-id,
+files scanned, total estimated, ETA, elapsed, current file path,
+last-update-age, plus a short "What's a background scan?"
+educational box and a link to the scanner log. Keyboard support:
+Enter/Space opens, Escape closes, click-outside closes.
+
+### Why a shared module instead of three copies
+
+The Pipeline card data was being rendered three different ways across
+`static/index.html` (originally), `static/bulk.html`, and
+`static/status.html`. Every release that touched any of `mode`,
+`last_scan`, `next_scan`, or `pending` had to be applied N times.
+v0.32.10's descriptive sub-lines, v0.32.11's hydration fix, and this
+release's consolidation all stemmed from "it changed in one place but
+not the others." `pipeline-card.js` makes the next change a 1-file
+edit.
+
+### Files
+
+- `core/version.py` — bump to 0.33.0
+- `static/js/pipeline-card.js` — NEW, shared module
+- `static/status.html` — Lifecycle + Pending cards removed, Pipeline
+  card mount added, cache-bust to `?v=0.33.0`
+- `static/bulk.html` — inline Pipeline replaced with compact mount,
+  scan-detail modal markup + handlers added, cache-bust to `?v=0.33.0`
+- `CLAUDE.md`, `docs/version-history.md`, `docs/help/whats-new.md`,
+  `docs/help/status-page.md`, `docs/help/file-lifecycle.md`,
+  `docs/key-files.md`
+
+No DB migration. No new endpoints. No new dependencies. Pure frontend
+reorganization + one new shared module.
+
+### Operator-visible change
+
+- Status page: 3 cards → 1 card. Same data, no duplication.
+- Bulk Jobs: Pipeline header collapses to a 1-line summary that links
+  to the full Status page when more detail is wanted.
+- Every page with the live scan banner: click the banner (or focus +
+  press Enter) to open the rich detail modal.
+
+---
+
 ## v0.32.11 — Lifecycle scan state hydrates from DB on startup (2026-04-28)
 
 **Single bug fix. The Status page's "Lifecycle Scanner" card

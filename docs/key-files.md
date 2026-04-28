@@ -202,6 +202,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `static/js/storage.js` | Storage page JS: vanilla fetch against `/api/storage/*`, all DOM via `createElement` (XSS-safe), wizard with per-step validation (v0.28.0) |
 | `static/js/storage-restart-banner.js` | Amber sticky banner injected on every page; polls `/api/storage/restart-status` every 60s (v0.28.0) |
 | `static/js/deletion-banner.js` | Dismissible banner for deleted files in search |
+| `static/js/pipeline-card.js` | Shared Pipeline card module: `mountPipelineCard(el, opts)` polls `/api/pipeline/status` every 30s, renders rich card (compact:false) or 1-line summary (compact:true). Used by status.html + bulk.html (v0.33.0) |
 
 ## MCP, Tools & Config
 

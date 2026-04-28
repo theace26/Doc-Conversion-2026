@@ -39,14 +39,49 @@ After stopping, you need to click **Reset** before starting new jobs.
 
 > **Warning:** STOP ALL affects every running job. Use the per-job Stop button if you only want to cancel one.
 
-## Lifecycle Scanner Card
+## Pipeline Card (since v0.33.0)
 
-The status page also shows the lifecycle scanner status:
+Below the active jobs, the Status page shows a single **Pipeline** card —
+the canonical view of the background scan + auto-conversion pipeline.
+It replaces the old separate "Lifecycle Scanner" and "Pending" cards
+that used to live here.
 
-- Whether it's currently running
-- How many files it has scanned
-- Progress percentage and estimated time remaining
-- When the last scan completed
+The card has a status pill (Running / Idle / Paused / Disabled) and six
+cells:
+
+| Cell | What it tells you |
+|------|-------------------|
+| **Mode** | Off / Immediate / Queued / Scheduled — what the pipeline does when new files appear. Hover for the scheduler's full reasoning |
+| **Last Scan** | Time of the most recent scan + status pill (✓ Completed / ⚠ Interrupted / ✗ Failed / ⟳ Running) + scanned/new/modified counts |
+| **Next Scan** | When the next scheduled scan fires + scan type (e.g. "Pipeline scan · every 45 min") |
+| **Source Files** | Total files known on disk |
+| **Pending** | Files awaiting conversion |
+| **Interval** | Time between scheduled scans |
+
+Three action buttons sit on the card:
+
+- **Pause / Resume** — pause the scheduler (in-flight jobs continue)
+- **Run Now** — kick off a manual scan + convert immediately
+- **Rebuild Index** — rebuild the search index from scratch
+
+> **Where did the old "Lifecycle Scanner" card go?**
+> Its data is now in the Pipeline card's Last Scan cell.
+> Same numbers, single source of truth, no drift between cards.
+
+## Click the scan banner to enlarge it (since v0.33.0)
+
+When a background scan is running, an orange banner shows at the top
+of every page:
+
+```
+⟳ Background scan running — 21,529 / ~31,000 files (69%) · ~12 min remaining
+```
+
+**Click the banner** (or focus it with Tab and press Enter) to open
+a detail modal with run-id, scanned-vs-total with progress bar,
+ETA, elapsed time, current file path, last-update-age, and a link
+to the scanner log. Press **Escape** or click outside the modal to
+close.
 
 ## The Nav Badge
 

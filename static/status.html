@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Status — MarkFlow</title>
-  <!-- v0.32.10: cache-bust markflow.css since this page uses new
-       .job-card__progress--indeterminate + .job-card__progress-link
-       rules added in v0.32.9. Bump on every release that adds
-       CSS rules used by status.html. -->
-  <link rel="stylesheet" href="/static/markflow.css?v=0.32.10">
+  <!-- v0.33.0: cache-bust markflow.css; status now mounts the
+       shared Pipeline card via static/js/pipeline-card.js (which
+       carries its own ?v=0.33.0). Bump on every release that
+       adds CSS rules used by status.html. -->
+  <link rel="stylesheet" href="/static/markflow.css?v=0.33.0">
   <style>
     /* Clickable counter values (inline file list) */
     .job-card__counts .flp-counter { cursor: pointer; transition: opacity 0.15s; }
@@ -76,26 +76,16 @@
     <!-- Job cards container -->
     <div id="jobs-container"></div>
 
-    <!-- Lifecycle scanner card -->
-    <div id="lifecycle-container" style="margin-top:1.5rem"></div>
-
-    <!-- Pending Jobs -->
-    <!-- v0.32.1: PENDING pill now links to the Pipeline Files page
-         filtered to status=pending so operators can drill into the
-         exact files that are queued for conversion. -->
-    <div id="pending-container" style="margin-top:1.5rem">
-      <div class="job-card">
-        <div class="job-card__header">
-          <div class="job-card__title">
-            <a href="/pipeline-files.html?status=pending"
-               class="status-pill status-pill--pending status-pill--link"
-               title="Open Pipeline Files filtered to pending conversions">PENDING</a>
-            <span class="text-muted text-sm" id="pending-label">Loading...</span>
-          </div>
-        </div>
-        <div id="pending-content" class="text-sm" style="margin-top:0.5rem"></div>
-      </div>
-    </div>
+    <!-- v0.33.0: canonical Pipeline card. Replaces the previous
+         standalone Lifecycle Scanner card AND Pending card — both
+         showed overlapping data (last_scan timestamp, scanner
+         running/idle, pending counts) and the operator was
+         reading three slightly-different values. The shared
+         pipeline-card.js module renders one rich card with all
+         the fields plus Pause / Rebuild Index / Run Now controls.
+         The Active Jobs section above keeps its per-file live
+         scan progress for granular operator-watching. -->
+    <div id="pipeline-card-mount" style="margin-top:1.5rem"></div>
 
     <!-- Auto-Conversion override card -->
     <div id="auto-convert-container" style="margin-top:1.5rem">
@@ -143,8 +133,22 @@
   </main>
 
   <script src="/static/app.js"></script>
-  <!-- v0.32.9: cache-bust by version. Bump the ?v= when live-banner.js OR status.html changes. -->
-  <script src="/static/js/live-banner.js?v=0.32.9"></script>
+  <!-- v0.33.0: cache-bust by version. Bump the ?v= when these JS
+       modules change — operators on the prior cached version would
+       miss the new pipeline-card on the Status page otherwise. -->
+  <script src="/static/js/live-banner.js?v=0.33.0"></script>
+  <script src="/static/js/pipeline-card.js?v=0.33.0"></script>
+  <script>
+    // v0.33.0: mount the canonical Pipeline card on Status. The
+    // module owns its own polling (30s) so we don't have to wire
+    // it into the page's existing poll() loop.
+    if (typeof window.mountPipelineCard === 'function') {
+      window.mountPipelineCard(
+        document.getElementById('pipeline-card-mount'),
+        { compact: false, pollMs: 30000 }
+      );
+    }
+  </script>
   <script>
   (function () {
     var pollTimer = null;
@@ -176,11 +180,12 @@
         renderAll(lastData);
       } catch (e) { /* ignore */ }
 
-      // Also poll lifecycle scanner
-      try {
-        var ls = await fetch('/api/scanner/progress');
-        if (ls.ok) renderLifecycle(await ls.json());
-      } catch (e) { /* ignore */ }
+      // v0.33.0: removed the standalone /api/scanner/progress poll
+      // for the lifecycle card. Pipeline state now flows through
+      // the canonical pipeline-card.js module (mounted in
+      // #pipeline-card-mount), which polls /api/pipeline/status
+      // on its own 30s cadence. Active Jobs section above still
+      // renders per-file scan progress via active-jobs above.
 
       updatePipelineStats();
     }
@@ -399,48 +404,11 @@
       '</div>';
     }
 
-    function renderLifecycle(ls) {
-      var container = document.getElementById('lifecycle-container');
-      if (!ls) { container.innerHTML = ''; return; }
-
-      if (ls.running) {
-        var pct = ls.pct != null ? ls.pct : 0;
-        var pctStr = ls.pct != null ? ls.pct + '%' : '';
-        var eta = ls.eta_seconds != null ? ' \u2014 ~' + fmtDur(ls.eta_seconds) + ' remaining' : '';
-        container.innerHTML =
-          '<div class="job-card job-card--active">' +
-            '<div class="job-card__header">' +
-              '<div class="job-card__title">' +
-                '<a href="/log-viewer.html?q=lifecycle_scan&mode=history" class="status-pill status-pill--running status-pill--link" title="View lifecycle scan log activity">LIFECYCLE SCAN</a>' +
-              '</div>' +
-            '</div>' +
-            '<div class="job-card__progress">' +
-              '<div class="job-card__progress-fill" style="width:' + pct + '%"></div>' +
-            '</div>' +
-            '<div style="font-size:0.82rem;color:var(--text-muted)">' +
-              (ls.scanned || 0).toLocaleString() + ' files scanned' +
-              (ls.total ? ' / ' + ls.total.toLocaleString() : '') +
-              (pctStr ? ' \u2014 ' + pctStr : '') + eta +
-            '</div>' +
-            (ls.current_file
-              ? '<div class="text-sm mono text-muted">Current: ' + esc(ls.current_file) + '</div>'
-              : '') +
-          '</div>';
-      } else {
-        container.innerHTML =
-          '<div class="job-card">' +
-            '<div class="job-card__header">' +
-              '<div class="job-card__title">' +
-                '<a href="/log-viewer.html?q=lifecycle_scan&mode=history" class="status-pill status-pill--done status-pill--link" title="View lifecycle scan log activity">LIFECYCLE SCANNER</a>' +
-                ' <span class="text-muted text-sm">idle</span>' +
-              '</div>' +
-            '</div>' +
-            '<div class="text-sm text-muted">' +
-              'Last scan: ' + (ls.last_scan_at ? timeAgo(ls.last_scan_at) : 'never') +
-            '</div>' +
-          '</div>';
-      }
-    }
+    // v0.33.0: removed renderLifecycle. The standalone Lifecycle
+    // Scanner card was merged into the canonical Pipeline card
+    // (mounted by pipeline-card.js in #pipeline-card-mount). Per
+    // file scan progress for an in-flight scan is still visible
+    // via the Active Jobs section above (renderAll()).
 
     // ── Wire job action buttons ───────────────────────────────────────────
     function wireJobButtons(container) {
@@ -891,48 +859,13 @@
     setInterval(loadAutoConvertStatus, 15000);
   })();
 
-  // ── Pending Jobs ──────────────────────────────────────────────────────────
-  (async function loadPending() {
-    try {
-      var data = await API.get('/api/pipeline/status');
-      var pending = data.pending_conversion || 0;
-      var totalSource = data.total_source_files || 0;
-      var label = document.getElementById('pending-label');
-      var content = document.getElementById('pending-content');
-
-      label.textContent = pending.toLocaleString() + ' files pending conversion';
-
-      var lines = [];
-      lines.push('Source files tracked: ' + totalSource.toLocaleString());
-      lines.push('Pending conversion: ' + pending.toLocaleString());
-      if (data.last_scan) {
-        lines.push('Last scan: ' + (data.last_scan.files_scanned || 0).toLocaleString() + ' files'
-          + ' (' + (data.last_scan.files_new || 0) + ' new, '
-          + (data.last_scan.files_modified || 0) + ' modified)'
-          + ' — ' + data.last_scan.status);
-      }
-      if (data.last_auto_conversion) {
-        lines.push('Last auto-conversion: ' + (data.last_auto_conversion.status || 'unknown')
-          + ' (' + (data.last_auto_conversion.files_discovered || 0) + ' files, '
-          + (data.last_auto_conversion.workers_chosen || 0) + ' workers)');
-      }
-      if (data.next_scan) {
-        var nextDate = new Date(data.next_scan);
-        lines.push('Next scan: ' + nextDate.toLocaleString(undefined, { hour: 'numeric', minute: '2-digit' }));
-      }
-
-      content.textContent = '';
-      lines.forEach(function(line) {
-        var div = document.createElement('div');
-        div.textContent = line;
-        div.style.padding = '0.15rem 0';
-        content.appendChild(div);
-      });
-    } catch(e) {
-      document.getElementById('pending-label').textContent = 'Could not load';
-    }
-    setTimeout(loadPending, 30000);
-  })();
+  // v0.33.0: removed the standalone Pending card loader. All of its
+  // data (pending count, source-files total, last-scan stats,
+  // last-auto-conversion status, next-scan time) is now rendered by
+  // pipeline-card.js in the canonical Pipeline card above. The
+  // pipeline pill chip-strip above also surfaces the pending count
+  // with a click-through to /pipeline-files.html?status=pending for
+  // the operator who wants to drill into the actual rows.
 
   // ── System Health Check ───────────────────────────────────────────────────
   (async function loadHealth() {

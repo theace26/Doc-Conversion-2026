@@ -6,6 +6,99 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.33.0 — One status card to rule them all + click-to-enlarge scan banner
+
+Two-part UX cleanup.
+
+### Part 1 — Status page: 3 cards → 1 card
+
+Until now, the **Status** page tried to tell you about
+background scanning in three different boxes:
+
+1. **Pipeline strip** at the top (chip counts)
+2. **Lifecycle Scanner** card (idle / scanning, last-scan time)
+3. **Pending** card (last scan, total pending, mode, hours)
+
+All three pulled overlapping pieces of the same data from
+different places. The fix in v0.32.11 only patched one of them.
+Drift was inevitable.
+
+This release replaces all three with **one Pipeline card** —
+the same rich one you already saw on the Bulk Jobs page, with
+its full row of cells:
+
+```
+[ STATUS PILL — RUNNING / IDLE / PAUSED / DISABLED ]
+
+Mode          Last Scan          Next Scan          Source Files   Pending   Interval
+Immediate     2:22 PM (28m ago)  3:07 PM (in 5m)    28,504         1,493     45 min
+              ⚠ Interrupted      Pipeline scan
+              28,504 scanned     · every 45 min
+```
+
+…with all the v0.32.10 sub-lines, status pill, and tooltips
+intact. Pause / Resume, Run Now, and Rebuild Index buttons sit
+right on the card.
+
+Same data, one place, no drift.
+
+### Part 2 — Bulk Jobs: compact summary instead of duplication
+
+The **Bulk Jobs** page used to show its own full Pipeline
+header. Now it shows a one-line summary:
+
+```
+🟢 Pipeline running · Immediate · last scan 28m ago · 1,493 pending — view full status →
+```
+
+The "view full status →" link jumps to the new full card on
+Status. This keeps Bulk Jobs visually focused on actual jobs
+while still giving you scanner state at a glance.
+
+### Part 3 — Click the scan banner to enlarge it
+
+When a background scan is running, the orange banner at the top
+of every page says:
+
+```
+⟳ Background scan running — 21,529 / ~31,000 files (69%) · ~12 min remaining
+```
+
+Now it's clickable. **Click the banner** (or focus it with Tab
+and press Enter) to open a detail modal showing:
+
+- Run-id of the current scan
+- Files scanned vs. total estimated, with a real progress bar
+- ETA (estimated time remaining)
+- Elapsed time since the scan started
+- Current file being processed (full path)
+- "Last update X seconds ago" (so you can tell if the scan is
+  actually moving)
+- A short "What's a background scan?" educational box for new
+  operators
+- A direct link to the scanner log (for the curious)
+
+Press **Escape** or click outside the modal to close.
+
+### Why we did this
+
+> "I look at three boxes and they all say slightly different
+> things about the same scan." — actual Status-page experience
+> before this release.
+
+Promoting the rich Pipeline card to be the canonical card and
+folding the Lifecycle + Pending data into it gives you one
+trustworthy view. Making the scan banner clickable means the
+"is this actually moving?" question is one click away from
+every page in the app, not buried under a couple of nav clicks.
+
+### Heads-up
+
+Page CSS was bumped to `?v=0.33.0` so your browser will fetch
+fresh styles on first load — no action needed on your end.
+
+---
+
 ## v0.32.11 — "Last scan: never" no longer lies after a restart
 
 Small but irritating bug: every time you restarted the
