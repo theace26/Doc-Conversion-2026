@@ -702,7 +702,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit.**
 
 ```bash
-git add core/db/migrations.py tests/test_active_ops.py
+git add core/db/schema.py tests/test_active_ops.py
 git commit -m "feat(active_ops): migration v29 — active_operations table"
 ```
 
