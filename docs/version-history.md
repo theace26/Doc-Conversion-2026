@@ -4,6 +4,99 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.33.2 — LLM token + cost estimation, Phase 2 (UI surfaces) (2026-04-28)
+
+**UI release on top of v0.33.1's backend. Three operator-facing surfaces
+plus a comprehensive API-integrator section in the help docs.**
+
+### What landed
+
+**Per-batch Cost Estimate panel** on the Batch Management page.
+Expand any batch and the file table is preceded by a panel showing
+TOKENS / COST columns with actual + estimated breakdowns, the rate
+used (e.g. `anthropic/claude-opus-4-7 ($45/1M blended)`), and a
+collapsible per-file breakdown table.
+
+**Provider Spend card** on the Admin page. Shows the cycle running
+total ($XX.XX), tokens analyzed, file count, by-provider percentage
+breakdown, days-into-cycle, and a "projected at current pace" figure
+extrapolated from spend so far. Amber stale-rate warning footer when
+the loaded `llm_costs.json` is >90 days old.
+
+**Billing & Costs Settings section** with a `billing_cycle_start_day`
+input (1-28). The page's existing generic save mechanism picks up
+the new pref via the `data-key` attribute — no save-handler changes.
+
+**Comprehensive API documentation** in `docs/help/admin-tools.md`:
+- A "Provider Spend (LLM costs)" operator section with a worked
+  budgeting example.
+- A "Programmatic API access" section with **two parallel
+  sub-sections** (per the operator's explicit request):
+  - "For operators (the simple version)" — plain English, 4 numbered
+    steps from "get an API key" to "MarkFlow logs the call."
+  - "For developers (the technical version)" — auth header pattern,
+    full endpoint reference table with role requirements, curl
+    samples for all 6 endpoints, Python sample showing
+    `current_cycle_total()` + `project_month_end()` +
+    `trailing_week()`, JavaScript / Node sample showing
+    `currentCycleSpend()` + `batchCost(id)`, and full JSON
+    response-shape examples for `/cost/period` and `/cost/batch/{id}`.
+
+This is the format external integrators (IP2A, finance dashboards)
+need to plug in without spelunking through code.
+
+### Architectural choices
+
+**Single shared module instead of three copies.** Both pages
+consume the same `static/js/cost-estimator.js` so a future cost-
+display change is a one-file edit. Same pattern as v0.33.0's
+`pipeline-card.js` — one cache-busted module, two mounts.
+
+**XSS-safe DOM construction.** All new render code uses
+`createElement` + `textContent` (never `innerHTML`). Per the
+project's explicit gotcha, this is non-negotiable for any new
+frontend code.
+
+**Lazy fetch on Batch Management.** The cost panel only fetches
+`/cost/batch/{id}` when the operator expands the batch — never on
+the page-load list. Big batches (200+ files) don't pay any cost-
+calculation overhead unless the operator actually wants to see it.
+
+**Silent failure on cost endpoint errors.** The cost panel is
+informational, not load-bearing. A network blip on `/cost/batch`
+must never break the file-list browse experience. The catch
+clause sets `mount.textContent = ''` and moves on.
+
+### Files
+
+- `static/js/cost-estimator.js` — NEW (~270 LOC)
+- `static/batch-management.html` — `loadBatchCostPanel` +
+  cache-bust to `?v=0.33.2`
+- `static/admin.html` — Provider Spend card + `loadProviderSpend`
+- `static/settings.html` — Billing & Costs section
+- `docs/help/admin-tools.md` — Provider Spend doc + API integrator
+  section
+- `docs/help/settings-guide.md` — Billing & Costs entry
+- `docs/help/whats-new.md` — user-facing release notes
+- `CLAUDE.md`, `docs/version-history.md`
+- `core/version.py` — bump to 0.33.2
+
+No DB migration. No new endpoints (reuses v0.33.1's). No backend
+changes. No new dependencies.
+
+### Operator-visible change
+
+- Click any batch on Batch Management → Cost Estimate panel renders
+  above the file table with actual + estimated tokens/cost.
+- Open Admin → new "Provider Spend (LLM costs)" card shows monthly
+  running total + by-provider breakdown + month-end projection.
+- Open Settings → new "Billing & Costs" section with the
+  cycle-start-day input.
+- Open Help → "Administration" → new "Programmatic API access"
+  section with curl/Python/JS samples for external integrators.
+
+---
+
 ## v0.33.1 — LLM token + cost estimation subsystem, Phase 1 (2026-04-28)
 
 **Backend foundation for the per-batch / per-month cost-estimate

@@ -91,7 +91,95 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.33.1
+## Current Version — v0.33.2
+
+**Token + cost estimation subsystem — Phase 2 (UI surfaces). Adds the
+per-batch Cost Estimate panel on the Batch Management page, the
+Provider Spend card on the Admin page (monthly running total +
+projection), the Billing & Costs Settings section with the
+billing-cycle-start-day input, and a comprehensive
+"Programmatic API access" section in `docs/help/admin-tools.md` with
+both operator-friendly explanations and developer curl/Python/JS
+samples for external integrators (IP2A, finance dashboards).**
+
+### Why this matters
+
+v0.33.1 shipped the backend (data file + module + 6 API endpoints)
+and verified it serves real cost data on this instance ($72.10 this
+cycle, projected $80.11 across 1,199 analysed files), but operators
+had no UI surface. v0.33.2 makes that data visible in the places
+operators are already looking — the per-batch click on Batch
+Management and the Admin dashboard.
+
+### What changed
+
+**1. Shared module `static/js/cost-estimator.js`** (~270 LOC). Public
+surface on `window.CostEstimator`:
+- `formatUsd(amount)` / `formatTokens(n)` / `formatRate(rate)`
+- `renderBatchCostPanel(container, summary)` — inline panel with
+  TOKENS + COST columns, per-file average, rate-used, and a
+  collapsible per-file breakdown table (with "estimated" pills on
+  extrapolated rows)
+- `renderPeriodCostCard(container, period, opts)` — Provider Spend
+  card with hero total, by-provider breakdown, cycle progress, and
+  end-of-cycle projection. If `opts.staleness.is_stale` is true, an
+  amber warning footer reminds the operator to refresh rates.
+
+All DOM via `createElement` + `textContent` (no `innerHTML`,
+XSS-safe).
+
+**2. Batch Management page (`static/batch-management.html`)** —
+`loadBatchFiles()` now also calls `loadBatchCostPanel(batchId)` which
+fetches `/api/analysis/cost/batch/{id}` and renders the panel via the
+shared module. Lazy: only fires on first expand. Failure is silent
+(cost is informational, not load-bearing).
+
+**3. Admin page (`static/admin.html`)** — new "Provider Spend (LLM
+costs)" card in the stats grid. Driven by a new `loadProviderSpend()`
+function that fetches `/api/analysis/cost/period` +
+`/api/analysis/cost/staleness` in parallel and hands off to
+`CostEstimator.renderPeriodCostCard`. Auto-refreshes when the operator
+clicks the page's existing **Refresh** button.
+
+**4. Settings page (`static/settings.html`)** — new "Billing & Costs"
+collapsible section with `<input type="number"
+id="pref-billing_cycle_start_day" data-key="billing_cycle_start_day"
+min="1" max="28">`. The page's existing generic save mechanism
+(`querySelectorAll('[data-key]')`) picks the new pref up
+automatically — no save-handler changes needed.
+
+**5. Comprehensive help docs**
+- `docs/help/admin-tools.md` — new "Provider Spend (LLM costs)"
+  section with operator examples + worked budgeting example, plus a
+  full "Programmatic API access (for external integrators)" section
+  with two parallel sub-sections: a simple "for operators" version
+  and a developer-technical version with curl, Python, JavaScript,
+  and JSON response-shape examples covering all 6 endpoints.
+- `docs/help/settings-guide.md` — new "Billing & Costs" entry
+  documenting the pref + the rate-table file location + the
+  hot-reload endpoint.
+- `docs/help/whats-new.md` — user-friendly v0.33.2 entry with
+  worked examples.
+
+### Files
+
+- `core/version.py` — bump to 0.33.2
+- `static/js/cost-estimator.js` — NEW shared module (~270 LOC)
+- `static/batch-management.html` — `loadBatchCostPanel` + script tag
+- `static/admin.html` — Provider Spend card + `loadProviderSpend` +
+  script tag
+- `static/settings.html` — new Billing & Costs section
+- `docs/help/admin-tools.md`, `docs/help/settings-guide.md`,
+  `docs/help/whats-new.md`, `CLAUDE.md`, `docs/version-history.md`,
+  `docs/key-files.md`
+
+No DB migration. No new endpoints (uses v0.33.1's). No new
+dependencies. Backend code unchanged from v0.33.1 — pure UI release
+on top of the Phase 1 foundation.
+
+---
+
+## v0.33.1 — Token + cost estimation, Phase 1 (backend foundation)
 
 **Token + cost estimation subsystem — Phase 1 (backend foundation).
 Ships the rate-table data file, the loader + arithmetic module,

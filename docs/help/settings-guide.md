@@ -171,6 +171,25 @@ The Claude-powered answer drawer on the Search page.
 
 ---
 
+## Billing & Costs *(v0.33.2)*
+
+| Setting | Default | What It Does |
+|---------|---------|--------------|
+| Billing cycle start day | 1 | Day-of-month (1-28) when your provider's invoice cycle starts. The Provider Spend card on the Admin page sums LLM costs from this day of the previous month through today. Match your actual invoice date for an accurate running total. |
+
+> **Why does this exist?** Different providers close their bills on
+> different days. If your Anthropic invoice closes on the 15th, set
+> this to 15 so MarkFlow's "this cycle" total matches what you'll be
+> charged. Capped at 28 to avoid February's edge case (no Feb 30/31).
+
+> **Where do the rate values live?** The per-1M-token rates for each
+> model are in `core/data/llm_costs.json` inside the container. To
+> update without a restart: edit the file (it's host-mounted), then
+> hit `POST /api/admin/llm-costs/reload` (admin only). View what's
+> currently loaded at `/api/admin/llm-costs`.
+
+---
+
 ## Logging
 
 | Setting | Default | What It Does |

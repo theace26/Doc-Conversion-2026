@@ -203,6 +203,10 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `static/js/storage-restart-banner.js` | Amber sticky banner injected on every page; polls `/api/storage/restart-status` every 60s (v0.28.0) |
 | `static/js/deletion-banner.js` | Dismissible banner for deleted files in search |
 | `static/js/pipeline-card.js` | Shared Pipeline card module: `mountPipelineCard(el, opts)` polls `/api/pipeline/status` every 30s, renders rich card (compact:false) or 1-line summary (compact:true). Used by status.html + bulk.html (v0.33.0) |
+| `static/js/cost-estimator.js` | Shared LLM cost render module: `window.CostEstimator.{formatUsd, formatTokens, formatRate, renderBatchCostPanel, renderPeriodCostCard}`. Used by batch-management.html (per-batch cost panel) + admin.html (Provider Spend card). All DOM via createElement+textContent (XSS-safe). (v0.33.2) |
+| `core/llm_costs.py` | LLM cost lookup + arithmetic + period aggregation. Frozen-dataclass loader, strict schema validation, `estimate_cost`/`aggregate_batch_cost`/`aggregate_period_cost`/`is_data_stale`. Soft-fails to empty table on disk errors. (v0.33.1) |
+| `core/data/llm_costs.json` | Operator-curated LLM rate table (Anthropic / OpenAI / Gemini / Ollama, 11 models). Hot-reloadable via POST `/api/admin/llm-costs/reload` — no container restart needed. (v0.33.1) |
+| `api/routes/llm_costs.py` | LLM cost API: GET /api/admin/llm-costs (OPERATOR+), POST /reload (ADMIN), GET /api/analysis/cost/{file/batch/period/staleness} (OPERATOR+). External integrators (IP2A, finance dashboards) consume these via X-API-Key. (v0.33.1) |
 
 ## MCP, Tools & Config
 

@@ -162,6 +162,12 @@
           <div id="pipeline-funnel-body"><span class="spinner"></span> Loading...</div>
         </div>
 
+        <!-- Provider Spend (v0.33.2) -->
+        <div class="stats-card">
+          <h3 class="stats-card-title">Provider Spend (LLM costs)</h3>
+          <div id="provider-spend-body"><span class="spinner"></span> Loading...</div>
+        </div>
+
         <!-- Recent errors (full width) -->
         <div class="stats-card stats-card-full">
           <h3>Recent Conversion Errors <span class="text-muted text-sm">(last 10)</span></h3>
@@ -344,6 +350,8 @@
   </main>
 
   <script src="/static/app.js"></script>
+  <!-- v0.33.2: cost-estimator shared module (Provider Spend card) -->
+  <script src="/static/js/cost-estimator.js?v=0.33.2"></script>
   <style>
     .admin-section {
       background: var(--surface);
@@ -586,6 +594,28 @@
         btn.textContent = '\u21BB Refresh';
       }
       loadPipelineFunnel();
+      loadProviderSpend();
+    }
+
+    // v0.33.2: Provider Spend card — fetches /api/analysis/cost/period
+    // (current billing cycle) and /api/analysis/cost/staleness (whether
+    // the rate table is stale), then hands off to the shared
+    // CostEstimator render helper. Failure is non-fatal — the card
+    // shows "unavailable" rather than killing the rest of the page.
+    async function loadProviderSpend() {
+      const mount = document.getElementById('provider-spend-body');
+      if (!mount) return;
+      try {
+        const [period, staleness] = await Promise.all([
+          API.get('/api/analysis/cost/period'),
+          API.get('/api/analysis/cost/staleness').catch(() => null),
+        ]);
+        if (window.CostEstimator && typeof window.CostEstimator.renderPeriodCostCard === 'function') {
+          window.CostEstimator.renderPeriodCostCard(mount, period, { staleness: staleness });
+        }
+      } catch (e) {
+        mount.textContent = 'Provider spend unavailable: ' + (e && e.message ? e.message : 'unknown error');
+      }
     }
 
     async function renderStats(d) {

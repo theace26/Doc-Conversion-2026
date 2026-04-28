@@ -465,6 +465,297 @@ parsing — naive timestamps are treated as UTC.
 
 ---
 
+## Provider Spend (LLM costs) — v0.33.2
+
+A new card on the Admin dashboard shows your **monthly LLM spend** at a
+glance, plus a month-end projection so you can budget before the invoice
+lands.
+
+### What you see
+
+```
+Provider Spend (LLM costs)
+$72.10  total this cycle
+1.6M tokens · 1,199 files analyzed
+
+By provider
+  anthropic: $72.10 (100%)
+
+April 2026 (cycle starts day 1) · day 27 of 30 · 3 days remaining
+Projected at current pace: $80.11 by cycle end
+
+[Set cycle start day →] [Edit rate table →]
+```
+
+The card auto-refreshes when you click **Refresh** at the top of the
+Repository Overview section. If your loaded rate data is older than 90
+days, an amber warning appears at the bottom of the card reminding you
+to verify the rates against the providers' published pricing pages.
+
+### Setting your billing cycle
+
+The "this cycle" total is computed from a configurable start day, which
+**should match your actual provider invoice date** to be useful. To
+change it: open [Settings → Billing & Costs](/settings.html#billing-section)
+and set **Billing cycle start day** to your invoice date (e.g. 15 if
+your Anthropic bill closes on the 15th of the month). Default is 1
+(calendar month).
+
+### Worked example: budgeting for the next month
+
+> Your operator analyzes about 500 photos a month at an average of 3,400
+> tokens/photo on `claude-opus-4-6`. Per the rate table that's roughly
+> 500 × 3,400 × ($45 / 1,000,000) = **$76.50/month**. Watch the
+> **Projected at current pace** figure trend over the cycle to budget
+> for next month — if you ramp from 500 to 800 photos in week 3, the
+> projection updates each refresh and you see your bill grow before the
+> invoice arrives.
+
+### Per-batch cost on the Batch Management page
+
+Click any batch on the [Batch Management](/batch-management.html) page to
+expand it, and the file table is preceded by a **Cost Estimate** panel:
+
+```
+Cost Estimate                         10 files · 8 analyzed (actual) · 2 estimated
+
+TOKENS                                COST (USD)
+  Actual:    34,021 tokens              Actual:    $1.23
+  Estimated:  8,505 tokens              Estimated: $0.31
+  Total:     42,526 tokens              Total:     $1.54
+
+Per-file average: 4,253 tokens · $0.154
+Rate used: anthropic/claude-opus-4-7 ($15.00 in / $75.00 out per 1M, blended $45.00)
+
+[Show per-file breakdown ▼]
+```
+
+Files that haven't been analyzed yet are extrapolated using the batch's
+own per-file average; the breakdown table marks them with an "estimated"
+pill so you can tell actuals from extrapolations.
+
+---
+
+## Programmatic API access (for external integrators)
+
+All cost endpoints respect the same JWT / `X-API-Key` auth as the rest
+of MarkFlow's API. External programs (IP2A, finance dashboards, custom
+tooling) can pull the cost data directly. Rate-table reads need
+**OPERATOR+** role; the rate-table reload mutation needs **ADMIN**.
+
+### For operators (the simple version)
+
+> "I have a separate program that needs to know what we're spending on
+> LLM analysis. How do I plug it in?"
+
+1. **Get an API key.** Open Admin → API Key Management, type a label
+   like `ip2a-prod`, click **Generate New Key**. Copy the `mf_…` string
+   that appears (shown once).
+2. **Hand the key to the other program.** It goes in an HTTP header
+   called `X-API-Key`.
+3. **The other program calls MarkFlow.** The endpoints in the table
+   below all return JSON. Pick whichever one matches what your program
+   needs to know.
+4. **MarkFlow logs the call** as an audit-trail event so admins can see
+   what's hitting the cost API. Search the [Log Viewer](/log-viewer.html)
+   with `?q=llm_cost` to see them.
+
+### For developers (the technical version)
+
+#### Auth header pattern
+
+```
+X-API-Key: mf_<your_generated_key>
+```
+
+…or, if your consumer holds a UnionCore JWT:
+
+```
+Authorization: Bearer <jwt>
+```
+
+Both work on every endpoint listed below. JWT tokens carry their role
+inline; API keys are pinned to `search_user` role unless an admin
+overrides them — which means **API keys cannot reach the cost endpoints
+out of the box**, since cost reads require OPERATOR+. Generate a JWT
+with the appropriate role for service-to-service integration, OR ask
+your admin to provision an OPERATOR-role API key for your service.
+
+#### Endpoint reference
+
+| Method | Path | Role | Returns |
+|--------|------|------|---------|
+| GET    | `/api/admin/llm-costs`               | OPERATOR+ | full rate table JSON |
+| POST   | `/api/admin/llm-costs/reload`        | ADMIN     | `{ok, schema_version, providers, total_rates}` |
+| GET    | `/api/analysis/cost/file/{entry_id}` | OPERATOR+ | `CostEstimate` for one analysis row |
+| GET    | `/api/analysis/cost/batch/{batch_id}` | OPERATOR+ | `BatchCostSummary` |
+| GET    | `/api/analysis/cost/period`          | OPERATOR+ | `PeriodCostSummary` for the configured cycle |
+| GET    | `/api/analysis/cost/period?days=N`   | OPERATOR+ | `PeriodCostSummary` for trailing N days (1-365) |
+| GET    | `/api/analysis/cost/staleness`       | OPERATOR+ | `{is_stale, age_days, threshold_days, updated_at}` |
+
+#### curl samples
+
+```bash
+# Show your full rate table (lets an external system mirror what
+# rates MarkFlow is using, so cost calcs stay aligned)
+curl -H "X-API-Key: $MARKFLOW_KEY" \
+  http://markflow.local:8000/api/admin/llm-costs
+
+# Show this cycle's running total (uses billing_cycle_start_day pref)
+curl -H "X-API-Key: $MARKFLOW_KEY" \
+  http://markflow.local:8000/api/analysis/cost/period
+
+# Show last-7-days spend (ad-hoc trailing window)
+curl -H "X-API-Key: $MARKFLOW_KEY" \
+  'http://markflow.local:8000/api/analysis/cost/period?days=7'
+
+# Cost for one specific batch
+curl -H "X-API-Key: $MARKFLOW_KEY" \
+  http://markflow.local:8000/api/analysis/cost/batch/6f1ef512abc
+
+# Has the rate table gone stale?
+curl -H "X-API-Key: $MARKFLOW_KEY" \
+  http://markflow.local:8000/api/analysis/cost/staleness
+
+# (admin-only) Re-read llm_costs.json from disk after editing it
+curl -X POST -H "X-API-Key: $ADMIN_KEY" \
+  http://markflow.local:8000/api/admin/llm-costs/reload
+```
+
+#### Python sample
+
+```python
+import os, requests
+
+MF = os.environ["MARKFLOW_URL"]   # e.g. "http://markflow.local:8000"
+KEY = os.environ["MARKFLOW_KEY"]
+HEADERS = {"X-API-Key": KEY}
+
+def current_cycle_total() -> dict:
+    r = requests.get(f"{MF}/api/analysis/cost/period", headers=HEADERS, timeout=10)
+    r.raise_for_status()
+    return r.json()
+
+def project_month_end() -> float:
+    """Return the projected full-cycle USD cost at current pace."""
+    return current_cycle_total()["projected_full_cycle_cost_usd"]
+
+def trailing_week() -> float:
+    r = requests.get(
+        f"{MF}/api/analysis/cost/period",
+        params={"days": 7},
+        headers=HEADERS,
+        timeout=10,
+    )
+    return r.json()["total_cost_usd"]
+
+if __name__ == "__main__":
+    p = current_cycle_total()
+    print(f"Cycle: {p['cycle_label']}")
+    print(f"Spent so far: ${p['total_cost_usd']:.2f}")
+    print(f"Projected at cycle end: ${p['projected_full_cycle_cost_usd']:.2f}")
+    print(f"Last 7 days: ${trailing_week():.2f}")
+```
+
+#### JavaScript / Node sample
+
+```javascript
+const MF = process.env.MARKFLOW_URL;
+const KEY = process.env.MARKFLOW_KEY;
+
+async function currentCycleSpend() {
+  const r = await fetch(`${MF}/api/analysis/cost/period`, {
+    headers: { 'X-API-Key': KEY },
+  });
+  if (!r.ok) throw new Error(`MarkFlow returned ${r.status}`);
+  return r.json();
+}
+
+async function batchCost(batchId) {
+  const r = await fetch(
+    `${MF}/api/analysis/cost/batch/${encodeURIComponent(batchId)}`,
+    { headers: { 'X-API-Key': KEY } },
+  );
+  if (!r.ok) throw new Error(`MarkFlow returned ${r.status}`);
+  return r.json();
+}
+
+(async () => {
+  const cycle = await currentCycleSpend();
+  console.log(`This cycle: $${cycle.total_cost_usd.toFixed(2)}`);
+  console.log(`Projected: $${cycle.projected_full_cycle_cost_usd.toFixed(2)}`);
+  for (const [provider, usd] of Object.entries(cycle.by_provider)) {
+    console.log(`  ${provider}: $${usd.toFixed(2)}`);
+  }
+})();
+```
+
+#### Response shapes
+
+`GET /api/analysis/cost/period` returns:
+
+```json
+{
+  "cycle_start_iso": "2026-04-01T00:00:00+00:00",
+  "cycle_end_iso":   "2026-05-01T00:00:00+00:00",
+  "cycle_label":     "April 2026 (cycle starts day 1)",
+  "total_tokens":    1602202,
+  "total_cost_usd":  72.09909,
+  "by_provider":     { "anthropic": 72.09909 },
+  "by_model":        { "anthropic/claude-opus-4-6": 72.09909 },
+  "file_count":      1199,
+  "days_into_cycle": 27,
+  "days_total":      30,
+  "days_remaining":  3,
+  "projected_full_cycle_cost_usd": 80.1101,
+  "rates_used": [
+    { "provider": "anthropic", "model": "claude-opus-4-6",
+      "input_per_million_usd": 15.0, "output_per_million_usd": 75.0,
+      "cache_write_per_million_usd": 18.75, "cache_read_per_million_usd": 1.5,
+      "notes": "Effective 2026-Q1; check source_url" }
+  ]
+}
+```
+
+`GET /api/analysis/cost/batch/{batch_id}` returns:
+
+```json
+{
+  "batch_id": "6f1ef512abc",
+  "total_files": 10,
+  "files_with_tokens": 8,
+  "files_estimated": 2,
+  "actual_tokens": 34021,
+  "estimated_tokens": 8505,
+  "actual_cost_usd": 1.23,
+  "estimated_cost_usd": 0.31,
+  "total_cost_usd": 1.54,
+  "per_file_avg_tokens": 4253.0,
+  "per_file_avg_cost_usd": 0.154,
+  "rates_used": [ /* TokenRate objects */ ],
+  "files": [
+    { "file_id": "abc...", "source_path": "/photos/a.jpg",
+      "provider": "anthropic", "model": "claude-opus-4-7",
+      "tokens_used": 4500, "cost_usd": 0.20, "estimated": false }
+  ]
+}
+```
+
+#### Audit trail
+
+Every cost calculation emits a `llm_cost.computed` (or `llm_cost.no_rate`)
+structured log line. To see every cost call from the past hour:
+
+```bash
+curl -H "X-API-Key: $KEY" \
+  "http://markflow.local:8000/api/logs/search?q=llm_cost&hours=1"
+```
+
+…or open the [Log Viewer](/log-viewer.html?q=llm_cost.computed) with the
+query pre-filled.
+
+---
+
 ## System Info
 
 At the bottom of the Admin page, the **System Info** card shows:

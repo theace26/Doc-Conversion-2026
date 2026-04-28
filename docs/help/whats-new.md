@@ -6,6 +6,90 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.33.2 — Token + cost estimation: now visible in the UI
+
+The backend that v0.33.1 shipped is now wired up to three operator-
+facing surfaces. You no longer need to curl JSON to see what your LLM
+analysis is costing you.
+
+### What you'll notice
+
+**1. A new card on the Admin page — "Provider Spend (LLM costs)":**
+
+```
+Provider Spend (LLM costs)
+
+$72.10  total this cycle
+1.6M tokens · 1,199 files analyzed
+
+By provider
+  anthropic: $72.10 (100%)
+
+April 2026 (cycle starts day 1) · day 27 of 30 · 3 days remaining
+Projected at current pace: $80.11 by cycle end
+
+[Set cycle start day →] [Edit rate table →]
+```
+
+The **Projected** figure is a live extrapolation. If you're three
+days into the cycle and you've already burned through what you
+expected to spend in two weeks, you'll see the projection blow past
+your usual monthly cost — and you can act before the bill arrives.
+
+**2. A "Cost Estimate" panel on every batch on the Batch Management
+page.** Click a batch to expand it and you'll now see this above the
+file table:
+
+```
+Cost Estimate                10 files · 8 analyzed · 2 estimated
+
+TOKENS                       COST (USD)
+  Actual:    34,021            Actual:    $1.23
+  Estimated:  8,505            Estimated: $0.31
+  Total:     42,526            Total:     $1.54
+
+Per-file average: 4,253 tokens · $0.154
+Rate used: anthropic/claude-opus-4-7 ($15.00 in / $75.00 out per 1M)
+
+[Show per-file breakdown ▼]
+```
+
+The "Estimated" rows are extrapolated from the batch's per-file
+average — they're files that haven't been analyzed yet. The
+breakdown table marks them with an "estimated" pill so you can tell
+actuals from extrapolations at a glance.
+
+**3. A new Settings section — "Billing & Costs"** — with one knob:
+**Billing cycle start day** (1-28). Set this to your actual
+provider invoice date. Example: if your Anthropic bill closes on
+the 15th, set this to 15, and the Provider Spend card will sum
+costs from the 16th of last month through today instead of from
+calendar-month-start.
+
+### Plugging in another program (IP2A, dashboards, etc.)
+
+The help wiki's [Administration](admin-tools.md) article now has a
+full **"Programmatic API access"** section with both:
+
+- **A simple operator version**: the four steps to get an API key
+  and hand it to your other program.
+- **A developer technical version**: complete curl, Python, and
+  JavaScript code samples plus the response-shape JSON for every
+  cost endpoint.
+
+Open the help drawer and search "programmatic" or "IP2A" to find
+it.
+
+### What's still coming (v0.33.3)
+
+- **CSV export** of period cost data — for handing to finance.
+- **"Rate data is X days old" warning banner** when your loaded
+  rates haven't been refreshed in over 90 days.
+- **Daily staleness check** that emits a warning to the log so
+  admins can grep for it.
+
+---
+
 ## v0.33.1 — Token + cost estimation: backend foundation
 
 This is the **first of three releases** that build out a full

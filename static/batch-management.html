@@ -451,6 +451,8 @@
 
   <script src="/static/app.js"></script>
   <script src="/static/js/auto-refresh.js"></script>
+  <!-- v0.33.2: cost-estimator shared module (per-batch cost panel) -->
+  <script src="/static/js/cost-estimator.js?v=0.33.2"></script>
   <script>
     (function(){
       'use strict';
@@ -1060,6 +1062,16 @@
             ? '?status=' + encodeURIComponent(activeStatusFilter) : '';
           const data = await API.get('/api/analysis/batches/' + encodeURIComponent(batchId) + '/files' + qs);
           clearChildren(container);
+
+          // v0.33.2: render the per-batch cost panel above the file
+          // table. Cost data is fetched lazily on first expand and
+          // doesn't block the file list — failure here is silent so
+          // a network blip on /cost/batch doesn't break browse.
+          const costMount = document.createElement('div');
+          costMount.className = 'cost-panel-mount';
+          container.appendChild(costMount);
+          loadBatchCostPanel(batchId, costMount);
+
           const files = (data && data.files) || [];
           renderFileTable(batchId, files, container);
           container.dataset.loaded = '1';
@@ -1069,6 +1081,22 @@
           err.className = 'text-muted';
           err.textContent = 'Failed to load files: ' + e.message;
           container.appendChild(err);
+        }
+      }
+
+      // v0.33.2: lazy-fetch the cost summary for a batch.
+      async function loadBatchCostPanel(batchId, mount) {
+        if (!mount) return;
+        try {
+          const summary = await API.get('/api/analysis/cost/batch/' + encodeURIComponent(batchId));
+          if (window.CostEstimator && typeof window.CostEstimator.renderBatchCostPanel === 'function') {
+            window.CostEstimator.renderBatchCostPanel(mount, summary);
+          }
+        } catch (e) {
+          // Silent: cost panel is informational, not load-bearing.
+          // If the user wants the raw error they can hit the endpoint
+          // directly via browser devtools.
+          mount.textContent = '';
         }
       }
 

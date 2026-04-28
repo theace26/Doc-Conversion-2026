@@ -422,6 +422,44 @@
 
       </details>
 
+      <!-- Billing & Costs section (v0.33.2) -->
+      <details class="settings-section" id="billing-section">
+      <summary>Billing &amp; Costs</summary>
+      <div class="card">
+        <p class="text-sm text-muted" style="margin:0 0 1rem">
+          Configure how MarkFlow reports your monthly LLM spend on the
+          <a href="/admin.html">Admin page</a>'s Provider Spend card.
+          Match these settings to your actual provider invoice cycle so
+          the running total + month-end projection reflect what you'll
+          owe.
+        </p>
+
+        <div class="form-group">
+          <label for="pref-billing_cycle_start_day">Billing cycle start day (1&ndash;28)</label>
+          <input type="number" id="pref-billing_cycle_start_day" data-key="billing_cycle_start_day" min="1" max="28">
+          <p class="hint">
+            Day of the month your provider's billing cycle starts.
+            Example: if your Anthropic bill closes on the 15th, set
+            this to <strong>15</strong>. The Provider Spend card will
+            then sum costs from the 16th of last month through today.
+            Capped at 28 to avoid February edge cases.
+          </p>
+          <div class="inline-error" id="err-billing_cycle_start_day"></div>
+        </div>
+
+        <p class="text-sm text-muted" style="margin:1rem 0 0">
+          <strong>Where do rates live?</strong> The per-1M-token cost
+          for each model lives in <code>core/data/llm_costs.json</code>
+          inside the container. To update: edit the file (it's
+          host-mounted) and POST to <code>/api/admin/llm-costs/reload</code>
+          (admin only) — no container restart needed. View the current
+          loaded table at
+          <a href="/api/admin/llm-costs" target="_blank" rel="noopener">/api/admin/llm-costs</a>.
+        </p>
+      </div>
+
+      </details>
+
       <!-- Vision & Frame Description section -->
       <details class="settings-section">
       <summary>Vision &amp; Frame Description</summary>
