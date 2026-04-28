@@ -1,0 +1,391 @@
+<h2>"Pipeline" rename + the operator dashboard</h2>
+<p class="subtitle">First: what to call it. Then: what's on it. Mocked with the working title <em>Activity</em>.</p>
+
+<style>
+  .pg { background:#fff; border-radius:14px; overflow:hidden; box-shadow:0 1px 0 rgba(0,0,0,0.05), 0 24px 48px -24px rgba(0,0,0,0.18); border:1px solid #ececec; margin-bottom:1.6rem; font-family:-apple-system,'SF Pro Display',Inter,system-ui,sans-serif; }
+  .pg-nav { display:flex; align-items:center; justify-content:space-between; padding:1.05rem 1.6rem; border-bottom:1px solid #f1f1f1; font-size:0.92rem; }
+  .pg-logo { font-weight:700; letter-spacing:-0.01em; color:#0a0a0a; font-size:1.05rem; display:inline-flex; align-items:center; gap:0.55rem; }
+  .ver-chip { font-size:0.62rem; font-weight:700; color:#a36a00; background:#fff5e0; padding:0.18rem 0.5rem; border-radius:999px; letter-spacing:0.06em; text-transform:uppercase; font-family:ui-monospace,'SF Mono',monospace; }
+  .pg-links { display:flex; gap:1.5rem; color:#3a3a3a; font-weight:500; }
+  .pg-links span { cursor:default; }
+  .pg-links .on { color:#5b3df5; }
+  .pg-avatar { width:30px; height:30px; border-radius:50%; background:linear-gradient(135deg,#5b3df5,#9d7bff); }
+  .pg-nav-right { display:flex; align-items:center; gap:0.85rem; }
+  .layout-icon-btn { width:34px; height:34px; border-radius:9px; background:transparent; border:1px solid transparent; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; color:#5a5a5a; }
+  .layout-icon-btn:hover { background:#fafafa; border-color:#ececec; color:#5b3df5; }
+  .layout-icon-btn svg { width:18px; height:18px; }
+
+  .pg-body { padding:2.2rem 2rem 2.6rem; }
+
+  .pg-headline { font-size:2rem; line-height:1.05; letter-spacing:-0.025em; font-weight:700; color:#0a0a0a; margin:0 0 0.4rem; }
+  .pg-subtitle { color:#5a5a5a; font-size:0.96rem; margin:0 0 1.4rem; max-width:60ch; }
+
+  .pulse { display:inline-flex; align-items:center; gap:0.5rem; background:#eafff5; color:#0e7c5a; padding:0.32rem 0.85rem; border-radius:999px; font-size:0.78rem; font-weight:600; margin-bottom:1.1rem; }
+  .pulse-dot { width:7px; height:7px; border-radius:50%; background:#0e7c5a; box-shadow:0 0 0 4px rgba(14,124,90,0.18); }
+
+  /* === rename brainstorm === */
+  .name-grid { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:0.85rem; }
+  .name-card { border:1.5px solid #ececec; border-radius:12px; padding:1.1rem 1.1rem 1rem; background:#fff; cursor:pointer; transition:border-color 0.15s, transform 0.15s; }
+  .name-card:hover { transform:translateY(-1px); border-color:#d8ceff; }
+  .name-card.recommended { border-color:#5b3df5; box-shadow:0 0 0 3px rgba(91,61,245,0.1); }
+  .name-card .word { font-size:1.5rem; font-weight:700; letter-spacing:-0.02em; color:#0a0a0a; margin-bottom:0.5rem; display:flex; align-items:center; gap:0.5rem; }
+  .name-card .pill-rec { font-size:0.6rem; font-weight:700; color:#5b3df5; background:#f3f0ff; padding:0.18rem 0.55rem; border-radius:999px; letter-spacing:0.06em; text-transform:uppercase; }
+  .name-card .why { font-size:0.84rem; color:#3a3a3a; line-height:1.45; margin-bottom:0.7rem; }
+  .name-card .vs { font-size:0.78rem; color:#888; line-height:1.4; padding-top:0.55rem; border-top:1px dashed #ececec; }
+  .name-card .vs strong { color:#0a0a0a; font-weight:600; }
+
+  /* === tiles === */
+  .tile-grid { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:0.85rem; margin-bottom:1.6rem; }
+  .tile { background:#fff; border:1px solid #ececec; border-radius:14px; padding:1.2rem 1.2rem 1.1rem; }
+  .tile-label { font-size:0.7rem; font-weight:700; color:#7a7a7a; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:0.5rem; }
+  .tile-value { font-size:1.85rem; line-height:1.05; font-weight:700; letter-spacing:-0.02em; color:#0a0a0a; }
+  .tile-value.muted { font-size:1.15rem; color:#666; }
+  .tile-trend { font-size:0.76rem; margin-top:0.3rem; font-weight:500; }
+  .tile-trend.up { color:#0e7c5a; }
+  .tile-trend.warn { color:#a36a00; }
+  .tile-trend.bad { color:#c92a2a; }
+  .tile-trend.neutral { color:#888; }
+  .tile-mini-spark { height:24px; margin-top:0.4rem; }
+  .tile-mini-spark svg { width:100%; height:100%; }
+
+  /* === active jobs === */
+  .section-head { display:flex; align-items:baseline; justify-content:space-between; margin:1.8rem 0 0.85rem; }
+  .section-head h3 { font-size:1.3rem; font-weight:700; letter-spacing:-0.018em; color:#0a0a0a; margin:0; }
+  .section-head .meta { font-size:0.82rem; color:#888; }
+  .section-cta { display:flex; gap:0.45rem; }
+  .pill-btn { padding:0.45rem 0.95rem; border-radius:999px; font-size:0.84rem; font-weight:500; cursor:pointer; border:none; }
+  .pill-btn.outline { background:#fff; border:1px solid #e0e0e0; color:#3a3a3a; }
+  .pill-btn.primary { background:#5b3df5; color:#fff; }
+  .pill-btn.ghost { background:transparent; color:#5b3df5; padding:0.45rem 0.7rem; }
+
+  .job-card { background:#fff; border:1px solid #ececec; border-radius:14px; padding:1.1rem 1.2rem; margin-bottom:0.75rem; }
+  .job-row1 { display:flex; align-items:center; justify-content:space-between; margin-bottom:0.5rem; }
+  .job-name { font-size:1rem; font-weight:600; color:#0a0a0a; }
+  .job-name .crumb { color:#888; font-weight:400; font-size:0.84rem; font-family:ui-monospace,monospace; margin-left:0.5rem; }
+  .job-controls { display:flex; gap:0.35rem; }
+  .job-ctrl { width:32px; height:32px; border-radius:8px; border:1px solid #e0e0e0; background:#fff; cursor:pointer; color:#5a5a5a; display:inline-flex; align-items:center; justify-content:center; font-size:0.85rem; }
+  .job-ctrl:hover { border-color:#d8ceff; color:#5b3df5; }
+  .job-ctrl.danger:hover { border-color:#ffcfcf; color:#c92a2a; }
+  .progress-track { height:6px; border-radius:999px; background:#f0edff; overflow:hidden; margin-bottom:0.4rem; }
+  .progress-fill { height:100%; background:linear-gradient(90deg,#5b3df5,#9d7bff); }
+  .job-stats { display:flex; justify-content:space-between; font-size:0.82rem; color:#5a5a5a; }
+  .job-stats .strong { color:#0a0a0a; font-weight:500; }
+
+  /* === queue cards === */
+  .queue-grid { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:0.85rem; }
+  .queue-card { background:#fff; border:1px solid #ececec; border-radius:14px; padding:1.1rem 1.15rem 1rem; cursor:pointer; transition:border-color 0.15s, transform 0.15s; }
+  .queue-card:hover { transform:translateY(-1px); border-color:#d8ceff; }
+  .queue-row1 { display:flex; align-items:center; justify-content:space-between; margin-bottom:0.5rem; }
+  .queue-title { font-size:0.9rem; font-weight:600; color:#0a0a0a; }
+  .queue-badge { font-size:0.66rem; font-weight:700; padding:0.18rem 0.55rem; border-radius:999px; letter-spacing:0.05em; text-transform:uppercase; }
+  .qb-good { background:#eafff5; color:#0e7c5a; }
+  .qb-warn { background:#fff5e0; color:#a36a00; }
+  .qb-bad  { background:#ffe7e7; color:#c92a2a; }
+  .qb-neut { background:#f3f0ff; color:#5b3df5; }
+  .queue-stat { font-size:1.85rem; line-height:1.05; font-weight:700; letter-spacing:-0.02em; color:#0a0a0a; }
+  .queue-meta { font-size:0.76rem; color:#888; margin-top:0.4rem; }
+
+  /* === recent jobs table === */
+  .rj-table { border-top:1px solid #f0f0f0; }
+  .rj-row { display:grid; grid-template-columns:24px 1.8fr 0.6fr 1.2fr 1fr 0.5fr 80px; gap:0.85rem; align-items:center; padding:0.65rem 0.5rem; border-bottom:1px solid #f4f4f4; font-size:0.86rem; cursor:pointer; }
+  .rj-row:hover { background:#fafafa; }
+  .rj-icon { width:24px; height:24px; border-radius:6px; background:linear-gradient(135deg,#5b3df5,#9d7bff); display:inline-flex; align-items:center; justify-content:center; color:#fff; font-size:0.62rem; font-weight:700; }
+  .rj-name { color:#0a0a0a; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .rj-name .crumb { color:#888; font-weight:400; font-family:ui-monospace,monospace; font-size:0.78rem; margin-left:0.4rem; }
+  .rj-status { font-size:0.78rem; font-weight:600; }
+  .rj-time { color:#5a5a5a; font-size:0.82rem; }
+
+  /* === system actions === */
+  .sys-grid { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:0.85rem; }
+  .sys-card { background:#fff; border:1px solid #ececec; border-radius:12px; padding:1.05rem 1.1rem; cursor:pointer; transition:border-color 0.15s, transform 0.15s; }
+  .sys-card:hover { transform:translateY(-1px); border-color:#d8ceff; }
+  .sys-icon { width:34px; height:34px; border-radius:9px; background:linear-gradient(135deg,#f3f0ff,#e9e1ff); display:flex; align-items:center; justify-content:center; color:#5b3df5; font-size:0.95rem; margin-bottom:0.7rem; font-weight:700; }
+  .sys-name { font-size:0.92rem; font-weight:600; color:#0a0a0a; margin-bottom:0.15rem; }
+  .sys-meta { font-size:0.76rem; color:#7a7a7a; line-height:1.4; }
+  .sys-card.toggle { display:flex; align-items:center; gap:0.85rem; padding:0.95rem 1.05rem; }
+  .sys-card.toggle .sys-icon { margin-bottom:0; }
+  .sys-card.toggle .sys-text { flex:1; }
+  .sys-card.toggle .toggle-on { width:36px; height:20px; background:#5b3df5; border-radius:999px; position:relative; flex-shrink:0; }
+  .sys-card.toggle .toggle-on .knob { width:16px; height:16px; background:#fff; border-radius:50%; position:absolute; top:2px; right:2px; box-shadow:0 1px 3px rgba(0,0,0,0.2); }
+
+  .page-label { font-size:0.7rem; font-weight:700; color:#999; text-transform:uppercase; letter-spacing:0.08em; margin:1.6rem 0 0.5rem 0.3rem; }
+</style>
+
+
+<!-- =================== 1. Name brainstorm =================== -->
+<div class="page-label">1. What do we call it? Five candidates, my recommendation in purple.</div>
+
+<div class="pg">
+  <div class="pg-body" style="padding:1.7rem 2rem">
+    <div class="name-grid">
+
+      <div class="name-card recommended">
+        <div class="word">Activity <span class="pill-rec">Recommended</span></div>
+        <div class="why">Natural English. "Let me check Activity" reads exactly like "let me check what's been happening." Same word Apple uses for similar dashboards (Activity Monitor, Activity ring), GitHub uses (Activity feed), Slack uses (Activity tab).</div>
+        <div class="vs"><strong>Why:</strong> what's running, what's queued, what just finished, what failed &mdash; all of it is "activity." Doesn't lock you into any one verb.</div>
+      </div>
+
+      <div class="name-card">
+        <div class="word">Status</div>
+        <div class="why">Direct. "Is it working?" If your daily question is "is anything broken right now," Status answers it head-on. Used by countless ops tools.</div>
+        <div class="vs"><strong>Concern:</strong> implies passive monitoring only. The page also has actions (pause, run-now). "Status" undersells those.</div>
+      </div>
+
+      <div class="name-card">
+        <div class="word">Conversions</div>
+        <div class="why">Maps directly to the work. Plural noun. Clear signal: "this is where the conversion engine lives."</div>
+        <div class="vs"><strong>Concern:</strong> reads as a list page (like "Customers" or "Invoices"), not a dashboard. Misses the live/operational feel.</div>
+      </div>
+
+      <div class="name-card">
+        <div class="word">Engine</div>
+        <div class="why">Mechanical, specific. "The conversion engine." Like Stripe Sigma's "Engine" or Shopify's "App engine." Power-user-friendly.</div>
+        <div class="vs"><strong>Concern:</strong> a bit jargon-y for IBEW staff. Better for admin-only tools, weaker for shared use.</div>
+      </div>
+
+      <div class="name-card">
+        <div class="word">Inbox</div>
+        <div class="why">Borrows the email metaphor. "What came in to MarkFlow." Familiar, friendly, immediately understood.</div>
+        <div class="vs"><strong>Concern:</strong> overloads the meaning &mdash; people think "messages." Doesn't carry the running-jobs / failed-jobs side.</div>
+      </div>
+    </div>
+
+    <p style="margin-top:1.2rem;font-size:0.86rem;color:#5a5a5a">Mockup below uses <strong>Activity</strong>. Tell me which one feels right and I'll swap.</p>
+  </div>
+</div>
+
+
+<!-- =================== 2. The page =================== -->
+<div class="page-label">2. The page itself &mdash; operator dashboard for the conversion engine</div>
+
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow <span class="ver-chip">v0.34.1-dev</span></div>
+    <div class="pg-links"><span>Search</span><span class="on">Activity</span><span>Convert</span><span>Settings</span></div>
+    <div class="pg-nav-right">
+      <button class="layout-icon-btn" title="Home layout (&#8984;\)">
+        <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="2" width="6" height="6" rx="1.2"/><rect x="10" y="2" width="6" height="6" rx="1.2"/><rect x="2" y="10" width="6" height="6" rx="1.2"/><rect x="10" y="10" width="6" height="6" rx="1.2"/></svg>
+      </button>
+      <div class="pg-avatar"></div>
+    </div>
+  </div>
+  <div class="pg-body">
+
+    <!-- header -->
+    <div class="pulse"><span class="pulse-dot"></span> All systems running &middot; 12,847 indexed &middot; pipeline at 62%</div>
+    <h1 class="pg-headline">Activity.</h1>
+    <p class="pg-subtitle">What's running, what's queued, what came in, what broke. The conversion engine for the K Drive at a glance.</p>
+
+    <!-- top tiles -->
+    <div class="tile-grid">
+      <div class="tile">
+        <div class="tile-label">Files processed today</div>
+        <div class="tile-value">1,247</div>
+        <div class="tile-trend up">&#8599; +18% vs yesterday</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">In queue</div>
+        <div class="tile-value">312</div>
+        <div class="tile-trend neutral">Clearing in ~4 min</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">Active jobs</div>
+        <div class="tile-value">2</div>
+        <div class="tile-trend up">running normally</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">Last error</div>
+        <div class="tile-value muted">3 days ago</div>
+        <div class="tile-trend neutral">No action needed</div>
+      </div>
+    </div>
+
+    <!-- throughput chart -->
+    <div class="tile" style="padding:1.1rem 1.2rem;margin-bottom:1.6rem">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:0.55rem">
+        <div class="tile-label" style="margin-bottom:0">Throughput &middot; last 24h</div>
+        <div style="font-size:0.78rem;color:#888">peaks 06:30 (overnight ingest), dip 12:00&ndash;13:00 (lunch quiet)</div>
+      </div>
+      <div style="height:80px">
+        <svg viewBox="0 0 800 80" preserveAspectRatio="none" style="width:100%;height:100%">
+          <polyline points="0,62 30,58 60,42 90,18 120,22 150,28 180,42 210,55 240,60 270,55 300,68 330,72 360,68 390,58 420,46 450,38 480,32 510,28 540,30 570,26 600,22 630,18 660,16 690,18 720,22 750,30 780,38 800,46" fill="none" stroke="#5b3df5" stroke-width="2"/>
+          <polyline points="0,80 0,62 30,58 60,42 90,18 120,22 150,28 180,42 210,55 240,60 270,55 300,68 330,72 360,68 390,58 420,46 450,38 480,32 510,28 540,30 570,26 600,22 630,18 660,16 690,18 720,22 750,30 780,38 800,46 800,80" fill="rgba(91,61,245,0.08)" stroke="none"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- ACTIVE JOBS -->
+    <div class="section-head">
+      <h3>Running now</h3>
+      <div class="section-cta">
+        <button class="pill-btn outline">Pause pipeline</button>
+        <button class="pill-btn primary">+ Start a job</button>
+      </div>
+    </div>
+
+    <div class="job-card">
+      <div class="job-row1">
+        <div class="job-name">/training/curriculum/<span class="crumb">2026-q2 ingest</span></div>
+        <div class="job-controls">
+          <button class="job-ctrl" title="Pause">&#10074;&#10074;</button>
+          <button class="job-ctrl danger" title="Cancel">&times;</button>
+          <button class="job-ctrl" title="Open">&rarr;</button>
+        </div>
+      </div>
+      <div class="progress-track"><div class="progress-fill" style="width:62%"></div></div>
+      <div class="job-stats">
+        <span><span class="strong">312</span> of 500 files &middot; <span class="strong">2 min 14 sec</span> elapsed &middot; ETA <span class="strong">~4 min</span></span>
+        <span style="color:#888">started 14:08 by Xerxes</span>
+      </div>
+    </div>
+
+    <div class="job-card">
+      <div class="job-row1">
+        <div class="job-name">/correspondence/2026-q1/<span class="crumb">scheduled scan</span></div>
+        <div class="job-controls">
+          <button class="job-ctrl" title="Pause">&#10074;&#10074;</button>
+          <button class="job-ctrl danger" title="Cancel">&times;</button>
+          <button class="job-ctrl" title="Open">&rarr;</button>
+        </div>
+      </div>
+      <div class="progress-track"><div class="progress-fill" style="width:18%"></div></div>
+      <div class="job-stats">
+        <span><span class="strong">38</span> of 210 files &middot; <span class="strong">22 sec</span> elapsed &middot; ETA <span class="strong">~3 min</span></span>
+        <span style="color:#888">started 14:14 by Scheduler</span>
+      </div>
+    </div>
+
+    <!-- QUEUES -->
+    <div class="section-head" style="margin-top:2.2rem">
+      <h3>Queues &amp; recent activity</h3>
+      <div class="meta">click any card &rarr; full list</div>
+    </div>
+
+    <div class="queue-grid">
+      <div class="queue-card">
+        <div class="queue-row1"><span class="queue-title">Recently converted</span><span class="queue-badge qb-good">today</span></div>
+        <div class="queue-stat">312</div>
+        <div class="queue-meta">+1,247 in last 24h &middot; full-text + vector indexed</div>
+      </div>
+      <div class="queue-card">
+        <div class="queue-row1"><span class="queue-title">Needs OCR</span><span class="queue-badge qb-warn">queued</span></div>
+        <div class="queue-stat">42</div>
+        <div class="queue-meta">scanned PDFs &middot; ETA ~12 min</div>
+      </div>
+      <div class="queue-card">
+        <div class="queue-row1"><span class="queue-title">Awaiting AI summary</span><span class="queue-badge qb-neut">queued</span></div>
+        <div class="queue-stat">18</div>
+        <div class="queue-meta">cost cap permitting &middot; $0.42 estimated</div>
+      </div>
+      <div class="queue-card">
+        <div class="queue-row1"><span class="queue-title">Recently failed</span><span class="queue-badge qb-bad">3 errors</span></div>
+        <div class="queue-stat">3</div>
+        <div class="queue-meta">2 password-protected, 1 corrupt &middot; review needed</div>
+      </div>
+    </div>
+
+    <!-- RECENT JOBS -->
+    <div class="section-head" style="margin-top:2.2rem">
+      <h3>Recent jobs</h3>
+      <div class="meta">last 7 days &middot; <span class="row-link" style="color:#5b3df5;cursor:pointer">view all history &rarr;</span></div>
+    </div>
+
+    <div class="rj-table">
+      <div class="rj-row"><span class="rj-icon">&#9881;</span><span class="rj-name">/training/curriculum<span class="crumb">2026-q2 ingest</span></span><span class="rj-status" style="color:#5b3df5">running</span><span class="rj-time">62% &middot; ETA ~4 min</span><span class="rj-time">started 14:08</span><span class="rj-time">312/500</span><span style="text-align:right;color:#888;font-size:0.78rem">pause</span></div>
+      <div class="rj-row"><span class="rj-icon">&#9881;</span><span class="rj-name">/correspondence/2026-q1<span class="crumb">scheduled scan</span></span><span class="rj-status" style="color:#5b3df5">running</span><span class="rj-time">18% &middot; ETA ~3 min</span><span class="rj-time">started 14:14</span><span class="rj-time">38/210</span><span style="text-align:right;color:#888;font-size:0.78rem">pause</span></div>
+      <div class="rj-row"><span class="rj-icon">&#9881;</span><span class="rj-name">/contracts/2026-Q1<span class="crumb">manual run</span></span><span class="rj-status" style="color:#0e7c5a">done</span><span class="rj-time">22 min ago</span><span class="rj-time">duration 3 min 12 sec</span><span class="rj-time">1,247/1,247</span><span style="text-align:right;color:#888;font-size:0.78rem">view</span></div>
+      <div class="rj-row"><span class="rj-icon">&#9881;</span><span class="rj-name">/legal-archives<span class="crumb">overnight</span></span><span class="rj-status" style="color:#0e7c5a">done</span><span class="rj-time">2 h ago</span><span class="rj-time">duration 18 min</span><span class="rj-time">3,802/3,802</span><span style="text-align:right;color:#888;font-size:0.78rem">view</span></div>
+      <div class="rj-row"><span class="rj-icon">&#9881;</span><span class="rj-name">/training/decks<span class="crumb">scheduled</span></span><span class="rj-status" style="color:#a36a00">paused</span><span class="rj-time">62% &middot; awaiting AI cap reset</span><span class="rj-time">yesterday 22:14</span><span class="rj-time">218/350</span><span style="text-align:right;color:#888;font-size:0.78rem">resume</span></div>
+      <div class="rj-row"><span class="rj-icon">&#9881;</span><span class="rj-name">/safety/bulletins<span class="crumb">manual run</span></span><span class="rj-status" style="color:#c92a2a">3 errors</span><span class="rj-time">yesterday</span><span class="rj-time">duration 4 min 10 sec</span><span class="rj-time">847/850</span><span style="text-align:right;color:#888;font-size:0.78rem">retry</span></div>
+      <div class="rj-row"><span class="rj-icon">&#9881;</span><span class="rj-name">/finance/2025<span class="crumb">scheduled</span></span><span class="rj-status" style="color:#0e7c5a">done</span><span class="rj-time">2 days ago</span><span class="rj-time">duration 6 min 22 sec</span><span class="rj-time">847/847</span><span style="text-align:right;color:#888;font-size:0.78rem">view</span></div>
+    </div>
+
+    <!-- SYSTEM ACTIONS -->
+    <div class="section-head" style="margin-top:2.2rem">
+      <h3>Pipeline controls</h3>
+      <div class="meta">manual overrides &middot; admin only</div>
+    </div>
+
+    <div class="sys-grid">
+      <div class="sys-card toggle">
+        <div class="sys-icon">&#9889;</div>
+        <div class="sys-text">
+          <div class="sys-name">Pipeline running</div>
+          <div class="sys-meta">Auto-scan + auto-convert</div>
+        </div>
+        <div class="toggle-on"><div class="knob"></div></div>
+      </div>
+      <div class="sys-card">
+        <div class="sys-icon">&#9883;</div>
+        <div class="sys-name">Run scan now</div>
+        <div class="sys-meta">Triggers an immediate scan of watched folders.</div>
+      </div>
+      <div class="sys-card">
+        <div class="sys-icon">&#9881;</div>
+        <div class="sys-name">Logs &amp; diagnostics</div>
+        <div class="sys-meta">Live log viewer, error history, performance traces.</div>
+      </div>
+      <div class="sys-card">
+        <div class="sys-icon">&#9968;</div>
+        <div class="sys-name">Database health</div>
+        <div class="sys-meta">Schema, integrity, maintenance windows.</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- =================== React =================== -->
+<h3 style="margin-top:2.4rem">React</h3>
+<div class="options" data-multiselect>
+  <div class="option" data-choice="name-activity" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Lock the name as <em>Activity</em></h3>
+      <p>Most natural English. Doesn't oversell or undersell. Search / Activity / Convert / Settings reads cleanly across the nav.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="name-status" onclick="toggleSelect(this)">
+    <div class="letter">S</div>
+    <div class="content">
+      <h3>Use <em>Status</em> instead</h3>
+      <p>Cleaner if your daily question is "is it working?"</p>
+    </div>
+  </div>
+  <div class="option" data-choice="name-other" onclick="toggleSelect(this)">
+    <div class="letter">~</div>
+    <div class="content">
+      <h3>Use a different word</h3>
+      <p>Conversions / Engine / Inbox &mdash; or invent one (I'll mock it). Tell me which.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="layout-yes" onclick="toggleSelect(this)">
+    <div class="letter">&#10003;</div>
+    <div class="content">
+      <h3>Page layout is right</h3>
+      <p>Status pulse + tiles + throughput + Running now + Queues + Recent jobs + Pipeline controls. Lock the structure.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="layout-tweak" onclick="toggleSelect(this)">
+    <div class="letter">~</div>
+    <div class="content">
+      <h3>Tweak the layout</h3>
+      <p>Ideas: drop one of the sections, swap order, replace tiles with something else, add a "what's new since last visit" section. Tell me what.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="role-default" onclick="toggleSelect(this)">
+    <div class="letter">R</div>
+    <div class="content">
+      <h3>Should this page even be in the regular user's nav?</h3>
+      <p>Currently shown to all roles. Operator queues are admin-only by row. But the whole page might be admin-only &mdash; regular users only need Search &amp; Convert. Worth a call.</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:1.5rem">In terminal: pick a name (or invent one), confirm or tweak the layout, and tell me whether <strong>Activity</strong> belongs in the regular-user nav at all (or only for admin/operator).</p>
+
+<div style="margin-top:1.6rem;padding:0.85rem 1rem;background:#f5f3ff;border-radius:10px;border-left:3px solid #5b3df5;font-size:0.86rem;color:#3a3a3a">
+  <strong style="color:#5b3df5">Captured separately:</strong> Layout fallback default updated to <strong>Minimal</strong> (was Recent). First-run picker now highlights Minimal as recommended and skip-fallback. <em>layout-onboarding.html</em> reflects the change.
+</div>
+

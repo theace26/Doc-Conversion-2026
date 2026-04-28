@@ -1,0 +1,295 @@
+<h2>Avatar = the settings menu</h2>
+<p class="subtitle">Settings link removed from nav. Avatar opens the full settings menu. Role-gated &mdash; system stuff only appears for admin / operator.</p>
+
+<style>
+  .pg { background:#fff; border-radius:14px; overflow:visible; box-shadow:0 1px 0 rgba(0,0,0,0.05), 0 24px 48px -24px rgba(0,0,0,0.18); border:1px solid #ececec; margin-bottom:1.6rem; font-family:-apple-system,'SF Pro Display',Inter,system-ui,sans-serif; }
+  .pg-nav { display:flex; align-items:center; justify-content:space-between; padding:1.05rem 1.6rem; border-bottom:1px solid #f1f1f1; font-size:0.92rem; position:relative; }
+  .pg-logo { font-weight:700; letter-spacing:-0.01em; color:#0a0a0a; font-size:1.05rem; display:inline-flex; align-items:center; gap:0.55rem; }
+  .ver-chip { font-size:0.62rem; font-weight:700; color:#a36a00; background:#fff5e0; padding:0.18rem 0.5rem; border-radius:999px; letter-spacing:0.06em; text-transform:uppercase; font-family:ui-monospace,'SF Mono',monospace; }
+  .pg-links { display:flex; gap:1.5rem; color:#3a3a3a; font-weight:500; }
+  .pg-links span { cursor:default; }
+  .pg-links .on { color:#5b3df5; }
+  .pg-avatar { width:30px; height:30px; border-radius:50%; background:linear-gradient(135deg,#5b3df5,#9d7bff); cursor:pointer; transition:box-shadow 0.15s; }
+  .pg-avatar:hover { box-shadow:0 0 0 3px rgba(91,61,245,0.18); }
+  .pg-avatar.open { box-shadow:0 0 0 3px rgba(91,61,245,0.35); }
+  .pg-nav-right { display:flex; align-items:center; gap:0.85rem; position:relative; }
+  .layout-icon-btn { width:34px; height:34px; border-radius:9px; background:transparent; border:1px solid transparent; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; color:#5a5a5a; }
+  .layout-icon-btn:hover { background:#fafafa; border-color:#ececec; color:#5b3df5; }
+  .layout-icon-btn svg { width:18px; height:18px; }
+  .pg-body { padding:1.6rem 2rem 1.8rem; }
+
+  /* avatar menu */
+  .av-menu { position:absolute; top:46px; right:0; width:300px; background:#fff; border:1px solid #ececec; border-radius:14px; box-shadow:0 18px 40px -8px rgba(0,0,0,0.22); padding:0.4rem; z-index:30; }
+  .av-menu::before { content:''; position:absolute; right:14px; top:-7px; width:14px; height:14px; background:#fff; border-left:1px solid #ececec; border-top:1px solid #ececec; transform:rotate(45deg); }
+  .av-who { padding:0.85rem 0.85rem 0.7rem; border-bottom:1px solid #f3f3f3; margin-bottom:0.45rem; display:flex; gap:0.7rem; align-items:center; }
+  .av-who-avatar { width:38px; height:38px; border-radius:50%; background:linear-gradient(135deg,#5b3df5,#9d7bff); flex-shrink:0; }
+  .av-who-text { flex:1; min-width:0; }
+  .av-who-name { font-size:0.95rem; font-weight:600; color:#0a0a0a; }
+  .av-who-role { font-size:0.74rem; color:#888; margin-top:0.12rem; display:flex; align-items:center; gap:0.4rem; }
+  .av-role-pill { font-size:0.6rem; font-weight:700; padding:0.12rem 0.45rem; border-radius:999px; letter-spacing:0.06em; text-transform:uppercase; }
+  .av-role-pill.admin { background:#fff5e0; color:#a36a00; }
+  .av-role-pill.member { background:#e8f5ff; color:#1864ab; }
+
+  .av-section-label { font-size:0.62rem; font-weight:700; color:#aaa; text-transform:uppercase; letter-spacing:0.07em; padding:0.55rem 0.7rem 0.25rem; display:flex; justify-content:space-between; align-items:center; }
+  .av-section-label .gate { font-size:0.5rem; background:#fff5e0; color:#a36a00; padding:0.12rem 0.4rem; border-radius:999px; font-weight:700; letter-spacing:0.05em; }
+
+  .av-menu a { display:flex; align-items:center; gap:0.65rem; padding:0.5rem 0.7rem; border-radius:8px; color:#3a3a3a; text-decoration:none; cursor:pointer; font-size:0.86rem; }
+  .av-menu a:hover { background:#f5f3ff; color:#5b3df5; }
+  .av-menu a .ico { width:18px; flex-shrink:0; color:#888; font-size:0.95rem; text-align:center; }
+  .av-menu a:hover .ico { color:#5b3df5; }
+  .av-menu a .grow { flex:1; min-width:0; }
+  .av-menu a .kbd { font-size:0.7rem; color:#aaa; font-family:ui-monospace,monospace; }
+  .av-menu a.danger { color:#c92a2a; }
+  .av-menu a.danger:hover { background:#ffe7e7; color:#c92a2a; }
+
+  .av-sep { height:1px; background:#f3f3f3; margin:0.4rem 0.4rem; }
+
+  .av-cta { padding:0.55rem 0.7rem; display:flex; align-items:center; justify-content:space-between; color:#5b3df5; font-size:0.84rem; font-weight:500; cursor:pointer; border-radius:8px; }
+  .av-cta:hover { background:#f5f3ff; }
+
+  .av-build { padding:0.6rem 0.7rem; font-size:0.7rem; color:#888; line-height:1.55; font-family:ui-monospace,monospace; border-top:1px solid #f3f3f3; margin-top:0.35rem; }
+  .av-build .v { color:#0a0a0a; font-weight:600; }
+  .av-build .b { color:#5b3df5; }
+
+  /* page label */
+  .page-label { font-size:0.7rem; font-weight:700; color:#999; text-transform:uppercase; letter-spacing:0.08em; margin:1.6rem 0 0.5rem 0.3rem; }
+
+  /* nav diff diagram */
+  .nav-diff { display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:0.4rem; }
+  .nav-diff-card { background:#fafafa; border:1px solid #ececec; border-radius:10px; padding:1rem 1.1rem; }
+  .nd-tag { font-size:0.62rem; font-weight:700; letter-spacing:0.07em; text-transform:uppercase; margin-bottom:0.6rem; }
+  .nd-tag.before { color:#a36a00; }
+  .nd-tag.after { color:#0e7c5a; }
+  .nd-bar { display:inline-flex; align-items:center; gap:0.7rem; background:#fff; border:1px solid #ececec; border-radius:8px; padding:0.55rem 0.85rem; font-size:0.85rem; font-family:ui-monospace,monospace; color:#3a3a3a; }
+  .nd-bar .strike { text-decoration:line-through; color:#bbb; }
+  .nd-bar .new { color:#0e7c5a; font-weight:600; }
+</style>
+
+
+<!-- =================== 1. Nav diff =================== -->
+<div class="page-label">1. Nav simplified &mdash; "Settings" link removed</div>
+
+<div class="pg">
+  <div class="pg-body">
+    <div class="nav-diff">
+      <div class="nav-diff-card">
+        <div class="nd-tag before">Before</div>
+        <div class="nd-bar">[Logo &middot; Search &middot; <span class="strike">Pipeline</span> &middot; Convert &middot; <span class="strike">Settings</span> &middot; &#x2261; &middot; (avatar)]</div>
+      </div>
+      <div class="nav-diff-card">
+        <div class="nd-tag after">After (regular user)</div>
+        <div class="nd-bar">[Logo &middot; Search &middot; Convert &middot; &#x2261; &middot; <span class="new">(avatar &rarr; menu)</span>]</div>
+      </div>
+    </div>
+    <div class="nav-diff" style="margin-top:0.7rem">
+      <div class="nav-diff-card">
+        <div class="nd-tag after">After (admin / operator)</div>
+        <div class="nd-bar">[Logo &middot; Search &middot; <span class="new">Activity</span> &middot; Convert &middot; &#x2261; &middot; <span class="new">(avatar &rarr; menu w/ System)</span>]</div>
+      </div>
+      <div class="nav-diff-card" style="background:#f5f3ff;border-color:#d8ceff">
+        <div class="nd-tag" style="color:#5b3df5">Why</div>
+        <div style="font-size:0.86rem;color:#3a3a3a;line-height:1.5">Two clicks to anywhere instead of three. Settings was a list-of-lists; the avatar gives direct shortcuts to common sections and an "All settings &rarr;" door to the full grid for the rare deep-dive.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- =================== 2. Regular-user avatar menu =================== -->
+<div class="page-label">2. Regular user (member role) &mdash; opens to personal settings only, no system section, no Activity</div>
+
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow <span class="ver-chip">v0.34.1-dev</span></div>
+    <div class="pg-links"><span class="on">Search</span><span>Convert</span></div>
+    <div class="pg-nav-right">
+      <button class="layout-icon-btn" title="Home layout (&#8984;\)">
+        <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="2" width="6" height="6" rx="1.2"/><rect x="10" y="2" width="6" height="6" rx="1.2"/><rect x="2" y="10" width="6" height="6" rx="1.2"/><rect x="10" y="10" width="6" height="6" rx="1.2"/></svg>
+      </button>
+      <div class="pg-avatar open"></div>
+
+      <div class="av-menu">
+        <div class="av-who">
+          <div class="av-who-avatar"></div>
+          <div class="av-who-text">
+            <div class="av-who-name">Sarah Mitchell</div>
+            <div class="av-who-role"><span class="av-role-pill member">Member</span> IBEW Local 46</div>
+          </div>
+        </div>
+
+        <div class="av-section-label">Personal</div>
+        <a><span class="ico">&#9787;</span><span class="grow">Profile</span></a>
+        <a><span class="ico">&#9678;</span><span class="grow">Display preferences</span></a>
+        <a><span class="ico">&#9783;</span><span class="grow">Pinned folders &amp; topics</span></a>
+        <a><span class="ico">&#9785;</span><span class="grow">Notifications</span></a>
+
+        <div class="av-sep"></div>
+
+        <div class="av-cta">
+          <span>All settings</span><span>&rarr;</span>
+        </div>
+
+        <div class="av-sep"></div>
+
+        <div class="av-section-label">Help</div>
+        <a><span class="ico">?</span><span class="grow">Help &amp; docs</span></a>
+        <a><span class="ico">&#9000;</span><span class="grow">Keyboard shortcuts</span><span class="kbd">?</span></a>
+        <a><span class="ico">&#9888;</span><span class="grow">Report a bug</span></a>
+
+        <div class="av-sep"></div>
+
+        <a class="danger"><span class="ico">&rarr;</span><span class="grow">Sign out</span></a>
+
+        <div class="av-build">
+          <span class="v">v0.34.1-dev</span> &middot; <span class="b">main</span><br/>
+          build <span style="color:#0a0a0a">d15ddb3</span> &middot; 2026-04-28
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="pg-body" style="padding:1rem 2rem;color:#888;font-size:0.86rem">
+    Regular IBEW staff see only personal preferences. No System section. No "Activity" in the nav. Clean.
+  </div>
+</div>
+
+
+<!-- =================== 3. Admin / operator avatar menu =================== -->
+<div class="page-label">3. Admin / operator (you) &mdash; full menu with System section gated by role badge</div>
+
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow <span class="ver-chip">v0.34.1-dev</span></div>
+    <div class="pg-links"><span class="on">Search</span><span>Activity</span><span>Convert</span></div>
+    <div class="pg-nav-right">
+      <button class="layout-icon-btn" title="Home layout (&#8984;\)">
+        <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="2" width="6" height="6" rx="1.2"/><rect x="10" y="2" width="6" height="6" rx="1.2"/><rect x="2" y="10" width="6" height="6" rx="1.2"/><rect x="10" y="10" width="6" height="6" rx="1.2"/></svg>
+      </button>
+      <div class="pg-avatar open"></div>
+
+      <div class="av-menu">
+        <div class="av-who">
+          <div class="av-who-avatar"></div>
+          <div class="av-who-text">
+            <div class="av-who-name">Xerxes Shelley</div>
+            <div class="av-who-role"><span class="av-role-pill admin">Admin</span> IBEW Local 46</div>
+          </div>
+        </div>
+
+        <div class="av-section-label">Personal</div>
+        <a><span class="ico">&#9787;</span><span class="grow">Profile</span></a>
+        <a><span class="ico">&#9678;</span><span class="grow">Display preferences</span></a>
+        <a><span class="ico">&#9783;</span><span class="grow">Pinned folders &amp; topics</span></a>
+        <a><span class="ico">&#9785;</span><span class="grow">Notifications</span></a>
+        <a><span class="ico">&#128273;</span><span class="grow">API keys</span></a>
+
+        <div class="av-sep"></div>
+
+        <div class="av-section-label">
+          <span>System</span>
+          <span class="gate">Admin only</span>
+        </div>
+        <a><span class="ico">&#9211;</span><span class="grow">Storage &amp; mounts</span></a>
+        <a><span class="ico">&#9881;</span><span class="grow">Pipeline &amp; lifecycle</span></a>
+        <a><span class="ico">&#9883;</span><span class="grow">AI providers</span></a>
+        <a><span class="ico">&#9788;</span><span class="grow">Account &amp; auth</span></a>
+        <a><span class="ico">&#9968;</span><span class="grow">Database health</span></a>
+        <a><span class="ico">&#9881;</span><span class="grow">Log management</span></a>
+
+        <div class="av-sep"></div>
+
+        <div class="av-cta">
+          <span>All settings</span><span>&rarr;</span>
+        </div>
+
+        <div class="av-sep"></div>
+
+        <div class="av-section-label">Help</div>
+        <a><span class="ico">?</span><span class="grow">Help &amp; docs</span></a>
+        <a><span class="ico">&#9000;</span><span class="grow">Keyboard shortcuts</span><span class="kbd">?</span></a>
+        <a><span class="ico">&#9888;</span><span class="grow">Report a bug</span></a>
+
+        <div class="av-sep"></div>
+
+        <a class="danger"><span class="ico">&rarr;</span><span class="grow">Sign out</span></a>
+
+        <div class="av-build">
+          <span class="v">v0.34.1-dev</span> &middot; <span class="b">main</span><br/>
+          build <span style="color:#0a0a0a">d15ddb3</span> &middot; 2026-04-28
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="pg-body" style="padding:1rem 2rem;color:#888;font-size:0.86rem">
+    Admin / operator gets the same Personal block plus a System section (with "Admin only" gate). Activity appears in the nav. "All settings &rarr;" jumps to the full overview grid for occasional deep-dives.
+  </div>
+</div>
+
+
+<!-- =================== 4. Locked summary =================== -->
+<div class="page-label">4. Locked decisions &mdash; nav + avatar menu</div>
+
+<div class="pg">
+  <div class="pg-body">
+    <h3 style="font-size:1.05rem;margin:0 0 0.6rem;color:#0a0a0a">Top nav (final)</h3>
+    <ul style="margin:0 0 1.2rem;padding-left:1.4rem;color:#3a3a3a;font-size:0.92rem;line-height:1.65">
+      <li><strong>Member role:</strong> Logo &middot; Search &middot; Convert &middot; Layout-icon &middot; Avatar</li>
+      <li><strong>Admin / operator role:</strong> Logo &middot; Search &middot; <strong>Activity</strong> &middot; Convert &middot; Layout-icon &middot; Avatar</li>
+      <li><em>Settings</em> link &mdash; removed from nav. Lives entirely behind the avatar.</li>
+      <li><em>Activity</em> &mdash; admin/operator only. Members never see it.</li>
+    </ul>
+
+    <h3 style="font-size:1.05rem;margin:0 0 0.6rem;color:#0a0a0a">Avatar menu (final)</h3>
+    <ul style="margin:0;padding-left:1.4rem;color:#3a3a3a;font-size:0.92rem;line-height:1.65">
+      <li><strong>Header</strong> &mdash; avatar, name, role pill, scope ("IBEW Local 46").</li>
+      <li><strong>Personal</strong> (everyone) &mdash; Profile, Display, Pinned folders, Notifications. <strong>API keys</strong> only visible to admin/operator.</li>
+      <li><strong>System</strong> (admin only) &mdash; Storage, Pipeline &amp; lifecycle, AI providers, Account &amp; auth, Database health, Log management. Section header has "Admin only" gate badge.</li>
+      <li><strong>"All settings &rarr;"</strong> &mdash; jumps to the card-grid overview for rarer deep dives.</li>
+      <li><strong>Help</strong> &mdash; Help &amp; docs, Keyboard shortcuts, Report a bug.</li>
+      <li><strong>Sign out</strong> &mdash; danger color.</li>
+      <li><strong>Build info</strong> &mdash; bottom strip, monospace, dev-only.</li>
+    </ul>
+  </div>
+</div>
+
+
+<!-- =================== React =================== -->
+<h3 style="margin-top:2.4rem">React</h3>
+<div class="options" data-multiselect>
+  <div class="option" data-choice="lock-yes" onclick="toggleSelect(this)">
+    <div class="letter">&#10003;</div>
+    <div class="content">
+      <h3>Lock the nav + menu structure</h3>
+      <p>Member sees Search / Convert. Admin sees Search / Activity / Convert. Avatar handles everything else, role-gated.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="api-keys-everyone" onclick="toggleSelect(this)">
+    <div class="letter">K</div>
+    <div class="content">
+      <h3>API keys should be available to everyone, not just admin</h3>
+      <p>If members might also build AI integrations on their own files, expose API keys to all roles (still in Personal, no system gate).</p>
+    </div>
+  </div>
+  <div class="option" data-choice="all-settings-keep" onclick="toggleSelect(this)">
+    <div class="letter">G</div>
+    <div class="content">
+      <h3>Keep "All settings &rarr;" overview page</h3>
+      <p>The card grid we already designed (Storage / Pipeline / AI / Account / Notifications / Advanced) lives on as the deep-dive entry. Avatar shortcuts are for daily speed.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="all-settings-drop" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>Drop the "All settings" overview</h3>
+      <p>Avatar shortcuts replace the overview entirely. There's no separate /settings page. Each item in the avatar jumps direct to its detail.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="add-items" onclick="toggleSelect(this)">
+    <div class="letter">+</div>
+    <div class="content">
+      <h3>Add or remove menu items</h3>
+      <p>Currently 4 personal + 6 system + 3 help + sign out. Tell me what's missing or what shouldn't be there.</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:1.5rem">Once locked, we've nailed the IA: <strong>Search</strong> (home), <strong>Activity</strong> (admin), <strong>Convert</strong> (utility), <strong>Avatar &rarr; menu</strong> (settings). Next up: the Convert page redesign now that it's no longer the front door, and the full first-run flow with the K-drive welcome line.</p>

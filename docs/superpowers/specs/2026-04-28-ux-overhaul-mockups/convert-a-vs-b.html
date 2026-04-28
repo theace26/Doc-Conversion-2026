@@ -1,0 +1,137 @@
+<h2>Convert page — A vs B</h2>
+<p class="subtitle">Same page, two design directions. Same headline, same nav, same color and type system. The difference is what's visible by default.</p>
+
+<style>
+  .pg { background:#fff; border-radius:14px; overflow:hidden; box-shadow:0 1px 0 rgba(0,0,0,0.05), 0 24px 48px -24px rgba(0,0,0,0.18); border:1px solid #ececec; }
+  .pg-nav { display:flex; align-items:center; justify-content:space-between; padding:1.1rem 1.6rem; border-bottom:1px solid #f1f1f1; font-size:0.92rem; }
+  .pg-logo { font-weight:700; letter-spacing:-0.01em; color:#0a0a0a; font-size:1.05rem; }
+  .pg-links { display:flex; gap:1.6rem; color:#3a3a3a; }
+  .pg-links a { color:inherit; text-decoration:none; font-weight:500; }
+  .pg-links a.active { color:#5b3df5; }
+  .pg-body { padding:3.5rem 2rem 4rem; }
+  .pg-body.dense { padding:2.2rem 2rem 2.4rem; }
+  .pg-headline { font-family:-apple-system,'SF Pro Display',Inter,system-ui,sans-serif; font-size:2.4rem; line-height:1.05; letter-spacing:-0.025em; font-weight:700; color:#0a0a0a; margin:0 0 0.6rem; }
+  .pg-subtitle { color:#5a5a5a; font-size:1.02rem; margin:0 0 2.2rem; max-width:38ch; }
+  .pg-subtitle.tight { margin-bottom:1.6rem; }
+  .pill { display:inline-flex; align-items:center; gap:0.4rem; padding:0.7rem 1.4rem; border-radius:999px; font-weight:600; font-size:0.92rem; border:none; cursor:pointer; }
+  .pill.primary { background:#5b3df5; color:#fff; }
+  .pill.outline { background:#fff; color:#5b3df5; border:1.5px solid #5b3df5; }
+  .pill.sm { padding:0.45rem 0.95rem; font-size:0.84rem; }
+  .drop-hero { background:linear-gradient(135deg,#f5f1ff 0%, #ecf3ff 100%); border:1.5px dashed #c7baff; border-radius:18px; padding:3rem 2rem; text-align:center; }
+  .drop-hero.dense { padding:1.8rem 1.5rem; }
+  .drop-icon { width:56px; height:56px; margin:0 auto 1rem; border-radius:14px; background:linear-gradient(135deg,#5b3df5,#9d7bff); display:flex; align-items:center; justify-content:center; color:#fff; font-size:1.6rem; }
+  .reverse-link { display:inline-block; margin-top:1.4rem; color:#5b3df5; font-weight:500; font-size:0.9rem; text-decoration:none; }
+  .field-row { display:flex; flex-direction:column; gap:0.4rem; margin-top:1.2rem; }
+  .field-label { font-size:0.78rem; font-weight:600; color:#3a3a3a; text-transform:uppercase; letter-spacing:0.06em; }
+  .field-input { width:100%; padding:0.7rem 0.9rem; border:1px solid #e0e0e0; border-radius:10px; font-size:0.92rem; background:#fafafa; color:#333; box-sizing:border-box; }
+  .seg { display:inline-flex; background:#f3f3f3; border-radius:999px; padding:0.25rem; font-size:0.86rem; }
+  .seg-opt { padding:0.4rem 0.95rem; border-radius:999px; cursor:pointer; color:#666; font-weight:500; }
+  .seg-opt.on { background:#fff; color:#0a0a0a; box-shadow:0 1px 3px rgba(0,0,0,0.08); }
+  .chip-row { display:flex; flex-wrap:wrap; gap:0.35rem; margin-top:0.9rem; }
+  .chip { background:#f3f3f3; color:#5a5a5a; padding:0.25rem 0.65rem; border-radius:999px; font-size:0.74rem; font-weight:500; }
+  .file-row-list { margin-top:1.2rem; border-top:1px solid #efefef; }
+  .file-row { display:flex; align-items:center; justify-content:space-between; padding:0.65rem 0; border-bottom:1px solid #f5f5f5; font-size:0.86rem; }
+  .file-row .nm { color:#1a1a1a; font-weight:500; }
+  .file-row .meta { color:#888; font-size:0.78rem; }
+  .badge-letter { width:22px; height:22px; border-radius:6px; background:#f3f0ff; color:#5b3df5; display:inline-flex; align-items:center; justify-content:center; font-size:0.7rem; font-weight:700; margin-right:0.5rem; }
+</style>
+
+<div class="split">
+
+  <div class="mockup">
+    <div class="mockup-header"><strong>A — Premium, reduced density</strong></div>
+    <div class="mockup-body" style="padding:1rem;background:#f7f7f9">
+      <div class="pg">
+        <div class="pg-nav">
+          <div class="pg-logo">MarkFlow</div>
+          <div class="pg-links"><a class="active">Convert</a><a>Pipeline</a><a>Search</a><a>Settings</a></div>
+        </div>
+        <div class="pg-body">
+          <h1 class="pg-headline">Convert anything<br/>to Markdown.</h1>
+          <p class="pg-subtitle">Documents in. Markdown out. And back again — with full fidelity.</p>
+
+          <div class="drop-hero">
+            <div class="drop-icon">&#8964;</div>
+            <div style="font-size:1.05rem;font-weight:600;color:#1a1a1a;margin-bottom:0.3rem">Drop files or a whole folder</div>
+            <div style="color:#7a7a7a;font-size:0.88rem;margin-bottom:1.4rem">DOCX, PDF, PPTX, XLSX, RTF, EPUB, MP3, MP4, PSD, AI, and 90+ more</div>
+            <button class="pill primary">Choose files</button>
+            &nbsp;
+            <button class="pill outline">Browse folder</button>
+          </div>
+
+          <a class="reverse-link" href="#">&larr; Going the other way? Markdown to document</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header"><strong>B — Hybrid: same chrome, dense interior</strong></div>
+    <div class="mockup-body" style="padding:1rem;background:#f7f7f9">
+      <div class="pg">
+        <div class="pg-nav">
+          <div class="pg-logo">MarkFlow</div>
+          <div class="pg-links"><a class="active">Convert</a><a>Pipeline</a><a>Search</a><a>Settings</a></div>
+        </div>
+        <div class="pg-body dense">
+          <h1 class="pg-headline">Convert anything<br/>to Markdown.</h1>
+          <p class="pg-subtitle tight">Documents in. Markdown out. And back again — with full fidelity.</p>
+
+          <div style="margin-bottom:1.1rem">
+            <span class="field-label" style="display:block;margin-bottom:0.5rem">Direction</span>
+            <div class="seg">
+              <div class="seg-opt on">Document &rarr; Markdown</div>
+              <div class="seg-opt">Markdown &rarr; Document</div>
+            </div>
+          </div>
+
+          <div class="drop-hero dense">
+            <div style="font-weight:600;color:#1a1a1a;margin-bottom:0.3rem">Drop files or a folder here</div>
+            <div style="color:#7a7a7a;font-size:0.82rem;margin-bottom:1rem">or click to browse</div>
+            <button class="pill primary sm">Choose files</button>
+            &nbsp;
+            <button class="pill outline sm">Browse folder</button>
+            <div class="chip-row" style="justify-content:center;margin-top:0.9rem">
+              <span class="chip">DOCX</span><span class="chip">PDF</span><span class="chip">PPTX</span><span class="chip">XLSX</span><span class="chip">RTF</span><span class="chip">EPUB</span><span class="chip">EML</span><span class="chip">PSD</span><span class="chip">AI</span><span class="chip">MP3</span><span class="chip">+90 more</span>
+            </div>
+          </div>
+
+          <div class="file-row-list">
+            <div class="file-row"><span><span class="badge-letter">D</span>quarterly-report.docx</span><span class="meta">2.4 MB · queued</span></div>
+            <div class="file-row"><span><span class="badge-letter">P</span>spec-v2.pdf</span><span class="meta">880 KB · queued</span></div>
+            <div class="file-row"><span><span class="badge-letter">X</span>ledger-2026.xlsx</span><span class="meta">1.1 MB · queued</span></div>
+          </div>
+
+          <div class="field-row">
+            <span class="field-label">Output directory</span>
+            <input class="field-input" value="/mnt/output-repo/markflow-out" readonly />
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:2.5rem">What you can react to</h3>
+<div class="pros-cons">
+  <div class="pros">
+    <h4>A — Premium</h4>
+    <ul>
+      <li>Looks like Apple did the ops tool</li>
+      <li>Direction toggle, output dir, format list, file list <strong>all hidden</strong> until needed</li>
+      <li>Single hero CTA dominates</li>
+      <li>Reverse direction is a tiny link, not a fieldset</li>
+    </ul>
+  </div>
+  <div class="cons">
+    <h4>B — Hybrid</h4>
+    <ul>
+      <li>Same headline, nav, type, color, button style as A</li>
+      <li>Direction toggle visible (segmented control)</li>
+      <li>Format chips visible inline</li>
+      <li>File queue + output dir visible at once like today, with new polish</li>
+    </ul>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:1.5rem">The accent purple, the pill buttons, the soft drop-shadow card, the segmented control — all are placeholder choices. We can iterate on color and details once you pick a direction.</p>

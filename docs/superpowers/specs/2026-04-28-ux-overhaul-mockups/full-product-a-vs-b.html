@@ -1,0 +1,419 @@
+<h2>Full product — A vs B</h2>
+<p class="subtitle">Three page archetypes per direction: Convert (front door), Pipeline (monitoring), Settings (config). Same nav, type, color, buttons across all six. Scroll to compare.</p>
+
+<style>
+  /* === shared design tokens (placeholder — iterate on color/type later) === */
+  .pg { background:#fff; border-radius:14px; overflow:hidden; box-shadow:0 1px 0 rgba(0,0,0,0.05), 0 24px 48px -24px rgba(0,0,0,0.18); border:1px solid #ececec; margin-bottom:1.6rem; font-family:-apple-system,'SF Pro Display',Inter,system-ui,sans-serif; }
+  .pg-nav { display:flex; align-items:center; justify-content:space-between; padding:1.05rem 1.6rem; border-bottom:1px solid #f1f1f1; font-size:0.92rem; }
+  .pg-logo { font-weight:700; letter-spacing:-0.01em; color:#0a0a0a; font-size:1.05rem; }
+  .pg-links { display:flex; gap:1.5rem; color:#3a3a3a; font-weight:500; }
+  .pg-links span { cursor:default; }
+  .pg-links .on { color:#5b3df5; }
+  .pg-avatar { width:30px; height:30px; border-radius:50%; background:linear-gradient(135deg,#5b3df5,#9d7bff); }
+  .pg-body { padding:3rem 2rem 3.5rem; }
+  .pg-body.dense { padding:2rem 2rem 2.2rem; }
+  .pg-headline { font-size:2.3rem; line-height:1.05; letter-spacing:-0.025em; font-weight:700; color:#0a0a0a; margin:0 0 0.55rem; }
+  .pg-headline.lg { font-size:2.7rem; }
+  .pg-subtitle { color:#5a5a5a; font-size:1.0rem; margin:0 0 2rem; max-width:42ch; }
+  .pg-subtitle.tight { margin-bottom:1.5rem; }
+  .pill { display:inline-flex; align-items:center; gap:0.4rem; padding:0.65rem 1.35rem; border-radius:999px; font-weight:600; font-size:0.9rem; border:none; cursor:pointer; }
+  .pill.primary { background:#5b3df5; color:#fff; }
+  .pill.outline { background:#fff; color:#5b3df5; border:1.5px solid #5b3df5; }
+  .pill.sm { padding:0.4rem 0.9rem; font-size:0.82rem; }
+  .pill.ghost { background:transparent; color:#5b3df5; padding:0.4rem 0.6rem; }
+
+  /* drop hero */
+  .drop-hero { background:linear-gradient(135deg,#f5f1ff 0%, #ecf3ff 100%); border:1.5px dashed #c7baff; border-radius:18px; padding:2.8rem 2rem; text-align:center; }
+  .drop-hero.dense { padding:1.6rem 1.5rem; }
+  .drop-icon { width:54px; height:54px; margin:0 auto 1rem; border-radius:14px; background:linear-gradient(135deg,#5b3df5,#9d7bff); display:flex; align-items:center; justify-content:center; color:#fff; font-size:1.5rem; }
+
+  /* form */
+  .field-row { display:flex; flex-direction:column; gap:0.4rem; margin-top:1.1rem; }
+  .field-label { font-size:0.74rem; font-weight:700; color:#6a6a6a; text-transform:uppercase; letter-spacing:0.07em; }
+  .field-input { width:100%; padding:0.65rem 0.85rem; border:1px solid #e0e0e0; border-radius:10px; font-size:0.9rem; background:#fafafa; color:#333; box-sizing:border-box; font-family:inherit; }
+  .seg { display:inline-flex; background:#f3f3f3; border-radius:999px; padding:0.22rem; font-size:0.84rem; }
+  .seg-opt { padding:0.38rem 0.9rem; border-radius:999px; cursor:default; color:#666; font-weight:500; }
+  .seg-opt.on { background:#fff; color:#0a0a0a; box-shadow:0 1px 3px rgba(0,0,0,0.08); }
+  .chip-row { display:flex; flex-wrap:wrap; gap:0.32rem; }
+  .chip { background:#f3f3f3; color:#5a5a5a; padding:0.22rem 0.6rem; border-radius:999px; font-size:0.72rem; font-weight:500; }
+  .reverse-link { display:inline-block; margin-top:1.3rem; color:#5b3df5; font-weight:500; font-size:0.88rem; text-decoration:none; }
+
+  /* monitoring tiles & cards */
+  .tile-grid { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:1rem; margin-bottom:1.4rem; }
+  .tile { background:#fff; border:1px solid #ececec; border-radius:14px; padding:1.4rem 1.3rem; }
+  .tile-label { font-size:0.72rem; font-weight:700; color:#7a7a7a; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:0.5rem; }
+  .tile-value { font-size:2rem; line-height:1.05; font-weight:700; letter-spacing:-0.02em; color:#0a0a0a; }
+  .tile-trend { font-size:0.78rem; color:#10a37f; margin-top:0.3rem; font-weight:500; }
+  .tile-trend.warn { color:#b8860b; }
+
+  .status-pulse { display:inline-flex; align-items:center; gap:0.5rem; background:#eafff5; color:#0e7c5a; padding:0.4rem 0.85rem; border-radius:999px; font-size:0.82rem; font-weight:600; margin-bottom:1.4rem; }
+  .status-dot { width:7px; height:7px; border-radius:50%; background:#0e7c5a; box-shadow:0 0 0 4px rgba(14,124,90,0.18); }
+
+  /* sparkline */
+  .sparkline { height:60px; background:linear-gradient(180deg,rgba(91,61,245,0.08),rgba(91,61,245,0)); border-radius:8px; position:relative; overflow:hidden; }
+  .sparkline svg { width:100%; height:100%; display:block; }
+
+  /* dense pipeline cards */
+  .pipe-cards { display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.9rem; margin-bottom:1.4rem; }
+  .pipe-card { border:1px solid #ececec; border-radius:12px; padding:1.1rem 1rem; background:#fff; }
+  .pipe-card-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:0.7rem; }
+  .pipe-card-title { font-size:0.84rem; font-weight:700; color:#0a0a0a; }
+  .pipe-card-stat { font-size:1.4rem; font-weight:700; color:#0a0a0a; letter-spacing:-0.02em; }
+  .progress-bar { height:6px; border-radius:999px; background:#f0edff; overflow:hidden; }
+  .progress-fill { height:100%; background:linear-gradient(90deg,#5b3df5,#9d7bff); width:62%; }
+  .badge { display:inline-block; padding:0.18rem 0.55rem; border-radius:999px; font-size:0.7rem; font-weight:600; }
+  .badge.green { background:#eafff5; color:#0e7c5a; }
+  .badge.amber { background:#fff5e0; color:#a36a00; }
+  .badge.purple { background:#f3f0ff; color:#5b3df5; }
+
+  /* table-ish dense list */
+  .table { font-size:0.84rem; border-top:1px solid #efefef; }
+  .table-row { display:grid; grid-template-columns:18px 1.6fr 0.7fr 0.6fr 0.6fr; align-items:center; gap:0.7rem; padding:0.55rem 0; border-bottom:1px solid #f5f5f5; color:#3a3a3a; }
+  .table-row .nm { color:#0a0a0a; font-weight:500; }
+  .table-row .meta { color:#888; font-size:0.78rem; }
+  .badge-letter { width:20px; height:20px; border-radius:5px; background:#f3f0ff; color:#5b3df5; display:inline-flex; align-items:center; justify-content:center; font-size:0.66rem; font-weight:700; }
+
+  /* settings — A grid */
+  .settings-grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:1rem; }
+  .settings-card { border:1px solid #ececec; border-radius:14px; padding:1.4rem 1.3rem; background:#fff; cursor:default; transition:transform 0.15s; }
+  .settings-card:hover { transform:translateY(-1px); }
+  .settings-card-icon { width:40px; height:40px; border-radius:10px; background:linear-gradient(135deg,#f3f0ff,#e9e1ff); display:flex; align-items:center; justify-content:center; color:#5b3df5; font-size:1.05rem; margin-bottom:0.85rem; font-weight:700; }
+  .settings-card h4 { margin:0 0 0.3rem; font-size:1rem; color:#0a0a0a; }
+  .settings-card p { margin:0; font-size:0.85rem; color:#6a6a6a; line-height:1.4; }
+
+  /* settings — B sidebar */
+  .settings-flex { display:grid; grid-template-columns:200px 1fr; gap:1.4rem; }
+  .settings-side { font-size:0.85rem; }
+  .settings-side .grp-label { font-size:0.7rem; font-weight:700; text-transform:uppercase; color:#999; letter-spacing:0.08em; margin:0.9rem 0 0.4rem; }
+  .settings-side a { display:block; padding:0.42rem 0.7rem; border-radius:8px; color:#3a3a3a; text-decoration:none; font-weight:500; }
+  .settings-side a.on { background:#f3f0ff; color:#5b3df5; }
+
+  /* section header */
+  .dir-banner { display:flex; align-items:baseline; gap:0.7rem; margin:2.4rem 0 0.9rem; padding-bottom:0.6rem; border-bottom:2px solid #0a0a0a; }
+  .dir-banner-num { font-size:0.8rem; font-weight:700; letter-spacing:0.1em; color:#5b3df5; text-transform:uppercase; }
+  .dir-banner h3 { margin:0; font-size:1.5rem; color:#0a0a0a; letter-spacing:-0.015em; }
+  .dir-banner-tag { color:#888; font-size:0.92rem; }
+
+  .page-label { font-size:0.72rem; font-weight:700; color:#999; text-transform:uppercase; letter-spacing:0.08em; margin:0 0 0.5rem 0.3rem; }
+</style>
+
+<!-- ============ DIRECTION A ============ -->
+<div class="dir-banner">
+  <span class="dir-banner-num">Direction A</span>
+  <h3>Premium — reduced density</h3>
+  <span class="dir-banner-tag">Apple-treats-MarkFlow. Fewer items per screen, progressive disclosure, hero language.</span>
+</div>
+
+<!-- A1: Convert -->
+<div class="page-label">A1 — Convert (front door)</div>
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow</div>
+    <div class="pg-links"><span class="on">Convert</span><span>Pipeline</span><span>Search</span><span>Settings</span></div>
+    <div class="pg-avatar"></div>
+  </div>
+  <div class="pg-body">
+    <h1 class="pg-headline">Convert anything<br/>to Markdown.</h1>
+    <p class="pg-subtitle">Documents in. Markdown out. And back again — with full fidelity.</p>
+    <div class="drop-hero">
+      <div class="drop-icon">&#8964;</div>
+      <div style="font-size:1.05rem;font-weight:600;color:#1a1a1a;margin-bottom:0.3rem">Drop files or a whole folder</div>
+      <div style="color:#7a7a7a;font-size:0.86rem;margin-bottom:1.4rem">DOCX, PDF, PPTX, XLSX, RTF, EPUB, MP3, MP4, PSD, AI, and 90+ more</div>
+      <button class="pill primary">Choose files</button>
+      &nbsp;
+      <button class="pill outline">Browse folder</button>
+    </div>
+    <a class="reverse-link" href="#">&larr; Going the other way? Markdown to document</a>
+  </div>
+</div>
+
+<!-- A2: Pipeline -->
+<div class="page-label">A2 — Pipeline (monitoring)</div>
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow</div>
+    <div class="pg-links"><span>Convert</span><span class="on">Pipeline</span><span>Search</span><span>Settings</span></div>
+    <div class="pg-avatar"></div>
+  </div>
+  <div class="pg-body">
+    <div class="status-pulse"><span class="status-dot"></span> All systems running</div>
+    <h1 class="pg-headline lg">Pipeline.</h1>
+    <p class="pg-subtitle">The conveyor belt. Drop something into a watched folder and it shows up here.</p>
+
+    <div class="tile-grid">
+      <div class="tile">
+        <div class="tile-label">Processed today</div>
+        <div class="tile-value">1,247</div>
+        <div class="tile-trend">+18% vs yesterday</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">In queue</div>
+        <div class="tile-value">12</div>
+        <div class="tile-trend">Clearing in ~4 min</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">Last error</div>
+        <div class="tile-value" style="font-size:1.4rem;color:#666">3 days ago</div>
+        <div class="tile-trend">No action needed</div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile-label" style="margin-bottom:0.7rem">Throughput · last 24h</div>
+      <div class="sparkline">
+        <svg viewBox="0 0 400 60" preserveAspectRatio="none">
+          <polyline points="0,42 30,38 60,30 90,34 120,22 150,18 180,24 210,14 240,20 270,12 300,16 330,8 360,14 400,6" fill="none" stroke="#5b3df5" stroke-width="2"/>
+          <polyline points="0,60 0,42 30,38 60,30 90,34 120,22 150,18 180,24 210,14 240,20 270,12 300,16 330,8 360,14 400,6 400,60" fill="rgba(91,61,245,0.08)" stroke="none"/>
+        </svg>
+      </div>
+    </div>
+
+    <div style="margin-top:1.4rem">
+      <div class="tile-label" style="margin-bottom:0.7rem">Recent activity</div>
+      <div style="display:flex;flex-direction:column;gap:0.6rem">
+        <div style="display:flex;justify-content:space-between;padding:0.7rem 0;border-bottom:1px solid #f5f5f5"><span style="color:#1a1a1a;font-weight:500">Q4-financials.docx</span><span style="color:#888;font-size:0.84rem">2 min ago · 3.2 s</span></div>
+        <div style="display:flex;justify-content:space-between;padding:0.7rem 0;border-bottom:1px solid #f5f5f5"><span style="color:#1a1a1a;font-weight:500">/contracts/ (47 files)</span><span style="color:#888;font-size:0.84rem">8 min ago · 2 min</span></div>
+        <div style="display:flex;justify-content:space-between;padding:0.7rem 0"><span style="color:#1a1a1a;font-weight:500">spec-v2.pdf</span><span style="color:#888;font-size:0.84rem">14 min ago · 1.8 s</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- A3: Settings -->
+<div class="page-label">A3 — Settings (guided)</div>
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow</div>
+    <div class="pg-links"><span>Convert</span><span>Pipeline</span><span>Search</span><span class="on">Settings</span></div>
+    <div class="pg-avatar"></div>
+  </div>
+  <div class="pg-body">
+    <h1 class="pg-headline lg">Settings.</h1>
+    <p class="pg-subtitle">Configure the things that matter. The rest is sensible defaults.</p>
+    <div class="settings-grid">
+      <div class="settings-card">
+        <div class="settings-card-icon">&#9211;</div>
+        <h4>Storage</h4>
+        <p>Where files come from and go to. SMB / NFS mounts, output paths, sync.</p>
+      </div>
+      <div class="settings-card">
+        <div class="settings-card-icon">&#9881;</div>
+        <h4>Pipeline</h4>
+        <p>Scan windows, lifecycle timing, scheduler behavior.</p>
+      </div>
+      <div class="settings-card">
+        <div class="settings-card-icon">&#9883;</div>
+        <h4>AI Providers</h4>
+        <p>Anthropic key, image-analysis routing, cost ceiling.</p>
+      </div>
+      <div class="settings-card">
+        <div class="settings-card-icon">&#9788;</div>
+        <h4>Account &amp; Auth</h4>
+        <p>JWT, sign-in, role hierarchy, API keys.</p>
+      </div>
+      <div class="settings-card">
+        <div class="settings-card-icon">&#9785;</div>
+        <h4>Notifications</h4>
+        <p>What pages a job to oncall. Slack / email / silence.</p>
+      </div>
+      <div class="settings-card">
+        <div class="settings-card-icon">&#9876;</div>
+        <h4>Advanced</h4>
+        <p>Database maintenance, log management, debug toggles.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ============ DIRECTION B ============ -->
+<div class="dir-banner">
+  <span class="dir-banner-num">Direction B</span>
+  <h3>Hybrid — marketing chrome, dense interior</h3>
+  <span class="dir-banner-tag">Same nav, type, color, buttons. But interiors keep working data dense.</span>
+</div>
+
+<!-- B1: Convert -->
+<div class="page-label">B1 — Convert (front door)</div>
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow</div>
+    <div class="pg-links"><span class="on">Convert</span><span>Pipeline</span><span>Search</span><span>Settings</span></div>
+    <div class="pg-avatar"></div>
+  </div>
+  <div class="pg-body dense">
+    <h1 class="pg-headline">Convert anything<br/>to Markdown.</h1>
+    <p class="pg-subtitle tight">Documents in. Markdown out. And back again — with full fidelity.</p>
+
+    <div style="margin-bottom:1.1rem">
+      <span class="field-label" style="display:block;margin-bottom:0.5rem">Direction</span>
+      <div class="seg">
+        <div class="seg-opt on">Document &rarr; Markdown</div>
+        <div class="seg-opt">Markdown &rarr; Document</div>
+      </div>
+    </div>
+
+    <div class="drop-hero dense">
+      <div style="font-weight:600;color:#1a1a1a;margin-bottom:0.3rem">Drop files or a folder here</div>
+      <div style="color:#7a7a7a;font-size:0.82rem;margin-bottom:1rem">or click to browse</div>
+      <button class="pill primary sm">Choose files</button>
+      &nbsp;
+      <button class="pill outline sm">Browse folder</button>
+      <div class="chip-row" style="justify-content:center;margin-top:0.9rem">
+        <span class="chip">DOCX</span><span class="chip">PDF</span><span class="chip">PPTX</span><span class="chip">XLSX</span><span class="chip">RTF</span><span class="chip">EPUB</span><span class="chip">EML</span><span class="chip">PSD</span><span class="chip">AI</span><span class="chip">MP3</span><span class="chip">+90 more</span>
+      </div>
+    </div>
+
+    <div style="margin-top:1.2rem">
+      <div class="table" style="border-top:none">
+        <div class="table-row"><span class="badge-letter">D</span><span class="nm">quarterly-report.docx</span><span class="meta">2.4 MB</span><span><span class="badge purple">queued</span></span><span class="meta" style="text-align:right">remove</span></div>
+        <div class="table-row"><span class="badge-letter">P</span><span class="nm">spec-v2.pdf</span><span class="meta">880 KB</span><span><span class="badge purple">queued</span></span><span class="meta" style="text-align:right">remove</span></div>
+        <div class="table-row"><span class="badge-letter">X</span><span class="nm">ledger-2026.xlsx</span><span class="meta">1.1 MB</span><span><span class="badge purple">queued</span></span><span class="meta" style="text-align:right">remove</span></div>
+      </div>
+    </div>
+
+    <div class="field-row">
+      <span class="field-label">Output directory</span>
+      <input class="field-input" value="/mnt/output-repo/markflow-out" readonly />
+    </div>
+  </div>
+</div>
+
+<!-- B2: Pipeline -->
+<div class="page-label">B2 — Pipeline (3-card monitoring + table)</div>
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow</div>
+    <div class="pg-links"><span>Convert</span><span class="on">Pipeline</span><span>Search</span><span>Settings</span></div>
+    <div class="pg-avatar"></div>
+  </div>
+  <div class="pg-body dense">
+    <h1 class="pg-headline">Pipeline.</h1>
+    <p class="pg-subtitle tight">Bulk jobs, lifecycle, pending. All in one place.</p>
+
+    <div class="pipe-cards">
+      <div class="pipe-card">
+        <div class="pipe-card-head"><span class="pipe-card-title">Pipeline</span><span class="badge green">running</span></div>
+        <div class="pipe-card-stat">62%</div>
+        <div class="progress-bar" style="margin-top:0.4rem"><div class="progress-fill"></div></div>
+        <div class="meta" style="font-size:0.74rem;color:#888;margin-top:0.5rem">312 / 500 files · ETA 4 min</div>
+      </div>
+      <div class="pipe-card">
+        <div class="pipe-card-head"><span class="pipe-card-title">Lifecycle</span><span class="badge amber">scanning</span></div>
+        <div class="pipe-card-stat">8.2 GB</div>
+        <div class="meta" style="font-size:0.74rem;color:#888;margin-top:0.5rem">14 to trash · 3 expiring &lt;36h</div>
+      </div>
+      <div class="pipe-card">
+        <div class="pipe-card-head"><span class="pipe-card-title">Pending</span><span class="badge purple">72</span></div>
+        <div class="pipe-card-stat">72</div>
+        <div class="meta" style="font-size:0.74rem;color:#888;margin-top:0.5rem">48 unsupported · 24 awaiting AI</div>
+      </div>
+    </div>
+
+    <div class="tile" style="padding:1.1rem 1.2rem">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.7rem">
+        <span class="tile-label" style="margin-bottom:0">Bulk jobs · last 7 days</span>
+        <button class="pill ghost">Run now &rarr;</button>
+      </div>
+      <div class="table">
+        <div class="table-row"><span class="badge-letter">B</span><span class="nm">/contracts/2026-Q1/ (1,247 files)</span><span class="meta">22 min ago</span><span><span class="badge green">done</span></span><span class="meta" style="text-align:right">view</span></div>
+        <div class="table-row"><span class="badge-letter">B</span><span class="nm">/legal-archives/ (3,802 files)</span><span class="meta">2 h ago</span><span><span class="badge green">done</span></span><span class="meta" style="text-align:right">view</span></div>
+        <div class="table-row"><span class="badge-letter">B</span><span class="nm">/training-decks/ (218 files)</span><span class="meta">running</span><span><span class="badge amber">62%</span></span><span class="meta" style="text-align:right">pause</span></div>
+        <div class="table-row"><span class="badge-letter">B</span><span class="nm">/incoming-spool/ (queued)</span><span class="meta">queued</span><span><span class="badge purple">queued</span></span><span class="meta" style="text-align:right">cancel</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- B3: Settings -->
+<div class="page-label">B3 — Settings (sidebar + form)</div>
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow</div>
+    <div class="pg-links"><span>Convert</span><span>Pipeline</span><span>Search</span><span class="on">Settings</span></div>
+    <div class="pg-avatar"></div>
+  </div>
+  <div class="pg-body dense">
+    <h1 class="pg-headline">Settings.</h1>
+    <p class="pg-subtitle tight">Configure everything. Section nav on the left.</p>
+
+    <div class="settings-flex">
+      <div class="settings-side">
+        <div class="grp-label">General</div>
+        <a>Account &amp; auth</a>
+        <a>Notifications</a>
+        <a>Display</a>
+        <div class="grp-label">Pipeline</div>
+        <a class="on">Storage &amp; mounts</a>
+        <a>Scanner schedule</a>
+        <a>Lifecycle</a>
+        <a>AI providers</a>
+        <a>Image analysis</a>
+        <a>Vector indexing</a>
+        <div class="grp-label">System</div>
+        <a>Database</a>
+        <a>Log management</a>
+        <a>Debug</a>
+      </div>
+      <div>
+        <div class="field-row" style="margin-top:0">
+          <span class="field-label">Source mount</span>
+          <input class="field-input" value="//nas-01/finance-share" readonly />
+        </div>
+        <div class="field-row">
+          <span class="field-label">Output base</span>
+          <input class="field-input" value="/mnt/output-repo" readonly />
+        </div>
+        <div class="field-row">
+          <span class="field-label">Auth method</span>
+          <div class="seg" style="margin-top:0.2rem"><div class="seg-opt on">Credential store</div><div class="seg-opt">SMB user/pass</div><div class="seg-opt">Anonymous</div></div>
+        </div>
+        <div class="field-row">
+          <span class="field-label">Write guard</span>
+          <div style="display:flex;align-items:center;gap:0.6rem;margin-top:0.2rem"><div style="width:36px;height:20px;background:#5b3df5;border-radius:999px;position:relative"><div style="width:16px;height:16px;background:#fff;border-radius:50%;position:absolute;top:2px;right:2px;box-shadow:0 1px 3px rgba(0,0,0,0.2)"></div></div><span style="font-size:0.86rem;color:#333">Block writes outside output base</span></div>
+        </div>
+        <div class="field-row">
+          <span class="field-label">Pre-prefetch</span>
+          <div style="display:flex;align-items:center;gap:0.6rem;margin-top:0.2rem"><div style="width:36px;height:20px;background:#e0e0e0;border-radius:999px;position:relative"><div style="width:16px;height:16px;background:#fff;border-radius:50%;position:absolute;top:2px;left:2px;box-shadow:0 1px 3px rgba(0,0,0,0.2)"></div></div><span style="font-size:0.86rem;color:#333">Cache cloud files locally before convert</span></div>
+        </div>
+        <div style="margin-top:1.4rem;display:flex;gap:0.5rem">
+          <button class="pill primary sm">Save changes</button>
+          <button class="pill outline sm">Test connection</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ============ DECISION ============ -->
+<div class="dir-banner" style="margin-top:3rem">
+  <span class="dir-banner-num">Pick one</span>
+  <h3>Which is the product you'd want to live in?</h3>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Premium — reduced density</h3>
+      <p>Apple did the ops tool. Hero on every page. Most data hides behind progressive disclosure. Fewer pages survive.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Hybrid — chrome + density</h3>
+      <p>Same headline / nav / type / color / buttons as A, but interiors keep working at today's density. Most pages survive.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="ab" onclick="toggleSelect(this)">
+    <div class="letter">AB</div>
+    <div class="content">
+      <h3>Mix — A for outer pages, B for ops pages</h3>
+      <p>Convert + Settings get the premium A treatment. Pipeline / Bulk Jobs / Batch Mgmt / Logs stay B-style because operators actually need the density there.</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:1.5rem">All accent colors, type choices, button shapes are placeholders. Lock the level of transformation first; iterate on the visual details after.</p>

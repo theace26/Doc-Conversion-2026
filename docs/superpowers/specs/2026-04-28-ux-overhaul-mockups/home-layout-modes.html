@@ -1,0 +1,326 @@
+<h2>Home page &mdash; three layout modes</h2>
+<p class="subtitle">User picks how much real estate to give the home page. Settings &rarr; Display &rarr; Home layout: Maximal / Recent / Minimal.</p>
+
+<style>
+  .pg { background:#fff; border-radius:14px; overflow:hidden; box-shadow:0 1px 0 rgba(0,0,0,0.05), 0 24px 48px -24px rgba(0,0,0,0.18); border:1px solid #ececec; margin-bottom:1.6rem; font-family:-apple-system,'SF Pro Display',Inter,system-ui,sans-serif; }
+  .pg-nav { display:flex; align-items:center; justify-content:space-between; padding:1.05rem 1.6rem; border-bottom:1px solid #f1f1f1; font-size:0.92rem; }
+  .pg-logo { font-weight:700; letter-spacing:-0.01em; color:#0a0a0a; font-size:1.05rem; display:inline-flex; align-items:center; gap:0.55rem; }
+  .ver-chip { font-size:0.62rem; font-weight:700; color:#a36a00; background:#fff5e0; padding:0.18rem 0.5rem; border-radius:999px; letter-spacing:0.06em; text-transform:uppercase; font-family:ui-monospace,'SF Mono',monospace; }
+  .pg-links { display:flex; gap:1.5rem; color:#3a3a3a; font-weight:500; }
+  .pg-links span { cursor:default; }
+  .pg-links .on { color:#5b3df5; }
+  .pg-avatar { width:30px; height:30px; border-radius:50%; background:linear-gradient(135deg,#5b3df5,#9d7bff); }
+
+  .pg-headline { font-size:2.3rem; line-height:1.05; letter-spacing:-0.025em; font-weight:700; color:#0a0a0a; margin:0 0 0.55rem; }
+  .pg-headline.huge { font-size:3.4rem; }
+  .pg-subtitle { color:#5a5a5a; font-size:0.98rem; margin:0 0 1.4rem; }
+
+  .pulse { display:inline-flex; align-items:center; gap:0.5rem; background:#eafff5; color:#0e7c5a; padding:0.32rem 0.8rem; border-radius:999px; font-size:0.78rem; font-weight:600; }
+  .pulse-dot { width:7px; height:7px; border-radius:50%; background:#0e7c5a; box-shadow:0 0 0 4px rgba(14,124,90,0.18); }
+
+  /* search bar */
+  .searchbar { display:flex; align-items:center; max-width:760px; background:#fff; border:1px solid #ececec; border-radius:999px; box-shadow:0 4px 14px -6px rgba(0,0,0,0.08); padding:0.35rem; }
+  .searchbar.lg { max-width:880px; padding:0.5rem; }
+  .sb-seg { padding:0.55rem 1.2rem; flex:1; min-width:0; border-right:1px solid #f0f0f0; }
+  .searchbar.lg .sb-seg { padding:0.85rem 1.6rem; }
+  .sb-seg:last-of-type { border-right:none; }
+  .sb-label { font-size:0.66rem; font-weight:700; color:#0a0a0a; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:0.1rem; }
+  .searchbar.lg .sb-label { font-size:0.7rem; }
+  .sb-value { font-size:0.84rem; color:#888; }
+  .searchbar.lg .sb-value { font-size:0.92rem; }
+  .sb-go { width:38px; height:38px; border-radius:50%; background:#5b3df5; color:#fff; border:none; display:flex; align-items:center; justify-content:center; font-size:0.95rem; flex-shrink:0; }
+  .searchbar.lg .sb-go { width:50px; height:50px; font-size:1.15rem; }
+
+  /* row infrastructure */
+  .row { margin-top:1.6rem; }
+  .row-head { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:0.85rem; }
+  .row-title-link { display:inline-flex; align-items:center; gap:0.45rem; cursor:pointer; }
+  .row-title { font-size:1.2rem; font-weight:700; letter-spacing:-0.018em; color:#0a0a0a; margin:0; }
+  .row-title-link .arrow { width:22px; height:22px; border-radius:50%; background:#f3f3f3; display:inline-flex; align-items:center; justify-content:center; color:#5a5a5a; font-size:0.72rem; }
+  .row-link { color:#888; font-size:0.78rem; cursor:pointer; }
+  .row-link:hover { color:#5b3df5; }
+
+  /* doc card */
+  .row-cards { display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:0.85rem; }
+  .doc-card { cursor:pointer; transition:transform 0.15s; }
+  .doc-card:hover { transform:translateY(-2px); }
+  .doc-thumb { aspect-ratio:0.78; border-radius:8px; overflow:hidden; position:relative; background:#fefefb; border:1px solid #e8e6df; box-shadow:0 1px 0 rgba(0,0,0,0.04), 0 8px 16px -10px rgba(0,0,0,0.1); display:flex; flex-direction:column; }
+  .doc-band { height:32%; position:relative; }
+  .doc-band.pdf  { background:linear-gradient(135deg,#ff6b6b,#c92a2a); }
+  .doc-band.docx { background:linear-gradient(135deg,#4dabf7,#1864ab); }
+  .doc-band.pptx { background:linear-gradient(135deg,#ffa94d,#e8590c); }
+  .doc-band.xlsx { background:linear-gradient(135deg,#51cf66,#2b8a3e); }
+  .doc-band.eml  { background:linear-gradient(135deg,#cc5de8,#862e9c); }
+  .doc-band.md   { background:linear-gradient(135deg,#0a0a0a,#495057); }
+  .doc-band-label { position:absolute; left:0.55rem; bottom:0.4rem; color:#fff; font-size:0.7rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-shadow:0 1px 2px rgba(0,0,0,0.18); }
+  .doc-fav { position:absolute; top:0.45rem; right:0.45rem; width:24px; height:24px; border-radius:50%; background:rgba(255,255,255,0.92); color:#5a5a5a; display:flex; align-items:center; justify-content:center; font-size:0.78rem; }
+  .doc-snippet { padding:0.6rem 0.7rem 0.5rem; font-size:0.65rem; color:#2a2a2a; line-height:1.45; font-family:'Iowan Old Style','Charter','Cambria',Georgia,serif; flex:1; overflow:hidden; position:relative; }
+  .doc-snippet::after { content:''; position:absolute; left:0; right:0; bottom:0; height:30%; background:linear-gradient(180deg, rgba(254,254,251,0) 0%, rgba(254,254,251,1) 92%); pointer-events:none; }
+  .doc-snippet .h { font-weight:700; font-size:0.74rem; margin-bottom:0.25rem; color:#0a0a0a; font-family:-apple-system,Inter,sans-serif; }
+
+  /* recent search chips */
+  .recent-chips { display:flex; flex-wrap:wrap; gap:0.5rem; }
+  .recent-chip { background:#fff; border:1px solid #ececec; border-radius:999px; padding:0.5rem 1rem; font-size:0.85rem; color:#3a3a3a; cursor:pointer; display:inline-flex; align-items:center; gap:0.5rem; }
+  .recent-chip:hover { border-color:#d8ceff; color:#5b3df5; }
+  .recent-chip .icon { color:#aaa; font-size:0.78rem; }
+  .recent-chip .x { color:#bbb; font-size:0.72rem; padding-left:0.3rem; border-left:1px solid #f0f0f0; margin-left:0.2rem; }
+
+  /* setting row */
+  .setting-row { display:flex; align-items:center; justify-content:space-between; padding:1rem 1.2rem; background:#fafafa; border:1px solid #ececec; border-radius:12px; margin-bottom:0.7rem; gap:1rem; }
+  .setting-row .lbl { font-size:0.92rem; color:#0a0a0a; font-weight:600; }
+  .setting-row .desc { font-size:0.8rem; color:#7a7a7a; margin-top:0.15rem; max-width:46ch; }
+  .crumb { display:inline-flex; align-items:center; gap:0.4rem; color:#5b3df5; font-size:0.84rem; font-weight:500; margin-bottom:0.7rem; }
+  .crumb .sep { color:#bbb; font-weight:400; }
+
+  /* layout-mode picker (visual) */
+  .layout-picker { display:grid; grid-template-columns:repeat(3, 1fr); gap:0.55rem; }
+  .layout-opt { border:1.5px solid #ececec; border-radius:10px; padding:0.85rem 0.85rem 0.6rem; background:#fff; cursor:pointer; transition:border-color 0.15s, transform 0.15s; }
+  .layout-opt:hover { transform:translateY(-1px); border-color:#d8ceff; }
+  .layout-opt.on { border-color:#5b3df5; box-shadow:0 0 0 3px rgba(91,61,245,0.12); }
+  .layout-opt-name { font-size:0.84rem; font-weight:600; color:#0a0a0a; margin-bottom:0.15rem; }
+  .layout-opt-desc { font-size:0.74rem; color:#888; line-height:1.4; margin-bottom:0.55rem; }
+  .layout-opt-vis { background:#fafafa; border-radius:6px; padding:0.4rem; height:60px; display:flex; flex-direction:column; gap:0.18rem; }
+  .lop-bar { background:#dcd6f0; border-radius:3px; height:5px; }
+  .lop-bar.search { background:#5b3df5; height:7px; border-radius:999px; }
+  .lop-grid { background:#fff; border-radius:3px; height:14px; border:1px solid #ececec; }
+
+  .page-label { font-size:0.7rem; font-weight:700; color:#999; text-transform:uppercase; letter-spacing:0.08em; margin:1.6rem 0 0.5rem 0.3rem; }
+</style>
+
+
+<!-- =================== 1. Maximal (current) =================== -->
+<div class="page-label">1. Maximal &mdash; the home we've been building (search + all browse rows)</div>
+
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow <span class="ver-chip">v0.34.1-dev</span></div>
+    <div class="pg-links"><span class="on">Search</span><span>Pipeline</span><span>Convert</span><span>Settings</span></div>
+    <div class="pg-avatar"></div>
+  </div>
+  <div class="pg-body" style="padding:2.2rem 2rem 2.5rem">
+    <div class="pulse" style="margin-bottom:1.2rem"><span class="pulse-dot"></span> All systems running &middot; 12,847 documents indexed</div>
+    <h1 class="pg-headline">Find anything you've ever converted.</h1>
+
+    <div class="searchbar">
+      <div class="sb-seg" style="flex:2"><div class="sb-label">Looking for</div><div class="sb-value">Keywords, filename, or natural language</div></div>
+      <div class="sb-seg"><div class="sb-label">Format</div><div class="sb-value">Any</div></div>
+      <div class="sb-seg"><div class="sb-label">When</div><div class="sb-value">Anytime</div></div>
+      <button class="sb-go">&#9906;</button>
+    </div>
+
+    <div class="row">
+      <div class="row-head"><div class="row-title-link"><h3 class="row-title">Pinned folders</h3><span class="arrow">&rarr;</span></div></div>
+      <div style="font-size:0.85rem;color:#888;padding:0.6rem 0">[ folder cards &mdash; 4 across ]</div>
+    </div>
+    <div class="row">
+      <div class="row-head"><div class="row-title-link"><h3 class="row-title">From watched folders</h3><span class="arrow">&rarr;</span></div></div>
+      <div class="row-cards">
+        <div class="doc-card"><div class="doc-thumb"><div class="doc-band pptx"><span class="doc-band-label">PPTX</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Member Orientation 2026</div>Welcome to IBEW Local 46...</div></div></div>
+        <div class="doc-card"><div class="doc-thumb"><div class="doc-band xlsx"><span class="doc-band-label">XLSX</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Apprentice Hours Tracking</div>FY2026 cohort...</div></div></div>
+        <div class="doc-card"><div class="doc-thumb"><div class="doc-band eml"><span class="doc-band-label">EML</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Re: Jurisdiction</div>From Local 76...</div></div></div>
+        <div class="doc-card"><div class="doc-thumb"><div class="doc-band pdf"><span class="doc-band-label">PDF</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Safety Bulletin Q1</div>Updated arc-flash PPE...</div></div></div>
+        <div class="doc-card"><div class="doc-thumb"><div class="doc-band docx"><span class="doc-band-label">DOCX</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Steward Notes</div>Consolidated from sessions...</div></div></div>
+        <div class="doc-card"><div class="doc-thumb"><div class="doc-band md"><span class="doc-band-label">MD</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Bylaws Revision</div>Section 4 amendments...</div></div></div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="row-head"><div class="row-title-link"><h3 class="row-title">Most accessed this week</h3><span class="arrow">&rarr;</span></div></div>
+      <div style="font-size:0.85rem;color:#888;padding:0.6rem 0">[ doc cards &mdash; 6 across ]</div>
+    </div>
+    <div class="row">
+      <div class="row-head"><div class="row-title-link"><h3 class="row-title">Flagged for review</h3><span class="arrow">&rarr;</span></div></div>
+      <div style="font-size:0.85rem;color:#888;padding:0.6rem 0">[ doc cards &mdash; 3 across ]</div>
+    </div>
+    <div class="row">
+      <div class="row-head"><div class="row-title-link"><h3 class="row-title">Browse by topic</h3><span class="arrow">&rarr;</span></div></div>
+      <div style="font-size:0.85rem;color:#888;padding:0.6rem 0">[ tag pills &mdash; topic cloud ]</div>
+    </div>
+  </div>
+</div>
+
+
+<!-- =================== 2. Recent =================== -->
+<div class="page-label">2. Recent &mdash; just search and history (no browse rows)</div>
+
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow <span class="ver-chip">v0.34.1-dev</span></div>
+    <div class="pg-links"><span class="on">Search</span><span>Pipeline</span><span>Convert</span><span>Settings</span></div>
+    <div class="pg-avatar"></div>
+  </div>
+  <div class="pg-body" style="padding:3rem 2rem 4rem">
+    <div class="pulse" style="margin-bottom:1.2rem"><span class="pulse-dot"></span> All systems running &middot; 12,847 documents indexed</div>
+    <h1 class="pg-headline">Find anything you've ever converted.</h1>
+
+    <div class="searchbar">
+      <div class="sb-seg" style="flex:2"><div class="sb-label">Looking for</div><div class="sb-value">Keywords, filename, or natural language</div></div>
+      <div class="sb-seg"><div class="sb-label">Format</div><div class="sb-value">Any</div></div>
+      <div class="sb-seg"><div class="sb-label">When</div><div class="sb-value">Anytime</div></div>
+      <button class="sb-go">&#9906;</button>
+    </div>
+
+    <div class="row">
+      <div class="row-head">
+        <div class="row-title-link"><h3 class="row-title">Recent searches</h3></div>
+        <span class="row-link">Clear history</span>
+      </div>
+      <div class="recent-chips">
+        <span class="recent-chip"><span class="icon">&#9740;</span>arc-flash PPE requirements<span class="x">&times;</span></span>
+        <span class="recent-chip"><span class="icon">&#9740;</span>jurisdiction Local 76<span class="x">&times;</span></span>
+        <span class="recent-chip"><span class="icon">&#9740;</span>apprentice OJT shortfall<span class="x">&times;</span></span>
+        <span class="recent-chip"><span class="icon">&#9740;</span>master agreement section 12<span class="x">&times;</span></span>
+        <span class="recent-chip"><span class="icon">&#9740;</span>healthcare contribution cap<span class="x">&times;</span></span>
+        <span class="recent-chip"><span class="icon">&#9740;</span>steward training grievance<span class="x">&times;</span></span>
+        <span class="recent-chip"><span class="icon">&#9740;</span>pension allocation 2026<span class="x">&times;</span></span>
+        <span class="recent-chip"><span class="icon">&#9740;</span>bylaws delegate selection<span class="x">&times;</span></span>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="row-head">
+        <div class="row-title-link"><h3 class="row-title">Recently opened</h3></div>
+        <span class="row-link">See all</span>
+      </div>
+      <div class="row-cards">
+        <div class="doc-card"><div class="doc-thumb"><div class="doc-band pdf"><span class="doc-band-label">PDF</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Master Agreement 2024-2027</div>Current effective contract for Local 46 inside-wireman classification...</div></div></div>
+        <div class="doc-card"><div class="doc-thumb"><div class="doc-band docx"><span class="doc-band-label">DOCX</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Safety Arc-flash Bulletin</div>Updated PPE requirements for energized work...</div></div></div>
+        <div class="doc-card"><div class="doc-thumb"><div class="doc-band eml"><span class="doc-band-label">EML</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Re: Jurisdiction dispute</div>From Local 76 BA: regarding the Mercer Island work...</div></div></div>
+        <div class="doc-card"><div class="doc-thumb"><div class="doc-band xlsx"><span class="doc-band-label">XLSX</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Apprentice Hours Tracking</div>FY2026 cohort progress...</div></div></div>
+        <div class="doc-card"><div class="doc-thumb"><div class="doc-band md"><span class="doc-band-label">MD</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h"># Steward Training Notes</div>Grievance handling, escalation paths...</div></div></div>
+        <div class="doc-card"><div class="doc-thumb"><div class="doc-band pptx"><span class="doc-band-label">PPTX</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Member Orientation 2026</div>Welcome to IBEW Local 46...</div></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- =================== 3. Minimal =================== -->
+<div class="page-label">3. Minimal &mdash; search bar only (Apple-extreme)</div>
+
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow <span class="ver-chip">v0.34.1-dev</span></div>
+    <div class="pg-links"><span class="on">Search</span><span>Pipeline</span><span>Convert</span><span>Settings</span></div>
+    <div class="pg-avatar"></div>
+  </div>
+  <div class="pg-body" style="padding:7rem 2rem 9rem;text-align:center">
+    <div style="display:inline-flex;align-items:center;justify-content:center;margin-bottom:2rem">
+      <span class="pulse"><span class="pulse-dot"></span> All systems running &middot; 12,847 documents indexed</span>
+    </div>
+    <h1 class="pg-headline huge" style="margin-bottom:0.5rem">MarkFlow.</h1>
+    <p class="pg-subtitle" style="font-size:1.1rem;margin:0 auto 2.5rem">Find anything you've ever converted.</p>
+
+    <div style="display:flex;justify-content:center">
+      <div class="searchbar lg">
+        <div class="sb-seg" style="flex:2.4"><div class="sb-label">Looking for</div><div class="sb-value">Keywords, filename, or natural language</div></div>
+        <div class="sb-seg"><div class="sb-label">Format</div><div class="sb-value">Any</div></div>
+        <div class="sb-seg"><div class="sb-label">When</div><div class="sb-value">Anytime</div></div>
+        <button class="sb-go">&#9906;</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- =================== 4. The picker in Settings =================== -->
+<div class="page-label">4. Settings &rarr; Display &rarr; Home layout &mdash; visual three-up picker</div>
+
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow <span class="ver-chip">v0.34.1-dev</span></div>
+    <div class="pg-links"><span>Search</span><span>Pipeline</span><span>Convert</span><span class="on">Settings</span></div>
+    <div class="pg-avatar"></div>
+  </div>
+  <div class="pg-body" style="padding:1.8rem 2rem 2.2rem">
+    <div class="crumb"><span>All settings</span><span class="sep">/</span><span style="color:#0a0a0a">Display</span></div>
+    <h1 class="pg-headline" style="font-size:1.6rem;margin-bottom:0.3rem">Display.</h1>
+    <p class="pg-subtitle">How content shows up &mdash; including how busy your home page should feel.</p>
+
+    <div class="setting-row">
+      <div style="flex:1.6">
+        <div class="lbl">Home page layout</div>
+        <div class="desc">Pick the home that fits your day. You can change this anytime; the keyboard shortcut <code style="background:#f0f0f0;padding:0.06rem 0.35rem;border-radius:4px;font-family:ui-monospace,monospace;font-size:0.78rem">&#8984;\</code> cycles between the three.</div>
+      </div>
+      <div class="layout-picker" style="flex:2">
+        <div class="layout-opt on">
+          <div class="layout-opt-name">Maximal</div>
+          <div class="layout-opt-desc">Search + browse rows.</div>
+          <div class="layout-opt-vis">
+            <div class="lop-bar search"></div>
+            <div class="lop-bar"></div>
+            <div class="lop-grid"></div>
+            <div class="lop-grid"></div>
+          </div>
+        </div>
+        <div class="layout-opt">
+          <div class="layout-opt-name">Recent</div>
+          <div class="layout-opt-desc">Search + history only.</div>
+          <div class="layout-opt-vis">
+            <div class="lop-bar search"></div>
+            <div class="lop-bar"></div>
+            <div class="lop-bar" style="width:55%"></div>
+            <div class="lop-grid"></div>
+          </div>
+        </div>
+        <div class="layout-opt">
+          <div class="layout-opt-name">Minimal</div>
+          <div class="layout-opt-desc">Just the search box.</div>
+          <div class="layout-opt-vis" style="justify-content:center">
+            <div class="lop-bar search" style="margin-top:auto;margin-bottom:auto"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <div>
+        <div class="lbl">Track recent searches</div>
+        <div class="desc">Save your search query history so it shows up on the Recent layout. Off &rarr; nothing is logged; the Recent layout will show "Recently opened" only.</div>
+      </div>
+      <div style="width:36px;height:20px;background:#5b3df5;border-radius:999px;position:relative"><div style="width:16px;height:16px;background:#fff;border-radius:50%;position:absolute;top:2px;right:2px;box-shadow:0 1px 3px rgba(0,0,0,0.2)"></div></div>
+    </div>
+  </div>
+</div>
+
+
+<!-- =================== React =================== -->
+<h3 style="margin-top:2.4rem">React</h3>
+<div class="options" data-multiselect>
+  <div class="option" data-choice="three-modes" onclick="toggleSelect(this)">
+    <div class="letter">&#10003;</div>
+    <div class="content">
+      <h3>Three modes feels right</h3>
+      <p>Maximal / Recent / Minimal covers the spectrum. Lock it.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="cycle-shortcut" onclick="toggleSelect(this)">
+    <div class="letter">&#10003;</div>
+    <div class="content">
+      <h3>Add the &#8984;\ keyboard cycle</h3>
+      <p>One shortcut cycles through all three layouts &mdash; same key any time you want to swap (e.g., quick switch from Maximal to Minimal when sharing your screen in a meeting).</p>
+    </div>
+  </div>
+  <div class="option" data-choice="quick-toggle" onclick="toggleSelect(this)">
+    <div class="letter">Q</div>
+    <div class="content">
+      <h3>Add a layout quick-toggle in nav</h3>
+      <p>A small icon next to the avatar lets you swap layouts without going into Settings. Useful if you cycle often.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="recent-track-default" onclick="toggleSelect(this)">
+    <div class="letter">P</div>
+    <div class="content">
+      <h3>Default "Track recent searches" to OFF for privacy</h3>
+      <p>Currently mocked as ON. For an internal IBEW tool with shared workstations, OFF-by-default may be more appropriate.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="default-mode" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>Pick the system default mode</h3>
+      <p>Currently the mockup defaults to Maximal. Should new users land on Maximal (welcoming, demonstrates capability), Recent (functional immediately), or Minimal (calm)? Each has a case.</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:1.5rem">In terminal: which default mode (Maximal / Recent / Minimal) for new users, and whether the &#8984;\ cycle + a nav quick-toggle are both worth it or one is enough.</p>

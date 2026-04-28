@@ -1,0 +1,429 @@
+<h2>Home — snippets + expand + density</h2>
+<p class="subtitle">Gradient thumbs &rarr; document-paper snippet thumbs. Each row gets an expand-to-full-page. Density toggle (Cards / Compact / List) persists from Settings &rarr; Display.</p>
+
+<style>
+  /* === shared tokens === */
+  .pg { background:#fff; border-radius:14px; overflow:hidden; box-shadow:0 1px 0 rgba(0,0,0,0.05), 0 24px 48px -24px rgba(0,0,0,0.18); border:1px solid #ececec; margin-bottom:1.6rem; font-family:-apple-system,'SF Pro Display',Inter,system-ui,sans-serif; }
+  .pg-nav { display:flex; align-items:center; justify-content:space-between; padding:1.05rem 1.6rem; border-bottom:1px solid #f1f1f1; font-size:0.92rem; }
+  .pg-logo { font-weight:700; letter-spacing:-0.01em; color:#0a0a0a; font-size:1.05rem; }
+  .pg-links { display:flex; gap:1.5rem; color:#3a3a3a; font-weight:500; }
+  .pg-links span { cursor:default; }
+  .pg-links .on { color:#5b3df5; }
+  .pg-avatar { width:30px; height:30px; border-radius:50%; background:linear-gradient(135deg,#5b3df5,#9d7bff); }
+  .pg-body { padding:2.2rem 2rem 2.8rem; }
+
+  .pg-headline { font-size:2.3rem; line-height:1.05; letter-spacing:-0.025em; font-weight:700; color:#0a0a0a; margin:0 0 0.55rem; }
+  .pg-headline.lg { font-size:2.5rem; }
+  .pg-subtitle { color:#5a5a5a; font-size:0.98rem; margin:0 0 1.4rem; max-width:42ch; }
+
+  .pulse { display:inline-flex; align-items:center; gap:0.5rem; background:#eafff5; color:#0e7c5a; padding:0.32rem 0.8rem; border-radius:999px; font-size:0.78rem; font-weight:600; margin-bottom:1.2rem; }
+  .pulse-dot { width:7px; height:7px; border-radius:50%; background:#0e7c5a; box-shadow:0 0 0 4px rgba(14,124,90,0.18); }
+
+  /* search bar (compact reuse) */
+  .searchbar { display:flex; align-items:center; max-width:760px; background:#fff; border:1px solid #ececec; border-radius:999px; box-shadow:0 4px 14px -6px rgba(0,0,0,0.08); padding:0.35rem; }
+  .sb-seg { padding:0.55rem 1.2rem; flex:1; min-width:0; border-right:1px solid #f0f0f0; }
+  .sb-seg:last-of-type { border-right:none; }
+  .sb-label { font-size:0.66rem; font-weight:700; color:#0a0a0a; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:0.1rem; }
+  .sb-value { font-size:0.84rem; color:#888; }
+  .sb-go { width:38px; height:38px; border-radius:50%; background:#5b3df5; color:#fff; border:none; display:flex; align-items:center; justify-content:center; font-size:0.95rem; flex-shrink:0; }
+
+  /* density toggle */
+  .density-row { display:flex; justify-content:space-between; align-items:center; margin:1.4rem 0 1rem; }
+  .density-toggle { display:inline-flex; background:#f5f5f5; border-radius:10px; padding:0.22rem; gap:0.15rem; }
+  .density-toggle button { background:transparent; border:none; padding:0.4rem 0.7rem; border-radius:7px; color:#7a7a7a; cursor:pointer; font-size:0.8rem; display:inline-flex; align-items:center; gap:0.35rem; font-weight:500; }
+  .density-toggle button.on { background:#fff; color:#0a0a0a; box-shadow:0 1px 3px rgba(0,0,0,0.08); }
+  .density-icon { width:14px; height:14px; display:inline-block; }
+  .density-toggle .label { font-size:0.78rem; }
+
+  /* row */
+  .row { margin-top:1.7rem; }
+  .row-head { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:0.85rem; }
+  .row-title-link { display:inline-flex; align-items:center; gap:0.45rem; cursor:pointer; }
+  .row-title { font-size:1.25rem; font-weight:700; letter-spacing:-0.018em; color:#0a0a0a; margin:0; }
+  .row-title-link .arrow { width:22px; height:22px; border-radius:50%; background:#f3f3f3; display:inline-flex; align-items:center; justify-content:center; color:#5a5a5a; font-size:0.72rem; transition:background 0.15s, color 0.15s; }
+  .row-title-link:hover .arrow { background:#5b3df5; color:#fff; }
+  .row-controls { display:flex; gap:0.4rem; align-items:center; }
+  .row-count { font-size:0.78rem; color:#888; margin-right:0.4rem; }
+  .row-arrow { width:30px; height:30px; border-radius:50%; background:#fff; border:1px solid #e0e0e0; cursor:pointer; color:#5a5a5a; display:inline-flex; align-items:center; justify-content:center; font-size:0.78rem; }
+
+  /* === DOCUMENT-PAPER snippet thumbs === */
+  .doc-card { cursor:pointer; transition:transform 0.15s; }
+  .doc-card:hover { transform:translateY(-2px); }
+  .doc-thumb { aspect-ratio:0.78; border-radius:8px; overflow:hidden; position:relative; background:#fefefb; border:1px solid #e8e6df; box-shadow:0 1px 0 rgba(0,0,0,0.04), 0 8px 16px -10px rgba(0,0,0,0.1); padding:0.85rem 0.75rem 0.55rem; }
+  .doc-thumb::after { content:''; position:absolute; left:0; right:0; bottom:0; height:32%; background:linear-gradient(180deg, rgba(254,254,251,0) 0%, rgba(254,254,251,1) 92%); pointer-events:none; }
+  .doc-fmt-pill { position:absolute; top:0.45rem; right:0.45rem; font-size:0.6rem; font-weight:700; padding:0.16rem 0.45rem; border-radius:999px; letter-spacing:0.06em; text-transform:uppercase; z-index:2; }
+  .fmt-pdf  { background:#ffe7e7; color:#c92a2a; }
+  .fmt-docx { background:#e3f2ff; color:#1864ab; }
+  .fmt-pptx { background:#ffe9d4; color:#d9480f; }
+  .fmt-xlsx { background:#dffbe6; color:#2b8a3e; }
+  .fmt-eml  { background:#f5e3ff; color:#862e9c; }
+  .fmt-psd  { background:#e3e9ff; color:#364fc7; }
+  .fmt-mp4  { background:#d0f4f7; color:#0b7285; }
+  .fmt-md   { background:#eaeaea; color:#333; }
+  .doc-snippet { font-size:0.66rem; color:#2a2a2a; line-height:1.45; font-family:'Iowan Old Style','Charter','Cambria',Georgia,serif; max-height:100%; overflow:hidden; }
+  .doc-snippet .h { font-weight:700; font-size:0.74rem; margin-bottom:0.25rem; color:#0a0a0a; }
+  .doc-meta { padding:0.5rem 0.1rem 0; }
+  .doc-title { font-size:0.84rem; font-weight:600; color:#0a0a0a; line-height:1.25; margin:0 0 0.18rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .doc-path { font-size:0.72rem; color:#888; font-family:ui-monospace,'SF Mono',monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .doc-stamp { font-size:0.72rem; color:#5a5a5a; margin-top:0.12rem; }
+
+  /* === density variants === */
+  .row-cards.cards    { display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:0.85rem; }
+  .row-cards.compact  { display:grid; grid-template-columns:repeat(8, minmax(0,1fr)); gap:0.6rem; }
+  .row-cards.compact .doc-thumb { padding:0.6rem 0.55rem 0.45rem; }
+  .row-cards.compact .doc-snippet { font-size:0.58rem; }
+  .row-cards.compact .doc-snippet .h { font-size:0.66rem; margin-bottom:0.2rem; }
+  .row-cards.compact .doc-fmt-pill { font-size:0.54rem; padding:0.12rem 0.35rem; }
+  .row-cards.compact .doc-meta { padding:0.35rem 0.05rem 0; }
+  .row-cards.compact .doc-title { font-size:0.74rem; }
+  .row-cards.compact .doc-path  { font-size:0.62rem; }
+  .row-cards.compact .doc-stamp { font-size:0.62rem; }
+
+  /* list mode */
+  .row-list { border-top:1px solid #f0f0f0; }
+  .list-row { display:grid; grid-template-columns:24px 2.4fr 2fr 64px 0.9fr 24px; gap:0.85rem; align-items:center; padding:0.55rem 0.5rem; border-bottom:1px solid #f4f4f4; font-size:0.84rem; cursor:pointer; }
+  .list-row:hover { background:#fafafa; }
+  .list-fmt { width:24px; height:24px; border-radius:5px; display:inline-flex; align-items:center; justify-content:center; font-size:0.55rem; font-weight:800; letter-spacing:0.04em; }
+  .list-title { color:#0a0a0a; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .list-path { color:#888; font-size:0.78rem; font-family:ui-monospace,monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .list-tag { font-size:0.7rem; color:#5a5a5a; }
+  .list-stamp { color:#5a5a5a; font-size:0.78rem; }
+  .list-fav { color:#bbb; font-size:0.85rem; }
+
+  /* expanded view ribbon */
+  .crumb { display:inline-flex; align-items:center; gap:0.35rem; color:#5b3df5; font-size:0.84rem; font-weight:500; text-decoration:none; margin-bottom:0.7rem; }
+
+  /* settings card */
+  .setting-row { display:flex; align-items:center; justify-content:space-between; padding:1rem 1.2rem; background:#fafafa; border:1px solid #ececec; border-radius:12px; }
+  .setting-row .lbl { font-size:0.92rem; color:#0a0a0a; font-weight:600; }
+  .setting-row .desc { font-size:0.8rem; color:#7a7a7a; margin-top:0.15rem; }
+
+  .page-label { font-size:0.7rem; font-weight:700; color:#999; text-transform:uppercase; letter-spacing:0.08em; margin:1.6rem 0 0.5rem 0.3rem; }
+</style>
+
+
+<!-- =================== 1. Home with snippet thumbs + density toggle + expand link =================== -->
+<div class="page-label">1. Home — snippet thumbs replace gradients. Density toggle in row header. "See all" link expands the section.</div>
+
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow</div>
+    <div class="pg-links"><span class="on">Search</span><span>Pipeline</span><span>Convert</span><span>Settings</span></div>
+    <div class="pg-avatar"></div>
+  </div>
+  <div class="pg-body">
+    <div class="pulse"><span class="pulse-dot"></span> All systems running &middot; 12,847 documents indexed</div>
+    <h1 class="pg-headline">Find anything you've ever converted.</h1>
+
+    <div class="searchbar">
+      <div class="sb-seg" style="flex:2"><div class="sb-label">Looking for</div><div class="sb-value">Keywords, filename, or natural language</div></div>
+      <div class="sb-seg"><div class="sb-label">Format</div><div class="sb-value">Any</div></div>
+      <div class="sb-seg"><div class="sb-label">When</div><div class="sb-value">Anytime</div></div>
+      <button class="sb-go">&#9906;</button>
+    </div>
+
+    <!-- density toggle row -->
+    <div class="density-row">
+      <span style="font-size:0.86rem;color:#5a5a5a">Display</span>
+      <div class="density-toggle">
+        <button class="on">
+          <svg class="density-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="1.5" y="1.5" width="5" height="5" rx="1"/><rect x="9.5" y="1.5" width="5" height="5" rx="1"/><rect x="1.5" y="9.5" width="5" height="5" rx="1"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/></svg>
+          <span class="label">Cards</span>
+        </button>
+        <button>
+          <svg class="density-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="1.5" y="1.5" width="3.3" height="3.3" rx="0.6"/><rect x="6.35" y="1.5" width="3.3" height="3.3" rx="0.6"/><rect x="11.2" y="1.5" width="3.3" height="3.3" rx="0.6"/><rect x="1.5" y="6.35" width="3.3" height="3.3" rx="0.6"/><rect x="6.35" y="6.35" width="3.3" height="3.3" rx="0.6"/><rect x="11.2" y="6.35" width="3.3" height="3.3" rx="0.6"/></svg>
+          <span class="label">Compact</span>
+        </button>
+        <button>
+          <svg class="density-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="2" y1="4" x2="14" y2="4"/><line x1="2" y1="8" x2="14" y2="8"/><line x1="2" y1="12" x2="14" y2="12"/></svg>
+          <span class="label">List</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ROW 1 — Recently converted (CARD mode shown) -->
+    <div class="row">
+      <div class="row-head">
+        <div class="row-title-link"><h3 class="row-title">Recently converted</h3><span class="arrow">&rarr;</span></div>
+        <div class="row-controls">
+          <span class="row-count">312 in last 24h</span>
+          <button class="row-arrow">&larr;</button>
+          <button class="row-arrow">&rarr;</button>
+          <button class="row-arrow" title="Expand">&#9974;</button>
+        </div>
+      </div>
+      <div class="row-cards cards">
+        <div class="doc-card">
+          <div class="doc-thumb">
+            <span class="doc-fmt-pill fmt-pdf">PDF</span>
+            <div class="doc-snippet">
+              <div class="h">Q4 2025 Financial Summary</div>
+              Revenue increased 18% year over year, driven primarily by member dues growth and the new training-fund distributions approved in March...
+            </div>
+          </div>
+          <div class="doc-meta"><h4 class="doc-title">Q4-financials.pdf</h4><div class="doc-path">/finance/2025/q4/</div><div class="doc-stamp">2 min ago</div></div>
+        </div>
+        <div class="doc-card">
+          <div class="doc-thumb">
+            <span class="doc-fmt-pill fmt-docx">DOCX</span>
+            <div class="doc-snippet">
+              <div class="h">Contract Negotiation Prep v3</div>
+              Opening positions for the May 2026 negotiation cycle. Priority items: wage scale adjustment, healthcare contribution cap, apprentice ratio...
+            </div>
+          </div>
+          <div class="doc-meta"><h4 class="doc-title">contract-prep-v3.docx</h4><div class="doc-path">/local-46/contracts/</div><div class="doc-stamp">8 min ago</div></div>
+        </div>
+        <div class="doc-card">
+          <div class="doc-thumb">
+            <span class="doc-fmt-pill fmt-pptx">PPTX</span>
+            <div class="doc-snippet">
+              <div class="h">Member Orientation 2026</div>
+              Welcome to IBEW Local 46. This deck covers benefits enrollment, dues schedule, training pathways, and your first-year apprentice timeline...
+            </div>
+          </div>
+          <div class="doc-meta"><h4 class="doc-title">orientation-2026.pptx</h4><div class="doc-path">/training/onboard/</div><div class="doc-stamp">14 min ago</div></div>
+        </div>
+        <div class="doc-card">
+          <div class="doc-thumb">
+            <span class="doc-fmt-pill fmt-xlsx">XLSX</span>
+            <div class="doc-snippet">
+              <div class="h">Apprentice Hours Tracking</div>
+              FY2026 cohort progress as of period 4. 18 apprentices on track, 3 flagged for OJT shortfall, 1 on probation pending steward review...
+            </div>
+          </div>
+          <div class="doc-meta"><h4 class="doc-title">apprentice-hours.xlsx</h4><div class="doc-path">/training/tracking/</div><div class="doc-stamp">22 min ago</div></div>
+        </div>
+        <div class="doc-card">
+          <div class="doc-thumb">
+            <span class="doc-fmt-pill fmt-eml">EML</span>
+            <div class="doc-snippet">
+              <div class="h">Re: Jurisdiction dispute</div>
+              From Local 76 BA: regarding the Mercer Island substation work, our position remains that fiber pulls within the control building fall...
+            </div>
+          </div>
+          <div class="doc-meta"><h4 class="doc-title">jurisdiction-thread.eml</h4><div class="doc-path">/correspondence/2026-q1/</div><div class="doc-stamp">38 min ago</div></div>
+        </div>
+        <div class="doc-card">
+          <div class="doc-thumb">
+            <span class="doc-fmt-pill fmt-md">MD</span>
+            <div class="doc-snippet">
+              <div class="h"># Bylaws Revision Draft</div>
+              Section 4 amendments for the May general meeting vote. Addresses delegate selection, executive board terms, and the new finance-review...
+            </div>
+          </div>
+          <div class="doc-meta"><h4 class="doc-title">bylaws-revision-draft.md</h4><div class="doc-path">/governance/bylaws/</div><div class="doc-stamp">1 hr ago</div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- =================== 2. Same row in 3 density modes =================== -->
+<div class="page-label">2. The three density modes (same content, same row)</div>
+
+<div class="pg">
+  <div class="pg-body" style="padding:1.6rem 2rem 2rem">
+
+    <!-- CARDS -->
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:0.55rem">
+      <div style="font-size:0.7rem;font-weight:700;color:#5b3df5;letter-spacing:0.08em;text-transform:uppercase">Cards</div>
+      <div style="font-size:0.78rem;color:#888">Visual. Best for browsing.</div>
+    </div>
+    <div class="row-cards cards" style="margin-bottom:1.6rem">
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-pdf">PDF</span><div class="doc-snippet"><div class="h">Q4 2025 Financial Summary</div>Revenue increased 18% year over year, driven by member dues growth...</div></div><div class="doc-meta"><h4 class="doc-title">Q4-financials.pdf</h4><div class="doc-path">/finance/2025/q4/</div><div class="doc-stamp">2 min ago</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-docx">DOCX</span><div class="doc-snippet"><div class="h">Contract Negotiation Prep v3</div>Opening positions for the May 2026 cycle. Priority items: wage scale...</div></div><div class="doc-meta"><h4 class="doc-title">contract-prep-v3.docx</h4><div class="doc-path">/local-46/contracts/</div><div class="doc-stamp">8 min ago</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-pptx">PPTX</span><div class="doc-snippet"><div class="h">Member Orientation 2026</div>Welcome to IBEW Local 46. This deck covers benefits enrollment...</div></div><div class="doc-meta"><h4 class="doc-title">orientation-2026.pptx</h4><div class="doc-path">/training/onboard/</div><div class="doc-stamp">14 min ago</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-xlsx">XLSX</span><div class="doc-snippet"><div class="h">Apprentice Hours Tracking</div>FY2026 cohort progress. 18 apprentices on track, 3 flagged for OJT...</div></div><div class="doc-meta"><h4 class="doc-title">apprentice-hours.xlsx</h4><div class="doc-path">/training/tracking/</div><div class="doc-stamp">22 min ago</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-eml">EML</span><div class="doc-snippet"><div class="h">Re: Jurisdiction dispute</div>From Local 76 BA: regarding the Mercer Island substation work...</div></div><div class="doc-meta"><h4 class="doc-title">jurisdiction-thread.eml</h4><div class="doc-path">/correspondence/2026-q1/</div><div class="doc-stamp">38 min ago</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-md">MD</span><div class="doc-snippet"><div class="h"># Bylaws Revision Draft</div>Section 4 amendments for the May general meeting vote. Delegate selection...</div></div><div class="doc-meta"><h4 class="doc-title">bylaws-revision-draft.md</h4><div class="doc-path">/governance/bylaws/</div><div class="doc-stamp">1 hr ago</div></div></div>
+    </div>
+
+    <!-- COMPACT -->
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:0.55rem">
+      <div style="font-size:0.7rem;font-weight:700;color:#5b3df5;letter-spacing:0.08em;text-transform:uppercase">Compact</div>
+      <div style="font-size:0.78rem;color:#888">8 per row. More on screen, still visual.</div>
+    </div>
+    <div class="row-cards compact" style="margin-bottom:1.6rem">
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-pdf">PDF</span><div class="doc-snippet"><div class="h">Q4 Financial Summary</div>Revenue +18% YoY...</div></div><div class="doc-meta"><h4 class="doc-title">Q4-financials.pdf</h4><div class="doc-path">/finance/2025/q4/</div><div class="doc-stamp">2 min</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-docx">DOCX</span><div class="doc-snippet"><div class="h">Contract Prep v3</div>Opening positions for May...</div></div><div class="doc-meta"><h4 class="doc-title">contract-prep-v3.docx</h4><div class="doc-path">/local-46/contracts/</div><div class="doc-stamp">8 min</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-pptx">PPTX</span><div class="doc-snippet"><div class="h">Orientation 2026</div>Welcome to Local 46...</div></div><div class="doc-meta"><h4 class="doc-title">orientation-2026.pptx</h4><div class="doc-path">/training/onboard/</div><div class="doc-stamp">14 min</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-xlsx">XLSX</span><div class="doc-snippet"><div class="h">Apprentice Hours</div>FY26 cohort progress...</div></div><div class="doc-meta"><h4 class="doc-title">apprentice-hours.xlsx</h4><div class="doc-path">/training/tracking/</div><div class="doc-stamp">22 min</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-eml">EML</span><div class="doc-snippet"><div class="h">Re: Jurisdiction</div>From Local 76 BA...</div></div><div class="doc-meta"><h4 class="doc-title">jurisdiction-thread.eml</h4><div class="doc-path">/correspondence/2026-q1/</div><div class="doc-stamp">38 min</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-md">MD</span><div class="doc-snippet"><div class="h">Bylaws Draft</div>Section 4 amendments...</div></div><div class="doc-meta"><h4 class="doc-title">bylaws-revision-draft.md</h4><div class="doc-path">/governance/bylaws/</div><div class="doc-stamp">1 hr</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-psd">PSD</span><div class="doc-snippet"><div class="h">Brand Refresh</div>Layered source for portal...</div></div><div class="doc-meta"><h4 class="doc-title">brand-refresh.psd</h4><div class="doc-path">/design/2026-refresh/</div><div class="doc-stamp">2 hr</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-mp4">MP4</span><div class="doc-snippet"><div class="h">JATC Welcome</div>Transcribed video...</div></div><div class="doc-meta"><h4 class="doc-title">jatc-welcome.mp4</h4><div class="doc-path">/training/media/</div><div class="doc-stamp">3 hr</div></div></div>
+    </div>
+
+    <!-- LIST -->
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:0.55rem">
+      <div style="font-size:0.7rem;font-weight:700;color:#5b3df5;letter-spacing:0.08em;text-transform:uppercase">List</div>
+      <div style="font-size:0.78rem;color:#888">Densest. Best for power use.</div>
+    </div>
+    <div class="row-list">
+      <div class="list-row"><span class="list-fmt fmt-pdf">PDF</span><span class="list-title">Q4 2025 Financial Summary</span><span class="list-path">/finance/2025/q4/Q4-financials.pdf</span><span class="list-tag">3.2 MB</span><span class="list-stamp">2 min ago</span><span class="list-fav">&hearts;</span></div>
+      <div class="list-row"><span class="list-fmt fmt-docx">DOC</span><span class="list-title">Contract Negotiation Prep v3</span><span class="list-path">/local-46/contracts/contract-prep-v3.docx</span><span class="list-tag">880 KB</span><span class="list-stamp">8 min ago</span><span class="list-fav">&hearts;</span></div>
+      <div class="list-row"><span class="list-fmt fmt-pptx">PPT</span><span class="list-title">Member Orientation 2026</span><span class="list-path">/training/onboard/orientation-2026.pptx</span><span class="list-tag">14 MB</span><span class="list-stamp">14 min ago</span><span class="list-fav">&hearts;</span></div>
+      <div class="list-row"><span class="list-fmt fmt-xlsx">XLS</span><span class="list-title">Apprentice Hours Tracking</span><span class="list-path">/training/tracking/apprentice-hours.xlsx</span><span class="list-tag">1.1 MB</span><span class="list-stamp">22 min ago</span><span class="list-fav">&hearts;</span></div>
+      <div class="list-row"><span class="list-fmt fmt-eml">EML</span><span class="list-title">Re: Jurisdiction dispute</span><span class="list-path">/correspondence/2026-q1/jurisdiction-thread.eml</span><span class="list-tag">142 KB</span><span class="list-stamp">38 min ago</span><span class="list-fav">&hearts;</span></div>
+      <div class="list-row"><span class="list-fmt fmt-md">MD</span><span class="list-title">Bylaws Revision Draft</span><span class="list-path">/governance/bylaws/bylaws-revision-draft.md</span><span class="list-tag">28 KB</span><span class="list-stamp">1 hr ago</span><span class="list-fav">&hearts;</span></div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- =================== 3. Expanded section view =================== -->
+<div class="page-label">3. Click "Recently converted &rarr;" or the expand button &rarr; full-page view of just that section</div>
+
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow</div>
+    <div class="pg-links"><span class="on">Search</span><span>Pipeline</span><span>Convert</span><span>Settings</span></div>
+    <div class="pg-avatar"></div>
+  </div>
+  <div class="pg-body">
+    <a href="#" class="crumb">&larr; Home</a>
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:1.2rem">
+      <div>
+        <h1 class="pg-headline lg" style="margin-bottom:0.2rem">Recently converted</h1>
+        <div style="color:#7a7a7a;font-size:0.92rem">312 documents in the last 24 hours &middot; sorted by most recent</div>
+      </div>
+      <div style="display:flex;gap:0.6rem;align-items:center">
+        <select style="padding:0.5rem 0.85rem;border:1px solid #e0e0e0;border-radius:8px;font-size:0.85rem;background:#fff;font-family:inherit">
+          <option>Sort: Most recent</option>
+          <option>Most accessed</option>
+          <option>Largest first</option>
+          <option>By format</option>
+        </select>
+        <div class="density-toggle">
+          <button class="on"><span class="label">Cards</span></button>
+          <button><span class="label">Compact</span></button>
+          <button><span class="label">List</span></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- inline filter row -->
+    <div style="display:flex;gap:0.45rem;flex-wrap:wrap;margin-bottom:1.2rem">
+      <span style="background:#f5f3ff;color:#5b3df5;padding:0.35rem 0.8rem;border-radius:999px;font-size:0.78rem;font-weight:500">All formats</span>
+      <span style="background:#f7f7f7;color:#3a3a3a;padding:0.35rem 0.8rem;border-radius:999px;font-size:0.78rem">PDFs only</span>
+      <span style="background:#f7f7f7;color:#3a3a3a;padding:0.35rem 0.8rem;border-radius:999px;font-size:0.78rem">Office</span>
+      <span style="background:#f7f7f7;color:#3a3a3a;padding:0.35rem 0.8rem;border-radius:999px;font-size:0.78rem">Email</span>
+      <span style="background:#f7f7f7;color:#3a3a3a;padding:0.35rem 0.8rem;border-radius:999px;font-size:0.78rem">Media</span>
+      <span style="background:#f7f7f7;color:#3a3a3a;padding:0.35rem 0.8rem;border-radius:999px;font-size:0.78rem">In folder &hellip;</span>
+    </div>
+
+    <!-- expanded grid - more rows -->
+    <div class="row-cards cards">
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-pdf">PDF</span><div class="doc-snippet"><div class="h">Q4 2025 Financial Summary</div>Revenue increased 18% year over year, driven primarily by member dues growth...</div></div><div class="doc-meta"><h4 class="doc-title">Q4-financials.pdf</h4><div class="doc-path">/finance/2025/q4/</div><div class="doc-stamp">2 min ago</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-docx">DOCX</span><div class="doc-snippet"><div class="h">Contract Negotiation Prep v3</div>Opening positions for the May 2026 cycle. Priority items: wage scale...</div></div><div class="doc-meta"><h4 class="doc-title">contract-prep-v3.docx</h4><div class="doc-path">/local-46/contracts/</div><div class="doc-stamp">8 min ago</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-pptx">PPTX</span><div class="doc-snippet"><div class="h">Member Orientation 2026</div>Welcome to IBEW Local 46. Benefits enrollment, dues schedule, training pathways...</div></div><div class="doc-meta"><h4 class="doc-title">orientation-2026.pptx</h4><div class="doc-path">/training/onboard/</div><div class="doc-stamp">14 min ago</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-xlsx">XLSX</span><div class="doc-snippet"><div class="h">Apprentice Hours Tracking</div>FY2026 cohort progress as of period 4. 18 apprentices on track...</div></div><div class="doc-meta"><h4 class="doc-title">apprentice-hours.xlsx</h4><div class="doc-path">/training/tracking/</div><div class="doc-stamp">22 min ago</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-eml">EML</span><div class="doc-snippet"><div class="h">Re: Jurisdiction dispute</div>From Local 76 BA: regarding the Mercer Island substation work...</div></div><div class="doc-meta"><h4 class="doc-title">jurisdiction-thread.eml</h4><div class="doc-path">/correspondence/2026-q1/</div><div class="doc-stamp">38 min ago</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-md">MD</span><div class="doc-snippet"><div class="h"># Bylaws Revision Draft</div>Section 4 amendments for the May general meeting vote...</div></div><div class="doc-meta"><h4 class="doc-title">bylaws-revision-draft.md</h4><div class="doc-path">/governance/bylaws/</div><div class="doc-stamp">1 hr ago</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-psd">PSD</span><div class="doc-snippet"><div class="h">Brand Refresh Assets</div>Layered source for member portal redesign. Includes typography...</div></div><div class="doc-meta"><h4 class="doc-title">brand-refresh.psd</h4><div class="doc-path">/design/2026-refresh/</div><div class="doc-stamp">2 hr ago</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-mp4">MP4</span><div class="doc-snippet"><div class="h">JATC Welcome Video</div>Transcribed and indexed. Covers training milestones and union history...</div></div><div class="doc-meta"><h4 class="doc-title">jatc-welcome.mp4</h4><div class="doc-path">/training/media/</div><div class="doc-stamp">3 hr ago</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-pdf">PDF</span><div class="doc-snippet"><div class="h">Safety Bulletin Q1</div>Updated arc-flash PPE requirements per OSHA 1910 revisions...</div></div><div class="doc-meta"><h4 class="doc-title">safety-q1.pdf</h4><div class="doc-path">/safety/bulletins/</div><div class="doc-stamp">4 hr ago</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-xlsx">XLSX</span><div class="doc-snippet"><div class="h">Pension Allocation 2026</div>Q1 distribution table with member-by-member breakdown...</div></div><div class="doc-meta"><h4 class="doc-title">pension-2026.xlsx</h4><div class="doc-path">/finance/pension/</div><div class="doc-stamp">5 hr ago</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-docx">DOCX</span><div class="doc-snippet"><div class="h">Steward Training Notes</div>Consolidated from three sessions. Grievance handling, escalation paths...</div></div><div class="doc-meta"><h4 class="doc-title">steward-notes.docx</h4><div class="doc-path">/training/stewards/</div><div class="doc-stamp">6 hr ago</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><span class="doc-fmt-pill fmt-eml">EML</span><div class="doc-snippet"><div class="h">Re: Apprentice probation</div>Following up on the steward review &mdash; recommend extending the period by...</div></div><div class="doc-meta"><h4 class="doc-title">probation-thread.eml</h4><div class="doc-path">/correspondence/2026-q1/</div><div class="doc-stamp">7 hr ago</div></div></div>
+    </div>
+
+    <div style="display:flex;justify-content:center;margin-top:1.6rem;gap:0.4rem">
+      <button style="padding:0.55rem 1rem;border-radius:8px;border:1px solid #e0e0e0;background:#fff;color:#5a5a5a;cursor:default;font-size:0.85rem">&larr;</button>
+      <button style="padding:0.55rem 0.95rem;border-radius:8px;border:none;background:#5b3df5;color:#fff;font-weight:600;font-size:0.85rem">1</button>
+      <button style="padding:0.55rem 0.95rem;border-radius:8px;border:1px solid #e0e0e0;background:#fff;color:#5a5a5a;font-size:0.85rem">2</button>
+      <button style="padding:0.55rem 0.95rem;border-radius:8px;border:1px solid #e0e0e0;background:#fff;color:#5a5a5a;font-size:0.85rem">3</button>
+      <span style="padding:0.55rem 0.4rem;color:#888;font-size:0.85rem">&hellip;</span>
+      <button style="padding:0.55rem 0.95rem;border-radius:8px;border:1px solid #e0e0e0;background:#fff;color:#5a5a5a;font-size:0.85rem">26</button>
+      <button style="padding:0.55rem 1rem;border-radius:8px;border:1px solid #e0e0e0;background:#fff;color:#5a5a5a;font-size:0.85rem">&rarr;</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- =================== 4. Where the density toggle persists =================== -->
+<div class="page-label">4. Settings &rarr; Display &mdash; where the density preference persists</div>
+
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow</div>
+    <div class="pg-links"><span>Search</span><span>Pipeline</span><span>Convert</span><span class="on">Settings</span></div>
+    <div class="pg-avatar"></div>
+  </div>
+  <div class="pg-body" style="padding:2rem 2rem 2.4rem">
+    <a href="#" class="crumb">&larr; All settings</a>
+    <h1 class="pg-headline" style="font-size:1.8rem;margin-bottom:0.3rem">Display.</h1>
+    <p class="pg-subtitle" style="margin-bottom:1.4rem">How content shows up across MarkFlow.</p>
+
+    <div class="setting-row" style="margin-bottom:0.8rem">
+      <div>
+        <div class="lbl">Default content density</div>
+        <div class="desc">Used on Search, expanded sections, and Batch Management. The on-page toggle overrides this for the current view.</div>
+      </div>
+      <div class="density-toggle">
+        <button class="on"><span class="label">Cards</span></button>
+        <button><span class="label">Compact</span></button>
+        <button><span class="label">List</span></button>
+      </div>
+    </div>
+
+    <div class="setting-row" style="margin-bottom:0.8rem">
+      <div>
+        <div class="lbl">Snippet length</div>
+        <div class="desc">How much content to preview inside each card. Longer means richer browsing, slower render.</div>
+      </div>
+      <div class="density-toggle">
+        <button><span class="label">Short</span></button>
+        <button class="on"><span class="label">Medium</span></button>
+        <button><span class="label">Long</span></button>
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <div>
+        <div class="lbl">Show file thumbnails</div>
+        <div class="desc">For PDFs and image-bearing formats, render the first page as the card thumb instead of the markdown snippet.</div>
+      </div>
+      <div style="width:36px;height:20px;background:#e0e0e0;border-radius:999px;position:relative"><div style="width:16px;height:16px;background:#fff;border-radius:50%;position:absolute;top:2px;left:2px;box-shadow:0 1px 3px rgba(0,0,0,0.2)"></div></div>
+    </div>
+  </div>
+</div>
+
+
+<!-- =================== React =================== -->
+<h3 style="margin-top:2.4rem">React</h3>
+<div class="options" data-multiselect>
+  <div class="option" data-choice="snippet-yes" onclick="toggleSelect(this)">
+    <div class="letter">&#10003;</div>
+    <div class="content">
+      <h3>Snippet thumbs are right</h3>
+      <p>Document-paper aesthetic with serif body text reads as "this is a document tool." Keep.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="density-yes" onclick="toggleSelect(this)">
+    <div class="letter">&#10003;</div>
+    <div class="content">
+      <h3>Three density modes are right</h3>
+      <p>Cards / Compact / List covers the spectrum. Persists from Settings, on-page toggle overrides per view.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="thumb-pdf" onclick="toggleSelect(this)">
+    <div class="letter">P</div>
+    <div class="content">
+      <h3>Render first PDF page for PDF cards</h3>
+      <p>For PDFs and image-bearing formats, prefer the actual page-render over the markdown snippet (toggle in Settings &mdash; off by default for performance, on for visual users).</p>
+    </div>
+  </div>
+  <div class="option" data-choice="rows-pick" onclick="toggleSelect(this)">
+    <div class="letter">4</div>
+    <div class="content">
+      <h3>Now let's customize the rows (carry-over from earlier)</h3>
+      <p>Current rows: Recently converted &middot; Pinned folders &middot; Most accessed this week &middot; Browse by topic. Tell me which to drop, swap, or add. Candidates worth considering: "Flagged for review", "Needs OCR", "Awaiting AI summary", "Recently failed", "From watched folders".</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:1.5rem">In terminal, give me your row picks for #4 (or new ones I haven't suggested) so we can lock the home-page architecture and move on to Pipeline / Convert / Settings details.</p>

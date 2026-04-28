@@ -1,0 +1,165 @@
+<h2>UX overhaul &mdash; locked decisions</h2>
+<p class="subtitle">Where we are. Server restarted at a new URL after the 30-min idle. Everything below is decided unless you say otherwise.</p>
+
+<style>
+  .lock-grid { display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1.4rem; }
+  .lock { background:#fff; border:1px solid #ececec; border-radius:14px; padding:1.2rem 1.3rem 1.1rem; }
+  .lock-tag { font-size:0.66rem; font-weight:700; color:#5b3df5; letter-spacing:0.07em; text-transform:uppercase; margin-bottom:0.5rem; }
+  .lock h3 { font-size:1rem; font-weight:700; color:#0a0a0a; margin:0 0 0.55rem; letter-spacing:-0.015em; }
+  .lock ul { margin:0; padding-left:1.1rem; color:#3a3a3a; font-size:0.84rem; line-height:1.6; }
+  .lock ul ul { margin-top:0.25rem; }
+  .lock code { background:#f3f0ff; color:#5b3df5; padding:0.06rem 0.4rem; border-radius:4px; font-family:ui-monospace,'SF Mono',monospace; font-size:0.8rem; }
+  .lock strong { color:#0a0a0a; }
+  .lock em { color:#5b3df5; font-style:normal; font-weight:500; }
+
+  .new-detail { background:linear-gradient(135deg,#f5f3ff 0%, #ecf3ff 100%); border:1px solid #c7baff; border-radius:14px; padding:1.2rem 1.3rem; margin-bottom:1.4rem; }
+  .new-detail .nd-tag { font-size:0.66rem; font-weight:700; color:#5b3df5; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:0.55rem; }
+  .new-detail h3 { font-size:1.05rem; margin:0 0 0.45rem; color:#0a0a0a; letter-spacing:-0.018em; }
+  .new-detail p { margin:0 0 0.35rem; font-size:0.88rem; color:#3a3a3a; line-height:1.55; }
+
+  .next { background:#fff; border:1px dashed #d8ceff; border-radius:14px; padding:1.2rem 1.3rem; }
+  .next h3 { font-size:1.05rem; margin:0 0 0.7rem; color:#0a0a0a; }
+  .next-card-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:0.7rem; }
+  .next-card { background:#fafafa; border:1px solid #ececec; border-radius:10px; padding:0.85rem 0.95rem; }
+  .next-card .h { font-size:0.88rem; font-weight:600; color:#0a0a0a; margin-bottom:0.2rem; }
+  .next-card .d { font-size:0.78rem; color:#7a7a7a; line-height:1.45; }
+</style>
+
+
+<!-- =================== Newly locked =================== -->
+<div class="new-detail">
+  <div class="nd-tag">Just locked</div>
+  <h3>Settings persistence + role binding</h3>
+  <p><strong>User-portable.</strong> All settings (display preferences, pinned folders, layout mode, density, snippet length, advanced visibility, recent searches) follow the user from terminal to terminal &mdash; stored against user identity, not machine. Sign in on the workstation in the union hall and your home looks the same as on your laptop.</p>
+  <p><strong>UnionCore-bound roles.</strong> Role hierarchy (member / operator / admin) is defined upstream in UnionCore. MarkFlow consumes it via JWT. Role-gated visibility (Activity nav link, System section, API keys, advanced power-user features) all check the role claim from UnionCore.</p>
+  <p><strong>Implication:</strong> the "All settings &rarr;" overview page is preserved as the deep-dive entry. Card grid lives on. Avatar is the daily-use shortcut into common sections.</p>
+</div>
+
+
+<!-- =================== Locked summary =================== -->
+<div class="lock-grid">
+
+  <div class="lock">
+    <div class="lock-tag">IA &middot; navigation</div>
+    <h3>Top nav (final)</h3>
+    <ul>
+      <li><strong>Member:</strong> Logo &middot; Search &middot; Convert &middot; <em>layout-icon</em> &middot; <em>avatar</em></li>
+      <li><strong>Admin / operator:</strong> Logo &middot; Search &middot; <em>Activity</em> &middot; Convert &middot; <em>layout-icon</em> &middot; <em>avatar</em></li>
+      <li>Logo carries a <code>v0.34.1-dev</code> chip in dev (gone in prod).</li>
+      <li>"Pipeline" renamed to <strong>Activity</strong>. Members never see it.</li>
+      <li>Settings link removed from nav &mdash; lives behind avatar.</li>
+    </ul>
+  </div>
+
+  <div class="lock">
+    <div class="lock-tag">Search = home</div>
+    <h3>Home page</h3>
+    <ul>
+      <li>Search is the landing surface for everyone.</li>
+      <li>Three home modes: <strong>Maximal</strong> (browse rows), <strong>Recent</strong> (search + history), <strong>Minimal</strong> (search only).</li>
+      <li>No system default &mdash; first-run picker forces choice with K-drive framing.</li>
+      <li><strong>Minimal</strong> = recommended + skip fallback.</li>
+      <li><code>&#8984;\</code> cycles modes; layout-icon in nav opens chooser popover.</li>
+    </ul>
+  </div>
+
+  <div class="lock">
+    <div class="lock-tag">Cards</div>
+    <h3>Document cards</h3>
+    <ul>
+      <li>Gradient top-band (32%) + paper snippet body. No metadata below the card.</li>
+      <li>Format-coded gradients (PDF red, DOCX blue, etc.).</li>
+      <li><strong>Hover</strong> &rarr; rich preview popover (full meta, AI summary, action buttons).</li>
+      <li><strong>Right-click</strong> &rarr; context menu (View / Export / AI / Pin-Flag) + collapsed Advanced section for Markdown actions.</li>
+      <li>Three densities: <strong>Cards</strong> (6/row) &middot; <strong>Compact</strong> (8/row) &middot; <strong>List</strong> (linear). Per-density items-per-page (12-96 / 24-192 / 100-All).</li>
+    </ul>
+  </div>
+
+  <div class="lock">
+    <div class="lock-tag">Power-user gate</div>
+    <h3>Markdown / AI actions</h3>
+    <ul>
+      <li>Hidden behind <strong>Advanced &#9662;</strong> expander in context menus by default.</li>
+      <li>Settings &rarr; Display &rarr; "Show MarkFlow / AI integration actions" toggle inverts the default.</li>
+      <li>Off by default for <em>member</em>, on by default for <em>admin/operator</em>.</li>
+      <li>Same toggle gates future power features (raw API access, share-links, content hash).</li>
+    </ul>
+  </div>
+
+  <div class="lock">
+    <div class="lock-tag">Folder browse</div>
+    <h3>"Go to containing folder"</h3>
+    <ul>
+      <li>Breadcrumb &middot; folder header with stats &middot; density toggle &middot; Pin / Download-all.</li>
+      <li>Hover-checkbox selection on cards.</li>
+      <li>Bulk action bar appears when items selected: Download / Preview / Copy paths / Tag / Flag / Clear.</li>
+      <li>Right-click menu still works on individual rows.</li>
+    </ul>
+  </div>
+
+  <div class="lock">
+    <div class="lock-tag">Avatar menu</div>
+    <h3>Settings entry</h3>
+    <ul>
+      <li>Header: name + role pill (member / operator / admin) + scope ("IBEW Local 46").</li>
+      <li><strong>Personal</strong> (everyone): Profile, Display, Pinned folders, Notifications. <strong>API keys</strong> admin/operator only.</li>
+      <li><strong>System</strong> (admin only, gated badge): Storage &middot; Pipeline &amp; lifecycle &middot; AI providers &middot; Account &amp; auth &middot; Database health &middot; Log management.</li>
+      <li>"All settings &rarr;" link &mdash; jumps to card-grid overview for deep dives.</li>
+      <li>Help / Shortcuts / Report bug / Sign out / build info at bottom.</li>
+    </ul>
+  </div>
+
+  <div class="lock">
+    <div class="lock-tag">Activity (admin only)</div>
+    <h3>Operator dashboard</h3>
+    <ul>
+      <li>Status pulse + headline + tiles row (Processed today / In queue / Active jobs / Last error).</li>
+      <li>24h throughput sparkline.</li>
+      <li><strong>Running now</strong> &mdash; active bulk jobs with progress, pause/cancel/open, ETA.</li>
+      <li><strong>Queues</strong> &mdash; Recently converted &middot; Needs OCR &middot; Awaiting AI summary &middot; Recently failed.</li>
+      <li><strong>Recent jobs</strong> &mdash; last 7 days, drill-down.</li>
+      <li><strong>Pipeline controls</strong> &mdash; toggle, run-scan-now, logs, db health.</li>
+    </ul>
+  </div>
+
+  <div class="lock">
+    <div class="lock-tag">Onboarding</div>
+    <h3>First-run flow</h3>
+    <ul>
+      <li><strong>Step 1</strong> &mdash; "What do you want to find on the K Drive?" Welcome.</li>
+      <li><strong>Step 2</strong> &mdash; Layout picker (Maximal / Recent / Minimal w/ examples; Minimal recommended).</li>
+      <li><strong>Step 3</strong> &mdash; Pin your first folders.</li>
+      <li>Steps 1 &amp; 3 mocks not yet drawn &mdash; on the next-up list.</li>
+    </ul>
+  </div>
+
+</div>
+
+
+<!-- =================== Next =================== -->
+<div class="next">
+  <h3>What's next &mdash; pick one</h3>
+  <div class="next-card-grid">
+    <div class="next-card">
+      <div class="h">A. Convert page redesign</div>
+      <div class="d">Now a utility, not the front door. What does the simpler, calmer Convert look like in the new design language?</div>
+    </div>
+    <div class="next-card">
+      <div class="h">B. Full first-run flow</div>
+      <div class="d">Mocks for steps 1 (K-drive welcome) &amp; 3 (pin folders) so the onboarding spec is complete.</div>
+    </div>
+    <div class="next-card">
+      <div class="h">C. Settings detail pages</div>
+      <div class="d">Apply the scoped sidebar+form pattern (Storage detail style) to each system section: Pipeline, AI providers, Account &amp; auth, Database health.</div>
+    </div>
+  </div>
+</div>
+
+
+<h3 style="margin-top:2.4rem">React</h3>
+<div class="options">
+  <div class="option" data-choice="A" onclick="toggleSelect(this)"><div class="letter">A</div><div class="content"><h3>Convert page redesign</h3></div></div>
+  <div class="option" data-choice="B" onclick="toggleSelect(this)"><div class="letter">B</div><div class="content"><h3>First-run flow (steps 1 &amp; 3)</h3></div></div>
+  <div class="option" data-choice="C" onclick="toggleSelect(this)"><div class="letter">C</div><div class="content"><h3>Settings detail pages</h3></div></div>
+  <div class="option" data-choice="D" onclick="toggleSelect(this)"><div class="letter">D</div><div class="content"><h3>Stop here &mdash; write the spec doc</h3><p>Lock everything we have, write the design spec to <code>docs/superpowers/specs/</code>, hand it to writing-plans for implementation.</p></div></div>
+</div>

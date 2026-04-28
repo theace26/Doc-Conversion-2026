@@ -1,0 +1,351 @@
+<h2>Settings detail pages &mdash; the family</h2>
+<p class="subtitle">Pipeline &amp; lifecycle in full. The other five system sections shown as sub-section taxonomies so you can react to the breakdown.</p>
+
+<style>
+  .pg { background:#fff; border-radius:14px; overflow:hidden; box-shadow:0 1px 0 rgba(0,0,0,0.05), 0 24px 48px -24px rgba(0,0,0,0.18); border:1px solid #ececec; margin-bottom:1.6rem; font-family:-apple-system,'SF Pro Display',Inter,system-ui,sans-serif; }
+  .pg-nav { display:flex; align-items:center; justify-content:space-between; padding:1.05rem 1.6rem; border-bottom:1px solid #f1f1f1; font-size:0.92rem; }
+  .pg-logo { font-weight:700; letter-spacing:-0.01em; color:#0a0a0a; font-size:1.05rem; display:inline-flex; align-items:center; gap:0.55rem; }
+  .ver-chip { font-size:0.62rem; font-weight:700; color:#a36a00; background:#fff5e0; padding:0.18rem 0.5rem; border-radius:999px; letter-spacing:0.06em; text-transform:uppercase; font-family:ui-monospace,'SF Mono',monospace; }
+  .pg-links { display:flex; gap:1.5rem; color:#3a3a3a; font-weight:500; }
+  .pg-links span { cursor:default; }
+  .pg-links .on { color:#5b3df5; }
+  .pg-avatar { width:30px; height:30px; border-radius:50%; background:linear-gradient(135deg,#5b3df5,#9d7bff); }
+  .pg-nav-right { display:flex; align-items:center; gap:0.85rem; }
+  .layout-icon-btn { width:34px; height:34px; border-radius:9px; background:transparent; border:1px solid transparent; display:inline-flex; align-items:center; justify-content:center; color:#5a5a5a; cursor:pointer; }
+  .layout-icon-btn svg { width:18px; height:18px; }
+
+  .pg-body { padding:1.8rem 2rem 2.2rem; }
+  .pg-headline { font-size:2rem; line-height:1.05; letter-spacing:-0.025em; font-weight:700; color:#0a0a0a; margin:0 0 0.4rem; display:flex; align-items:center; gap:0.65rem; }
+  .pg-subtitle { color:#5a5a5a; font-size:0.96rem; margin:0 0 1.6rem; max-width:60ch; }
+
+  .icon-bg { width:36px; height:36px; border-radius:10px; background:linear-gradient(135deg,#f3f0ff,#e9e1ff); display:inline-flex; align-items:center; justify-content:center; color:#5b3df5; font-size:0.95rem; font-weight:700; }
+
+  .crumb { display:inline-flex; align-items:center; gap:0.4rem; color:#5b3df5; font-size:0.84rem; font-weight:500; margin-bottom:0.7rem; }
+  .crumb .sep { color:#bbb; font-weight:400; }
+  .crumb .here { color:#0a0a0a; }
+
+  /* detail layout */
+  .detail-flex { display:grid; grid-template-columns:220px 1fr; gap:2rem; margin-top:0.4rem; }
+  .detail-side { font-size:0.88rem; }
+  .detail-side a { display:flex; align-items:center; justify-content:space-between; padding:0.5rem 0.75rem; border-radius:8px; color:#3a3a3a; text-decoration:none; font-weight:500; margin-bottom:0.15rem; cursor:pointer; }
+  .detail-side a.on { background:#f3f0ff; color:#5b3df5; }
+  .detail-side a:hover:not(.on) { background:#fafafa; }
+  .detail-side a .ico { color:#aaa; font-size:0.95rem; margin-right:0.5rem; flex-shrink:0; }
+  .detail-side a.on .ico { color:#5b3df5; }
+  .detail-side a .grow { flex:1; min-width:0; }
+  .detail-side a .badge { font-size:0.62rem; font-weight:700; padding:0.1rem 0.45rem; border-radius:999px; letter-spacing:0.05em; }
+  .detail-side a .badge.warn { background:#fff5e0; color:#a36a00; }
+
+  /* form */
+  .form-section { margin-bottom:1.4rem; }
+  .form-section h3 { font-size:1rem; font-weight:600; color:#0a0a0a; margin:0 0 0.15rem; }
+  .form-section p.desc { color:#7a7a7a; font-size:0.84rem; line-height:1.45; margin:0 0 0.85rem; max-width:54ch; }
+  .field-row { display:flex; flex-direction:column; gap:0.4rem; margin-top:0.95rem; }
+  .field-label { font-size:0.74rem; font-weight:700; color:#6a6a6a; text-transform:uppercase; letter-spacing:0.07em; }
+  .field-input { padding:0.62rem 0.85rem; border:1px solid #e0e0e0; border-radius:10px; font-size:0.9rem; background:#fafafa; color:#333; box-sizing:border-box; font-family:inherit; }
+  .field-input.tight { max-width:140px; }
+
+  .seg { display:inline-flex; background:#f3f3f3; border-radius:999px; padding:0.22rem; font-size:0.84rem; }
+  .seg-opt { padding:0.42rem 0.95rem; border-radius:999px; cursor:pointer; color:#666; font-weight:500; }
+  .seg-opt.on { background:#fff; color:#0a0a0a; box-shadow:0 1px 3px rgba(0,0,0,0.08); }
+
+  .toggle-row { display:flex; align-items:center; gap:0.6rem; margin-top:0.2rem; }
+  .toggle { width:36px; height:20px; border-radius:999px; position:relative; flex-shrink:0; }
+  .toggle.on { background:#5b3df5; }
+  .toggle.off { background:#e0e0e0; }
+  .toggle-knob { width:16px; height:16px; background:#fff; border-radius:50%; position:absolute; top:2px; box-shadow:0 1px 3px rgba(0,0,0,0.2); }
+  .toggle.on .toggle-knob { right:2px; }
+  .toggle.off .toggle-knob { left:2px; }
+  .toggle-text { font-size:0.86rem; color:#333; }
+
+  /* day pills */
+  .day-pills { display:flex; gap:0.35rem; flex-wrap:wrap; }
+  .day-pill { padding:0.4rem 0.75rem; border-radius:999px; font-size:0.78rem; font-weight:500; cursor:pointer; border:1px solid #e0e0e0; background:#fff; color:#5a5a5a; }
+  .day-pill.on { background:#5b3df5; color:#fff; border-color:#5b3df5; }
+
+  /* pill button */
+  .pill { display:inline-flex; align-items:center; gap:0.4rem; padding:0.55rem 1.15rem; border-radius:999px; font-weight:600; font-size:0.86rem; border:none; cursor:pointer; }
+  .pill.primary { background:#5b3df5; color:#fff; }
+  .pill.outline { background:#fff; color:#5b3df5; border:1.5px solid #5b3df5; }
+  .pill.ghost { background:transparent; color:#5b3df5; padding:0.55rem 0.85rem; }
+  .pill.sm { padding:0.4rem 0.85rem; font-size:0.8rem; }
+
+  /* recent table */
+  .mini-table { background:#fafafa; border:1px solid #ececec; border-radius:10px; padding:0.85rem 0; font-size:0.84rem; }
+  .mini-row { display:grid; grid-template-columns:1.2fr 0.8fr 0.7fr 0.7fr 0.6fr; gap:0.7rem; padding:0.45rem 1.05rem; border-bottom:1px solid #f0f0f0; align-items:center; }
+  .mini-row:last-child { border-bottom:none; }
+  .mini-row.head { color:#888; font-size:0.7rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; }
+  .mini-row .ok { color:#0e7c5a; font-weight:600; }
+  .mini-row .added { color:#5b3df5; font-weight:500; }
+
+  /* taxonomy cards (other 5 sections) */
+  .tax-grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:0.85rem; }
+  .tax-card { background:#fff; border:1px solid #ececec; border-radius:14px; padding:1.2rem 1.3rem 1.2rem; }
+  .tax-card-head { display:flex; align-items:center; gap:0.7rem; margin-bottom:0.7rem; }
+  .tax-card-head .icon-bg { width:32px; height:32px; font-size:0.9rem; }
+  .tax-card h3 { font-size:1.05rem; font-weight:700; color:#0a0a0a; margin:0; letter-spacing:-0.015em; }
+  .tax-card p.lead { color:#7a7a7a; font-size:0.84rem; line-height:1.45; margin:0 0 0.85rem; }
+  .tax-side { background:#fafafa; border:1px solid #ececec; border-radius:10px; padding:0.45rem; font-size:0.84rem; }
+  .tax-side a { display:flex; align-items:center; padding:0.42rem 0.65rem; border-radius:7px; color:#3a3a3a; cursor:pointer; }
+  .tax-side a:hover { background:#fff; color:#5b3df5; }
+  .tax-side a.on { background:#fff; color:#5b3df5; box-shadow:0 1px 3px rgba(0,0,0,0.08); }
+  .tax-side a .ico { color:#aaa; font-size:0.85rem; margin-right:0.45rem; }
+  .tax-side a.on .ico { color:#5b3df5; }
+  .tax-side a .badge { margin-left:auto; font-size:0.6rem; font-weight:700; padding:0.1rem 0.45rem; border-radius:999px; letter-spacing:0.05em; background:#fff5e0; color:#a36a00; }
+
+  .save-bar { display:flex; gap:0.5rem; margin-top:1.6rem; padding-top:1.4rem; border-top:1px solid #f0f0f0; }
+
+  .page-label { font-size:0.7rem; font-weight:700; color:#999; text-transform:uppercase; letter-spacing:0.08em; margin:1.6rem 0 0.5rem 0.3rem; }
+</style>
+
+
+<!-- =================== 1. Pipeline & lifecycle - full detail =================== -->
+<div class="page-label">1. Pipeline &amp; lifecycle &mdash; full detail page (representative of the pattern)</div>
+
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow <span class="ver-chip">v0.34.1-dev</span></div>
+    <div class="pg-links"><span>Search</span><span>Activity</span><span>Convert</span></div>
+    <div class="pg-nav-right">
+      <button class="layout-icon-btn"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="2" width="6" height="6" rx="1.2"/><rect x="10" y="2" width="6" height="6" rx="1.2"/><rect x="2" y="10" width="6" height="6" rx="1.2"/><rect x="10" y="10" width="6" height="6" rx="1.2"/></svg></button>
+      <div class="pg-avatar"></div>
+    </div>
+  </div>
+  <div class="pg-body">
+    <div class="crumb"><span>All settings</span><span class="sep">/</span><span class="here">Pipeline &amp; lifecycle</span></div>
+    <h1 class="pg-headline"><span class="icon-bg">&#9881;</span>Pipeline &amp; lifecycle.</h1>
+    <p class="pg-subtitle">How the conversion engine runs and cleans up after itself. Defines when scans happen, how long files live, and what gets retired automatically.</p>
+
+    <div class="detail-flex">
+
+      <!-- scoped sidebar -->
+      <div class="detail-side">
+        <a class="on"><span class="ico">&#9881;</span><span class="grow">Scan schedule</span></a>
+        <a><span class="ico">&#9203;</span><span class="grow">Lifecycle &amp; retention</span></a>
+        <a><span class="ico">&#9879;</span><span class="grow">Trash &amp; cleanup</span></a>
+        <a><span class="ico">&#9888;</span><span class="grow">Stale data check</span></a>
+        <a><span class="ico">&#9784;</span><span class="grow">Pipeline watchdog</span></a>
+        <a><span class="ico">&#9211;</span><span class="grow">Pause &amp; resume</span><span class="badge warn">live</span></a>
+      </div>
+
+      <!-- form for active sub-section -->
+      <div>
+        <div class="form-section">
+          <h3>Scan watched folders</h3>
+          <p class="desc">When MarkFlow looks at the K Drive for new or changed files. The engine yields to active bulk jobs &mdash; scheduled scans skip if a bulk job is running.</p>
+
+          <div class="field-row">
+            <span class="field-label">Pipeline running</span>
+            <div class="toggle-row">
+              <div class="toggle on"><div class="toggle-knob"></div></div>
+              <span class="toggle-text">Scan + auto-convert. <span style="color:#888">Stops if turned off.</span></span>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <span class="field-label">Mode</span>
+            <div class="seg" style="margin-top:0.2rem">
+              <div class="seg-opt">Continuously</div>
+              <div class="seg-opt on">Scheduled</div>
+              <div class="seg-opt">Manual only</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h3>Schedule window</h3>
+          <p class="desc">Currently set to <strong>weekdays, 06:00&ndash;22:00</strong> &mdash; matches IBEW Local 46 hall hours so scans don't run during evening events.</p>
+
+          <div style="display:flex;gap:1rem">
+            <div class="field-row" style="flex:1;max-width:200px">
+              <span class="field-label">Start</span>
+              <input class="field-input tight" value="06:00" />
+            </div>
+            <div class="field-row" style="flex:1;max-width:200px">
+              <span class="field-label">End</span>
+              <input class="field-input tight" value="22:00" />
+            </div>
+            <div class="field-row" style="flex:1;max-width:200px">
+              <span class="field-label">Interval</span>
+              <select class="field-input tight" style="max-width:160px"><option>Every 30 min</option><option>Every hour</option><option>Every 4 hours</option></select>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <span class="field-label">Days</span>
+            <div class="day-pills">
+              <span class="day-pill on">Mon</span>
+              <span class="day-pill on">Tue</span>
+              <span class="day-pill on">Wed</span>
+              <span class="day-pill on">Thu</span>
+              <span class="day-pill on">Fri</span>
+              <span class="day-pill">Sat</span>
+              <span class="day-pill">Sun</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h3>Yield to bulk jobs</h3>
+          <p class="desc">Recommended. Stops the scheduled scan if a bulk job is running, paused, or scanning &mdash; prevents "database is locked" errors.</p>
+
+          <div class="toggle-row">
+            <div class="toggle on"><div class="toggle-knob"></div></div>
+            <span class="toggle-text">Skip scheduled scans during active bulk jobs</span>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h3>Recent scans</h3>
+          <p class="desc">Last 5 scheduled scans. Click <em>Run scan now</em> to trigger one manually (jumps to Activity).</p>
+
+          <div class="mini-table">
+            <div class="mini-row head"><span>Started</span><span>Duration</span><span>Files seen</span><span>Files added</span><span></span></div>
+            <div class="mini-row"><span>Today 14:00</span><span>22 sec</span><span>12,847</span><span class="added">+3</span><span class="ok">&#10003; ok</span></div>
+            <div class="mini-row"><span>Today 13:30</span><span>19 sec</span><span>12,844</span><span class="added">+0</span><span class="ok">&#10003; ok</span></div>
+            <div class="mini-row"><span>Today 13:00</span><span>skipped</span><span>&mdash;</span><span>&mdash;</span><span style="color:#a36a00">yielded to bulk</span></div>
+            <div class="mini-row"><span>Today 12:30</span><span>21 sec</span><span>12,844</span><span class="added">+0</span><span class="ok">&#10003; ok</span></div>
+            <div class="mini-row"><span>Today 12:00</span><span>20 sec</span><span>12,844</span><span class="added">+1</span><span class="ok">&#10003; ok</span></div>
+          </div>
+        </div>
+
+        <div class="save-bar">
+          <button class="pill primary sm">Save changes</button>
+          <button class="pill outline sm">Run scan now &rarr;</button>
+          <button class="pill ghost sm">Discard</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- =================== 2. The other 5 sections (taxonomies) =================== -->
+<div class="page-label">2. The other five system sections &mdash; sub-section taxonomies (sidebar lists only). Confirm or revise before we mock any of them in full.</div>
+
+<div class="tax-grid">
+
+  <div class="tax-card">
+    <div class="tax-card-head"><span class="icon-bg">&#9211;</span><h3>Storage &amp; mounts</h3></div>
+    <p class="lead">Where files come from and go to. (Already mocked in full earlier &mdash; this is the recap.)</p>
+    <div class="tax-side">
+      <a class="on"><span class="ico">&#9882;</span>Mounts</a>
+      <a><span class="ico">&#9783;</span>Output paths</a>
+      <a><span class="ico">&#9729;</span>Cloud prefetch</a>
+      <a><span class="ico">&#128273;</span>Credentials</a>
+      <a><span class="ico">&#9888;</span>Write guard</a>
+      <a><span class="ico">&#10227;</span>Sync &amp; verification</a>
+    </div>
+  </div>
+
+  <div class="tax-card">
+    <div class="tax-card-head"><span class="icon-bg">&#9883;</span><h3>AI providers</h3></div>
+    <p class="lead">Which AI does what. Independent providers for AI Assist (chat, summary) and image analysis. Cost cap lives here too.</p>
+    <div class="tax-side">
+      <a class="on"><span class="ico">&#9882;</span>Active provider chain</a>
+      <a><span class="ico">&#10031;</span>Anthropic</a>
+      <a><span class="ico">&#10031;</span>OpenAI</a>
+      <a><span class="ico">&#9986;</span>Image analysis routing</a>
+      <a><span class="ico">&#9783;</span>Vector indexing (Qdrant)</a>
+      <a><span class="ico">&#36;</span>Cost cap &amp; alerts<span class="badge">live</span></a>
+    </div>
+  </div>
+
+  <div class="tax-card">
+    <div class="tax-card-head"><span class="icon-bg">&#9788;</span><h3>Account &amp; auth</h3></div>
+    <p class="lead">UnionCore-bound. Most of this is read-only display of what UnionCore says &mdash; the local controls are session timeout and audit trail.</p>
+    <div class="tax-side">
+      <a class="on"><span class="ico">&#9760;</span>Identity (UnionCore)</a>
+      <a><span class="ico">&#128274;</span>JWT validation</a>
+      <a><span class="ico">&#9776;</span>Role mapping</a>
+      <a><span class="ico">&#128737;</span>Sessions &amp; timeout</a>
+      <a><span class="ico">&#128209;</span>Audit log</a>
+    </div>
+  </div>
+
+  <div class="tax-card">
+    <div class="tax-card-head"><span class="icon-bg">&#9968;</span><h3>Database health</h3></div>
+    <p class="lead">SQLite via the single-writer pool. Backups, integrity, maintenance. Mostly status display + a few schedule toggles.</p>
+    <div class="tax-side">
+      <a class="on"><span class="ico">&#9889;</span>Connection pool</a>
+      <a><span class="ico">&#128190;</span>Backups</a>
+      <a><span class="ico">&#9881;</span>Maintenance window</a>
+      <a><span class="ico">&#128279;</span>Migrations</a>
+      <a><span class="ico">&#10003;</span>Integrity check</a>
+    </div>
+  </div>
+
+  <div class="tax-card">
+    <div class="tax-card-head"><span class="icon-bg">&#9881;</span><h3>Log management</h3></div>
+    <p class="lead">Per-subsystem log levels, retention, live viewer. Already partially shipped (v0.30.1) &mdash; this is where it's configured.</p>
+    <div class="tax-side">
+      <a class="on"><span class="ico">&#9776;</span>Levels per subsystem</a>
+      <a><span class="ico">&#9879;</span>Retention &amp; rotation</a>
+      <a><span class="ico">&#128269;</span>Live viewer</a>
+      <a><span class="ico">&#128229;</span>Export &amp; archive</a>
+    </div>
+  </div>
+
+  <div class="tax-card">
+    <div class="tax-card-head"><span class="icon-bg">&#9785;</span><h3>Notifications</h3></div>
+    <p class="lead">Who gets paged when. Slack / email / webhook. Trigger rules per event type plus quiet-hours windows.</p>
+    <div class="tax-side">
+      <a class="on"><span class="ico">&#9781;</span>Channels</a>
+      <a><span class="ico">&#9882;</span>Trigger rules</a>
+      <a><span class="ico">&#9203;</span>Quiet hours</a>
+      <a><span class="ico">&#10003;</span>Test send</a>
+    </div>
+  </div>
+
+</div>
+
+
+<!-- =================== React =================== -->
+<h3 style="margin-top:2.4rem">React</h3>
+<div class="options" data-multiselect>
+  <div class="option" data-choice="pipeline-yes" onclick="toggleSelect(this)">
+    <div class="letter">&#10003;</div>
+    <div class="content">
+      <h3>Pipeline detail page is right</h3>
+      <p>Scoped sidebar with 6 sub-sections. Scan schedule has the controls (mode, window, days, yield), recent scans table at bottom. Lock the pattern.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="ai-next" onclick="toggleSelect(this)">
+    <div class="letter">AI</div>
+    <div class="content">
+      <h3>Mock AI providers in full next</h3>
+      <p>Cost cap + provider chain is the most decision-rich. Worth a full mock so the spec lands cleanly.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="notif-next" onclick="toggleSelect(this)">
+    <div class="letter">N</div>
+    <div class="content">
+      <h3>Mock Notifications next</h3>
+      <p>Trigger rules + quiet hours are unique enough to deserve a full design.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="auth-next" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Mock Account &amp; auth next</h3>
+      <p>UnionCore-bound. Worth showing what's editable locally vs. read-only-from-UC.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="taxonomy-tweak" onclick="toggleSelect(this)">
+    <div class="letter">~</div>
+    <div class="content">
+      <h3>Tweak the taxonomies</h3>
+      <p>Tell me which sub-sections to add, remove, or rename in any of the 5 cards above.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="all-rest" onclick="toggleSelect(this)">
+    <div class="letter">All</div>
+    <div class="content">
+      <h3>Just abbreviated mocks for all 5</h3>
+      <p>Skip full mocks. Each gets a one-screen "key controls" overview &mdash; faster to spec, slightly less detail.</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:1.5rem">In terminal: confirm Pipeline detail is right and pick which others (if any) to mock fully &mdash; or say <em>D</em> from the recap if we're ready to write the spec doc and move to <code>writing-plans</code>.</p>

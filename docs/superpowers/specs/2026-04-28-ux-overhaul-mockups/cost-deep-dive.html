@@ -1,0 +1,545 @@
+<h2>Cost cap &amp; alerts &mdash; the deep-dive</h2>
+<p class="subtitle">Drill-down from AI providers &rarr; Cost cap &amp; alerts. Own scoped sidebar. Per-provider rate independence. CSV import with linked help. Page adapts to single vs multi-provider state.</p>
+
+<style>
+  .pg { background:#fff; border-radius:14px; overflow:hidden; box-shadow:0 1px 0 rgba(0,0,0,0.05), 0 24px 48px -24px rgba(0,0,0,0.18); border:1px solid #ececec; margin-bottom:1.6rem; font-family:-apple-system,'SF Pro Display',Inter,system-ui,sans-serif; }
+  .pg-nav { display:flex; align-items:center; justify-content:space-between; padding:1.05rem 1.6rem; border-bottom:1px solid #f1f1f1; font-size:0.92rem; }
+  .pg-logo { font-weight:700; letter-spacing:-0.01em; color:#0a0a0a; font-size:1.05rem; display:inline-flex; align-items:center; gap:0.55rem; }
+  .ver-chip { font-size:0.62rem; font-weight:700; color:#a36a00; background:#fff5e0; padding:0.18rem 0.5rem; border-radius:999px; letter-spacing:0.06em; text-transform:uppercase; font-family:ui-monospace,'SF Mono',monospace; }
+  .pg-links { display:flex; gap:1.5rem; color:#3a3a3a; font-weight:500; }
+  .pg-links span { cursor:default; }
+  .pg-avatar { width:30px; height:30px; border-radius:50%; background:linear-gradient(135deg,#5b3df5,#9d7bff); }
+  .pg-nav-right { display:flex; align-items:center; gap:0.85rem; }
+  .layout-icon-btn { width:34px; height:34px; border-radius:9px; display:inline-flex; align-items:center; justify-content:center; color:#5a5a5a; }
+  .layout-icon-btn svg { width:18px; height:18px; }
+
+  .pg-body { padding:1.8rem 2rem 2.2rem; }
+  .pg-headline { font-size:1.85rem; line-height:1.05; letter-spacing:-0.025em; font-weight:700; color:#0a0a0a; margin:0 0 0.4rem; display:flex; align-items:center; gap:0.65rem; }
+  .pg-subtitle { color:#5a5a5a; font-size:0.94rem; margin:0 0 1.4rem; max-width:62ch; }
+  .icon-bg { width:34px; height:34px; border-radius:10px; background:linear-gradient(135deg,#f3f0ff,#e9e1ff); display:inline-flex; align-items:center; justify-content:center; color:#5b3df5; font-size:0.95rem; font-weight:700; }
+
+  .crumb { display:inline-flex; align-items:center; gap:0.4rem; color:#5b3df5; font-size:0.84rem; font-weight:500; margin-bottom:0.7rem; flex-wrap:wrap; }
+  .crumb .sep { color:#bbb; font-weight:400; }
+  .crumb .here { color:#0a0a0a; }
+
+  .detail-flex { display:grid; grid-template-columns:240px 1fr; gap:2rem; }
+  .detail-side { font-size:0.86rem; }
+  .detail-side a { display:flex; align-items:center; padding:0.5rem 0.75rem; border-radius:8px; color:#3a3a3a; text-decoration:none; font-weight:500; margin-bottom:0.15rem; cursor:pointer; }
+  .detail-side a.on { background:#f3f0ff; color:#5b3df5; }
+  .detail-side a:hover:not(.on) { background:#fafafa; }
+  .detail-side a .ico { color:#aaa; font-size:0.95rem; margin-right:0.5rem; flex-shrink:0; }
+  .detail-side a.on .ico { color:#5b3df5; }
+  .detail-side a .grow { flex:1; min-width:0; }
+  .detail-side a.nested { padding-left:2rem; font-weight:400; font-size:0.84rem; color:#5a5a5a; }
+  .detail-side a.nested.on { background:#fafafa; color:#5b3df5; font-weight:500; }
+  .detail-side a.external { color:#5b3df5; font-size:0.82rem; margin-top:0.4rem; }
+  .detail-side a.external .ext-arrow { color:#5b3df5; font-size:0.78rem; margin-left:auto; }
+  .detail-side .grp-label { font-size:0.62rem; font-weight:700; color:#aaa; text-transform:uppercase; letter-spacing:0.07em; padding:0.85rem 0.7rem 0.25rem; }
+  .detail-side .grp-label:first-child { padding-top:0.2rem; }
+
+  .form-section { margin-bottom:1.4rem; }
+  .form-section h3 { font-size:1rem; font-weight:600; color:#0a0a0a; margin:0 0 0.15rem; }
+  .form-section p.desc { color:#7a7a7a; font-size:0.84rem; line-height:1.45; margin:0 0 0.85rem; max-width:60ch; }
+  .field-row { display:flex; flex-direction:column; gap:0.4rem; margin-top:0.95rem; }
+  .field-label { font-size:0.72rem; font-weight:700; color:#6a6a6a; text-transform:uppercase; letter-spacing:0.07em; }
+  .field-input { padding:0.6rem 0.85rem; border:1px solid #e0e0e0; border-radius:10px; font-size:0.88rem; background:#fafafa; color:#333; box-sizing:border-box; font-family:inherit; }
+  .field-input.tight { max-width:200px; }
+
+  .pill { display:inline-flex; align-items:center; gap:0.4rem; padding:0.5rem 1.05rem; border-radius:999px; font-weight:600; font-size:0.84rem; border:none; cursor:pointer; }
+  .pill.primary { background:#5b3df5; color:#fff; }
+  .pill.outline { background:#fff; color:#5b3df5; border:1.5px solid #5b3df5; }
+  .pill.ghost { background:transparent; color:#5b3df5; padding:0.5rem 0.7rem; }
+  .pill.sm { padding:0.36rem 0.85rem; font-size:0.78rem; }
+
+  /* === overview tiles === */
+  .tile-row { display:grid; grid-template-columns:repeat(3, 1fr); gap:0.85rem; margin-bottom:1.1rem; }
+  .tile { background:#fff; border:1px solid #ececec; border-radius:12px; padding:1rem 1.1rem 0.9rem; }
+  .tile .lab { font-size:0.66rem; font-weight:700; color:#888; text-transform:uppercase; letter-spacing:0.07em; }
+  .tile .val { font-size:1.6rem; font-weight:700; letter-spacing:-0.018em; color:#0a0a0a; margin-top:0.3rem; }
+  .tile .meta { font-size:0.74rem; color:#888; margin-top:0.2rem; }
+  .tile.warn .val { color:#a36a00; }
+  .tile-bar { height:5px; background:#f0edff; border-radius:999px; overflow:hidden; margin-top:0.55rem; }
+  .tile-bar .fill { height:100%; background:linear-gradient(90deg,#5b3df5,#9d7bff); }
+  .tile-bar.warn .fill { background:linear-gradient(90deg,#ffa94d,#e8590c); }
+
+  /* per-provider breakdown */
+  .pp-breakdown { background:#fafafa; border:1px solid #ececec; border-radius:12px; padding:1rem 1.1rem; margin-bottom:1.2rem; }
+  .pp-row { display:grid; grid-template-columns:24px 1.4fr 0.9fr 0.9fr 0.9fr; gap:0.85rem; align-items:center; padding:0.5rem 0; border-bottom:1px solid #ececec; font-size:0.86rem; }
+  .pp-row:last-child { border-bottom:none; }
+  .pp-row.head { font-size:0.66rem; color:#888; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; }
+  .pp-row.total { font-weight:700; color:#0a0a0a; font-size:0.95rem; padding-top:0.7rem; border-top:1.5px solid #5b3df5; border-bottom:none; }
+  .pp-dot { width:14px; height:14px; border-radius:4px; }
+  .pp-dot.anthropic { background:linear-gradient(135deg,#cc5de8,#862e9c); }
+  .pp-dot.openai { background:linear-gradient(135deg,#10a37f,#0e7c5a); }
+  .pp-dot.local { background:linear-gradient(135deg,#888,#555); }
+  .pp-name { color:#0a0a0a; font-weight:500; }
+  .pp-name .submodel { color:#888; font-weight:400; font-size:0.78rem; margin-left:0.4rem; }
+  .pp-amt { font-family:ui-monospace,monospace; font-size:0.84rem; }
+
+  /* sparkline */
+  .sparkline { height:60px; }
+
+  /* CSV uploader */
+  .csv-drop { background:linear-gradient(135deg,#f5f1ff 0%, #ecf3ff 100%); border:1.5px dashed #c7baff; border-radius:14px; padding:2rem 1.5rem; text-align:center; }
+  .csv-drop-icon { width:48px; height:48px; margin:0 auto 0.85rem; border-radius:12px; background:linear-gradient(135deg,#5b3df5,#9d7bff); display:flex; align-items:center; justify-content:center; color:#fff; font-size:1.35rem; }
+  .csv-drop p.h { font-size:1rem; font-weight:600; color:#0a0a0a; margin:0 0 0.25rem; }
+  .csv-drop p.d { font-size:0.84rem; color:#7a7a7a; margin:0 0 1rem; }
+  .csv-drop-actions { display:flex; gap:0.5rem; justify-content:center; }
+
+  /* CSV format example */
+  .csv-example { background:#1a1a1a; color:#e6e6e6; border-radius:10px; padding:0.85rem 1rem; font-family:ui-monospace,'SF Mono',monospace; font-size:0.78rem; line-height:1.55; overflow-x:auto; }
+  .csv-example .h-row { color:#9d7bff; }
+  .csv-example .ant-row { color:#cc8de8; }
+  .csv-example .oai-row { color:#5eddb0; }
+  .csv-example .comment { color:#666; }
+
+  /* help link callout */
+  .help-callout { display:flex; align-items:center; gap:0.85rem; background:#f5f3ff; border:1px solid #d8ceff; border-radius:10px; padding:0.85rem 1rem; margin-top:1rem; }
+  .help-callout-icon { width:36px; height:36px; border-radius:9px; background:#5b3df5; color:#fff; display:flex; align-items:center; justify-content:center; font-size:1rem; flex-shrink:0; }
+  .help-callout .text { flex:1; font-size:0.86rem; color:#3a3a3a; line-height:1.45; }
+  .help-callout .text strong { color:#0a0a0a; }
+
+  /* rate card */
+  .rate-card { background:#fff; border:1px solid #ececec; border-radius:12px; padding:1.1rem 1.2rem; margin-bottom:0.85rem; }
+  .rc-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:0.7rem; }
+  .rc-name { display:flex; align-items:center; gap:0.6rem; font-size:1rem; font-weight:600; color:#0a0a0a; }
+  .rc-source { font-size:0.74rem; color:#888; font-style:italic; }
+  .rc-table { display:grid; grid-template-columns:1.6fr 1fr 1fr 1fr 1fr; gap:0.7rem; font-size:0.82rem; }
+  .rc-table .h { font-size:0.64rem; color:#888; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; padding-bottom:0.3rem; border-bottom:1px solid #f0f0f0; }
+  .rc-table .v { font-family:ui-monospace,monospace; padding:0.3rem 0; color:#0a0a0a; }
+  .rc-table .v.k { font-family:inherit; color:#3a3a3a; }
+
+  .page-label { font-size:0.7rem; font-weight:700; color:#999; text-transform:uppercase; letter-spacing:0.08em; margin:1.6rem 0 0.5rem 0.3rem; }
+
+  /* state toggle for demo */
+  .state-toggle { display:flex; gap:0.45rem; align-items:center; background:#fff5e0; border:1px solid #ffd591; padding:0.5rem 0.85rem; border-radius:10px; font-size:0.82rem; color:#7a4f00; margin-bottom:0.85rem; }
+  .state-toggle strong { color:#5a3700; }
+</style>
+
+
+<!-- =================== 1. Multi-provider overview =================== -->
+<div class="page-label">1. Cost overview &mdash; multi-provider state (Anthropic + OpenAI both active)</div>
+
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow <span class="ver-chip">v0.34.1-dev</span></div>
+    <div class="pg-links"><span>Search</span><span>Activity</span><span>Convert</span></div>
+    <div class="pg-nav-right">
+      <button class="layout-icon-btn"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="2" width="6" height="6" rx="1.2"/><rect x="10" y="2" width="6" height="6" rx="1.2"/><rect x="2" y="10" width="6" height="6" rx="1.2"/><rect x="10" y="10" width="6" height="6" rx="1.2"/></svg></button>
+      <div class="pg-avatar"></div>
+    </div>
+  </div>
+  <div class="pg-body">
+    <div class="crumb"><span>All settings</span><span class="sep">/</span><span>AI providers</span><span class="sep">/</span><span class="here">Cost cap &amp; alerts</span></div>
+    <h1 class="pg-headline"><span class="icon-bg">$</span>Cost cap &amp; alerts.</h1>
+    <p class="pg-subtitle">Spend tracking, per-provider rate cards, CSV-imported pricing, alerts. Each provider tracks independently &mdash; rates are different shapes.</p>
+
+    <div class="state-toggle"><strong>Demo state:</strong> 2 providers active (Anthropic + OpenAI). Page below adapts; section 2 shows the single-provider variant.</div>
+
+    <div class="detail-flex">
+
+      <div class="detail-side">
+        <div class="grp-label">Cost</div>
+        <a class="on"><span class="ico">&#9882;</span><span class="grow">Overview</span></a>
+
+        <div class="grp-label">Rates by provider</div>
+        <a class="nested"><span class="ico">&#9679;</span><span class="grow">Anthropic</span></a>
+        <a class="nested"><span class="ico">&#9679;</span><span class="grow">OpenAI</span></a>
+
+        <div class="grp-label">Data</div>
+        <a><span class="ico">&#128229;</span><span class="grow">Sources &amp; CSV import</span></a>
+        <a><span class="ico">&#128202;</span><span class="grow">Spend history</span></a>
+
+        <div class="grp-label">Notify</div>
+        <a><span class="ico">&#9888;</span><span class="grow">Alerts &amp; thresholds</span></a>
+
+        <a class="external"><span class="ico">?</span><span class="grow">CSV format reference</span><span class="ext-arrow">&#8599;</span></a>
+      </div>
+
+      <div>
+        <!-- top tiles -->
+        <div class="tile-row">
+          <div class="tile">
+            <div class="lab">Spend today</div>
+            <div class="val">$3.42</div>
+            <div class="meta">14% of $25 daily cap &middot; 2 providers</div>
+            <div class="tile-bar"><div class="fill" style="width:14%"></div></div>
+          </div>
+          <div class="tile warn">
+            <div class="lab">Spend this month</div>
+            <div class="val">$312.18</div>
+            <div class="meta">78% of $400 cap &middot; 11 days remain</div>
+            <div class="tile-bar warn"><div class="fill" style="width:78%"></div></div>
+          </div>
+          <div class="tile">
+            <div class="lab">Active providers</div>
+            <div class="val" style="font-size:1.15rem;color:#666">2</div>
+            <div class="meta">Anthropic &middot; OpenAI</div>
+          </div>
+        </div>
+
+        <!-- per-provider breakdown -->
+        <div class="form-section">
+          <h3>Spend breakdown &middot; this month</h3>
+          <p class="desc">Each provider tracked separately. Total below.</p>
+
+          <div class="pp-breakdown">
+            <div class="pp-row head"><span></span><span>Provider &middot; model</span><span style="text-align:right">Calls</span><span style="text-align:right">Tokens</span><span style="text-align:right">Cost</span></div>
+
+            <div class="pp-row">
+              <span class="pp-dot anthropic"></span>
+              <span class="pp-name">Anthropic <span class="submodel">claude-opus-4-7</span></span>
+              <span class="pp-amt" style="text-align:right">2,148</span>
+              <span class="pp-amt" style="text-align:right">12.4M</span>
+              <span class="pp-amt" style="text-align:right">$248.40</span>
+            </div>
+            <div class="pp-row">
+              <span class="pp-dot anthropic"></span>
+              <span class="pp-name">Anthropic <span class="submodel">claude-haiku-4-5 (image)</span></span>
+              <span class="pp-amt" style="text-align:right">1,820</span>
+              <span class="pp-amt" style="text-align:right">8.1M</span>
+              <span class="pp-amt" style="text-align:right">$32.78</span>
+            </div>
+            <div class="pp-row">
+              <span class="pp-dot openai"></span>
+              <span class="pp-name">OpenAI <span class="submodel">gpt-4o</span></span>
+              <span class="pp-amt" style="text-align:right">412</span>
+              <span class="pp-amt" style="text-align:right">3.1M</span>
+              <span class="pp-amt" style="text-align:right">$31.00</span>
+            </div>
+
+            <div class="pp-row total">
+              <span></span>
+              <span>Total</span>
+              <span class="pp-amt" style="text-align:right">4,380</span>
+              <span class="pp-amt" style="text-align:right">23.6M</span>
+              <span class="pp-amt" style="text-align:right">$312.18</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- daily spend chart -->
+        <div class="form-section">
+          <h3>Daily spend &middot; last 30 days</h3>
+          <p class="desc">Stacked by provider. Hover any day for the breakdown.</p>
+          <div style="background:#fafafa;border:1px solid #ececec;border-radius:10px;padding:1rem 1.1rem">
+            <svg viewBox="0 0 600 80" preserveAspectRatio="none" style="width:100%;height:80px">
+              <polyline points="0,72 20,68 40,62 60,58 80,52 100,42 120,48 140,44 160,38 180,34 200,28 220,32 240,26 260,22 280,18 300,24 320,20 340,16 360,12 380,18 400,14 420,10 440,14 460,8 480,12 500,18 520,14 540,10 560,14 580,8 600,4" fill="none" stroke="#862e9c" stroke-width="1.5"/>
+              <polyline points="0,80 0,72 20,68 40,62 60,58 80,52 100,42 120,48 140,44 160,38 180,34 200,28 220,32 240,26 260,22 280,18 300,24 320,20 340,16 360,12 380,18 400,14 420,10 440,14 460,8 480,12 500,18 520,14 540,10 560,14 580,8 600,4 600,80" fill="rgba(204,93,232,0.15)" stroke="none"/>
+              <polyline points="0,76 20,72 40,68 60,66 80,62 100,58 120,62 140,58 160,55 180,52 200,48 220,52 240,48 260,46 280,44 300,48 320,46 340,42 360,40 380,44 400,42 420,38 440,42 460,38 480,40 500,44 520,42 540,40 560,42 580,38 600,36" fill="none" stroke="#10a37f" stroke-width="1.5"/>
+            </svg>
+            <div style="display:flex;gap:1.2rem;margin-top:0.5rem;font-size:0.78rem">
+              <span style="display:inline-flex;align-items:center;gap:0.4rem"><span class="pp-dot anthropic"></span>Anthropic</span>
+              <span style="display:inline-flex;align-items:center;gap:0.4rem"><span class="pp-dot openai"></span>OpenAI</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:0.5rem;margin-top:1.4rem">
+          <button class="pill primary sm">Save changes</button>
+          <button class="pill outline sm">Export CSV</button>
+          <button class="pill ghost sm">Discard</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- =================== 2. Single-provider overview (dynamic adjustment) =================== -->
+<div class="page-label">2. Same page &mdash; single-provider state (only Anthropic). No breakdown table, no provider selector. Page adapts.</div>
+
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow <span class="ver-chip">v0.34.1-dev</span></div>
+    <div class="pg-links"><span>Search</span><span>Activity</span><span>Convert</span></div>
+    <div class="pg-nav-right">
+      <button class="layout-icon-btn"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="2" width="6" height="6" rx="1.2"/><rect x="10" y="2" width="6" height="6" rx="1.2"/><rect x="2" y="10" width="6" height="6" rx="1.2"/><rect x="10" y="10" width="6" height="6" rx="1.2"/></svg></button>
+      <div class="pg-avatar"></div>
+    </div>
+  </div>
+  <div class="pg-body">
+    <div class="crumb"><span>All settings</span><span class="sep">/</span><span>AI providers</span><span class="sep">/</span><span class="here">Cost cap &amp; alerts</span></div>
+    <h1 class="pg-headline"><span class="icon-bg">$</span>Cost cap &amp; alerts.</h1>
+    <p class="pg-subtitle">Spend tracking and rates. <strong>Anthropic</strong> is your only active provider &mdash; this view simplifies accordingly.</p>
+
+    <div class="state-toggle"><strong>Demo state:</strong> 1 provider active (Anthropic only). Notice the breakdown table is gone, "Active providers" tile becomes a static label, sidebar's nested rates list shows only Anthropic.</div>
+
+    <div class="detail-flex">
+
+      <div class="detail-side">
+        <div class="grp-label">Cost</div>
+        <a class="on"><span class="ico">&#9882;</span><span class="grow">Overview</span></a>
+
+        <div class="grp-label">Rates</div>
+        <a class="nested"><span class="ico">&#9679;</span><span class="grow">Anthropic</span></a>
+
+        <div class="grp-label">Data</div>
+        <a><span class="ico">&#128229;</span><span class="grow">Sources &amp; CSV import</span></a>
+        <a><span class="ico">&#128202;</span><span class="grow">Spend history</span></a>
+
+        <div class="grp-label">Notify</div>
+        <a><span class="ico">&#9888;</span><span class="grow">Alerts &amp; thresholds</span></a>
+
+        <a class="external"><span class="ico">?</span><span class="grow">CSV format reference</span><span class="ext-arrow">&#8599;</span></a>
+      </div>
+
+      <div>
+        <div class="tile-row" style="grid-template-columns:1fr 1fr">
+          <div class="tile">
+            <div class="lab">Spend today</div>
+            <div class="val">$2.18</div>
+            <div class="meta">9% of $25 daily cap</div>
+            <div class="tile-bar"><div class="fill" style="width:9%"></div></div>
+          </div>
+          <div class="tile warn">
+            <div class="lab">Spend this month</div>
+            <div class="val">$281.18</div>
+            <div class="meta">70% of $400 cap &middot; 11 days remain</div>
+            <div class="tile-bar warn"><div class="fill" style="width:70%"></div></div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h3>Anthropic spend &middot; this month</h3>
+          <p class="desc">By model. Single-provider mode &mdash; no breakdown header, no totals row, no comparison chart.</p>
+
+          <div class="pp-breakdown">
+            <div class="pp-row head"><span></span><span>Model</span><span style="text-align:right">Calls</span><span style="text-align:right">Tokens</span><span style="text-align:right">Cost</span></div>
+            <div class="pp-row">
+              <span class="pp-dot anthropic"></span>
+              <span class="pp-name">claude-opus-4-7</span>
+              <span class="pp-amt" style="text-align:right">2,148</span>
+              <span class="pp-amt" style="text-align:right">12.4M</span>
+              <span class="pp-amt" style="text-align:right">$248.40</span>
+            </div>
+            <div class="pp-row">
+              <span class="pp-dot anthropic"></span>
+              <span class="pp-name">claude-haiku-4-5 <span class="submodel">(image analysis)</span></span>
+              <span class="pp-amt" style="text-align:right">1,820</span>
+              <span class="pp-amt" style="text-align:right">8.1M</span>
+              <span class="pp-amt" style="text-align:right">$32.78</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h3>Daily spend &middot; last 30 days</h3>
+          <div style="background:#fafafa;border:1px solid #ececec;border-radius:10px;padding:1rem 1.1rem">
+            <svg viewBox="0 0 600 80" preserveAspectRatio="none" style="width:100%;height:80px">
+              <polyline points="0,72 20,68 40,62 60,58 80,52 100,42 120,48 140,44 160,38 180,34 200,28 220,32 240,26 260,22 280,18 300,24 320,20 340,16 360,12 380,18 400,14 420,10 440,14 460,8 480,12 500,18 520,14 540,10 560,14 580,8 600,4" fill="none" stroke="#862e9c" stroke-width="1.8"/>
+              <polyline points="0,80 0,72 20,68 40,62 60,58 80,52 100,42 120,48 140,44 160,38 180,34 200,28 220,32 240,26 260,22 280,18 300,24 320,20 340,16 360,12 380,18 400,14 420,10 440,14 460,8 480,12 500,18 520,14 540,10 560,14 580,8 600,4 600,80" fill="rgba(204,93,232,0.18)" stroke="none"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- =================== 3. Sources & CSV import =================== -->
+<div class="page-label">3. Sources &amp; CSV import &mdash; how to keep rates current</div>
+
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow <span class="ver-chip">v0.34.1-dev</span></div>
+    <div class="pg-links"><span>Search</span><span>Activity</span><span>Convert</span></div>
+    <div class="pg-nav-right">
+      <button class="layout-icon-btn"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="2" width="6" height="6" rx="1.2"/><rect x="10" y="2" width="6" height="6" rx="1.2"/><rect x="2" y="10" width="6" height="6" rx="1.2"/><rect x="10" y="10" width="6" height="6" rx="1.2"/></svg></button>
+      <div class="pg-avatar"></div>
+    </div>
+  </div>
+  <div class="pg-body">
+    <div class="crumb"><span>All settings</span><span class="sep">/</span><span>AI providers</span><span class="sep">/</span><span>Cost cap &amp; alerts</span><span class="sep">/</span><span class="here">Sources &amp; CSV import</span></div>
+    <h1 class="pg-headline"><span class="icon-bg">&#128229;</span>Sources &amp; CSV import.</h1>
+    <p class="pg-subtitle">Where rates come from. Manual entry, CSV import, or auto-fetch &mdash; choose per provider.</p>
+
+    <div class="detail-flex">
+
+      <div class="detail-side">
+        <div class="grp-label">Cost</div>
+        <a><span class="ico">&#9882;</span><span class="grow">Overview</span></a>
+
+        <div class="grp-label">Rates by provider</div>
+        <a class="nested"><span class="ico">&#9679;</span><span class="grow">Anthropic</span></a>
+        <a class="nested"><span class="ico">&#9679;</span><span class="grow">OpenAI</span></a>
+
+        <div class="grp-label">Data</div>
+        <a class="on"><span class="ico">&#128229;</span><span class="grow">Sources &amp; CSV import</span></a>
+        <a><span class="ico">&#128202;</span><span class="grow">Spend history</span></a>
+
+        <div class="grp-label">Notify</div>
+        <a><span class="ico">&#9888;</span><span class="grow">Alerts &amp; thresholds</span></a>
+
+        <a class="external"><span class="ico">?</span><span class="grow">CSV format reference</span><span class="ext-arrow">&#8599;</span></a>
+      </div>
+
+      <div>
+        <div class="form-section">
+          <h3>Source per provider</h3>
+          <p class="desc">Each provider can pull rates differently. Provider docs change pricing without warning &mdash; pick the option that matches how often you want to babysit it.</p>
+
+          <div class="rate-card">
+            <div class="rc-head">
+              <div class="rc-name"><span class="pp-dot anthropic"></span>Anthropic</div>
+              <select class="field-input tight" style="max-width:200px;font-size:0.82rem">
+                <option>CSV import (current)</option>
+                <option>Manual entry</option>
+                <option>Auto-fetch from API</option>
+              </select>
+            </div>
+            <div class="rc-source">Last imported 2026-04-22 from <code style="font-size:0.78rem;background:#f3f0ff;color:#5b3df5;padding:0.05rem 0.35rem;border-radius:4px">anthropic-rates-2026-04.csv</code> &middot; 3 models, 4 rate types</div>
+          </div>
+
+          <div class="rate-card">
+            <div class="rc-head">
+              <div class="rc-name"><span class="pp-dot openai"></span>OpenAI</div>
+              <select class="field-input tight" style="max-width:200px;font-size:0.82rem">
+                <option>Manual entry (current)</option>
+                <option>CSV import</option>
+                <option>Auto-fetch from API</option>
+              </select>
+            </div>
+            <div class="rc-source">Manually entered 2026-03-15 &middot; 1 model</div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h3>Import a CSV</h3>
+          <p class="desc">One CSV per provider, or one combined CSV with a <code style="background:#f3f0ff;color:#5b3df5;padding:0.06rem 0.4rem;border-radius:4px;font-family:ui-monospace,monospace;font-size:0.8rem">provider</code> column. Rates are stored as USD per 1M tokens.</p>
+
+          <div class="csv-drop">
+            <div class="csv-drop-icon">&#11014;</div>
+            <p class="h">Drop a CSV here</p>
+            <p class="d">or click below &middot; max 1 MB &middot; UTF-8 encoded</p>
+            <div class="csv-drop-actions">
+              <button class="pill primary">Choose file</button>
+              <button class="pill outline">Paste from clipboard</button>
+            </div>
+          </div>
+
+          <div class="help-callout">
+            <div class="help-callout-icon">?</div>
+            <div class="text">
+              <strong>First time?</strong> The exact format with headers and example rows is documented in the help file. <span style="color:#5b3df5;cursor:pointer;font-weight:600">View CSV format reference &#8599;</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h3>Format preview</h3>
+          <p class="desc">What the CSV looks like. Full reference and edge cases (cache pricing, batch discount, regional rates) live in the help article.</p>
+
+          <div class="csv-example">
+<span class="comment"># anthropic-rates-2026-04.csv</span>
+<span class="h-row">provider,model,input_per_1m,output_per_1m,cache_write_per_1m,cache_read_per_1m,vision_per_image</span>
+<span class="ant-row">anthropic,claude-opus-4-7,15.00,75.00,18.75,1.50,0.024</span>
+<span class="ant-row">anthropic,claude-sonnet-4-6,3.00,15.00,3.75,0.30,0.0048</span>
+<span class="ant-row">anthropic,claude-haiku-4-5,1.00,5.00,1.25,0.10,0.0016</span>
+<span class="oai-row">openai,gpt-4o,2.50,10.00,1.25,1.25,</span>
+<span class="oai-row">openai,gpt-4o-mini,0.15,0.60,0.075,0.075,</span>
+          </div>
+
+          <div style="font-size:0.78rem;color:#888;margin-top:0.5rem;line-height:1.55">
+            Empty cells &rarr; that rate type doesn't apply (e.g., OpenAI doesn't have per-image vision pricing the same way Anthropic does). MarkFlow ignores them at calculation time.
+          </div>
+        </div>
+
+        <div style="display:flex;gap:0.5rem;margin-top:1.2rem">
+          <button class="pill primary sm">Save changes</button>
+          <button class="pill outline sm">Download current rates as CSV</button>
+          <button class="pill ghost sm">Discard</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- =================== 4. Help file content (preview) =================== -->
+<div class="page-label">4. Help file at <code style="background:#f0f0f0;padding:0.06rem 0.4rem;border-radius:4px;font-family:ui-monospace,monospace;font-size:0.78rem">docs/help/cost-rates-csv-format.md</code> &mdash; what the link opens</div>
+
+<div class="pg">
+  <div class="pg-body" style="padding:1.8rem 2.2rem 2.2rem">
+    <div style="font-family:'Iowan Old Style','Charter','Cambria',Georgia,serif;color:#1a1a1a;line-height:1.55;max-width:74ch">
+      <div style="font-size:0.7rem;font-weight:700;color:#5b3df5;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:0.5rem;font-family:-apple-system,Inter,sans-serif">Help &middot; AI providers &middot; Costs</div>
+      <h1 style="font-size:1.85rem;font-family:-apple-system,Inter,sans-serif;letter-spacing:-0.018em;font-weight:700;margin:0 0 0.55rem">Cost rates: CSV format</h1>
+      <p style="color:#5a5a5a;margin:0 0 1rem">How to import provider rates into MarkFlow. Same format works whether you maintain one CSV per provider or one combined file.</p>
+
+      <h2 style="font-size:1.2rem;font-family:-apple-system,Inter,sans-serif;font-weight:700;margin:1.4rem 0 0.4rem">Required columns</h2>
+      <ul style="margin:0 0 0.85rem;padding-left:1.4rem;font-family:-apple-system,Inter,sans-serif;font-size:0.92rem">
+        <li><code style="background:#f3f0ff;color:#5b3df5;padding:0.05rem 0.35rem;border-radius:4px;font-family:ui-monospace,monospace">provider</code> &mdash; lowercase: <code>anthropic</code>, <code>openai</code>, <code>local</code></li>
+        <li><code style="background:#f3f0ff;color:#5b3df5;padding:0.05rem 0.35rem;border-radius:4px;font-family:ui-monospace,monospace">model</code> &mdash; the model ID exactly as the provider returns it</li>
+        <li><code style="background:#f3f0ff;color:#5b3df5;padding:0.05rem 0.35rem;border-radius:4px;font-family:ui-monospace,monospace">input_per_1m</code> &mdash; USD per 1M input tokens</li>
+        <li><code style="background:#f3f0ff;color:#5b3df5;padding:0.05rem 0.35rem;border-radius:4px;font-family:ui-monospace,monospace">output_per_1m</code> &mdash; USD per 1M output tokens</li>
+      </ul>
+
+      <h2 style="font-size:1.2rem;font-family:-apple-system,Inter,sans-serif;font-weight:700;margin:1.4rem 0 0.4rem">Optional columns</h2>
+      <ul style="margin:0 0 0.85rem;padding-left:1.4rem;font-family:-apple-system,Inter,sans-serif;font-size:0.92rem">
+        <li><code style="background:#f3f0ff;color:#5b3df5;padding:0.05rem 0.35rem;border-radius:4px;font-family:ui-monospace,monospace">cache_write_per_1m</code> / <code style="background:#f3f0ff;color:#5b3df5;padding:0.05rem 0.35rem;border-radius:4px;font-family:ui-monospace,monospace">cache_read_per_1m</code> &mdash; for prompt-cache providers (Anthropic)</li>
+        <li><code style="background:#f3f0ff;color:#5b3df5;padding:0.05rem 0.35rem;border-radius:4px;font-family:ui-monospace,monospace">vision_per_image</code> &mdash; per-image vision rate, where applicable</li>
+        <li><code style="background:#f3f0ff;color:#5b3df5;padding:0.05rem 0.35rem;border-radius:4px;font-family:ui-monospace,monospace">batch_discount_pct</code> &mdash; e.g., <code>50</code> for Anthropic batch API</li>
+        <li><code style="background:#f3f0ff;color:#5b3df5;padding:0.05rem 0.35rem;border-radius:4px;font-family:ui-monospace,monospace">effective_date</code> &mdash; ISO date, in case you keep historical rates</li>
+      </ul>
+
+      <h2 style="font-size:1.2rem;font-family:-apple-system,Inter,sans-serif;font-weight:700;margin:1.4rem 0 0.4rem">Example</h2>
+      <div class="csv-example" style="font-family:ui-monospace,monospace">
+<span class="h-row">provider,model,input_per_1m,output_per_1m,cache_write_per_1m,cache_read_per_1m,vision_per_image</span>
+<span class="ant-row">anthropic,claude-opus-4-7,15.00,75.00,18.75,1.50,0.024</span>
+<span class="ant-row">anthropic,claude-sonnet-4-6,3.00,15.00,3.75,0.30,0.0048</span>
+<span class="ant-row">anthropic,claude-haiku-4-5,1.00,5.00,1.25,0.10,0.0016</span>
+<span class="oai-row">openai,gpt-4o,2.50,10.00,1.25,1.25,</span>
+      </div>
+
+      <h2 style="font-size:1.2rem;font-family:-apple-system,Inter,sans-serif;font-weight:700;margin:1.4rem 0 0.4rem">Notes</h2>
+      <ul style="margin:0;padding-left:1.4rem;font-family:-apple-system,Inter,sans-serif;font-size:0.92rem">
+        <li>Empty cells mean "doesn't apply" &mdash; not zero. MarkFlow skips that rate type for that model.</li>
+        <li>You can keep multiple <em>effective_date</em> rows for the same model. MarkFlow uses the latest dated row not in the future.</li>
+        <li>CSV must be UTF-8. Excel "Save As CSV (UTF-8)" works; "CSV (Comma delimited)" usually does too.</li>
+        <li>Check the provider's official pricing page when you import &mdash; rates change without notice.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+
+<!-- =================== React =================== -->
+<h3 style="margin-top:2.4rem">React</h3>
+<div class="options" data-multiselect>
+  <div class="option" data-choice="cost-yes" onclick="toggleSelect(this)">
+    <div class="letter">&#10003;</div>
+    <div class="content">
+      <h3>Cost deep-dive structure is right</h3>
+      <p>Sidebar with Overview / Rates by provider / Sources / Spend history / Alerts / external help link. Lock the IA.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="dynamic-yes" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>Dynamic single vs multi behavior is right</h3>
+      <p>Two-tile layout when single provider, three-tile + breakdown table when multi. Sidebar shrinks too.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="csv-yes" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>CSV import + format + help link is right</h3>
+      <p>Drop zone with format preview inline. Help file at <code>docs/help/cost-rates-csv-format.md</code> with required + optional columns and notes.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="cols-tweak" onclick="toggleSelect(this)">
+    <div class="letter">~</div>
+    <div class="content">
+      <h3>Tweak the CSV columns</h3>
+      <p>Tell me what's missing or wrong. I covered: provider, model, input/output, cache write/read, vision_per_image, batch_discount_pct, effective_date.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="spec-now" onclick="toggleSelect(this)">
+    <div class="letter">&#128221;</div>
+    <div class="content">
+      <h3>Lock and write the spec</h3>
+      <p>Cost deep-dive is the last refinement. Time to write <code>docs/superpowers/specs/2026-04-28-ux-overhaul-search-as-home-design.md</code> and hand off to <code>writing-plans</code>.</p>
+    </div>
+  </div>
+</div>

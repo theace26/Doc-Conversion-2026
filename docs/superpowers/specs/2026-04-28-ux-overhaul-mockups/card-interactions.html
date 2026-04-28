@@ -1,0 +1,467 @@
+<h2>Cards as a tool &mdash; hover, right-click, folder view</h2>
+<p class="subtitle">No metadata below the card. Title is in the snippet. Hover gives the rich preview. Right-click gives the actions. Going to folder shows everything in the directory with selection + bulk download.</p>
+
+<style>
+  .pg { background:#fff; border-radius:14px; overflow:hidden; box-shadow:0 1px 0 rgba(0,0,0,0.05), 0 24px 48px -24px rgba(0,0,0,0.18); border:1px solid #ececec; margin-bottom:1.6rem; font-family:-apple-system,'SF Pro Display',Inter,system-ui,sans-serif; }
+  .pg-nav { display:flex; align-items:center; justify-content:space-between; padding:1.05rem 1.6rem; border-bottom:1px solid #f1f1f1; font-size:0.92rem; }
+  .pg-logo { font-weight:700; letter-spacing:-0.01em; color:#0a0a0a; font-size:1.05rem; display:inline-flex; align-items:center; gap:0.55rem; }
+  .ver-chip { font-size:0.62rem; font-weight:700; color:#a36a00; background:#fff5e0; padding:0.18rem 0.5rem; border-radius:999px; letter-spacing:0.06em; text-transform:uppercase; font-family:ui-monospace,'SF Mono',monospace; }
+  .pg-links { display:flex; gap:1.5rem; color:#3a3a3a; font-weight:500; }
+  .pg-links span { cursor:default; }
+  .pg-links .on { color:#5b3df5; }
+  .pg-avatar { width:30px; height:30px; border-radius:50%; background:linear-gradient(135deg,#5b3df5,#9d7bff); }
+  .pg-body { padding:2rem 2rem 2.4rem; }
+
+  .pg-headline { font-size:2rem; line-height:1.05; letter-spacing:-0.025em; font-weight:700; color:#0a0a0a; margin:0 0 0.4rem; }
+  .pg-subtitle { color:#5a5a5a; font-size:0.94rem; margin:0 0 1.4rem; }
+
+  .row-cards { display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:0.85rem; }
+  .doc-card { cursor:pointer; transition:transform 0.15s; position:relative; }
+  .doc-card:hover { transform:translateY(-2px); }
+  .doc-thumb { aspect-ratio:0.78; border-radius:8px; overflow:hidden; position:relative; background:#fefefb; border:1px solid #e8e6df; box-shadow:0 1px 0 rgba(0,0,0,0.04), 0 8px 16px -10px rgba(0,0,0,0.1); display:flex; flex-direction:column; }
+  .doc-band { height:32%; position:relative; }
+  .doc-band.pdf  { background:linear-gradient(135deg,#ff6b6b 0%, #c92a2a 100%); }
+  .doc-band.docx { background:linear-gradient(135deg,#4dabf7 0%, #1864ab 100%); }
+  .doc-band.pptx { background:linear-gradient(135deg,#ffa94d 0%, #e8590c 100%); }
+  .doc-band.xlsx { background:linear-gradient(135deg,#51cf66 0%, #2b8a3e 100%); }
+  .doc-band.eml  { background:linear-gradient(135deg,#cc5de8 0%, #862e9c 100%); }
+  .doc-band.psd  { background:linear-gradient(135deg,#5c7cfa 0%, #364fc7 100%); }
+  .doc-band.mp4  { background:linear-gradient(135deg,#22b8cf 0%, #0b7285 100%); }
+  .doc-band.md   { background:linear-gradient(135deg,#0a0a0a 0%, #495057 100%); }
+  .doc-band-label { position:absolute; left:0.55rem; bottom:0.4rem; color:#fff; font-size:0.7rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-shadow:0 1px 2px rgba(0,0,0,0.18); }
+  .doc-fav { position:absolute; top:0.45rem; right:0.45rem; width:24px; height:24px; border-radius:50%; background:rgba(255,255,255,0.92); color:#5a5a5a; display:flex; align-items:center; justify-content:center; font-size:0.78rem; }
+  .doc-snippet { padding:0.6rem 0.7rem 0.5rem; font-size:0.65rem; color:#2a2a2a; line-height:1.45; font-family:'Iowan Old Style','Charter','Cambria',Georgia,serif; flex:1; overflow:hidden; position:relative; }
+  .doc-snippet::after { content:''; position:absolute; left:0; right:0; bottom:0; height:30%; background:linear-gradient(180deg, rgba(254,254,251,0) 0%, rgba(254,254,251,1) 92%); pointer-events:none; }
+  .doc-snippet .h { font-weight:700; font-size:0.74rem; margin-bottom:0.25rem; color:#0a0a0a; font-family:-apple-system,Inter,sans-serif; }
+
+  /* selection checkbox on hover */
+  .doc-checkbox { position:absolute; top:0.45rem; left:0.45rem; width:20px; height:20px; border-radius:5px; background:rgba(255,255,255,0.92); border:1.5px solid rgba(255,255,255,0.6); display:flex; align-items:center; justify-content:center; opacity:0; transition:opacity 0.15s; z-index:3; }
+  .doc-card:hover .doc-checkbox { opacity:1; }
+  .doc-card.selected .doc-checkbox { opacity:1; background:#5b3df5; border-color:#5b3df5; color:#fff; }
+  .doc-card.selected .doc-thumb { box-shadow:0 0 0 3px rgba(91,61,245,0.32), 0 1px 0 rgba(0,0,0,0.04), 0 8px 16px -10px rgba(0,0,0,0.1); }
+
+  /* hover preview popover */
+  .hover-preview { position:absolute; left:calc(100% + 12px); top:-12px; width:340px; background:#fff; border:1px solid #ececec; border-radius:12px; box-shadow:0 12px 40px -8px rgba(0,0,0,0.22); padding:1rem 1rem 0.85rem; z-index:20; }
+  .hover-preview::before { content:''; position:absolute; left:-7px; top:24px; width:14px; height:14px; background:#fff; border-left:1px solid #ececec; border-bottom:1px solid #ececec; transform:rotate(45deg); }
+  .hp-title { font-size:1rem; font-weight:700; color:#0a0a0a; margin:0 0 0.25rem; line-height:1.25; }
+  .hp-path { font-size:0.74rem; color:#5b3df5; font-family:ui-monospace,monospace; margin-bottom:0.7rem; word-break:break-all; }
+  .hp-meta-grid { display:grid; grid-template-columns:auto 1fr; gap:0.3rem 0.7rem; font-size:0.78rem; margin-bottom:0.85rem; }
+  .hp-meta-grid .k { color:#888; }
+  .hp-meta-grid .v { color:#0a0a0a; font-weight:500; }
+  .hp-summary { font-size:0.78rem; color:#3a3a3a; line-height:1.45; padding:0.7rem 0.8rem; background:#fafafa; border-radius:8px; margin-bottom:0.85rem; border-left:2px solid #5b3df5; }
+  .hp-summary .lab { font-size:0.62rem; font-weight:700; color:#5b3df5; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:0.25rem; }
+  .hp-actions { display:flex; gap:0.4rem; flex-wrap:wrap; }
+  .hp-actions button { background:#fff; border:1px solid #e0e0e0; border-radius:8px; padding:0.4rem 0.75rem; font-size:0.78rem; color:#3a3a3a; cursor:pointer; font-weight:500; }
+  .hp-actions button.primary { background:#5b3df5; border-color:#5b3df5; color:#fff; }
+
+  /* right-click context menu */
+  .ctx-menu { position:absolute; left:calc(100% - 6px); top:30%; width:240px; background:#fff; border:1px solid #ececec; border-radius:10px; box-shadow:0 12px 32px -6px rgba(0,0,0,0.22); padding:0.35rem; z-index:30; font-size:0.85rem; }
+  .ctx-menu a { display:flex; align-items:center; justify-content:space-between; padding:0.45rem 0.65rem; border-radius:7px; color:#3a3a3a; cursor:pointer; }
+  .ctx-menu a:hover { background:#f5f3ff; color:#5b3df5; }
+  .ctx-menu a.danger:hover { background:#ffe7e7; color:#c92a2a; }
+  .ctx-menu .kbd { font-size:0.7rem; color:#aaa; font-family:ui-monospace,monospace; }
+  .ctx-menu .sep { height:1px; background:#f3f3f3; margin:0.3rem 0.35rem; }
+  .ctx-menu-section-label { font-size:0.62rem; font-weight:700; color:#aaa; text-transform:uppercase; letter-spacing:0.07em; padding:0.45rem 0.65rem 0.2rem; }
+  .ctx-menu-section-label.adv { color:#bcb6cf; padding-top:0.55rem; display:flex; justify-content:space-between; align-items:center; }
+  .ctx-menu-section-label.adv .pill { font-size:0.5rem; background:#f3f0ff; color:#5b3df5; padding:0.12rem 0.4rem; border-radius:999px; font-weight:700; letter-spacing:0.05em; }
+  .ctx-menu a.adv { color:#7a7a8a; font-size:0.8rem; }
+  .ctx-menu a.adv:hover { background:#f5f3ff; color:#5b3df5; }
+  .ctx-menu .sep.heavy { background:#ececec; height:1px; margin:0.5rem 0.35rem 0.35rem; }
+  .ctx-menu .expander { display:flex; align-items:center; justify-content:space-between; padding:0.5rem 0.65rem; color:#9a9a9a; font-size:0.78rem; cursor:pointer; border-radius:7px; }
+  .ctx-menu .expander:hover { background:#fafafa; color:#5b3df5; }
+  .ctx-menu .expander .chev { font-size:0.62rem; transition:transform 0.15s; }
+  .ctx-menu .expander.open .chev { transform:rotate(180deg); }
+  .ctx-menu .expanded-block { background:#fafafa; border-radius:8px; padding:0.25rem; margin-top:0.2rem; }
+  .ctx-menu .expanded-block .ctx-menu-section-label { padding-top:0.4rem; padding-bottom:0.15rem; }
+  .ctx-menu .expanded-block a.adv { color:#5a5a6a; }
+
+  /* setting row reuse */
+  .setting-row { display:flex; align-items:center; justify-content:space-between; padding:1rem 1.2rem; background:#fafafa; border:1px solid #ececec; border-radius:12px; margin-bottom:0.7rem; gap:1rem; }
+  .setting-row .lbl { font-size:0.92rem; color:#0a0a0a; font-weight:600; }
+  .setting-row .desc { font-size:0.8rem; color:#7a7a7a; margin-top:0.15rem; max-width:48ch; }
+  .toggle-on { width:36px; height:20px; background:#5b3df5; border-radius:999px; position:relative; flex-shrink:0; }
+  .toggle-off { width:36px; height:20px; background:#e0e0e0; border-radius:999px; position:relative; flex-shrink:0; }
+  .toggle-knob-on { width:16px; height:16px; background:#fff; border-radius:50%; position:absolute; top:2px; right:2px; box-shadow:0 1px 3px rgba(0,0,0,0.2); }
+  .toggle-knob-off { width:16px; height:16px; background:#fff; border-radius:50%; position:absolute; top:2px; left:2px; box-shadow:0 1px 3px rgba(0,0,0,0.2); }
+  .role-tag { font-size:0.62rem; font-weight:700; color:#a36a00; background:#fff5e0; padding:0.18rem 0.5rem; border-radius:999px; letter-spacing:0.06em; text-transform:uppercase; margin-left:0.4rem; }
+
+  /* breadcrumb */
+  .crumb { display:inline-flex; align-items:center; gap:0.4rem; color:#5b3df5; font-size:0.84rem; font-weight:500; margin-bottom:0.7rem; }
+  .crumb .sep { color:#bbb; font-weight:400; }
+  .crumb .seg { cursor:pointer; }
+  .crumb .here { color:#0a0a0a; }
+
+  /* bulk-action bar */
+  .bulk-bar { display:flex; align-items:center; justify-content:space-between; background:#5b3df5; color:#fff; padding:0.7rem 1rem; border-radius:10px; margin-bottom:1rem; font-size:0.88rem; }
+  .bulk-bar .left { display:flex; align-items:center; gap:0.7rem; }
+  .bulk-bar .check { width:20px; height:20px; border-radius:5px; background:rgba(255,255,255,0.95); color:#5b3df5; display:inline-flex; align-items:center; justify-content:center; font-weight:700; }
+  .bulk-bar button { background:rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.3); color:#fff; padding:0.4rem 0.85rem; border-radius:7px; font-size:0.82rem; font-weight:500; cursor:pointer; }
+  .bulk-bar button:hover { background:rgba(255,255,255,0.25); }
+  .bulk-bar button.solid { background:#fff; color:#5b3df5; border-color:#fff; font-weight:600; }
+
+  /* folder header */
+  .folder-head { display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:1rem; }
+  .folder-icon-lg { width:48px; height:48px; border-radius:12px; background:linear-gradient(135deg,#f3f0ff,#e9e1ff); display:flex; align-items:center; justify-content:center; color:#5b3df5; font-size:1.4rem; margin-bottom:0.7rem; }
+  .folder-stats { color:#7a7a7a; font-size:0.92rem; }
+  .folder-actions { display:flex; gap:0.5rem; }
+  .pill { padding:0.5rem 1rem; border-radius:999px; font-size:0.84rem; font-weight:500; cursor:pointer; border:none; }
+  .pill.outline { background:#fff; border:1px solid #e0e0e0; color:#3a3a3a; }
+  .pill.primary { background:#5b3df5; color:#fff; }
+
+  /* density toggle (compact) */
+  .density-toggle { display:inline-flex; background:#f5f5f5; border-radius:10px; padding:0.22rem; gap:0.15rem; }
+  .density-toggle button { background:transparent; border:none; padding:0.4rem 0.7rem; border-radius:7px; color:#7a7a7a; cursor:pointer; font-size:0.8rem; font-weight:500; }
+  .density-toggle button.on { background:#fff; color:#0a0a0a; box-shadow:0 1px 3px rgba(0,0,0,0.08); }
+
+  .page-label { font-size:0.7rem; font-weight:700; color:#999; text-transform:uppercase; letter-spacing:0.08em; margin:1.6rem 0 0.5rem 0.3rem; }
+
+  /* dim non-focused cards in interaction demos */
+  .row-cards.dim .doc-card:not(.focus) { opacity:0.45; pointer-events:none; transition:opacity 0.2s; }
+  .row-cards.dim .doc-card:not(.focus) .doc-thumb { box-shadow:0 1px 0 rgba(0,0,0,0.04), 0 4px 8px -6px rgba(0,0,0,0.06); }
+</style>
+
+
+<!-- =================== 1. Cards alone (no meta below) =================== -->
+<div class="page-label">1. The card itself &mdash; no title, path, or timestamp underneath. Title lives in the snippet.</div>
+
+<div class="pg">
+  <div class="pg-body" style="padding:1.6rem 2rem;background:#fafafa">
+    <div class="row-cards">
+      <div class="doc-card"><div class="doc-thumb"><div class="doc-band pdf"><span class="doc-band-label">PDF</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Q4 2025 Financial Summary</div>Revenue increased 18% year over year, driven primarily by member dues growth and new training-fund distributions...</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><div class="doc-band docx"><span class="doc-band-label">DOCX</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Contract Negotiation Prep v3</div>Opening positions for the May 2026 cycle. Priority items: wage scale adjustment, healthcare contribution cap...</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><div class="doc-band pptx"><span class="doc-band-label">PPTX</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Member Orientation 2026</div>Welcome to IBEW Local 46. Benefits enrollment, dues schedule, training pathways, first-year apprentice timeline...</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><div class="doc-band xlsx"><span class="doc-band-label">XLSX</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Apprentice Hours Tracking</div>FY2026 cohort progress as of period 4. 18 apprentices on track, 3 flagged for OJT shortfall...</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><div class="doc-band eml"><span class="doc-band-label">EML</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Re: Jurisdiction dispute</div>From Local 76 BA: regarding the Mercer Island substation work, our position remains that fiber pulls within...</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><div class="doc-band md"><span class="doc-band-label">MD</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h"># Bylaws Revision Draft</div>Section 4 amendments for the May general meeting vote. Delegate selection, executive board terms...</div></div></div>
+    </div>
+  </div>
+</div>
+
+
+<!-- =================== 2. Hover preview =================== -->
+<div class="page-label">2. Hover &rarr; rich preview popover with all metadata + AI summary + actions</div>
+
+<div class="pg">
+  <div class="pg-body" style="padding:2rem 2rem 8rem;background:#fafafa">
+    <div class="row-cards dim" style="grid-template-columns:repeat(5, minmax(0,1fr))">
+      <div class="doc-card"><div class="doc-thumb"><div class="doc-band pdf"><span class="doc-band-label">PDF</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Q4 2025 Financial Summary</div>Revenue increased 18%...</div></div></div>
+      <div class="doc-card focus" style="position:relative">
+        <div class="doc-thumb" style="box-shadow:0 0 0 2px rgba(91,61,245,0.4), 0 1px 0 rgba(0,0,0,0.04), 0 12px 20px -8px rgba(0,0,0,0.18)">
+          <div class="doc-band docx"><span class="doc-band-label">DOCX</span></div>
+          <span class="doc-fav">&hearts;</span>
+          <div class="doc-snippet"><div class="h">Contract Negotiation Prep v3</div>Opening positions for the May 2026 cycle. Priority items: wage scale...</div>
+        </div>
+        <div class="hover-preview">
+          <h3 class="hp-title">Contract Negotiation Prep v3</h3>
+          <div class="hp-path">/local-46/contracts/contract-prep-v3.docx</div>
+          <div class="hp-meta-grid">
+            <span class="k">Format</span><span class="v">DOCX &middot; 880 KB</span>
+            <span class="k">Modified</span><span class="v">8 min ago by Xerxes Shelley</span>
+            <span class="k">Indexed</span><span class="v">2026-04-28 14:22 &middot; full-text + vector</span>
+            <span class="k">Opens</span><span class="v">14 in last 7 days</span>
+            <span class="k">Status</span><span class="v" style="color:#0e7c5a">&#x2713; Converted, AI-summarized</span>
+          </div>
+          <div class="hp-summary">
+            <div class="lab">AI Summary</div>
+            Opening positions for the May 2026 contract cycle covering wage scale adjustments, healthcare contribution caps, and apprentice ratio. Priority is wage parity with Locals 76 and 191.
+          </div>
+          <div class="hp-actions">
+            <button class="primary">Preview</button>
+            <button>Download</button>
+            <button>Go to folder</button>
+            <button>&hellip;</button>
+          </div>
+        </div>
+      </div>
+      <div class="doc-card"><div class="doc-thumb"><div class="doc-band pptx"><span class="doc-band-label">PPTX</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Member Orientation 2026</div>Welcome to IBEW Local 46...</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><div class="doc-band xlsx"><span class="doc-band-label">XLSX</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Apprentice Hours Tracking</div>FY2026 cohort progress...</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><div class="doc-band eml"><span class="doc-band-label">EML</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Re: Jurisdiction dispute</div>From Local 76 BA...</div></div></div>
+    </div>
+  </div>
+</div>
+
+
+<!-- =================== 3. Right-click context menu =================== -->
+<div class="page-label">3. Right-click &rarr; context menu with file actions</div>
+
+<div class="pg">
+  <div class="pg-body" style="padding:2rem 2rem 7rem;background:#fafafa">
+    <div class="row-cards dim" style="grid-template-columns:repeat(5, minmax(0,1fr))">
+      <div class="doc-card"><div class="doc-thumb"><div class="doc-band pdf"><span class="doc-band-label">PDF</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Q4 2025 Financial Summary</div>Revenue increased 18%...</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><div class="doc-band docx"><span class="doc-band-label">DOCX</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Contract Negotiation Prep v3</div>Opening positions...</div></div></div>
+      <div class="doc-card focus" style="position:relative">
+        <div class="doc-thumb" style="box-shadow:0 0 0 2px rgba(91,61,245,0.4), 0 1px 0 rgba(0,0,0,0.04), 0 12px 20px -8px rgba(0,0,0,0.18)">
+          <div class="doc-band pptx"><span class="doc-band-label">PPTX</span></div>
+          <span class="doc-fav">&hearts;</span>
+          <div class="doc-snippet"><div class="h">Member Orientation 2026</div>Welcome to IBEW Local 46. Benefits enrollment, dues schedule...</div>
+        </div>
+        <div class="ctx-menu">
+          <div class="ctx-menu-section-label">View</div>
+          <a>Preview file <span class="kbd">Space</span></a>
+          <a>Open original <span class="kbd">&#8984;O</span></a>
+          <a>Go to containing folder <span class="kbd">&#8984;&uarr;</span></a>
+          <div class="sep"></div>
+          <div class="ctx-menu-section-label">Export</div>
+          <a>Download original</a>
+          <a>Copy file path</a>
+          <div class="sep"></div>
+          <div class="ctx-menu-section-label">AI</div>
+          <a>Summarize with AI</a>
+          <a>Ask a question about this file</a>
+          <div class="sep"></div>
+          <a>Pin to favorites</a>
+          <a class="danger">Flag for review</a>
+          <div class="sep heavy"></div>
+          <div class="expander">
+            <span>Advanced &middot; Markdown &amp; AI integrations</span>
+            <span class="chev">&#9662;</span>
+          </div>
+        </div>
+      </div>
+      <div class="doc-card"><div class="doc-thumb"><div class="doc-band xlsx"><span class="doc-band-label">XLSX</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Apprentice Hours Tracking</div>FY2026 cohort progress...</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><div class="doc-band eml"><span class="doc-band-label">EML</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Re: Jurisdiction dispute</div>From Local 76 BA...</div></div></div>
+    </div>
+  </div>
+</div>
+
+
+<!-- =================== 3b. Expanded state &mdash; after click OR when Settings toggle is ON =================== -->
+<div class="page-label">3b. Click "Advanced &#9662;" &mdash; OR have the Settings toggle on (admin default) &mdash; and the items reveal inline</div>
+
+<div class="pg">
+  <div class="pg-body" style="padding:2rem 2rem 9rem;background:#fafafa">
+    <div class="row-cards dim" style="grid-template-columns:repeat(5, minmax(0,1fr))">
+      <div class="doc-card"><div class="doc-thumb"><div class="doc-band pdf"><span class="doc-band-label">PDF</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Q4 2025 Financial Summary</div>Revenue increased 18%...</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><div class="doc-band docx"><span class="doc-band-label">DOCX</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Contract Negotiation Prep v3</div>Opening positions...</div></div></div>
+      <div class="doc-card focus" style="position:relative">
+        <div class="doc-thumb" style="box-shadow:0 0 0 2px rgba(91,61,245,0.4), 0 1px 0 rgba(0,0,0,0.04), 0 12px 20px -8px rgba(0,0,0,0.18)">
+          <div class="doc-band pptx"><span class="doc-band-label">PPTX</span></div>
+          <span class="doc-fav">&hearts;</span>
+          <div class="doc-snippet"><div class="h">Member Orientation 2026</div>Welcome to IBEW Local 46...</div>
+        </div>
+        <div class="ctx-menu">
+          <div class="ctx-menu-section-label">View</div>
+          <a>Preview file <span class="kbd">Space</span></a>
+          <a>Open original <span class="kbd">&#8984;O</span></a>
+          <a>Go to containing folder <span class="kbd">&#8984;&uarr;</span></a>
+          <div class="sep"></div>
+          <div class="ctx-menu-section-label">Export</div>
+          <a>Download original</a>
+          <a>Copy file path</a>
+          <div class="sep"></div>
+          <div class="ctx-menu-section-label">AI</div>
+          <a>Summarize with AI</a>
+          <a>Ask a question about this file</a>
+          <div class="sep"></div>
+          <a>Pin to favorites</a>
+          <a class="danger">Flag for review</a>
+          <div class="sep heavy"></div>
+          <div class="expander open">
+            <span>Advanced &middot; Markdown &amp; AI integrations</span>
+            <span class="chev">&#9662;</span>
+          </div>
+          <div class="expanded-block">
+            <a class="adv">Download as Markdown <span class="kbd">&#8984;D</span></a>
+            <a class="adv">Copy Markdown to clipboard</a>
+            <a class="adv">View raw Markdown source</a>
+          </div>
+        </div>
+      </div>
+      <div class="doc-card"><div class="doc-thumb"><div class="doc-band xlsx"><span class="doc-band-label">XLSX</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Apprentice Hours Tracking</div>FY2026 cohort progress...</div></div></div>
+      <div class="doc-card"><div class="doc-thumb"><div class="doc-band eml"><span class="doc-band-label">EML</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Re: Jurisdiction dispute</div>From Local 76 BA...</div></div></div>
+    </div>
+  </div>
+</div>
+
+
+<!-- =================== 3c. The Settings toggle that flips the default =================== -->
+<div class="page-label">3c. Settings &rarr; Display &mdash; the toggle that controls default visibility (and gates other power-user features in one place)</div>
+
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow <span class="ver-chip">v0.34.1-dev</span></div>
+    <div class="pg-links"><span>Search</span><span>Pipeline</span><span>Convert</span><span class="on">Settings</span></div>
+    <div class="pg-avatar"></div>
+  </div>
+  <div class="pg-body" style="padding:1.8rem 2rem 2.2rem">
+    <div class="crumb"><span class="seg">All settings</span><span class="sep">/</span><span class="here">Display</span></div>
+    <h1 class="pg-headline" style="font-size:1.6rem;margin-bottom:0.3rem">Display.</h1>
+    <p class="pg-subtitle">How content shows up &mdash; including who sees power-user features.</p>
+
+    <div class="setting-row">
+      <div>
+        <div class="lbl">Show MarkFlow / AI integration actions <span class="role-tag">power user</span></div>
+        <div class="desc">Reveals "Download as Markdown", "Copy Markdown", "Raw source", and other developer / AI-workflow actions inline in context menus and previews. When off, these stay accessible behind an <em>Advanced &#9662;</em> expander.</div>
+      </div>
+      <div class="toggle-off" title="Default: off for staff, on for admin / operator"><div class="toggle-knob-off"></div></div>
+    </div>
+
+    <div class="setting-row">
+      <div>
+        <div class="lbl">Default content density</div>
+        <div class="desc">Used on Search, expanded sections, folder view, and Batch Management.</div>
+      </div>
+      <div style="display:inline-flex;background:#f5f5f5;border-radius:10px;padding:0.22rem;gap:0.15rem">
+        <button style="background:#fff;border:none;padding:0.4rem 0.7rem;border-radius:7px;font-size:0.8rem;color:#0a0a0a;font-weight:500;box-shadow:0 1px 3px rgba(0,0,0,0.08)">Cards</button>
+        <button style="background:transparent;border:none;padding:0.4rem 0.7rem;border-radius:7px;font-size:0.8rem;color:#7a7a7a">Compact</button>
+        <button style="background:transparent;border:none;padding:0.4rem 0.7rem;border-radius:7px;font-size:0.8rem;color:#7a7a7a">List</button>
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <div>
+        <div class="lbl">Snippet length</div>
+        <div class="desc">How much content previews show on each card.</div>
+      </div>
+      <div style="display:inline-flex;background:#f5f5f5;border-radius:10px;padding:0.22rem;gap:0.15rem">
+        <button style="background:transparent;border:none;padding:0.4rem 0.7rem;border-radius:7px;font-size:0.8rem;color:#7a7a7a">Short</button>
+        <button style="background:#fff;border:none;padding:0.4rem 0.7rem;border-radius:7px;font-size:0.8rem;color:#0a0a0a;font-weight:500;box-shadow:0 1px 3px rgba(0,0,0,0.08)">Medium</button>
+        <button style="background:transparent;border:none;padding:0.4rem 0.7rem;border-radius:7px;font-size:0.8rem;color:#7a7a7a">Long</button>
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <div>
+        <div class="lbl">Show file thumbnails</div>
+        <div class="desc">For PDFs and image-bearing formats, render the first page as the card thumb instead of the markdown snippet.</div>
+      </div>
+      <div class="toggle-off"><div class="toggle-knob-off"></div></div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- =================== 4. Folder view (after "Go to containing folder") =================== -->
+<div class="page-label">4. After "Go to containing folder" &mdash; full directory listing with selection + bulk download</div>
+
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow <span class="ver-chip">v0.34.1-dev</span></div>
+    <div class="pg-links"><span class="on">Search</span><span>Pipeline</span><span>Convert</span><span>Settings</span></div>
+    <div class="pg-avatar"></div>
+  </div>
+  <div class="pg-body">
+    <div class="crumb">
+      <span class="seg">Home</span><span class="sep">/</span>
+      <span class="seg">local-46</span><span class="sep">/</span>
+      <span class="here">contracts</span>
+    </div>
+
+    <div class="folder-head">
+      <div>
+        <div class="folder-icon-lg">&#9783;</div>
+        <h1 class="pg-headline">/local-46/contracts</h1>
+        <div class="folder-stats">428 documents &middot; 3 added today &middot; last scanned 4 min ago</div>
+      </div>
+      <div class="folder-actions">
+        <div class="density-toggle">
+          <button class="on">Cards</button>
+          <button>Compact</button>
+          <button>List</button>
+        </div>
+        <button class="pill outline">Pin folder</button>
+        <button class="pill outline">Download all (zip)</button>
+      </div>
+    </div>
+
+    <!-- bulk action bar (3 selected) -->
+    <div class="bulk-bar">
+      <div class="left">
+        <div class="check">3</div>
+        <span>3 files selected</span>
+      </div>
+      <div style="display:flex;gap:0.45rem">
+        <button class="solid">Download selected</button>
+        <button>Preview</button>
+        <button>Copy paths</button>
+        <button>Tag &hellip;</button>
+        <button>Flag for review</button>
+        <button>Clear</button>
+      </div>
+    </div>
+
+    <!-- selected + unselected mix -->
+    <div class="row-cards" style="grid-template-columns:repeat(6, minmax(0,1fr))">
+      <div class="doc-card selected"><span class="doc-checkbox">&#10003;</span><div class="doc-thumb"><div class="doc-band pdf"><span class="doc-band-label">PDF</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Master Agreement 2024-2027</div>Current effective contract for Local 46 inside-wireman classification...</div></div></div>
+      <div class="doc-card"><span class="doc-checkbox">&nbsp;</span><div class="doc-thumb"><div class="doc-band docx"><span class="doc-band-label">DOCX</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Contract Negotiation Prep v3</div>Opening positions for the May 2026 cycle...</div></div></div>
+      <div class="doc-card selected"><span class="doc-checkbox">&#10003;</span><div class="doc-thumb"><div class="doc-band pdf"><span class="doc-band-label">PDF</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Side Letter &mdash; Healthcare Caps</div>April 2025 amendment regarding healthcare contribution caps...</div></div></div>
+      <div class="doc-card"><span class="doc-checkbox">&nbsp;</span><div class="doc-thumb"><div class="doc-band docx"><span class="doc-band-label">DOCX</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Mediation Position Memo</div>Position prep for May 2026 mediation session. Review with steward...</div></div></div>
+      <div class="doc-card selected"><span class="doc-checkbox">&#10003;</span><div class="doc-thumb"><div class="doc-band pdf"><span class="doc-band-label">PDF</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Wage Scale Comparison</div>Compares Local 46 to Locals 76, 191, 354 for parallel classifications...</div></div></div>
+      <div class="doc-card"><span class="doc-checkbox">&nbsp;</span><div class="doc-thumb"><div class="doc-band md"><span class="doc-band-label">MD</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h"># Negotiation Notes 2024</div>Internal notes from the 2024 cycle. Key concessions, pivots, what worked...</div></div></div>
+
+      <div class="doc-card"><span class="doc-checkbox">&nbsp;</span><div class="doc-thumb"><div class="doc-band pdf"><span class="doc-band-label">PDF</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Grievance Procedure</div>Section 7 of the master agreement, expanded with case examples...</div></div></div>
+      <div class="doc-card"><span class="doc-checkbox">&nbsp;</span><div class="doc-thumb"><div class="doc-band docx"><span class="doc-band-label">DOCX</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Apprenticeship Standards</div>JATC-approved standards document, latest revision...</div></div></div>
+      <div class="doc-card"><span class="doc-checkbox">&nbsp;</span><div class="doc-thumb"><div class="doc-band pdf"><span class="doc-band-label">PDF</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Letters of Assent</div>Signed contractor LOAs for inside agreement coverage...</div></div></div>
+      <div class="doc-card"><span class="doc-checkbox">&nbsp;</span><div class="doc-thumb"><div class="doc-band xlsx"><span class="doc-band-label">XLSX</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Wage Tier Schedule</div>Effective rate table by classification and zone, Q1 2026...</div></div></div>
+      <div class="doc-card"><span class="doc-checkbox">&nbsp;</span><div class="doc-thumb"><div class="doc-band pdf"><span class="doc-band-label">PDF</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">PLA &mdash; Mercer Island Substation</div>Project labor agreement covering substation work, fiber pull included...</div></div></div>
+      <div class="doc-card"><span class="doc-checkbox">&nbsp;</span><div class="doc-thumb"><div class="doc-band docx"><span class="doc-band-label">DOCX</span></div><span class="doc-fav">&hearts;</span><div class="doc-snippet"><div class="h">Local 76 Boundary Agreement</div>Jurisdictional boundary memorandum with Local 76, dated 2023...</div></div></div>
+    </div>
+
+    <!-- pagination at bottom -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1.6rem;padding-top:1rem;border-top:1px solid #f0f0f0">
+      <div style="display:flex;align-items:center;gap:0.6rem;color:#6a6a6a;font-size:0.84rem">
+        <span>Items per page:</span>
+        <div style="display:inline-flex;background:#f5f5f5;border-radius:8px;padding:0.18rem;gap:0.1rem">
+          <button style="background:transparent;border:none;padding:0.3rem 0.55rem;border-radius:6px;font-size:0.74rem;color:#7a7a7a">12</button>
+          <button style="background:#fff;border:none;padding:0.3rem 0.55rem;border-radius:6px;font-size:0.74rem;color:#0a0a0a;font-weight:500;box-shadow:0 1px 3px rgba(0,0,0,0.08)">24</button>
+          <button style="background:transparent;border:none;padding:0.3rem 0.55rem;border-radius:6px;font-size:0.74rem;color:#7a7a7a">48</button>
+          <button style="background:transparent;border:none;padding:0.3rem 0.55rem;border-radius:6px;font-size:0.74rem;color:#7a7a7a">96</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:0.4rem">
+        <button style="padding:0.5rem 0.9rem;border-radius:8px;border:1px solid #e0e0e0;background:#fff;color:#5a5a5a;font-size:0.85rem">&larr;</button>
+        <button style="padding:0.5rem 0.85rem;border-radius:8px;border:none;background:#5b3df5;color:#fff;font-weight:600;font-size:0.85rem">1</button>
+        <button style="padding:0.5rem 0.85rem;border-radius:8px;border:1px solid #e0e0e0;background:#fff;color:#5a5a5a;font-size:0.85rem">2</button>
+        <button style="padding:0.5rem 0.85rem;border-radius:8px;border:1px solid #e0e0e0;background:#fff;color:#5a5a5a;font-size:0.85rem">3</button>
+        <span style="padding:0.5rem 0.3rem;color:#888;font-size:0.85rem">&hellip;</span>
+        <button style="padding:0.5rem 0.85rem;border-radius:8px;border:1px solid #e0e0e0;background:#fff;color:#5a5a5a;font-size:0.85rem">18</button>
+        <button style="padding:0.5rem 0.9rem;border-radius:8px;border:1px solid #e0e0e0;background:#fff;color:#5a5a5a;font-size:0.85rem">&rarr;</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- =================== React =================== -->
+<h3 style="margin-top:2.4rem">React</h3>
+<div class="options" data-multiselect>
+  <div class="option" data-choice="strip-meta" onclick="toggleSelect(this)">
+    <div class="letter">&#10003;</div>
+    <div class="content">
+      <h3>Stripped cards are right</h3>
+      <p>No title, path, or stamp under the card. Title-as-snippet-header is enough at-a-glance. Lock it.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="hover-preview" onclick="toggleSelect(this)">
+    <div class="letter">&#10003;</div>
+    <div class="content">
+      <h3>Hover preview is right</h3>
+      <p>Floating popover with title, path, format, size, modified-by, indexed-status, AI summary, and Preview / Download / Go-to-folder / More actions.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="ctx-menu" onclick="toggleSelect(this)">
+    <div class="letter">&#10003;</div>
+    <div class="content">
+      <h3>Context menu items are right</h3>
+      <p>View (Preview / Open original / Go to folder), Export (Download original / as Markdown / Copy MD / Copy path), AI (Summarize / Ask), Pin / Flag.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="folder-view" onclick="toggleSelect(this)">
+    <div class="letter">&#10003;</div>
+    <div class="content">
+      <h3>Folder view is right</h3>
+      <p>Breadcrumb + folder header with stats + density toggle + Pin / Download-all + bulk action bar when items selected. Hover-checkboxes for selection.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="ctx-extras" onclick="toggleSelect(this)">
+    <div class="letter">+</div>
+    <div class="content">
+      <h3>Add more context-menu items</h3>
+      <p>Currently 11. Tell me what's missing &mdash; "Send to" (email/Slack), "Open in viewer", "Compare with...", "Find similar", "Show change history".</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:1.5rem">Open question for terminal: should hover preview <em>delay</em> by ~400ms so it doesn't pop up on accidental brushes, or feel instant? And should the right-click menu also work on multi-selected cards (different items: "Download 3 selected", "Tag 3 selected", "Flag 3 selected" instead of single-file actions)?</p>

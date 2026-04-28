@@ -1,0 +1,355 @@
+<h2>Home = Search</h2>
+<p class="subtitle">Airbnb-style hero search + horizontal-scroll browse rows. Convert moves to the nav. Status is a tiny pulse, not a card.</p>
+
+<style>
+  /* === shared tokens === */
+  .pg { background:#fff; border-radius:14px; overflow:hidden; box-shadow:0 1px 0 rgba(0,0,0,0.05), 0 24px 48px -24px rgba(0,0,0,0.18); border:1px solid #ececec; margin-bottom:1.6rem; font-family:-apple-system,'SF Pro Display',Inter,system-ui,sans-serif; }
+  .pg-nav { display:flex; align-items:center; justify-content:space-between; padding:1.05rem 1.6rem; border-bottom:1px solid #f1f1f1; font-size:0.92rem; }
+  .pg-logo { font-weight:700; letter-spacing:-0.01em; color:#0a0a0a; font-size:1.05rem; }
+  .pg-links { display:flex; gap:1.5rem; color:#3a3a3a; font-weight:500; }
+  .pg-links span { cursor:default; }
+  .pg-links .on { color:#5b3df5; }
+  .pg-avatar { width:30px; height:30px; border-radius:50%; background:linear-gradient(135deg,#5b3df5,#9d7bff); }
+  .pg-body { padding:3rem 2rem 3.5rem; }
+
+  /* === hero === */
+  .hero { text-align:center; padding-bottom:0.6rem; }
+  .hero-headline { font-size:2.6rem; line-height:1.05; letter-spacing:-0.025em; font-weight:700; color:#0a0a0a; margin:0 0 0.6rem; }
+  .hero-sub { color:#5a5a5a; font-size:1.0rem; margin:0 auto 1.4rem; max-width:42ch; }
+
+  .pulse { display:inline-flex; align-items:center; gap:0.5rem; background:#eafff5; color:#0e7c5a; padding:0.35rem 0.85rem; border-radius:999px; font-size:0.8rem; font-weight:600; margin-bottom:1.7rem; }
+  .pulse-dot { width:7px; height:7px; border-radius:50%; background:#0e7c5a; box-shadow:0 0 0 4px rgba(14,124,90,0.18); }
+
+  /* === Airbnb-style segmented search bar === */
+  .searchbar { display:flex; align-items:center; max-width:760px; margin:0 auto; background:#fff; border:1px solid #ececec; border-radius:999px; box-shadow:0 4px 14px -6px rgba(0,0,0,0.08); padding:0.4rem; transition:box-shadow 0.2s; }
+  .searchbar:hover { box-shadow:0 8px 28px -10px rgba(0,0,0,0.12); }
+  .sb-seg { padding:0.65rem 1.4rem; flex:1; min-width:0; border-right:1px solid #f0f0f0; cursor:text; }
+  .sb-seg:last-of-type { border-right:none; }
+  .sb-label { font-size:0.7rem; font-weight:700; color:#0a0a0a; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:0.15rem; }
+  .sb-value { font-size:0.88rem; color:#888; }
+  .sb-value.has-value { color:#0a0a0a; font-weight:500; }
+  .sb-go { width:44px; height:44px; border-radius:50%; background:#5b3df5; color:#fff; border:none; display:flex; align-items:center; justify-content:center; font-size:1rem; cursor:pointer; flex-shrink:0; }
+
+  /* === filter chips below search === */
+  .chip-bar { display:flex; gap:0.5rem; justify-content:center; margin-top:1rem; flex-wrap:wrap; }
+  .filter-chip { background:#f5f3ff; color:#5b3df5; padding:0.4rem 0.85rem; border-radius:999px; font-size:0.8rem; font-weight:500; cursor:pointer; }
+  .filter-chip.ghost { background:#f7f7f7; color:#3a3a3a; }
+
+  /* === browse rows === */
+  .row { margin-top:2.6rem; }
+  .row-head { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:1rem; }
+  .row-title { font-size:1.4rem; font-weight:700; letter-spacing:-0.018em; color:#0a0a0a; margin:0; }
+  .row-title-link { display:inline-flex; align-items:center; gap:0.35rem; cursor:pointer; }
+  .row-title-link .arrow { width:24px; height:24px; border-radius:50%; background:#f3f3f3; display:inline-flex; align-items:center; justify-content:center; color:#5a5a5a; font-size:0.8rem; }
+  .row-controls { display:flex; gap:0.4rem; }
+  .row-arrow { width:32px; height:32px; border-radius:50%; background:#fff; border:1px solid #e0e0e0; cursor:pointer; color:#5a5a5a; display:inline-flex; align-items:center; justify-content:center; font-size:0.85rem; }
+  .row-arrow:hover { background:#fafafa; }
+
+  .row-cards { display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:0.9rem; }
+  .doc-card { cursor:pointer; transition:transform 0.15s; }
+  .doc-card:hover { transform:translateY(-2px); }
+  .doc-thumb { aspect-ratio:1.0; border-radius:12px; overflow:hidden; position:relative; display:flex; align-items:flex-end; padding:0.7rem; color:#fff; }
+  .doc-thumb.pdf { background:linear-gradient(135deg,#ff6b6b 0%, #c92a2a 100%); }
+  .doc-thumb.docx { background:linear-gradient(135deg,#4dabf7 0%, #1864ab 100%); }
+  .doc-thumb.pptx { background:linear-gradient(135deg,#ffa94d 0%, #e8590c 100%); }
+  .doc-thumb.xlsx { background:linear-gradient(135deg,#51cf66 0%, #2b8a3e 100%); }
+  .doc-thumb.eml { background:linear-gradient(135deg,#cc5de8 0%, #862e9c 100%); }
+  .doc-thumb.psd { background:linear-gradient(135deg,#5c7cfa 0%, #364fc7 100%); }
+  .doc-thumb.mp4 { background:linear-gradient(135deg,#22b8cf 0%, #0b7285 100%); }
+  .doc-thumb.md  { background:linear-gradient(135deg,#0a0a0a 0%, #495057 100%); }
+  .doc-fmt { position:absolute; top:0.55rem; left:0.55rem; background:rgba(255,255,255,0.96); color:#0a0a0a; font-size:0.62rem; font-weight:700; padding:0.18rem 0.5rem; border-radius:999px; letter-spacing:0.06em; text-transform:uppercase; }
+  .doc-fav { position:absolute; top:0.45rem; right:0.45rem; width:24px; height:24px; border-radius:50%; background:rgba(255,255,255,0.92); color:#5a5a5a; display:flex; align-items:center; justify-content:center; font-size:0.78rem; }
+  .doc-thumb-text { font-size:0.7rem; line-height:1.2; opacity:0.92; max-height:3.6em; overflow:hidden; }
+  .doc-meta { padding:0.55rem 0.1rem 0; }
+  .doc-title { font-size:0.86rem; font-weight:600; color:#0a0a0a; line-height:1.3; margin:0 0 0.2rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .doc-path { font-size:0.74rem; color:#888; font-family:ui-monospace,'SF Mono',monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .doc-stamp { font-size:0.74rem; color:#5a5a5a; margin-top:0.15rem; }
+
+  /* folder cards (different shape) */
+  .folder-cards { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:0.9rem; }
+  .folder-card { background:#fafafa; border:1px solid #ececec; border-radius:12px; padding:1rem 1.1rem; cursor:pointer; transition:transform 0.15s, border-color 0.15s; }
+  .folder-card:hover { transform:translateY(-1px); border-color:#d8ceff; }
+  .folder-icon { width:34px; height:34px; border-radius:9px; background:linear-gradient(135deg,#f3f0ff,#e9e1ff); display:flex; align-items:center; justify-content:center; color:#5b3df5; font-size:0.95rem; margin-bottom:0.7rem; }
+  .folder-name { font-size:0.92rem; font-weight:600; color:#0a0a0a; margin:0 0 0.15rem; }
+  .folder-meta { font-size:0.76rem; color:#7a7a7a; }
+
+  /* tag cards (smaller) */
+  .tag-cards { display:flex; gap:0.55rem; flex-wrap:wrap; }
+  .tag-card { background:#fff; border:1px solid #ececec; border-radius:999px; padding:0.5rem 1rem; font-size:0.85rem; color:#3a3a3a; cursor:pointer; display:inline-flex; align-items:center; gap:0.5rem; }
+  .tag-card:hover { border-color:#d8ceff; color:#5b3df5; }
+  .tag-count { color:#999; font-size:0.78rem; font-weight:500; }
+</style>
+
+
+<div class="pg">
+  <!-- nav -->
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow</div>
+    <div class="pg-links">
+      <span class="on">Search</span>
+      <span>Pipeline</span>
+      <span>Convert</span>
+      <span>Settings</span>
+    </div>
+    <div class="pg-avatar"></div>
+  </div>
+
+  <div class="pg-body">
+
+    <!-- HERO -->
+    <div class="hero">
+      <div class="pulse"><span class="pulse-dot"></span> All systems running &middot; 12,847 documents indexed</div>
+      <h1 class="hero-headline">Find anything you've<br/>ever converted.</h1>
+      <p class="hero-sub">Full-text, vector, and metadata search across every document the pipeline has touched.</p>
+
+      <!-- search bar -->
+      <div class="searchbar">
+        <div class="sb-seg" style="flex:2">
+          <div class="sb-label">Looking for</div>
+          <div class="sb-value">Keywords, filename, or natural language</div>
+        </div>
+        <div class="sb-seg">
+          <div class="sb-label">Format</div>
+          <div class="sb-value">Any</div>
+        </div>
+        <div class="sb-seg">
+          <div class="sb-label">When</div>
+          <div class="sb-value">Anytime</div>
+        </div>
+        <button class="sb-go">&#9906;</button>
+      </div>
+
+      <!-- quick filter chips -->
+      <div class="chip-bar">
+        <span class="filter-chip">Last 7 days</span>
+        <span class="filter-chip ghost">PDFs only</span>
+        <span class="filter-chip ghost">Office docs</span>
+        <span class="filter-chip ghost">Has AI summary</span>
+        <span class="filter-chip ghost">In /contracts</span>
+        <span class="filter-chip ghost">+ More filters</span>
+      </div>
+    </div>
+
+
+    <!-- ROW: Recently converted -->
+    <div class="row">
+      <div class="row-head">
+        <h3 class="row-title row-title-link">Recently converted <span class="arrow">&rarr;</span></h3>
+        <div class="row-controls">
+          <button class="row-arrow">&larr;</button>
+          <button class="row-arrow">&rarr;</button>
+        </div>
+      </div>
+      <div class="row-cards">
+        <div class="doc-card">
+          <div class="doc-thumb pdf">
+            <span class="doc-fmt">PDF</span>
+            <span class="doc-fav">&hearts;</span>
+            <div class="doc-thumb-text">Q4 2025 financial summary &mdash; revenue up 18% YoY...</div>
+          </div>
+          <div class="doc-meta">
+            <h4 class="doc-title">Q4-financials.pdf</h4>
+            <div class="doc-path">/finance/2025/q4/</div>
+            <div class="doc-stamp">2 min ago</div>
+          </div>
+        </div>
+        <div class="doc-card">
+          <div class="doc-thumb docx">
+            <span class="doc-fmt">DOCX</span>
+            <span class="doc-fav">&hearts;</span>
+            <div class="doc-thumb-text">Local 46 contract negotiation prep &mdash; opening positions and...</div>
+          </div>
+          <div class="doc-meta">
+            <h4 class="doc-title">contract-prep-v3.docx</h4>
+            <div class="doc-path">/local-46/contracts/</div>
+            <div class="doc-stamp">8 min ago</div>
+          </div>
+        </div>
+        <div class="doc-card">
+          <div class="doc-thumb pptx">
+            <span class="doc-fmt">PPTX</span>
+            <span class="doc-fav">&hearts;</span>
+            <div class="doc-thumb-text">Member orientation deck &mdash; benefits, dues, training pathways</div>
+          </div>
+          <div class="doc-meta">
+            <h4 class="doc-title">orientation-2026.pptx</h4>
+            <div class="doc-path">/training/onboard/</div>
+            <div class="doc-stamp">14 min ago</div>
+          </div>
+        </div>
+        <div class="doc-card">
+          <div class="doc-thumb xlsx">
+            <span class="doc-fmt">XLSX</span>
+            <span class="doc-fav">&hearts;</span>
+            <div class="doc-thumb-text">Apprentice hours tracking &mdash; FY2026 cohort progress</div>
+          </div>
+          <div class="doc-meta">
+            <h4 class="doc-title">apprentice-hours.xlsx</h4>
+            <div class="doc-path">/training/tracking/</div>
+            <div class="doc-stamp">22 min ago</div>
+          </div>
+        </div>
+        <div class="doc-card">
+          <div class="doc-thumb eml">
+            <span class="doc-fmt">EML</span>
+            <span class="doc-fav">&hearts;</span>
+            <div class="doc-thumb-text">Re: jurisdiction dispute &mdash; from Local 76 business agent...</div>
+          </div>
+          <div class="doc-meta">
+            <h4 class="doc-title">jurisdiction-thread.eml</h4>
+            <div class="doc-path">/correspondence/2026-q1/</div>
+            <div class="doc-stamp">38 min ago</div>
+          </div>
+        </div>
+        <div class="doc-card">
+          <div class="doc-thumb md">
+            <span class="doc-fmt">MD</span>
+            <span class="doc-fav">&hearts;</span>
+            <div class="doc-thumb-text"># Bylaws revision draft &mdash; Section 4 amendments for May vote</div>
+          </div>
+          <div class="doc-meta">
+            <h4 class="doc-title">bylaws-revision-draft.md</h4>
+            <div class="doc-path">/governance/bylaws/</div>
+            <div class="doc-stamp">1 hr ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- ROW: Pinned folders -->
+    <div class="row">
+      <div class="row-head">
+        <h3 class="row-title row-title-link">Pinned folders <span class="arrow">&rarr;</span></h3>
+        <div class="row-controls">
+          <button class="row-arrow">&larr;</button>
+          <button class="row-arrow">&rarr;</button>
+        </div>
+      </div>
+      <div class="folder-cards">
+        <div class="folder-card">
+          <div class="folder-icon">&#9783;</div>
+          <h4 class="folder-name">/local-46/contracts</h4>
+          <div class="folder-meta">428 docs &middot; 3 added today</div>
+        </div>
+        <div class="folder-card">
+          <div class="folder-icon">&#9783;</div>
+          <h4 class="folder-name">/training/curriculum</h4>
+          <div class="folder-meta">1,206 docs &middot; updated 2 days ago</div>
+        </div>
+        <div class="folder-card">
+          <div class="folder-icon">&#9783;</div>
+          <h4 class="folder-name">/finance/2025</h4>
+          <div class="folder-meta">847 docs &middot; updated this week</div>
+        </div>
+        <div class="folder-card">
+          <div class="folder-icon">&#9783;</div>
+          <h4 class="folder-name">/governance/bylaws</h4>
+          <div class="folder-meta">62 docs &middot; revision in progress</div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- ROW: Most accessed this week -->
+    <div class="row">
+      <div class="row-head">
+        <h3 class="row-title row-title-link">Most accessed this week <span class="arrow">&rarr;</span></h3>
+        <div class="row-controls">
+          <button class="row-arrow">&larr;</button>
+          <button class="row-arrow">&rarr;</button>
+        </div>
+      </div>
+      <div class="row-cards">
+        <div class="doc-card">
+          <div class="doc-thumb pdf"><span class="doc-fmt">PDF</span><span class="doc-fav">&hearts;</span><div class="doc-thumb-text">Master agreement 2024-2027 &mdash; current effective contract</div></div>
+          <div class="doc-meta"><h4 class="doc-title">master-agreement.pdf</h4><div class="doc-path">/local-46/contracts/</div><div class="doc-stamp">42 opens</div></div>
+        </div>
+        <div class="doc-card">
+          <div class="doc-thumb docx"><span class="doc-fmt">DOCX</span><span class="doc-fav">&hearts;</span><div class="doc-thumb-text">Safety bulletin &mdash; updated arc-flash PPE requirements</div></div>
+          <div class="doc-meta"><h4 class="doc-title">safety-arcflash.docx</h4><div class="doc-path">/safety/bulletins/</div><div class="doc-stamp">38 opens</div></div>
+        </div>
+        <div class="doc-card">
+          <div class="doc-thumb psd"><span class="doc-fmt">PSD</span><span class="doc-fav">&hearts;</span><div class="doc-thumb-text">Branding refresh assets &mdash; layered source for member portal</div></div>
+          <div class="doc-meta"><h4 class="doc-title">brand-refresh.psd</h4><div class="doc-path">/design/2026-refresh/</div><div class="doc-stamp">29 opens</div></div>
+        </div>
+        <div class="doc-card">
+          <div class="doc-thumb mp4"><span class="doc-fmt">MP4</span><span class="doc-fav">&hearts;</span><div class="doc-thumb-text">JATC welcome video &mdash; transcribed and indexed</div></div>
+          <div class="doc-meta"><h4 class="doc-title">jatc-welcome.mp4</h4><div class="doc-path">/training/media/</div><div class="doc-stamp">24 opens</div></div>
+        </div>
+        <div class="doc-card">
+          <div class="doc-thumb xlsx"><span class="doc-fmt">XLSX</span><span class="doc-fav">&hearts;</span><div class="doc-thumb-text">Pension fund allocation &mdash; 2026 projections</div></div>
+          <div class="doc-meta"><h4 class="doc-title">pension-2026.xlsx</h4><div class="doc-path">/finance/pension/</div><div class="doc-stamp">21 opens</div></div>
+        </div>
+        <div class="doc-card">
+          <div class="doc-thumb md"><span class="doc-fmt">MD</span><span class="doc-fav">&hearts;</span><div class="doc-thumb-text"># Steward training notes &mdash; consolidated from 3 sessions</div></div>
+          <div class="doc-meta"><h4 class="doc-title">steward-training.md</h4><div class="doc-path">/training/stewards/</div><div class="doc-stamp">19 opens</div></div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- ROW: Browse by tag -->
+    <div class="row">
+      <div class="row-head">
+        <h3 class="row-title row-title-link">Browse by topic <span class="arrow">&rarr;</span></h3>
+      </div>
+      <div class="tag-cards">
+        <span class="tag-card">Contracts <span class="tag-count">428</span></span>
+        <span class="tag-card">Safety bulletins <span class="tag-count">312</span></span>
+        <span class="tag-card">Training materials <span class="tag-count">1,206</span></span>
+        <span class="tag-card">Financial reports <span class="tag-count">847</span></span>
+        <span class="tag-card">Correspondence <span class="tag-count">2,140</span></span>
+        <span class="tag-card">Bylaws &amp; governance <span class="tag-count">62</span></span>
+        <span class="tag-card">Member records <span class="tag-count">4,820</span></span>
+        <span class="tag-card">Apprentice <span class="tag-count">1,890</span></span>
+        <span class="tag-card">Pension &amp; benefits <span class="tag-count">340</span></span>
+        <span class="tag-card">Jurisdiction <span class="tag-count">156</span></span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- =================== React =================== -->
+<h3 style="margin-top:2.4rem">What needs to change?</h3>
+<div class="options" data-multiselect>
+  <div class="option" data-choice="bigger-search" onclick="toggleSelect(this)">
+    <div class="letter">1</div>
+    <div class="content">
+      <h3>Bigger / dominant hero search</h3>
+      <p>Push the rows below the fold; make the search bar the only thing visible above the fold (Apple-extreme).</p>
+    </div>
+  </div>
+  <div class="option" data-choice="thumb-snippet" onclick="toggleSelect(this)">
+    <div class="letter">2</div>
+    <div class="content">
+      <h3>Replace gradient thumbnails with content snippets</h3>
+      <p>Cards show first 3-4 lines of converted markdown content instead of color blocks. More useful, less decorative.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="natural-lang" onclick="toggleSelect(this)">
+    <div class="letter">3</div>
+    <div class="content">
+      <h3>Lead with natural-language search</h3>
+      <p>Hero is "Ask anything about your documents" with a chat-style input. Browse rows are secondary, behind a "Browse" toggle.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="row-pick" onclick="toggleSelect(this)">
+    <div class="letter">4</div>
+    <div class="content">
+      <h3>Customize the rows</h3>
+      <p>Some of "Recently converted / Pinned folders / Most accessed / Browse by topic" don't fit your daily flow. Tell me which to swap.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="status-louder" onclick="toggleSelect(this)">
+    <div class="letter">5</div>
+    <div class="content">
+      <h3>Make pipeline status louder</h3>
+      <p>The green "All systems running" pulse is too quiet. Replace with a small status strip showing throughput sparkline + queue depth.</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:1.5rem">Click any combination above (multi-select). In terminal: tell me what reads wrong, what reads right, and whether the gradient-thumbnail aesthetic is keeper or kitsch for an internal IBEW tool.</p>

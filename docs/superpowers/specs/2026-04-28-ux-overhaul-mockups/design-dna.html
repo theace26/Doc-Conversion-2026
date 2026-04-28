@@ -1,0 +1,82 @@
+<h2>Design DNA from your references</h2>
+<p class="subtitle">Airbnb · Apple · Stripe — the threads they share</p>
+
+<div class="section">
+  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem">
+    <div class="mockup">
+      <div class="mockup-header">1. Confident display typography</div>
+      <div class="mockup-body" style="text-align:center;padding:1.5rem 1rem">
+        <div style="font-size:2.4rem;font-weight:600;letter-spacing:-0.02em">Headline</div>
+        <div style="color:#666;margin-top:0.5rem">Hero text is unmissable. Not the 14px system header MarkFlow uses today.</div>
+      </div>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">2. Generous whitespace</div>
+      <div class="mockup-body" style="padding:2.5rem 1rem;text-align:center">
+        <div style="color:#888">Air around every element. Apple is the extreme; Stripe is ample; Airbnb still breathes.</div>
+      </div>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">3. Two-button CTA</div>
+      <div class="mockup-body" style="text-align:center;padding:1.5rem">
+        <button class="mock-button" style="background:#0066ff;color:#fff;border:none;padding:0.6rem 1.4rem;border-radius:999px;margin-right:0.4rem">Primary</button>
+        <button class="mock-button" style="background:transparent;color:#0066ff;border:1px solid #0066ff;padding:0.6rem 1.4rem;border-radius:999px">Secondary</button>
+        <div style="color:#888;margin-top:0.7rem;font-size:0.85rem">Universal across all three references — pill-shaped, filled + outline.</div>
+      </div>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">4. Imagery / artwork as anchor</div>
+      <div class="mockup-body" style="padding:1rem;text-align:center">
+        <div style="height:80px;background:linear-gradient(135deg,#ff6b9d,#a78bfa,#5eaaff);border-radius:8px;margin-bottom:0.5rem"></div>
+        <div style="color:#888;font-size:0.85rem">Photography (Airbnb), product (Apple), organic gradient (Stripe). Every hero has visual weight.</div>
+      </div>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">5. Clean horizontal nav</div>
+      <div class="mockup-body" style="padding:0.6rem">
+        <div class="mock-nav" style="font-size:0.85rem;padding:0.5rem 1rem">Logo &nbsp;·&nbsp; Convert &nbsp;·&nbsp; Bulk &nbsp;·&nbsp; Search &nbsp;·&nbsp; Settings</div>
+        <div style="color:#888;font-size:0.85rem;margin-top:0.5rem;padding:0 0.5rem">Top bar only. No sidebar. Thin, confident, dropdowns where needed.</div>
+      </div>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">6. Disciplined accent color</div>
+      <div class="mockup-body" style="padding:1rem;text-align:center">
+        <div style="display:flex;justify-content:center;gap:0.4rem;margin-bottom:0.5rem">
+          <div style="width:32px;height:32px;background:#ff385c;border-radius:50%"></div>
+          <div style="width:32px;height:32px;background:#0066ff;border-radius:50%"></div>
+          <div style="width:32px;height:32px;background:#635bff;border-radius:50%"></div>
+        </div>
+        <div style="color:#888;font-size:0.85rem">One brand color does all the work. Airbnb red, Apple blue, Stripe purple.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:2.5rem">The pivotal question: how literally?</h3>
+<p class="subtitle">Your references are <em>marketing/consumer</em> surfaces. MarkFlow has <em>dense ops</em> surfaces (bulk tables, batch lists, log streams, 30+ pages). How far should we lean?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Premium feel — reduce density to match</h3>
+      <p>Fewer screens. Fewer items per screen. Tables become richer cards. Settings become a guided flow, not a 15-section page. If something doesn't fit at this density, it hides behind progressive disclosure or moves to an "advanced" view. The app feels like Apple did the ops tool.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Hybrid — marketing chrome, dense ops content</h3>
+      <p>Header, nav, landing/Convert page, brand color, typography all match the references. Inside the dense pages (Batch Management, Bulk Jobs, Logs), data tables and lists stay roughly as dense as today but with the new type, spacing, and color polish. Most pages still exist; the chrome is what unifies them.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Polish only — same structure, premium veneer</h3>
+      <p>All 30+ pages stay. IA stays. Just apply the design tokens — typography scale, spacing scale, button shapes, accent color, soft shadows — over the top of what exists. Lowest risk; least transformation.</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:1.5rem">Did I read your references right? Anything missing from the DNA list above?</p>

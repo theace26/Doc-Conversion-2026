@@ -1,0 +1,506 @@
+<h2>AI providers &middot; Notifications &middot; Account &amp; auth</h2>
+<p class="subtitle">Three full detail pages, same pattern as Storage and Pipeline. Each gets a representative active sub-section so you can see real form content.</p>
+
+<style>
+  .pg { background:#fff; border-radius:14px; overflow:hidden; box-shadow:0 1px 0 rgba(0,0,0,0.05), 0 24px 48px -24px rgba(0,0,0,0.18); border:1px solid #ececec; margin-bottom:1.6rem; font-family:-apple-system,'SF Pro Display',Inter,system-ui,sans-serif; }
+  .pg-nav { display:flex; align-items:center; justify-content:space-between; padding:1.05rem 1.6rem; border-bottom:1px solid #f1f1f1; font-size:0.92rem; }
+  .pg-logo { font-weight:700; letter-spacing:-0.01em; color:#0a0a0a; font-size:1.05rem; display:inline-flex; align-items:center; gap:0.55rem; }
+  .ver-chip { font-size:0.62rem; font-weight:700; color:#a36a00; background:#fff5e0; padding:0.18rem 0.5rem; border-radius:999px; letter-spacing:0.06em; text-transform:uppercase; font-family:ui-monospace,'SF Mono',monospace; }
+  .pg-links { display:flex; gap:1.5rem; color:#3a3a3a; font-weight:500; }
+  .pg-links span { cursor:default; }
+  .pg-avatar { width:30px; height:30px; border-radius:50%; background:linear-gradient(135deg,#5b3df5,#9d7bff); }
+  .pg-nav-right { display:flex; align-items:center; gap:0.85rem; }
+  .layout-icon-btn { width:34px; height:34px; border-radius:9px; display:inline-flex; align-items:center; justify-content:center; color:#5a5a5a; }
+  .layout-icon-btn svg { width:18px; height:18px; }
+
+  .pg-body { padding:1.8rem 2rem 2.2rem; }
+  .pg-headline { font-size:1.85rem; line-height:1.05; letter-spacing:-0.025em; font-weight:700; color:#0a0a0a; margin:0 0 0.4rem; display:flex; align-items:center; gap:0.65rem; }
+  .pg-subtitle { color:#5a5a5a; font-size:0.94rem; margin:0 0 1.5rem; max-width:60ch; }
+
+  .icon-bg { width:34px; height:34px; border-radius:10px; background:linear-gradient(135deg,#f3f0ff,#e9e1ff); display:inline-flex; align-items:center; justify-content:center; color:#5b3df5; font-size:0.95rem; font-weight:700; }
+
+  .crumb { display:inline-flex; align-items:center; gap:0.4rem; color:#5b3df5; font-size:0.84rem; font-weight:500; margin-bottom:0.7rem; }
+  .crumb .sep { color:#bbb; font-weight:400; }
+  .crumb .here { color:#0a0a0a; }
+
+  .detail-flex { display:grid; grid-template-columns:220px 1fr; gap:2rem; margin-top:0.4rem; }
+  .detail-side { font-size:0.86rem; }
+  .detail-side a { display:flex; align-items:center; padding:0.5rem 0.75rem; border-radius:8px; color:#3a3a3a; text-decoration:none; font-weight:500; margin-bottom:0.15rem; cursor:pointer; }
+  .detail-side a.on { background:#f3f0ff; color:#5b3df5; }
+  .detail-side a:hover:not(.on) { background:#fafafa; }
+  .detail-side a .ico { color:#aaa; font-size:0.95rem; margin-right:0.5rem; flex-shrink:0; }
+  .detail-side a.on .ico { color:#5b3df5; }
+  .detail-side a .grow { flex:1; min-width:0; }
+  .detail-side a .badge { font-size:0.6rem; font-weight:700; padding:0.1rem 0.45rem; border-radius:999px; letter-spacing:0.05em; }
+  .detail-side a .badge.warn { background:#fff5e0; color:#a36a00; margin-left:auto; }
+  .detail-side a .badge.live { background:#eafff5; color:#0e7c5a; margin-left:auto; }
+
+  .form-section { margin-bottom:1.4rem; }
+  .form-section h3 { font-size:1rem; font-weight:600; color:#0a0a0a; margin:0 0 0.15rem; }
+  .form-section p.desc { color:#7a7a7a; font-size:0.84rem; line-height:1.45; margin:0 0 0.85rem; max-width:54ch; }
+  .field-row { display:flex; flex-direction:column; gap:0.4rem; margin-top:0.95rem; }
+  .field-label { font-size:0.72rem; font-weight:700; color:#6a6a6a; text-transform:uppercase; letter-spacing:0.07em; }
+  .field-input { padding:0.6rem 0.85rem; border:1px solid #e0e0e0; border-radius:10px; font-size:0.88rem; background:#fafafa; color:#333; box-sizing:border-box; font-family:inherit; }
+  .field-input.ro { background:#f0f0f0; color:#5a5a5a; }
+  .field-input.tight { max-width:200px; }
+
+  .seg { display:inline-flex; background:#f3f3f3; border-radius:999px; padding:0.22rem; font-size:0.82rem; }
+  .seg-opt { padding:0.4rem 0.9rem; border-radius:999px; cursor:pointer; color:#666; font-weight:500; }
+  .seg-opt.on { background:#fff; color:#0a0a0a; box-shadow:0 1px 3px rgba(0,0,0,0.08); }
+
+  .toggle-row { display:flex; align-items:center; gap:0.6rem; }
+  .toggle { width:36px; height:20px; border-radius:999px; position:relative; flex-shrink:0; }
+  .toggle.on { background:#5b3df5; }
+  .toggle.off { background:#e0e0e0; }
+  .toggle-knob { width:16px; height:16px; background:#fff; border-radius:50%; position:absolute; top:2px; box-shadow:0 1px 3px rgba(0,0,0,0.2); }
+  .toggle.on .toggle-knob { right:2px; }
+  .toggle.off .toggle-knob { left:2px; }
+  .toggle-text { font-size:0.85rem; color:#333; }
+
+  .pill { display:inline-flex; align-items:center; gap:0.4rem; padding:0.5rem 1.05rem; border-radius:999px; font-weight:600; font-size:0.84rem; border:none; cursor:pointer; }
+  .pill.primary { background:#5b3df5; color:#fff; }
+  .pill.outline { background:#fff; color:#5b3df5; border:1.5px solid #5b3df5; }
+  .pill.ghost { background:transparent; color:#5b3df5; padding:0.5rem 0.7rem; }
+  .pill.sm { padding:0.36rem 0.85rem; font-size:0.78rem; }
+  .pill.danger { background:#fff; color:#c92a2a; border:1.5px solid #ffd0d0; }
+
+  .save-bar { display:flex; gap:0.5rem; margin-top:1.5rem; padding-top:1.3rem; border-top:1px solid #f0f0f0; }
+
+  .page-label { font-size:0.7rem; font-weight:700; color:#999; text-transform:uppercase; letter-spacing:0.08em; margin:1.6rem 0 0.5rem 0.3rem; }
+
+  /* AI provider chain visualizer */
+  .chain { background:#fafafa; border:1px solid #ececec; border-radius:10px; padding:0.95rem 1.1rem; }
+  .chain-step { display:flex; align-items:center; gap:0.8rem; padding:0.4rem 0; }
+  .chain-step .step-num { width:22px; height:22px; border-radius:50%; background:#5b3df5; color:#fff; font-size:0.7rem; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .chain-step .step-num.muted { background:#cfcfcf; }
+  .chain-step .step-text { font-size:0.86rem; color:#3a3a3a; flex:1; }
+  .chain-step .step-text strong { color:#0a0a0a; }
+  .chain-step .step-text code { background:#fff; padding:0.06rem 0.4rem; border-radius:4px; font-family:ui-monospace,monospace; font-size:0.78rem; color:#5b3df5; }
+  .chain-arrow { color:#bbb; font-size:0.8rem; padding-left:32px; }
+
+  /* cost ribbon */
+  .cost-ribbon { display:grid; grid-template-columns:repeat(3, 1fr); gap:0.7rem; margin-top:0.6rem; }
+  .cost-tile { background:#fafafa; border:1px solid #ececec; border-radius:10px; padding:0.85rem 0.9rem; }
+  .cost-tile .lab { font-size:0.66rem; font-weight:700; color:#888; text-transform:uppercase; letter-spacing:0.06em; }
+  .cost-tile .val { font-size:1.35rem; font-weight:700; color:#0a0a0a; letter-spacing:-0.018em; margin-top:0.25rem; }
+  .cost-tile .meta { font-size:0.72rem; color:#888; margin-top:0.2rem; }
+  .cost-tile.warn .val { color:#a36a00; }
+
+  /* notification channel cards */
+  .ch-card { background:#fff; border:1px solid #ececec; border-radius:12px; padding:1.05rem 1.15rem; margin-bottom:0.65rem; }
+  .ch-row1 { display:flex; align-items:center; justify-content:space-between; margin-bottom:0.55rem; }
+  .ch-icon-wrap { display:flex; align-items:center; gap:0.65rem; }
+  .ch-icon { width:32px; height:32px; border-radius:8px; display:inline-flex; align-items:center; justify-content:center; color:#fff; font-size:0.8rem; font-weight:700; }
+  .ch-icon.email { background:linear-gradient(135deg,#cc5de8,#862e9c); }
+  .ch-icon.slack { background:linear-gradient(135deg,#36c5f0,#2eb67d); }
+  .ch-icon.webhook { background:linear-gradient(135deg,#5b3df5,#9d7bff); }
+  .ch-icon.teams { background:linear-gradient(135deg,#5e5fc7,#3e3f8f); }
+  .ch-name { font-size:0.95rem; font-weight:600; color:#0a0a0a; }
+  .ch-status { font-size:0.74rem; color:#7a7a7a; margin-top:0.1rem; }
+  .ch-status.ok { color:#0e7c5a; }
+  .ch-detail { display:flex; gap:1rem; align-items:center; font-size:0.82rem; color:#5a5a5a; padding-top:0.5rem; border-top:1px solid #f3f3f3; }
+  .ch-detail strong { color:#0a0a0a; font-family:ui-monospace,monospace; font-size:0.78rem; }
+
+  /* identity card (Account & auth) */
+  .id-card { background:linear-gradient(135deg,#f5f3ff,#ecf3ff); border:1px solid #d8ceff; border-radius:14px; padding:1.2rem 1.3rem; margin-bottom:1.2rem; }
+  .id-row1 { display:flex; align-items:center; gap:0.85rem; margin-bottom:0.85rem; }
+  .id-conn { display:flex; align-items:center; gap:0.4rem; background:#eafff5; color:#0e7c5a; padding:0.28rem 0.7rem; border-radius:999px; font-size:0.74rem; font-weight:600; }
+  .id-conn .dot { width:6px; height:6px; border-radius:50%; background:#0e7c5a; box-shadow:0 0 0 3px rgba(14,124,90,0.18); }
+  .id-host { flex:1; font-family:ui-monospace,monospace; font-size:0.86rem; color:#0a0a0a; }
+  .id-meta-grid { display:grid; grid-template-columns:auto 1fr; gap:0.3rem 0.95rem; font-size:0.84rem; }
+  .id-meta-grid .k { color:#888; }
+  .id-meta-grid .v { color:#0a0a0a; font-weight:500; }
+  .id-meta-grid .v code { font-family:ui-monospace,monospace; font-size:0.78rem; background:#fff; padding:0.04rem 0.35rem; border-radius:4px; }
+
+  .lock-note { background:#fff5e0; border:1px solid #ffd591; border-radius:10px; padding:0.7rem 0.85rem; font-size:0.82rem; color:#7a4f00; line-height:1.45; margin-bottom:1rem; }
+  .lock-note strong { color:#5a3700; }
+</style>
+
+
+<!-- =================== AI PROVIDERS =================== -->
+<div class="page-label">1. AI providers &mdash; active sub-section: provider chain</div>
+
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow <span class="ver-chip">v0.34.1-dev</span></div>
+    <div class="pg-links"><span>Search</span><span>Activity</span><span>Convert</span></div>
+    <div class="pg-nav-right">
+      <button class="layout-icon-btn"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="2" width="6" height="6" rx="1.2"/><rect x="10" y="2" width="6" height="6" rx="1.2"/><rect x="2" y="10" width="6" height="6" rx="1.2"/><rect x="10" y="10" width="6" height="6" rx="1.2"/></svg></button>
+      <div class="pg-avatar"></div>
+    </div>
+  </div>
+  <div class="pg-body">
+    <div class="crumb"><span>All settings</span><span class="sep">/</span><span class="here">AI providers</span></div>
+    <h1 class="pg-headline"><span class="icon-bg">&#9883;</span>AI providers.</h1>
+    <p class="pg-subtitle">Which AI does what. AI Assist (chat &amp; summarization) and image analysis are independent &mdash; each can use a different provider.</p>
+
+    <div class="detail-flex">
+      <div class="detail-side">
+        <a class="on"><span class="ico">&#9882;</span><span class="grow">Active provider chain</span></a>
+        <a><span class="ico">&#10031;</span><span class="grow">Anthropic</span></a>
+        <a><span class="ico">&#10031;</span><span class="grow">OpenAI</span></a>
+        <a><span class="ico">&#9986;</span><span class="grow">Image analysis routing</span></a>
+        <a><span class="ico">&#9783;</span><span class="grow">Vector indexing</span></a>
+        <a><span class="ico">$</span><span class="grow">Cost cap &amp; alerts</span><span class="badge live">live</span></a>
+      </div>
+
+      <div>
+        <div class="form-section">
+          <h3>Use for AI Assist</h3>
+          <p class="desc">Chat, summary, "ask a question about this file." Provider is chosen by a 3-step lookup &mdash; first match wins.</p>
+
+          <div class="field-row">
+            <span class="field-label">Provider</span>
+            <select class="field-input tight" style="max-width:280px">
+              <option>Anthropic &mdash; Claude Opus 4.7</option>
+              <option>Anthropic &mdash; Claude Sonnet 4.6</option>
+              <option>Anthropic &mdash; Claude Haiku 4.5</option>
+              <option>OpenAI &mdash; GPT-4o</option>
+              <option>(Disabled)</option>
+            </select>
+          </div>
+
+          <div class="chain" style="margin-top:0.85rem">
+            <div class="chain-step"><span class="step-num">1</span><span class="step-text">Provider where <code>use_for_ai_assist = true</code> &mdash; <strong>Anthropic</strong></span></div>
+            <div class="chain-arrow">&darr;</div>
+            <div class="chain-step"><span class="step-num muted">2</span><span class="step-text">First provider where <code>is_active = true</code></span></div>
+            <div class="chain-arrow">&darr;</div>
+            <div class="chain-step"><span class="step-num muted">3</span><span class="step-text">Whatever <code>ANTHROPIC_API_KEY</code> env var says</span></div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h3>Use for image analysis</h3>
+          <p class="desc">PSD / AI / scanned PDFs / image-bearing documents. Independent of AI Assist. Currently Anthropic-only (vision support).</p>
+
+          <div class="field-row">
+            <span class="field-label">Provider</span>
+            <select class="field-input tight" style="max-width:280px">
+              <option>Anthropic &mdash; Claude Opus 4.7 (vision)</option>
+              <option>Anthropic &mdash; Claude Sonnet 4.6 (vision)</option>
+              <option>(Disabled &mdash; skip image analysis)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h3>Cost cap</h3>
+          <p class="desc">Caps token spend across all providers. When the cap hits, MarkFlow pauses AI calls and notifies via the configured channels.</p>
+
+          <div style="display:flex;gap:1rem">
+            <div class="field-row" style="flex:1;max-width:200px">
+              <span class="field-label">Daily cap</span>
+              <input class="field-input tight" value="$25.00" />
+            </div>
+            <div class="field-row" style="flex:1;max-width:200px">
+              <span class="field-label">Monthly cap</span>
+              <input class="field-input tight" value="$400.00" />
+            </div>
+            <div class="field-row" style="flex:1;max-width:200px">
+              <span class="field-label">Alert at</span>
+              <input class="field-input tight" value="80% of cap" />
+            </div>
+          </div>
+
+          <div class="cost-ribbon">
+            <div class="cost-tile">
+              <div class="lab">Spend today</div>
+              <div class="val">$3.42</div>
+              <div class="meta">14% of $25 cap</div>
+            </div>
+            <div class="cost-tile warn">
+              <div class="lab">Spend this month</div>
+              <div class="val">$312.18</div>
+              <div class="meta">78% of $400 cap &middot; 11 days left</div>
+            </div>
+            <div class="cost-tile">
+              <div class="lab">Last image batch</div>
+              <div class="val">$0.42</div>
+              <div class="meta">218 images &middot; financial-best-practices/</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="save-bar">
+          <button class="pill primary sm">Save changes</button>
+          <button class="pill outline sm">Test AI Assist call</button>
+          <button class="pill ghost sm">Discard</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- =================== NOTIFICATIONS =================== -->
+<div class="page-label">2. Notifications &mdash; active sub-section: channels</div>
+
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow <span class="ver-chip">v0.34.1-dev</span></div>
+    <div class="pg-links"><span>Search</span><span>Activity</span><span>Convert</span></div>
+    <div class="pg-nav-right">
+      <button class="layout-icon-btn"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="2" width="6" height="6" rx="1.2"/><rect x="10" y="2" width="6" height="6" rx="1.2"/><rect x="2" y="10" width="6" height="6" rx="1.2"/><rect x="10" y="10" width="6" height="6" rx="1.2"/></svg></button>
+      <div class="pg-avatar"></div>
+    </div>
+  </div>
+  <div class="pg-body">
+    <div class="crumb"><span>All settings</span><span class="sep">/</span><span class="here">Notifications</span></div>
+    <h1 class="pg-headline"><span class="icon-bg">&#9785;</span>Notifications.</h1>
+    <p class="pg-subtitle">Where MarkFlow tells you something matters. Configure once per channel; trigger rules decide what fires where.</p>
+
+    <div class="detail-flex">
+      <div class="detail-side">
+        <a class="on"><span class="ico">&#9781;</span><span class="grow">Channels</span></a>
+        <a><span class="ico">&#9882;</span><span class="grow">Trigger rules</span></a>
+        <a><span class="ico">&#9203;</span><span class="grow">Quiet hours</span></a>
+        <a><span class="ico">&#10003;</span><span class="grow">Test send</span></a>
+      </div>
+
+      <div>
+        <div class="form-section">
+          <h3>Active channels</h3>
+          <p class="desc">Each channel is independent. Toggle off to stop firing without losing the config.</p>
+
+          <div class="ch-card">
+            <div class="ch-row1">
+              <div class="ch-icon-wrap">
+                <span class="ch-icon email">@</span>
+                <div>
+                  <div class="ch-name">Email</div>
+                  <div class="ch-status ok">Active &middot; 2 recipients</div>
+                </div>
+              </div>
+              <div class="toggle on"><div class="toggle-knob"></div></div>
+            </div>
+            <div class="ch-detail">
+              <span><strong>xerxes.shelley@gmail.com</strong>, <strong>steward@local46.org</strong></span>
+              <button class="pill ghost sm" style="margin-left:auto">Manage recipients</button>
+            </div>
+          </div>
+
+          <div class="ch-card">
+            <div class="ch-row1">
+              <div class="ch-icon-wrap">
+                <span class="ch-icon slack">#</span>
+                <div>
+                  <div class="ch-name">Slack</div>
+                  <div class="ch-status ok">Active &middot; #markflow-alerts</div>
+                </div>
+              </div>
+              <div class="toggle on"><div class="toggle-knob"></div></div>
+            </div>
+            <div class="ch-detail">
+              <span>Webhook: <strong>hooks.slack.com/services/T01.../B05.../&hellip;</strong></span>
+              <button class="pill ghost sm" style="margin-left:auto">Edit webhook</button>
+            </div>
+          </div>
+
+          <div class="ch-card">
+            <div class="ch-row1">
+              <div class="ch-icon-wrap">
+                <span class="ch-icon teams">T</span>
+                <div>
+                  <div class="ch-name">Microsoft Teams</div>
+                  <div class="ch-status">Configured but disabled</div>
+                </div>
+              </div>
+              <div class="toggle off"><div class="toggle-knob"></div></div>
+            </div>
+            <div class="ch-detail">
+              <span>Webhook URL stored. Toggle on to start sending.</span>
+              <button class="pill ghost sm" style="margin-left:auto">Edit webhook</button>
+            </div>
+          </div>
+
+          <div class="ch-card">
+            <div class="ch-row1">
+              <div class="ch-icon-wrap">
+                <span class="ch-icon webhook">&#9881;</span>
+                <div>
+                  <div class="ch-name">Generic webhook</div>
+                  <div class="ch-status">Not configured</div>
+                </div>
+              </div>
+              <button class="pill outline sm">Set up</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h3>Trigger rules &mdash; preview</h3>
+          <p class="desc">Defined in the next sub-section. Currently 5 rules active &mdash; click to manage.</p>
+          <div style="background:#fafafa;border:1px solid #ececec;border-radius:10px;padding:0.85rem 1rem;font-size:0.84rem;color:#3a3a3a;line-height:1.7">
+            <div>&bull; <strong>Job failed (3+ errors)</strong> &rarr; Email + Slack</div>
+            <div>&bull; <strong>Cost cap at 80%</strong> &rarr; Email + Slack</div>
+            <div>&bull; <strong>Pipeline paused &gt;30min</strong> &rarr; Slack</div>
+            <div>&bull; <strong>Disk space &lt;10%</strong> &rarr; Email + Slack</div>
+            <div>&bull; <strong>UnionCore JWT verification failed</strong> &rarr; Email</div>
+          </div>
+        </div>
+
+        <div class="save-bar">
+          <button class="pill primary sm">Save changes</button>
+          <button class="pill outline sm">Send a test alert</button>
+          <button class="pill ghost sm">Discard</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- =================== ACCOUNT & AUTH =================== -->
+<div class="page-label">3. Account &amp; auth &mdash; active sub-section: identity (UnionCore-bound)</div>
+
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow <span class="ver-chip">v0.34.1-dev</span></div>
+    <div class="pg-links"><span>Search</span><span>Activity</span><span>Convert</span></div>
+    <div class="pg-nav-right">
+      <button class="layout-icon-btn"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="2" width="6" height="6" rx="1.2"/><rect x="10" y="2" width="6" height="6" rx="1.2"/><rect x="2" y="10" width="6" height="6" rx="1.2"/><rect x="10" y="10" width="6" height="6" rx="1.2"/></svg></button>
+      <div class="pg-avatar"></div>
+    </div>
+  </div>
+  <div class="pg-body">
+    <div class="crumb"><span>All settings</span><span class="sep">/</span><span class="here">Account &amp; auth</span></div>
+    <h1 class="pg-headline"><span class="icon-bg">&#9788;</span>Account &amp; auth.</h1>
+    <p class="pg-subtitle">Identity comes from UnionCore. MarkFlow validates JWTs and maps roles. Most of this is read-only display of upstream truth.</p>
+
+    <div class="detail-flex">
+      <div class="detail-side">
+        <a class="on"><span class="ico">&#9760;</span><span class="grow">Identity (UnionCore)</span></a>
+        <a><span class="ico">&#128274;</span><span class="grow">JWT validation</span></a>
+        <a><span class="ico">&#9776;</span><span class="grow">Role mapping</span></a>
+        <a><span class="ico">&#128737;</span><span class="grow">Sessions &amp; timeout</span></a>
+        <a><span class="ico">&#128209;</span><span class="grow">Audit log</span></a>
+      </div>
+
+      <div>
+        <div class="lock-note">
+          <strong>Most of this section is read-only.</strong> Identity, JWT keys, and role definitions are sourced from UnionCore. MarkFlow displays what it sees and lets you control session timeout + audit trail locally.
+        </div>
+
+        <div class="form-section">
+          <h3>UnionCore connection</h3>
+          <p class="desc">The identity provider MarkFlow trusts. Defined once during deployment.</p>
+
+          <div class="id-card">
+            <div class="id-row1">
+              <div class="id-conn"><span class="dot"></span> Connected</div>
+              <div class="id-host">https://auth.unioncore.local46.org</div>
+              <button class="pill outline sm">Test connection</button>
+            </div>
+            <div class="id-meta-grid">
+              <span class="k">Issuer (iss)</span><span class="v"><code>https://auth.unioncore.local46.org</code></span>
+              <span class="k">Audience (aud)</span><span class="v"><code>markflow-prod</code></span>
+              <span class="k">JWKS endpoint</span><span class="v"><code>/.well-known/jwks.json</code></span>
+              <span class="k">Last key sync</span><span class="v">4 min ago &middot; 3 keys</span>
+              <span class="k">Last token verified</span><span class="v">22 sec ago &middot; xerxes.shelley@local46.org</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h3>Sessions &amp; timeout</h3>
+          <p class="desc">How long a logged-in session stays valid in this MarkFlow instance. Tighter is more secure; looser is less interruption.</p>
+
+          <div class="field-row">
+            <span class="field-label">Idle timeout</span>
+            <div class="seg" style="margin-top:0.2rem;display:inline-flex;width:fit-content">
+              <div class="seg-opt">15 min</div>
+              <div class="seg-opt">30 min</div>
+              <div class="seg-opt on">1 hour</div>
+              <div class="seg-opt">4 hours</div>
+              <div class="seg-opt">8 hours</div>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <span class="field-label">Force re-auth for system settings</span>
+            <div class="toggle-row">
+              <div class="toggle on"><div class="toggle-knob"></div></div>
+              <span class="toggle-text">Require fresh sign-in (within 5 min) to change Storage / AI / Auth settings</span>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <span class="field-label">Concurrent sessions</span>
+            <div class="seg" style="margin-top:0.2rem;display:inline-flex;width:fit-content">
+              <div class="seg-opt">1 device</div>
+              <div class="seg-opt on">3 devices</div>
+              <div class="seg-opt">Unlimited</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h3>Active sessions</h3>
+          <p class="desc">Sessions tied to your identity. Sign out anywhere remotely.</p>
+          <div style="background:#fafafa;border:1px solid #ececec;border-radius:10px;padding:0.4rem">
+            <div style="padding:0.65rem 0.85rem;display:flex;justify-content:space-between;align-items:center;font-size:0.86rem">
+              <div><strong style="color:#0a0a0a">This device</strong> &middot; <span style="color:#888">Windows 11 &middot; Chrome &middot; 192.168.1.42</span></div>
+              <span style="color:#0e7c5a;font-weight:600;font-size:0.78rem">current</span>
+            </div>
+            <div style="padding:0.65rem 0.85rem;display:flex;justify-content:space-between;align-items:center;font-size:0.86rem;border-top:1px solid #f0f0f0">
+              <div>Workstation 2 &middot; <span style="color:#888">Windows 11 &middot; Chrome &middot; 192.168.1.18 &middot; idle 2 hr</span></div>
+              <button class="pill ghost sm" style="color:#c92a2a">Sign out</button>
+            </div>
+            <div style="padding:0.65rem 0.85rem;display:flex;justify-content:space-between;align-items:center;font-size:0.86rem;border-top:1px solid #f0f0f0">
+              <div>iPhone &middot; <span style="color:#888">Safari &middot; 173.18.42.9 &middot; idle 6 hr</span></div>
+              <button class="pill ghost sm" style="color:#c92a2a">Sign out</button>
+            </div>
+          </div>
+          <button class="pill danger sm" style="margin-top:0.7rem">Sign out everywhere except this device</button>
+        </div>
+
+        <div class="save-bar">
+          <button class="pill primary sm">Save changes</button>
+          <button class="pill outline sm">View audit log</button>
+          <button class="pill ghost sm">Discard</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- =================== React =================== -->
+<h3 style="margin-top:2.4rem">React</h3>
+<div class="options" data-multiselect>
+  <div class="option" data-choice="ai-yes" onclick="toggleSelect(this)">
+    <div class="letter">AI</div>
+    <div class="content">
+      <h3>AI providers detail is right</h3>
+      <p>Provider chain visualizer (3-step lookup), independent AI Assist + image routing, cost cap with live spend tiles. Lock it.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="notif-yes" onclick="toggleSelect(this)">
+    <div class="letter">N</div>
+    <div class="content">
+      <h3>Notifications detail is right</h3>
+      <p>Channel cards (Email / Slack / Teams / Webhook) with per-channel toggle, trigger rules preview at bottom. Lock it.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="auth-yes" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Account &amp; auth detail is right</h3>
+      <p>UnionCore identity card (read-only summary) + sessions/timeout (locally controlled) + active sessions list. Lock it.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="tweak" onclick="toggleSelect(this)">
+    <div class="letter">~</div>
+    <div class="content">
+      <h3>Tweak something specific</h3>
+      <p>Tell me what reads wrong on any of the three.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="spec" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>We're done &mdash; write the spec</h3>
+      <p>Lock everything, write the design spec to <code>docs/superpowers/specs/</code>, hand off to <code>writing-plans</code>.</p>
+    </div>
+  </div>
+</div>

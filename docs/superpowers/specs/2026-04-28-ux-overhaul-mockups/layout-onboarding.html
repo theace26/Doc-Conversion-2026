@@ -1,0 +1,327 @@
+<h2>First-run layout picker + nav quick-toggle</h2>
+<p class="subtitle">No system default. New users land on a "pick your home" screen with concrete examples. Once chosen, a small nav icon (and &#8984;\ shortcut) lets them swap anytime.</p>
+
+<style>
+  .pg { background:#fff; border-radius:14px; overflow:hidden; box-shadow:0 1px 0 rgba(0,0,0,0.05), 0 24px 48px -24px rgba(0,0,0,0.18); border:1px solid #ececec; margin-bottom:1.6rem; font-family:-apple-system,'SF Pro Display',Inter,system-ui,sans-serif; }
+  .pg-nav { display:flex; align-items:center; justify-content:space-between; padding:1.05rem 1.6rem; border-bottom:1px solid #f1f1f1; font-size:0.92rem; }
+  .pg-logo { font-weight:700; letter-spacing:-0.01em; color:#0a0a0a; font-size:1.05rem; display:inline-flex; align-items:center; gap:0.55rem; }
+  .ver-chip { font-size:0.62rem; font-weight:700; color:#a36a00; background:#fff5e0; padding:0.18rem 0.5rem; border-radius:999px; letter-spacing:0.06em; text-transform:uppercase; font-family:ui-monospace,'SF Mono',monospace; }
+  .pg-links { display:flex; gap:1.5rem; color:#3a3a3a; font-weight:500; }
+  .pg-links span { cursor:default; }
+  .pg-links .on { color:#5b3df5; }
+  .pg-avatar { width:30px; height:30px; border-radius:50%; background:linear-gradient(135deg,#5b3df5,#9d7bff); }
+  .pg-nav-right { display:flex; align-items:center; gap:0.85rem; }
+
+  .pg-headline { font-size:2rem; line-height:1.05; letter-spacing:-0.025em; font-weight:700; color:#0a0a0a; margin:0 0 0.4rem; }
+  .pg-subtitle { color:#5a5a5a; font-size:1rem; margin:0 0 2rem; max-width:60ch; }
+
+  /* === onboarding picker cards === */
+  .picker-grid { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:1.1rem; }
+  .picker-card { border:1.5px solid #ececec; border-radius:14px; padding:1.4rem 1.4rem 1.2rem; background:#fff; cursor:pointer; transition:transform 0.15s, border-color 0.15s, box-shadow 0.2s; display:flex; flex-direction:column; }
+  .picker-card:hover { transform:translateY(-2px); border-color:#d8ceff; box-shadow:0 14px 32px -16px rgba(91,61,245,0.2); }
+  .picker-card.recommended { border-color:#5b3df5; box-shadow:0 0 0 3px rgba(91,61,245,0.1); }
+  .picker-card-name { font-size:1.4rem; font-weight:700; letter-spacing:-0.018em; color:#0a0a0a; margin:0 0 0.25rem; }
+  .picker-card-tag { font-size:0.7rem; font-weight:700; color:#5b3df5; letter-spacing:0.07em; text-transform:uppercase; margin-bottom:0.7rem; }
+  .picker-card-desc { font-size:0.92rem; color:#3a3a3a; line-height:1.45; margin-bottom:1rem; }
+
+  /* mini visual preview */
+  .preview { background:#fafafa; border:1px solid #ececec; border-radius:10px; padding:0.9rem; height:170px; display:flex; flex-direction:column; gap:0.45rem; margin-bottom:1.1rem; }
+  .pv-bar { background:#dcd6f0; border-radius:3px; height:6px; }
+  .pv-bar.search { background:#5b3df5; height:14px; border-radius:999px; box-shadow:0 1px 4px rgba(91,61,245,0.25); }
+  .pv-grid { background:#fff; border-radius:4px; flex:1; border:1px solid #e8e6df; display:grid; grid-template-columns:repeat(6,1fr); grid-template-rows:repeat(2,1fr); gap:3px; padding:4px; }
+  .pv-cell { background:linear-gradient(135deg,#ff6b6b,#c92a2a); border-radius:2px; }
+  .pv-cell.b { background:linear-gradient(135deg,#4dabf7,#1864ab); }
+  .pv-cell.c { background:linear-gradient(135deg,#51cf66,#2b8a3e); }
+  .pv-cell.d { background:linear-gradient(135deg,#cc5de8,#862e9c); }
+  .pv-cell.e { background:linear-gradient(135deg,#ffa94d,#e8590c); }
+  .pv-cell.f { background:#0a0a0a; }
+  .pv-chip-row { display:flex; gap:3px; flex-wrap:wrap; }
+  .pv-chip { background:#e8e6f5; height:14px; border-radius:999px; }
+
+  /* "best for" examples */
+  .best-for { font-size:0.8rem; color:#5a5a5a; line-height:1.5; padding-top:0.85rem; border-top:1px dashed #ececec; flex:1; margin-bottom:1.1rem; }
+  .best-for .lab { font-size:0.66rem; font-weight:700; color:#999; letter-spacing:0.08em; text-transform:uppercase; display:block; margin-bottom:0.4rem; }
+  .best-for .ex { display:flex; gap:0.5rem; align-items:flex-start; margin-bottom:0.35rem; }
+  .best-for .ex-q { color:#bbb; flex-shrink:0; }
+  .best-for .ex-t em { color:#5b3df5; font-style:normal; font-weight:500; }
+
+  .picker-cta { width:100%; padding:0.7rem 1rem; border-radius:10px; border:1.5px solid #5b3df5; color:#5b3df5; background:#fff; font-weight:600; font-size:0.92rem; cursor:pointer; }
+  .picker-cta.recommended { background:#5b3df5; color:#fff; }
+
+  /* footer hint */
+  .picker-foot { display:flex; align-items:center; justify-content:space-between; margin-top:1.6rem; padding-top:1rem; border-top:1px solid #f0f0f0; }
+  .picker-foot .hint { font-size:0.84rem; color:#888; }
+  .picker-foot .skip { color:#5b3df5; font-size:0.88rem; cursor:pointer; font-weight:500; }
+  kbd { background:#f0f0f0; padding:0.06rem 0.4rem; border-radius:4px; font-family:ui-monospace,monospace; font-size:0.78rem; color:#3a3a3a; border:1px solid #e0e0e0; }
+
+  /* === nav quick-toggle === */
+  .layout-icon-btn { width:34px; height:34px; border-radius:9px; background:transparent; border:1px solid transparent; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; color:#5a5a5a; position:relative; }
+  .layout-icon-btn:hover { background:#fafafa; border-color:#ececec; color:#5b3df5; }
+  .layout-icon-btn.open { background:#f5f3ff; border-color:#d8ceff; color:#5b3df5; }
+  .layout-icon-btn svg { width:18px; height:18px; }
+
+  /* quick-toggle popover */
+  .qt-popover { position:absolute; right:0; top:42px; width:300px; background:#fff; border:1px solid #ececec; border-radius:12px; box-shadow:0 16px 36px -8px rgba(0,0,0,0.2); padding:0.6rem; z-index:30; }
+  .qt-popover::before { content:''; position:absolute; right:14px; top:-7px; width:14px; height:14px; background:#fff; border-left:1px solid #ececec; border-top:1px solid #ececec; transform:rotate(45deg); }
+  .qt-head { padding:0.4rem 0.55rem 0.55rem; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #f3f3f3; margin-bottom:0.35rem; }
+  .qt-head-title { font-size:0.86rem; font-weight:600; color:#0a0a0a; }
+  .qt-head-kbd { font-size:0.74rem; color:#888; }
+  .qt-opt { display:flex; gap:0.7rem; padding:0.55rem 0.55rem; border-radius:8px; cursor:pointer; align-items:center; }
+  .qt-opt:hover { background:#fafafa; }
+  .qt-opt.on { background:#f5f3ff; }
+  .qt-opt-vis { width:54px; height:38px; border-radius:6px; background:#fafafa; border:1px solid #ececec; padding:4px; display:flex; flex-direction:column; gap:2px; flex-shrink:0; }
+  .qt-opt-vis .b { background:#dcd6f0; border-radius:2px; height:3px; }
+  .qt-opt-vis .b.s { background:#5b3df5; height:5px; border-radius:999px; }
+  .qt-opt-vis .b.g { background:#fff; border:1px solid #e0e0e0; flex:1; }
+  .qt-opt-text { flex:1; }
+  .qt-opt-name { font-size:0.86rem; font-weight:600; color:#0a0a0a; line-height:1.2; }
+  .qt-opt-desc { font-size:0.74rem; color:#888; margin-top:0.1rem; }
+  .qt-opt-check { color:#5b3df5; font-size:0.95rem; opacity:0; }
+  .qt-opt.on .qt-opt-check { opacity:1; }
+  .qt-foot { padding:0.55rem; border-top:1px solid #f3f3f3; margin-top:0.35rem; font-size:0.78rem; color:#888; display:flex; justify-content:space-between; align-items:center; }
+  .qt-foot a { color:#5b3df5; cursor:pointer; }
+
+  /* misc */
+  .pg-body { padding:2.4rem 2.4rem 2.6rem; }
+  .page-label { font-size:0.7rem; font-weight:700; color:#999; text-transform:uppercase; letter-spacing:0.08em; margin:1.6rem 0 0.5rem 0.3rem; }
+</style>
+
+
+<!-- =================== 1. First-run picker =================== -->
+<div class="page-label">1. First-run welcome &mdash; pick your home layout with examples (no system default)</div>
+
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow <span class="ver-chip">v0.34.1-dev</span></div>
+    <div class="pg-links"><span style="color:#bbb">Search</span><span style="color:#bbb">Pipeline</span><span style="color:#bbb">Convert</span><span style="color:#bbb">Settings</span></div>
+    <div class="pg-nav-right">
+      <div class="pg-avatar"></div>
+    </div>
+  </div>
+  <div class="pg-body">
+    <div style="font-size:0.7rem;font-weight:700;color:#5b3df5;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:0.55rem">Step 2 of 3 &middot; Set up your workspace</div>
+    <h1 class="pg-headline">How would you like your home to feel?</h1>
+    <p class="pg-subtitle">Three options, all powered by the same Search bar. Pick the one that fits how you'll actually use MarkFlow day-to-day &mdash; you can swap anytime from the layout icon in the nav (or press <kbd>&#8984;\</kbd>).</p>
+
+    <div class="picker-grid">
+
+      <!-- Maximal -->
+      <div class="picker-card">
+        <div class="picker-card-tag">Maximal</div>
+        <h3 class="picker-card-name">Browse everything</h3>
+        <p class="picker-card-desc">Search bar plus shelves of cards: pinned folders, what's auto-ingested, what's most-accessed, what's flagged for review, browse by topic.</p>
+        <div class="preview">
+          <div class="pv-bar search"></div>
+          <div class="pv-bar" style="width:30%"></div>
+          <div class="pv-grid"><div class="pv-cell"></div><div class="pv-cell b"></div><div class="pv-cell c"></div><div class="pv-cell d"></div><div class="pv-cell e"></div><div class="pv-cell f"></div><div class="pv-cell b"></div><div class="pv-cell c"></div><div class="pv-cell"></div><div class="pv-cell e"></div><div class="pv-cell d"></div><div class="pv-cell f"></div></div>
+          <div class="pv-bar" style="width:25%"></div>
+        </div>
+        <div class="best-for">
+          <span class="lab">Best for</span>
+          <div class="ex"><span class="ex-q">&#9633;</span><span class="ex-t"><em>"Friday catch-up"</em> &mdash; surveying everything that came in this week</span></div>
+          <div class="ex"><span class="ex-q">&#9633;</span><span class="ex-t"><em>"What did we already have?"</em> &mdash; discovering pinned folders and topics</span></div>
+          <div class="ex"><span class="ex-q">&#9633;</span><span class="ex-t"><em>New to MarkFlow</em> &mdash; surfaces show you what's possible</span></div>
+        </div>
+        <button class="picker-cta">Choose Maximal</button>
+      </div>
+
+      <!-- Recent -->
+      <div class="picker-card">
+        <div class="picker-card-tag">Recent</div>
+        <h3 class="picker-card-name">Pick up where you left off</h3>
+        <p class="picker-card-desc">Search bar plus your recent searches and recently opened files. Nothing else. Quiet, fast, and always relevant to whatever you were just doing.</p>
+        <div class="preview">
+          <div class="pv-bar search"></div>
+          <div class="pv-bar" style="width:30%;margin-top:0.55rem"></div>
+          <div class="pv-chip-row">
+            <div class="pv-chip" style="width:60px"></div>
+            <div class="pv-chip" style="width:80px"></div>
+            <div class="pv-chip" style="width:50px"></div>
+            <div class="pv-chip" style="width:90px"></div>
+            <div class="pv-chip" style="width:70px"></div>
+          </div>
+          <div class="pv-bar" style="width:30%;margin-top:0.35rem"></div>
+          <div class="pv-grid" style="grid-template-rows:1fr"><div class="pv-cell"></div><div class="pv-cell b"></div><div class="pv-cell c"></div><div class="pv-cell d"></div><div class="pv-cell e"></div><div class="pv-cell f"></div></div>
+        </div>
+        <div class="best-for">
+          <span class="lab">Best for</span>
+          <div class="ex"><span class="ex-q">&#9633;</span><span class="ex-t"><em>"Tuesday at 10am"</em> &mdash; finishing the same project you started yesterday</span></div>
+          <div class="ex"><span class="ex-q">&#9633;</span><span class="ex-t"><em>Daily working tools</em> &mdash; less visual noise, more flow</span></div>
+          <div class="ex"><span class="ex-q">&#9633;</span><span class="ex-t"><em>Power users</em> who want quick re-access without scanning</span></div>
+        </div>
+        <button class="picker-cta">Choose Recent</button>
+      </div>
+
+      <!-- Minimal -->
+      <div class="picker-card recommended">
+        <div class="picker-card-tag">Minimal</div>
+        <h3 class="picker-card-name">Just the search box</h3>
+        <p class="picker-card-desc">Search bar centered, nothing else. You know what you're looking for &mdash; type and go. Calm by default.</p>
+        <div class="preview" style="justify-content:center;align-items:center;gap:1rem">
+          <div class="pv-bar search" style="width:80%"></div>
+        </div>
+        <div class="best-for">
+          <span class="lab">Best for</span>
+          <div class="ex"><span class="ex-q">&#9633;</span><span class="ex-t"><em>"Mid-meeting lookup"</em> &mdash; search and dismiss</span></div>
+          <div class="ex"><span class="ex-q">&#9633;</span><span class="ex-t"><em>Screen-sharing</em> &mdash; nothing distracting on display</span></div>
+          <div class="ex"><span class="ex-q">&#9633;</span><span class="ex-t"><em>Focused use</em> &mdash; no visual cost when you're between tasks</span></div>
+        </div>
+        <button class="picker-cta recommended">Choose Minimal</button>
+      </div>
+
+    </div>
+
+    <div class="picker-foot">
+      <div class="hint">You can change this anytime &mdash; press <kbd>&#8984;\</kbd> to cycle, or click the layout icon in the nav.</div>
+      <span class="skip">I'll pick later &rarr;</span>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- =================== 2. Nav quick-toggle (closed) =================== -->
+<div class="page-label">2. Nav quick-toggle &mdash; small icon next to the avatar (closed state)</div>
+
+<div class="pg">
+  <div class="pg-nav">
+    <div class="pg-logo">MarkFlow <span class="ver-chip">v0.34.1-dev</span></div>
+    <div class="pg-links"><span class="on">Search</span><span>Pipeline</span><span>Convert</span><span>Settings</span></div>
+    <div class="pg-nav-right">
+      <button class="layout-icon-btn" title="Home layout (&#8984;\)">
+        <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="2" width="6" height="6" rx="1.2"/><rect x="10" y="2" width="6" height="6" rx="1.2"/><rect x="2" y="10" width="6" height="6" rx="1.2"/><rect x="10" y="10" width="6" height="6" rx="1.2"/></svg>
+      </button>
+      <div class="pg-avatar"></div>
+    </div>
+  </div>
+  <div class="pg-body" style="padding:1rem 2rem;color:#888;font-size:0.86rem">
+    Standalone icon between the page links and the avatar. Hover &rarr; tooltip "Home layout (&#8984;\)". Click &rarr; popover (next section). Single-click cycles &mdash; click-and-hold (or right-click) opens the chooser.
+  </div>
+</div>
+
+
+<!-- =================== 3. Nav quick-toggle (open popover) =================== -->
+<div class="page-label">3. Click the layout icon &rarr; popover with three options + keyboard hint + "more options" link</div>
+
+<div class="pg" style="overflow:visible">
+  <div class="pg-nav" style="position:relative">
+    <div class="pg-logo">MarkFlow <span class="ver-chip">v0.34.1-dev</span></div>
+    <div class="pg-links"><span class="on">Search</span><span>Pipeline</span><span>Convert</span><span>Settings</span></div>
+    <div class="pg-nav-right" style="position:relative">
+      <button class="layout-icon-btn open" title="Home layout (&#8984;\)">
+        <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="2" width="6" height="6" rx="1.2"/><rect x="10" y="2" width="6" height="6" rx="1.2"/><rect x="2" y="10" width="6" height="6" rx="1.2"/><rect x="10" y="10" width="6" height="6" rx="1.2"/></svg>
+      </button>
+      <div class="pg-avatar"></div>
+
+      <div class="qt-popover">
+        <div class="qt-head">
+          <div class="qt-head-title">Home layout</div>
+          <div class="qt-head-kbd"><kbd>&#8984;\</kbd> to cycle</div>
+        </div>
+
+        <div class="qt-opt">
+          <div class="qt-opt-vis">
+            <div class="b s"></div>
+            <div class="b"></div>
+            <div class="b g"></div>
+            <div class="b g"></div>
+          </div>
+          <div class="qt-opt-text">
+            <div class="qt-opt-name">Maximal</div>
+            <div class="qt-opt-desc">Search + browse rows</div>
+          </div>
+          <span class="qt-opt-check">&#10003;</span>
+        </div>
+
+        <div class="qt-opt on">
+          <div class="qt-opt-vis">
+            <div class="b s"></div>
+            <div class="b" style="width:60%"></div>
+            <div class="b" style="width:75%"></div>
+            <div class="b g"></div>
+          </div>
+          <div class="qt-opt-text">
+            <div class="qt-opt-name">Recent</div>
+            <div class="qt-opt-desc">Search + history only</div>
+          </div>
+          <span class="qt-opt-check">&#10003;</span>
+        </div>
+
+        <div class="qt-opt">
+          <div class="qt-opt-vis" style="justify-content:center">
+            <div class="b s" style="margin-top:auto;margin-bottom:auto"></div>
+          </div>
+          <div class="qt-opt-text">
+            <div class="qt-opt-name">Minimal</div>
+            <div class="qt-opt-desc">Just the search box</div>
+          </div>
+          <span class="qt-opt-check">&#10003;</span>
+        </div>
+
+        <div class="qt-foot">
+          <span>Layout: <strong style="color:#0a0a0a">Recent</strong></span>
+          <a>More display options &rarr;</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  <div class="pg-body" style="padding:1rem 2rem;color:#888;font-size:0.86rem">
+    Click any option in the popover to switch instantly. <strong>"More display options"</strong> jumps to Settings &rarr; Display where the rest of the preferences live (density, snippet length, file thumbnails, advanced visibility).
+  </div>
+</div>
+
+
+<!-- =================== 4. The lock-in summary =================== -->
+<div class="page-label">4. Where this lives in the spec</div>
+
+<div class="pg">
+  <div class="pg-body" style="padding:1.6rem 2rem 1.8rem">
+    <h3 style="font-size:1.05rem;margin:0 0 0.55rem;color:#0a0a0a">Locked decisions</h3>
+    <ul style="margin:0;padding-left:1.4rem;color:#3a3a3a;font-size:0.92rem;line-height:1.6">
+      <li><strong>No imposed system default.</strong> First-run flow forces an active choice with concrete examples (Maximal / Recent / Minimal).</li>
+      <li><strong>Minimal</strong> is the visual recommendation in the picker (purple ring) and the skip fallback. Calmest starting point &mdash; users opt up to Recent or Maximal once they know what those add.</li>
+      <li>Skip option ("I'll pick later") &rarr; user lands on Minimal. Easy to discover the layout icon in the nav and explore the other modes from there.</li>
+      <li><strong>Nav quick-toggle</strong> &mdash; small layout icon next to avatar. Single-click cycles. Click-and-hold (or right-click) opens the chooser popover.</li>
+      <li><strong>Keyboard cycle</strong> &mdash; <kbd>&#8984;\</kbd> on every page. Same key, anywhere.</li>
+      <li><strong>"Track recent searches"</strong> &mdash; ON by default (your call). Settings &rarr; Display has the off switch.</li>
+      <li><strong>Persistence</strong> &mdash; per-user preference stored in DB (or localStorage for unauthenticated/SSO bootstrap), restored on every load.</li>
+    </ul>
+  </div>
+</div>
+
+
+<!-- =================== React =================== -->
+<h3 style="margin-top:2.4rem">React</h3>
+<div class="options" data-multiselect>
+  <div class="option" data-choice="onboard-yes" onclick="toggleSelect(this)">
+    <div class="letter">&#10003;</div>
+    <div class="content">
+      <h3>First-run picker is right</h3>
+      <p>Three cards with examples + "Recent" recommended. Skip falls back to Recent. Lock it.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="recommend-recent" onclick="toggleSelect(this)">
+    <div class="letter">&#10003;</div>
+    <div class="content">
+      <h3>"Recent" as the recommended option is right</h3>
+      <p>It's the most useful default for daily working tools without being overwhelming.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="recommend-other" onclick="toggleSelect(this)">
+    <div class="letter">~</div>
+    <div class="content">
+      <h3>Recommend a different one</h3>
+      <p>Tell me which (Maximal / Minimal) and I'll move the purple ring + skip-fallback.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="step-flow" onclick="toggleSelect(this)">
+    <div class="letter">F</div>
+    <div class="content">
+      <h3>Show me the full first-run flow</h3>
+      <p>This was "Step 2 of 3." What are the other steps? Probably: 1. Welcome / sign-in confirmation, 2. Layout (this), 3. Pin your first folders. Worth designing the full sequence?</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:1.5rem">Once you confirm, this part of the home-page architecture is locked. Next we move on to either the full first-run flow (if you said yes to F), or to the Pipeline page (operator dashboard with the admin-only rows).</p>
