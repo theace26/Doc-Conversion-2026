@@ -13,6 +13,9 @@ data/
 output/
 logs/
 
+# Brainstorming visual companion (per-session mockups + state)
+.superpowers/
+
 # Python
 __pycache__/
 *.pyc
