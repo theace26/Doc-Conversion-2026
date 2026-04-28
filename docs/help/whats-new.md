@@ -6,6 +6,46 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.32.7 — Status page now actually shows "Enumerating source files…" during a scan
+
+A user reported on v0.32.6: clicked Force Bulk Scan against an
+HDD, and the Status page card showed **"0 / ? files — ?%"**
+for 20+ minutes with no indication of whether the scanner was
+working or stuck. The "Enumerating source files…" UI we
+shipped in v0.32.1 was supposed to handle this exact case —
+it just had a wrong condition and never rendered.
+
+**Fix shipped.** Whenever a bulk job is in the **SCANNING**
+state, the Status page card now shows:
+
+```
+[spinner] Enumerating source files… 1m 30s elapsed
+```
+
+and after **2 minutes** of no transition, automatically flips
+to a yellow warning:
+
+```
+⚠ Enumerating — stuck? No progress for 2m 15s.
+Stop the job and retry, or check the log viewer.
+```
+
+(The "log viewer" link is the clickable status pill at the
+top of the card — it opens the Log Viewer filtered to that
+job's ID, so you can see exactly what the scanner is doing.)
+
+### Why this matters
+
+Big drives walk slowly. The bulk scanner runs incremental
+scanning (skips directories whose modification time hasn't
+changed), but on a fresh HDD or a deep tree it still takes
+real time. Without the Enumerating display, you're guessing
+whether to wait or hit Stop. Now you have a clear signal —
+**the job IS doing something**, with elapsed-time count-up,
+and a 2-minute escape hatch if it's actually stuck.
+
+---
+
 ## v0.32.6 — Trash progress timer no longer resets when you navigate away
 
 **Reported by an operator on v0.32.4:** clicked **Empty Trash**

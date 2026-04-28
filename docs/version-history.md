@@ -4,6 +4,155 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.32.7 — Status page Enumerating UI now actually renders during scans (2026-04-28)
+
+**One-line frontend fix. The "Enumerating source files…" UI
+from v0.32.1 had a wrong condition that prevented it from
+ever rendering. Fixed; operators now see honest scan-phase
+feedback instead of a misleading `0 / ? files — ?%` for the
+duration of every bulk scan.**
+
+### The bug
+
+The v0.32.1 release added an "Enumerating source files… Xs
+elapsed" UI for jobs in the scanning phase, with a
+stuck-warning that fires after 2 min of no progress. The
+intent was to replace the broken `0 / ? files — ?%`
+placeholder that operators saw during the enumeration phase
+of every bulk scan.
+
+The condition was:
+
+```js
+var enumerating = (job.status === 'scanning' && job.total_files == null);
+```
+
+But `job.total_files` is **never null** during scanning — it's
+always **0**. Source: `core/bulk_worker.py:get_all_active_jobs`
+sets `total_files = job._total_pending`, and `_total_pending`
+is initialized to 0 in `BulkJob.__init__` and only assigned
+the real count AFTER the scanner returns. So during the entire
+scanning phase, `total_files == 0` (NOT null), the
+`enumerating` condition is False, and the UI falls through
+to the legacy display.
+
+The condition was wrong from the v0.32.1 ship. The bug went
+unnoticed because most scans complete in seconds; only on a
+slow-HDD bulk scan with a deep tree did the misleading
+display sit visible long enough to confuse anyone.
+
+### Reported instance
+
+A user clicked Force Bulk Scan against `/host/d/k_drv_test`
+on an HDD. The scanner walked the directory tree for 20+
+minutes (incremental scan checking every dir's mtime against
+the cache). During that whole window the Status page showed:
+
+```
+SCANNING ▸ 21f3f9e7…
+0 / ? files — ?%
+✓ 0 converted   ✗ 0 failed   ⏭ 0 skipped
+```
+
+with no indication that the scanner was actually making
+progress. The operator wanted to know whether to wait, stop,
+or escalate.
+
+### The fix
+
+```js
+var enumerating = (job.status === 'scanning');
+```
+
+The backend's `_scanning` flag is True for the entire
+`BulkScanner.scan()` call and flipped False right before
+`update_bulk_job_status(..., 'running', total_files=...)`. So
+`status === 'scanning'` alone is the authoritative signal —
+no need to also check total_files.
+
+After the fix:
+
+| Time in scanning | Display |
+|---|---|
+| 0–120 s | `[spinner] Enumerating source files… 1m 30s elapsed` |
+| 120 s+ | `⚠ Enumerating — stuck? No progress for X. Stop the job and retry, or check the log viewer.` (existing v0.32.1 stuck warning, fires correctly now) |
+
+The stuck-warning is honest because the existing
+`(!job.last_heartbeat)` check is always true during scanning
+(the `last_heartbeat` field is only updated by per-file
+conversion workers, not by the scanner). So after 2 min any
+scan correctly transitions to the stuck warning. If the scan
+is genuinely making progress (just slow), the operator can
+verify by tailing the log viewer using the link in the
+status pill.
+
+### Backend NOT changed
+
+My initial v0.32.7 plan included a "backend auto-complete
+scan when total_files=0" fix. Re-reading `bulk_worker.py`
+confirmed it's not actually broken: the worker DOES transition
+`scanning → running → completed` correctly on a zero-file
+scan via the existing path:
+
+- Line 474: `self._scanning = False`
+- Line 476: `update_bulk_job_status(..., 'running', total_files=0)`
+- Line 506: `self._total_pending = len(pending_files)` (= 0)
+- Line 512-517: empty-list iteration over `pending_files`
+- Line 519-521: sentinel values pushed to queue (workers exit immediately)
+- Line 528: `await asyncio.gather(*workers)` returns
+- Line 542: `update_bulk_job_status(..., 'completed', completed_at=...)`
+
+The original observed "stuck-at-scanning for 20 min" was a
+genuinely slow scan walking an HDD tree, not a missing
+state transition. Withdrawn from this release.
+
+### Cache-bust
+
+`?v=0.32.6 → ?v=0.32.7` on the `live-banner.js` script tag in
+all 3 pages that load it (`trash.html`, `status.html`,
+`pipeline-files.html`). Same convention as v0.32.5/v0.32.6 —
+bump on every release that touches `live-banner.js` or any
+of these pages.
+
+### Files
+
+- `core/version.py` — bump to 0.32.7
+- `static/status.html` — `enumerating` condition simplified
+  to just `status === 'scanning'`; comment block extended to
+  explain why total_files==null was the wrong signal
+- `static/trash.html`, `static/status.html`,
+  `static/pipeline-files.html` — `?v=0.32.7` cache-bust
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`
+
+No DB migration. No new dependencies. No backend changes.
+
+### Done criteria
+
+- ✅ Operator triggers a Force Bulk Scan; Status page card
+  immediately shows `[spinner] Enumerating source files…
+  Xs elapsed` instead of `0 / ? files — ?%`
+- ✅ After 2 min of no transition, the existing
+  v0.32.1 stuck warning fires automatically
+- ✅ Once the scanner returns and the job transitions to
+  `running`, the display flips to the normal `X / Y files
+  — N%` format
+- ✅ Zero-file scans (incremental scan finds nothing new)
+  transition to `completed` quickly via the existing path
+
+### Future polish (not in v0.32.7)
+
+The scanner phase doesn't currently emit a heartbeat that
+the API surfaces, so the stuck-warning is binary
+(0–120s = spinner, 120s+ = warning). A future release
+could add `scanner_last_event_at` (timestamp of the most
+recent `on_progress` callback) to the job state and
+surface it in `get_all_active_jobs`, so the stuck-warning
+fires only after no scanner progress events for 2 min,
+not after 2 min of any scanning. Bigger lift; defer.
+
+---
+
 ## v0.32.6 — Server-authoritative timers on Trash progress card (2026-04-27)
 
 **Trash progress timers (elapsed + "last update") are now

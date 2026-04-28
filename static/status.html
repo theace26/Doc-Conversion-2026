@@ -139,8 +139,8 @@
   </main>
 
   <script src="/static/app.js"></script>
-  <!-- v0.32.6: cache-bust by version. Bump the ?v= when live-banner.js changes. -->
-  <script src="/static/js/live-banner.js?v=0.32.6"></script>
+  <!-- v0.32.7: cache-bust by version. Bump the ?v= when live-banner.js OR status.html changes. -->
+  <script src="/static/js/live-banner.js?v=0.32.7"></script>
   <script>
   (function () {
     var pollTimer = null;
@@ -285,7 +285,17 @@
       // an elapsed-time hint, and surface a warning if the scan has
       // been in this state for >2 min with no heartbeat (likely
       // stuck \u2014 operator should Stop and retry).
-      var enumerating = (job.status === 'scanning' && job.total_files == null);
+      //
+      // v0.32.7: simplified to just `status === 'scanning'`. The
+      // backend's `_scanning` flag is the authoritative signal \u2014
+      // it's True for the entire BulkScanner.scan() call, then
+      // flipped False right before update_bulk_job_status(...,
+      // 'running', total_files=...). Previous condition required
+      // `total_files == null` which was never the case (total_files
+      // is always 0 during scan because _total_pending is only set
+      // after scan completes), so the enumerating UI never rendered
+      // and operators saw "0 / ? files \u2014 ?%" the whole time.
+      var enumerating = (job.status === 'scanning');
       var progressLine;
       if (enumerating) {
         var startedAt = job.started_at ? new Date(job.started_at) : null;
