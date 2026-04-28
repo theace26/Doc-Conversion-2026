@@ -891,7 +891,327 @@ tests in the session.
 
 ## §C — pipeline.py + scan_coordinator.py (Phase 3 prep, Tasks 14–15)
 
-*To be filled by Task 0.3.*
+> **§G drift breadcrumbs (read first):**
+> 1. **`notify_run_now_cancelled()` does NOT exist.** The plan's pseudo-code (lines 2591/2597) calls it. The real symbol is `cancel_run_now_scan(reason: str = "")` in `core/scan_coordinator.py:118-123`. The `notify_*` helpers exist for `bulk_started`, `bulk_completed`, `run_now_started` only — there is no `notify_run_now_cancelled`. **Substitute every reference in Task 14's cancel-hook bridge with `cancel_run_now_scan(reason=...)`.**
+> 2. **`scan_runs` column names diverge.** Plan assumes `files_total` and `files_errored`. Real columns are `total_files_counted` (migration 12, may be `NULL` until counter completes) and `errors` (singular). Substitute in Task 14 step 4 progress-mirror code: `total = scan.get("total_files_counted") or 0` and `errors = scan.get("errors") or 0`.
+> 3. **`core/db/scan_runs.py` does NOT exist.** Schema lives in `core/db/schema.py:266-279`; CRUD helpers (`create_scan_run`, `update_scan_run`, `get_scan_run`, `get_latest_scan_run`) live in `core/db/lifecycle.py:316-345`. Update any task instruction that points at `core/db/scan_runs.py` to point at `core/db/lifecycle.py`.
+
+---
+
+### §C.1 — `run_pipeline_now` and its `_run` inner function
+
+**Endpoint location:** `api/routes/pipeline.py:191-229`.
+**`_run` definition:** `api/routes/pipeline.py:203` (inner async fn, dispatched via `BackgroundTasks`).
+
+**Dispatch mechanism — confirmed:** `BackgroundTasks` injected as the FIRST positional parameter (`background_tasks: BackgroundTasks`) at line 193. Dispatch at line 221 is `background_tasks.add_task(_run)` (no args — `_run` is a closure over the request).
+
+**Cancel-primitive call sites in `_run`** (verbatim from `api/routes/pipeline.py:203-219`):
+
+```python
+async def _run():
+    register_run_now_scan()
+    try:
+        # Signal coordinator — cancels any active lifecycle scan
+        notify_run_now_started()
+
+        # If a bulk job is active, wait for it to finish before scanning
+        if is_any_bulk_active():
+            log.info("pipeline.run_now_waiting_for_bulk")
+            await wait_if_run_now_paused()
+            if is_run_now_cancelled():
+                log.info("pipeline.run_now_cancelled_while_waiting")
+                return
+
+        await run_lifecycle_scan(force=True)
+    finally:
+        unregister_run_now_scan()
+```
+
+**Imports already in scope at `pipeline.py:30-38`:**
+
+```python
+from core.scan_coordinator import (
+    get_coordinator_status,
+    is_any_bulk_active,
+    is_run_now_cancelled,
+    notify_run_now_started,
+    register_run_now_scan,
+    unregister_run_now_scan,
+    wait_if_run_now_paused,
+)
+```
+
+`cancel_run_now_scan` is **NOT** in the import list yet. Task 14's cancel-hook bridge does not need to call it from this file (Task 12's POST `/cancel-operation` calls it via the registry's cancel-hook callback, registered at op-register time). But if Task 14's retrofitted `_run` needs to register its own cancel hook so that the registry's `cancel_op()` triggers `cancel_run_now_scan`, the bridge function lives in the registry module — `pipeline.py` just passes a callable when calling `register_op(...)`.
+
+#### §C.1.1 — Pre-edit form of `_run` (verbatim, for transcription)
+
+Lines 203-219, exactly as committed at `f887872`:
+
+```python
+    async def _run():
+        register_run_now_scan()
+        try:
+            # Signal coordinator — cancels any active lifecycle scan
+            notify_run_now_started()
+
+            # If a bulk job is active, wait for it to finish before scanning
+            if is_any_bulk_active():
+                log.info("pipeline.run_now_waiting_for_bulk")
+                await wait_if_run_now_paused()
+                if is_run_now_cancelled():
+                    log.info("pipeline.run_now_cancelled_while_waiting")
+                    return
+
+            await run_lifecycle_scan(force=True)
+        finally:
+            unregister_run_now_scan()
+```
+
+#### §C.1.2 — Planned post-edit shape (Task 14 step 4 transcribes this — verify before commit)
+
+```python
+    async def _run():
+        # Register active operation FIRST so cancel-hook is wired up
+        # before any awaitable that we might want to interrupt.
+        from core.active_ops import register_op, finish_op, update_op
+        op_id = await register_op(
+            op_type="pipeline_scan",
+            label="Pipeline run-now scan",
+            cancel_hook=lambda: cancel_run_now_scan(reason="active_ops_registry"),
+        )
+        register_run_now_scan()
+        try:
+            notify_run_now_started()
+
+            if is_any_bulk_active():
+                log.info("pipeline.run_now_waiting_for_bulk")
+                await wait_if_run_now_paused()
+                if is_run_now_cancelled():
+                    log.info("pipeline.run_now_cancelled_while_waiting")
+                    await finish_op(op_id, status="cancelled")
+                    return
+
+            await run_lifecycle_scan(force=True)
+
+            # Mirror final scan_runs row into the op's progress fields
+            scan = await get_latest_scan_run() or {}
+            await update_op(
+                op_id,
+                processed=scan.get("files_scanned") or 0,
+                total=scan.get("total_files_counted") or 0,    # NOT files_total
+                errors=scan.get("errors") or 0,                # NOT files_errored
+            )
+            await finish_op(
+                op_id,
+                status="cancelled" if is_run_now_cancelled() else "completed",
+            )
+        except Exception as exc:
+            await finish_op(op_id, status="failed", error=str(exc))
+            raise
+        finally:
+            unregister_run_now_scan()
+```
+
+Two new imports Task 14 must add at the top of the file (`pipeline.py:30-38` block):
+
+1. Add `cancel_run_now_scan` to the `from core.scan_coordinator import (...)` block.
+2. Add `from core.db.lifecycle import get_latest_scan_run` (already imported at module top via `core.database` re-export at line 22-27 — but `get_latest_scan_run` is in fact imported there already; verify before adding a duplicate).
+
+Re-check: line 22-27 already has `get_latest_scan_run` imported from `core.database`. **No new import needed for that.**
+
+#### §C.1.3 — `register_run_now_scan` import — already present
+
+Line 35: `register_run_now_scan` is already imported. No edit needed for that name in Task 14.
+
+---
+
+### §C.2 — `_run_convert_selected_batch` and `_convert_one_pending_file`
+
+**Locations:**
+- `_convert_one_pending_file` — `api/routes/pipeline.py:261-407` (147 lines, single async fn).
+- `_run_convert_selected_batch` — `api/routes/pipeline.py:410-424` (15 lines).
+- `convert_selected_files` (the @router.post entry) — `api/routes/pipeline.py:427-499`.
+
+**Loop variable name:** `f` (single-letter). Used at line 416 (`async def _bound(f: dict)`) and line 420 (`*(_bound(f) for f in files)`). Inside `_bound`, `f` is passed to `_convert_one_pending_file(f, user_email)`. Inside `_convert_one_pending_file`, the parameter is named `file_dict`.
+
+**Concurrency primitive — verbatim from `api/routes/pipeline.py:410-424`:**
+
+```python
+async def _run_convert_selected_batch(files: list[dict], user_email: str) -> None:
+    """Spawn per-file conversion tasks with a concurrency cap so a
+    100-file selection doesn't melt the worker pool. Caps at 4
+    concurrent conversions to match the default BULK_WORKER_COUNT."""
+    sem = asyncio.Semaphore(4)
+
+    async def _bound(f: dict) -> None:
+        async with sem:
+            await _convert_one_pending_file(f, user_email)
+
+    await asyncio.gather(*(_bound(f) for f in files), return_exceptions=False)
+    log.info(
+        "convert_selected.batch_complete",
+        count=len(files), user=user_email,
+    )
+```
+
+**Pattern characteristics:**
+- `asyncio.Semaphore(4)` for the 4-way concurrency cap (matches default `BULK_WORKER_COUNT`).
+- `asyncio.gather(...)` with `return_exceptions=False` — caller surface assumes per-file exceptions are caught inside `_convert_one_pending_file` (they are — see `try/except Exception as exc` at lines 349/358 with `update_bulk_file(status="failed", ...)`).
+- No `BackgroundTasks` here — the batch is dispatched once by the endpoint (line 479-481):
+  ```python
+  background_tasks.add_task(
+      _run_convert_selected_batch, selected, user.email,
+  )
+  ```
+  …and then `_run_convert_selected_batch` runs the individual file tasks via `asyncio.gather`, NOT `BackgroundTasks`.
+
+**Endpoint dispatch — `api/routes/pipeline.py:427-499`:**
+- Uses `BackgroundTasks` (param at line 430) to schedule the batch.
+- Auth gate: `require_role(UserRole.OPERATOR)` (line 431).
+- Returns immediately with `{"queued": ..., "not_found": ..., "ineligible": ..., "message": ...}` — the spec's frontend-poll model.
+
+#### §C.2.1 — Planned post-edit shape (Task 15)
+
+```python
+async def _run_convert_selected_batch(files: list[dict], user_email: str) -> None:
+    from core.active_ops import register_op, update_op, finish_op, is_cancelled
+    op_id = await register_op(
+        op_type="convert_selected",
+        label=f"Convert {len(files)} selected file(s)",
+        total=len(files),
+        cancel_hook=None,  # cooperative cancel via is_cancelled() check
+    )
+    sem = asyncio.Semaphore(4)
+    processed = 0
+    errors = 0
+    cancel_flag = {"hit": False}
+
+    async def _bound(f: dict) -> None:
+        nonlocal processed, errors
+        async with sem:
+            if await is_cancelled(op_id):
+                cancel_flag["hit"] = True
+                return
+            try:
+                await _convert_one_pending_file(f, user_email)
+            except Exception:  # already caught inside, but defense in depth
+                errors += 1
+            processed += 1
+            await update_op(op_id, processed=processed, errors=errors)
+
+    try:
+        await asyncio.gather(*(_bound(f) for f in files), return_exceptions=False)
+        await finish_op(
+            op_id,
+            status="cancelled" if cancel_flag["hit"] else "completed",
+        )
+    except Exception as exc:
+        await finish_op(op_id, status="failed", error=str(exc))
+        raise
+
+    log.info(
+        "convert_selected.batch_complete",
+        count=len(files), user=user_email,
+    )
+```
+
+**Notes for Task 15:**
+- `is_cancelled` is the read-side primitive on the in-memory cache (Phase 1 Task 6). Polling it inside the semaphore-gated body is sufficient — once a worker checks, cancelled workers exit fast.
+- `cancel_hook=None` because there is no scan-coordinator-level cancel for `convert_selected` (each `_convert_one_pending_file` is a discrete unit; cancelling means "don't start the next one"). The `is_cancelled` poll handles the cooperative side.
+- `update_op` ticks per-file. With the 1.5s write-through debounce from Phase 1 Task 4, a 100-file batch produces ~ceil(elapsed_s/1.5) DB writes — well under one-per-file even on fast hardware.
+
+---
+
+### §C.3 — `scan_coordinator.py` cancel primitives
+
+**Location:** `core/scan_coordinator.py:118-127` (cancel + read), `:97-115` (register/unregister), `:130-145` (pause/resume).
+
+**Function signatures (exact):**
+
+| Symbol | Line | Signature | Purpose |
+|---|---|---|---|
+| `register_run_now_scan` | 97 | `def register_run_now_scan() -> None` | Sets `_run_now_running=True`, clears cancel + pause events, stamps `_run_now_started_at = time.monotonic()`. |
+| `unregister_run_now_scan` | 107 | `def unregister_run_now_scan() -> None` | Clears all run-now state (running flag, paused flag, started-at, cancel event, pause event re-set to "not paused"). |
+| `cancel_run_now_scan` | 118 | `def cancel_run_now_scan(reason: str = "") -> None` | **Sets `_run_now_cancel.set()` AND `_run_now_pause.set()`** (the latter unblocks any waiting pause so the scan can exit). No-op if `_run_now_running` is False. Logs `scan_coordinator.run_now_cancelled` with reason. |
+| `is_run_now_cancelled` | 126 | `def is_run_now_cancelled() -> bool` | Cheap read of `_run_now_cancel.is_set()`. |
+| `notify_run_now_started` | 195 | `def notify_run_now_started() -> None` | Calls `cancel_lifecycle_scan(reason="run_now_started")` to evict any in-progress lifecycle scan. NOT a register hook — pipeline.py calls `register_run_now_scan()` separately. |
+
+**In-process flag manipulated by `cancel_run_now_scan`:**
+
+- `_run_now_cancel: asyncio.Event` (line 23, module-level singleton). `.set()` flips it.
+- Side-effect: `_run_now_pause.set()` is also called inside `cancel_run_now_scan` so a paused run-now wakes up and sees the cancel flag immediately (line 122).
+
+**Cancel-hook bridge confirmation:** `cancel_run_now_scan(reason="active_ops_registry")` is **the** correct hook for Task 14 — it sets the `asyncio.Event` that `is_run_now_cancelled()` polls inside `run_lifecycle_scan` and the `_run` await chain. There is no asynchronous teardown to await — `cancel_run_now_scan` is a sync call that flips the flag.
+
+**There is NO `notify_run_now_cancelled()` function.** The plan's narrative use of that name (lines 2591/2597 of the plan doc) must substitute `cancel_run_now_scan(reason="...")` everywhere.
+
+---
+
+### §C.4 — `scan_runs` column names
+
+**Schema location:** `core/db/schema.py:266-279` (initial CREATE TABLE) + `:563-567` (migration v12 ALTERs).
+
+**Definitive column list:**
+
+| Column | Source | Type | Notes |
+|---|---|---|---|
+| `id` | Initial | TEXT PK | Run ID |
+| `started_at` | Initial | DATETIME | Default `datetime('now')` |
+| `finished_at` | Initial | DATETIME | NULL while running |
+| `status` | Initial | TEXT | Default `'running'` |
+| `files_scanned` | Initial | INTEGER | Default 0 — running counter |
+| `files_new` | Initial | INTEGER | Default 0 |
+| `files_modified` | Initial | INTEGER | Default 0 |
+| `files_moved` | Initial | INTEGER | Default 0 |
+| `files_deleted` | Initial | INTEGER | Default 0 |
+| `files_restored` | Initial | INTEGER | Default 0 |
+| `errors` | Initial | INTEGER | Default 0 — **singular**, not `files_errored` |
+| `error_log` | Initial | TEXT | NULL until errors written |
+| `total_files_counted` | Migration v12 | INTEGER | NULL until counter completes — see `count_status` |
+| `count_status` | Migration v12 | TEXT | Default `'counting'`, transitions to `'counted'` |
+| `eta_seconds` | Migration v12 | REAL | NULL while indeterminate |
+| `files_per_second` | Migration v12 | REAL | NULL while indeterminate |
+| `eta_updated_at` | Migration v12 | TEXT | NULL while indeterminate |
+
+**`files_scanned` consumer evidence (`core/lifecycle_scanner.py`):**
+
+- `counters["files_scanned"]` is the in-memory counter incremented per-file (lines 237, 477, 489, 507, 509, 515, 746, 764, 765, 952).
+- Persisted to `scan_runs.files_scanned` via `update_scan_run(...)` (verify in `core/db/lifecycle.py:326-333`).
+
+**CRUD location for scan_runs:** `core/db/lifecycle.py:316-345` — NOT `core/db/scan_runs.py` (which does not exist).
+
+```python
+# core/db/lifecycle.py:318
+async def create_scan_run(run_id: str) -> str:
+    """Create a scan_runs record with status='running'."""
+    ...
+
+# core/db/lifecycle.py:326
+async def update_scan_run(run_id: str, updates: dict) -> None:
+    """Update a scan_runs record. Takes a dict, not **kwargs."""
+    ...
+
+# core/db/lifecycle.py:339
+async def get_scan_run(run_id: str) -> dict | None:
+    return await db_fetch_one("SELECT * FROM scan_runs WHERE id=?", (run_id,))
+
+# core/db/lifecycle.py:344
+async def get_latest_scan_run() -> dict | None:
+    return await db_fetch_one(
+        "SELECT * FROM scan_runs ORDER BY started_at DESC LIMIT 1"
+    )
+```
+
+**Plan amendments triggered by §C.4:**
+
+1. **Task 14 step 4 — progress mirror lines.** Plan pseudo-code lines 2686/2688 use `files_total` / `files_errored`. Substitute:
+   - `total=scan.get("files_total") or 0` → `total=scan.get("total_files_counted") or 0`
+   - `errors=scan.get("files_errored") or 0` → `errors=scan.get("errors") or 0`
+2. **Plan line 5376 caveat** ("These names may differ") — confirmed: both names DO differ. The substitution above is final.
+3. **`total_files_counted` is NULL until counter completes.** The `or 0` fallback is essential — without it, the registry's `update_op(total=None)` would either silently no-op or store NULL where a 0 is wanted. The UI then shows indeterminate progress until `count_status='counted'` lands. This matches plan-doc-line-2700's stated UI fallback ("UI shows indeterminate"), so behavior is consistent.
+4. **No `core/db/scan_runs.py` to grep.** Task 14 step 4's grep target should be re-pointed to `core/db/lifecycle.py`. (Already corrected in the breadcrumb at the top of §C.)
+
+---
 
 ## §D — trash.py + analysis.py + admin.py + search rebuild (Phase 3 prep, Tasks 17–22)
 
@@ -947,3 +1267,26 @@ the affected plan task number(s) and the corrected instruction.
 - **The `jobs=19` log literal** in `core/scheduler.py:906` is already
   stale. Task 9 should not blindly increment it; replacing with
   `jobs=len(scheduler.get_jobs())` is the safer fix.
+
+### Breadcrumbs from §C
+
+- **`notify_run_now_cancelled()` does not exist.** Plan pseudo-code at
+  lines 2591/2597 references it; the actual symbol is
+  `cancel_run_now_scan(reason: str = "")` at `core/scan_coordinator.py:118`.
+  Task 14's cancel-hook bridge wires the registry's `cancel_op()` to
+  `cancel_run_now_scan(reason="active_ops_registry")` instead.
+
+- **`scan_runs` columns `files_total` and `files_errored` do not exist.**
+  Plan pseudo-code at lines 2686/2688 (Task 14 step 4 progress mirror)
+  uses these names. Real columns are `total_files_counted` (migration
+  v12, NULL until counter completes) and `errors` (singular). Substitute:
+  - `scan.get("files_total")` → `scan.get("total_files_counted")`
+  - `scan.get("files_errored")` → `scan.get("errors")`
+  Plan line 5376's caveat ("These names may differ") is now resolved —
+  both names confirmed to differ; substitution is final.
+
+- **`core/db/scan_runs.py` does not exist.** The plan grep target
+  (line 275) and Task 14 step 4 should point at `core/db/lifecycle.py`
+  for CRUD helpers (`create_scan_run`, `update_scan_run`,
+  `get_scan_run`, `get_latest_scan_run` at lines 316-345) and at
+  `core/db/schema.py:266-279` + `:563-567` for the column list.
