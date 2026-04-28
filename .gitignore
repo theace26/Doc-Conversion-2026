@@ -74,3 +74,4 @@ Thumbs.db
 # Created by manual + scheduled volume backups. Several GB, never check in.
 /backups/
 .venv-test/
+.worktrees/
