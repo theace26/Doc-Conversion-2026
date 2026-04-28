@@ -2349,7 +2349,318 @@ The spec assumed `self.terminal_error`. **This does not exist.** Reality:
 
 ## §F — Frontend conventions: HTML mount points, CSS vars, JS patterns (Phase 4 prep)
 
-*To be filled by Task 0.6.*
+Phase 4 (Tasks 24–34) drops a small "Active operation" widget on six
+origin pages, plus a hub page (`active-ops.html`) and a poller. This
+§F nails down the conventions those tasks must follow so each
+implementation step becomes mechanical: which CSS variables exist,
+which DOM-helper signature to use, how to hook polling, and the exact
+line to insert each mount anchor on.
+
+### §F.1 — CSS variable inventory
+
+`static/markflow.css:8-28` defines the canonical light-mode palette in
+`:root {...}`; lines 33-49 redefine the same set under
+`@media (prefers-color-scheme: dark)`. Every variable below exists in
+both modes (no light-only or dark-only definitions):
+
+| Variable | Light value | Dark value | Notes |
+|---|---|---|---|
+| `--bg` | `#f5f6fa` | `#0f1117` | page background |
+| `--surface` | `#ffffff` | `#1a1d2e` | cards, primary surfaces |
+| `--surface-alt` | `#f0f1f5` | `#232638` | secondary panels, table headers |
+| `--border` | `#dfe1e8` | `#2e3247` | hairline borders |
+| `--text` | `#1a1d2e` | `#e4e6f0` | primary copy |
+| `--text-muted` | `#6b7084` | `#8b8fa8` | secondary copy |
+| `--text-on-accent` | `#ffffff` | `#ffffff` | text on accent fills |
+| `--accent` | `#4f5bd5` | `#6c75e0` | brand indigo (links, primary buttons, active pill) |
+| `--accent-hover` | `#3d49b8` | `#8189e8` | button hover state |
+| `--ok` | `#16a34a` | `#22c55e` | success / completed |
+| `--warn` | `#d97706` | `#f59e0b` | warning / paused |
+| `--error` | `#dc2626` | `#ef4444` | error / cancelled |
+| `--info` | `#2563eb` | `#60a5fa` | info |
+| `--radius` | `8px` | (inherits) | card radius |
+| `--radius-sm` | `4px` | (inherits) | inline pill radius |
+| `--font-sans` | `'Source Sans 3', system-ui, …` | (inherits) | body font |
+| `--font-mono` | `'IBM Plex Mono', ui-monospace, …` | (inherits) | code/path font |
+| `--shadow` | `0 1px 3px rgba(0,0,0,.08)` etc. | `0 1px 3px rgba(0,0,0,.3)` | card shadow |
+| `--shadow-lg` | `0 4px 12px rgba(0,0,0,.1)` | `0 4px 12px rgba(0,0,0,.4)` | hover/elevated |
+| `--transition` | `0.2s ease` | (inherits) | hover/focus transitions |
+
+**All variables referenced by the plan's widget code (Tasks 25, 26, 27)
+exist in this set.** Specifically the plan uses: `--surface`,
+`--surface-alt`, `--text`, `--text-muted`, `--border`, `--accent`,
+`--ok`, `--error`, `--warn` (for `paused`), `--radius`, `--radius-sm`,
+`--shadow`. **No fallback substitution required**; Tasks 25/26/27
+ship as written. Status-pill colour mapping (drafted now so the hub
+in Task 26 doesn't reinvent it):
+
+| op `status` | Background | Text colour |
+|---|---|---|
+| `running` | `var(--accent)` | `var(--text-on-accent)` |
+| `paused` | `var(--warn)` | `var(--text-on-accent)` |
+| `completed` | `var(--ok)` | `var(--text-on-accent)` |
+| `cancelled` | `var(--error)` | `var(--text-on-accent)` |
+| `failed` | `var(--error)` | `var(--text-on-accent)` |
+
+(`paused`/`completed`/`cancelled`/`failed` all use the same
+`text-on-accent` foreground because `--ok`/`--warn`/`--error` are dark
+enough in both themes — verified against
+`static/js/pipeline-card.js:117-180` which uses identical mappings via
+the `.job-status.cancelled` / `.job-status.completed` classes.)
+
+### §F.2 — DOM helper `el()` signature (canonical)
+
+`static/js/pipeline-card.js:71-91`:
+
+```js
+function el(tag, opts, kids) {
+  const node = document.createElement(tag);
+  if (opts) {
+    if (opts.text != null) node.textContent = String(opts.text);
+    if (opts.cls)     node.className = opts.cls;
+    if (opts.id)      node.id = opts.id;
+    if (opts.title)   node.title = opts.title;
+    if (opts.href)    node.href = opts.href;
+    if (opts.style)   node.style.cssText = opts.style;
+    if (opts.attrs)   { for (const k in opts.attrs) node.setAttribute(k, opts.attrs[k]); }
+    if (opts.onClick) node.addEventListener('click', opts.onClick);
+  }
+  if (kids) {
+    for (const k of kids) { if (k != null) node.appendChild(k); }
+  }
+  return node;
+}
+```
+
+**Canonical contract for Tasks 25, 26, 27**:
+
+- Signature: `el(tag, opts, kids)` — three positional args, opts/kids
+  optional.
+- Opt key for text content is **`text`** (NOT `textContent`). Set via
+  `node.textContent = String(...)` so `null`/`undefined` becomes
+  literal nothing rather than the string `"undefined"`.
+- Opt key for CSS class is **`cls`** (NOT `className` or `class`).
+- Children: array of nodes; `null` entries skipped (lets you write
+  `el('div', null, [ maybe && el('span', ...) ])`).
+- Click handler: **`onClick`** (camelCase) — wired via
+  `addEventListener`, not `onclick=` attribute. Pre-existing handlers
+  are not overwritten.
+- `style` opt is a CSS text string assigned via `style.cssText`
+  (replaces all inline styles — don't pass partial style strings if
+  you want to preserve framework styles; instead toggle classes).
+- `attrs` opt accepts an object; each key becomes a setAttribute call
+  (used for `data-*`, `aria-*`, `role`, `type`).
+- **No `innerHTML`-style escape hatch.** Every text node must go
+  through `text` or `node.textContent = …` per the project XSS gotcha
+  cited in `cost-estimator.js:9-10`.
+
+The active-op-widget module (Task 25) and active-ops hub (Task 26)
+**MUST** copy this helper verbatim into their own IIFE scope (mirroring
+`pipeline-card.js` and `cost-estimator.js`, neither of which export
+`el`). Do not `window.el = el` to share — every shared module keeps
+its own private copy by convention.
+
+`clearChildren(n)` (`pipeline-card.js:93-95`) is the canonical "blank
+the container" helper; copy that verbatim too.
+
+### §F.3 — Visibility-aware polling pattern
+
+Two patterns coexist in the codebase. Task 24 (the active-op poller)
+must use the first; do not reinvent.
+
+**Pattern A — `AutoRefresh.start({...})`** — `static/js/auto-refresh.js`
+(133 lines, v0.32.0). Used by `batch-management.html:453` and the
+flagged-files list in `history.html`. Behaviour:
+
+- `setInterval(refresh, intervalMs)` while `document.visibilityState
+  === 'visible'`; clears the interval on `'hidden'`.
+- One immediate refresh fires when the tab regains focus
+  (`refreshOnFocus: true` default).
+- `inFlight` guard prevents concurrent refreshes (slow backend won't
+  stack ticks).
+- Default `intervalMs` is **30 000 ms**. Minimum clamped to 2 000 ms.
+- Returns `{ refreshNow, stop, lastRefreshAt }` handle.
+- `formatRelativeTime(ts)` helper for "last updated 14s ago" labels.
+
+**Pattern B — bare `setInterval`** — `static/js/pipeline-card.js:480`
+runs a raw `setInterval` with no visibility hook. **This is a known
+inconsistency** (pipeline-card pre-dates AutoRefresh and was not
+retrofitted in v0.32.0). Do not propagate it; new modules use
+Pattern A.
+
+**Task 24 contract (active-op poller)**: poll
+`/api/active-ops?since=<id>&limit=N` every **5 000 ms** while visible
+via `AutoRefresh.start({ intervalMs: 5000, refresh: pollOnce })`.
+Pause on hidden (default behaviour). On focus, fire immediate poll
+(default behaviour). Pass the `since` cursor as a closure-captured
+mutable. The widget's `mount()` returns the `AutoRefresh` handle so
+the caller can `stop()` it.
+
+The 5 s cadence is six times faster than `AutoRefresh`'s default 30 s
+because the widget shows a live progress counter; the visibility pause
+keeps the cost off backgrounded tabs (matches the pattern's whole
+purpose).
+
+### §F.4 — Mount-anchor inventory per page
+
+For each origin page, the **insert-at line number** below puts a
+`<div id="active-op-mount-<page>"></div>` where Task 25's `mount()`
+expects it. Numbers reflect file state at recon-doc commit time; if
+Phase 1–3 edits any of these files, Task 0.7 must re-verify before
+Phase 4 starts.
+
+| # | Page | Anchor element (existing) | Insert NEW anchor BEFORE line | Mount id |
+|---|---|---|---|---|
+| 1 | `static/history.html` | Pending Files Card (`<div class="card mb-2" id="pending-card" hidden>` at line 39) | **39** | `active-op-mount-history` |
+| 2 | `static/trash.html` | Trash table card (`<div class="card" style="padding:0;overflow:auto">` wrapping `<table id="trash-table">` at line 174) | **174** | `active-op-mount-trash` |
+| 3 | `static/bulk.html` | "Active Job" card (`<section class="card mb-2" id="active-job-section" hidden>` at line 327) | **327** | `active-op-mount-bulk` |
+| 4 | `static/settings.html` | Inside the Database Maintenance section, immediately AFTER `<summary>Database Maintenance</summary>` (line 240) and BEFORE `<div class="card">` (line 241) — i.e. as the FIRST child of `<details class="settings-section">` after the summary | **insert at line 241** (pushes existing line 241 down) | `active-op-mount-settings` |
+| 5 | `static/batch-management.html` | Batch list container `<div id="bm-batches"></div>` at line 449 | **449** | `active-op-mount-batches` |
+| 6 | `static/status.html` | `<div id="pipeline-card-mount" style="margin-top:1.5rem"></div>` at line 88 | **88** | `active-op-mount-status` |
+
+Anchor markup (identical on every page except the `id` suffix):
+
+```html
+<!-- Active operation widget — populated by /static/js/active-op-widget.js -->
+<div id="active-op-mount-<page>" class="mb-2"></div>
+```
+
+Notes on each entry:
+
+1. **history.html** — anchor immediately above the Pending Files card
+   so the widget is the first thing under `#stats-row` on line 36.
+   When the widget is hidden (no active op), Pending Files moves up
+   visually. Spec matches plan's "immediately above".
+2. **trash.html** — line 174 is the wrapper `<div class="card">` that
+   hosts the trash table; inserting BEFORE it places the widget above
+   the table card, matching plan's "immediately above the trash file
+   table".
+3. **bulk.html** — page already has TWO active-op-adjacent surfaces:
+   the compact `#pipeline-card-mount` at line 95 and the live "Active
+   Job" card at line 327. Plan said "the existing Active Jobs
+   section"; the only matching anchor is `#active-job-section` at line
+   327 (singular "Job", not plural — see §G drift below). Inserting
+   above 327 is the correct interpretation; the widget then sits
+   between the Job History area and the live Active Job card, which
+   is where an operator looks when checking "what is happening right
+   now".
+4. **settings.html** — plan said "inside that section, top". The
+   `<details class="settings-section">` runs lines 239–252; line 240
+   is the `<summary>` (must stay first child), line 241 is
+   `<div class="card">`. Insert the new anchor as a SIBLING of the
+   `<div class="card">` immediately before it, so the widget appears
+   BELOW the disclosure header and ABOVE the "Create backups…"
+   description. Net effect: when an op is in flight, the operator
+   sees "you have a backup running" *before* the buttons. (If the
+   widget rendering as a sibling of `.card` looks visually odd
+   without its own card chrome, Task 28 may need to wrap it in
+   `<div class="card mb-2"><div id="active-op-mount-settings"></div></div>`
+   — flagging as a Phase-4 design call, not blocking now.)
+5. **batch-management.html** — line 449 is `<div id="bm-batches">`,
+   the container that `bm.js` populates with batch rows. Insert
+   above it, after `<div class="bm-counts" id="bm-counts">` at line
+   446. Visually places the widget between the topbar controls and
+   the batch grid.
+6. **status.html** — line 88 is the canonical `#pipeline-card-mount`.
+   Insert ABOVE it so the active-op widget is the very first card
+   under `<div id="error-banner">` (line 85). This makes "what's
+   happening *right now*" the top-of-page signal, and
+   `pipeline-card` (which polls on a 30 s cadence) drops to second
+   position.
+
+The hub page (`active-ops.html`, Task 26) is created from scratch —
+no existing anchor work needed. Mount it on `<div
+id="active-ops-list-mount"></div>` inside its own `<main>` body.
+
+### §F.5 — Cache-bust inventory
+
+Every existing `?v=…` query-string the cache-bust pass (Task 34) must
+touch:
+
+| File | Line | Asset | Current `?v=` |
+|---|---|---|---|
+| `static/admin.html` | 354 | `/static/js/cost-estimator.js` | `0.33.2` |
+| `static/batch-management.html` | 455 | `/static/js/cost-estimator.js` | `0.33.2` |
+| `static/bulk.html` | 12 | `/static/markflow.css` | `0.33.0` |
+| `static/bulk.html` | 418 | `/static/js/pipeline-card.js` | `0.33.0` |
+| `static/pipeline-files.html` | 290 | `/static/js/live-banner.js` | `0.32.7` |
+| `static/preview.html` | 691 | `/static/js/prproj-refs.js` | `0.34.0` |
+| `static/status.html` | 11 | `/static/markflow.css` | `0.33.0` |
+| `static/status.html` | 139 | `/static/js/live-banner.js` | `0.33.0` |
+| `static/status.html` | 140 | `/static/js/pipeline-card.js` | `0.33.0` |
+| `static/storage.html` | 333 | `/static/js/storage.js` | `0.32.8` |
+| `static/trash.html` | 214 | `/static/js/live-banner.js` | `0.32.7` |
+
+**Untagged stylesheets / scripts on the six origin pages** (these
+either need a `?v=0.35.0` added OR the page already loads
+`markflow.css` plain — Task 34 must decide consistently):
+
+| File | Line | Asset | Currently |
+|---|---|---|---|
+| `static/history.html` | 150 | `/static/app.js` | no `?v=` |
+| `static/history.html` | 151 | `/static/js/lifecycle-badge.js` | no `?v=` |
+| `static/history.html` | 152 | `/static/js/version-panel.js` | no `?v=` |
+| `static/trash.html` | 7 | `/static/markflow.css` | no `?v=` |
+| `static/trash.html` | 210 | `/static/app.js` | no `?v=` |
+| `static/settings.html` | 7 | `/static/markflow.css` | no `?v=` |
+| `static/settings.html` | 1074 | `/static/app.js` | no `?v=` |
+| `static/settings.html` | 1075 | `/static/js/db-backup.js` | no `?v=` |
+| `static/batch-management.html` | 7 | `/static/markflow.css` | no `?v=` |
+| `static/batch-management.html` | 452 | `/static/app.js` | no `?v=` |
+| `static/batch-management.html` | 453 | `/static/js/auto-refresh.js` | no `?v=` |
+| `static/bulk.html` | 415 | `/static/app.js` | no `?v=` |
+| `static/status.html` | 135 | `/static/app.js` | no `?v=` |
+
+**Task 34 deterministic edit list**: bump every existing `?v=0.3X.Y`
+in the first table to `0.35.0`. For the second table, only stamp
+`?v=0.35.0` on assets the v0.35.0 release actually changes; leaving
+others bare is fine and matches existing convention (the project
+hasn't been bumping every asset on every release). At minimum,
+the v0.35.0 cache-bust pass MUST stamp:
+
+- `/static/markflow.css?v=0.35.0` on every one of the six origin
+  pages (because v0.35.0 will add active-op-widget styles to
+  `markflow.css`).
+- `/static/js/active-op-widget.js?v=0.35.0` on every script tag the
+  six origin pages add for the new module.
+- `/static/js/active-ops-poller.js?v=0.35.0` on whichever pages
+  include the poller.
+- All four `pipeline-card.js?v=…` references (bulk.html:418,
+  status.html:140) since pipeline-card.js will likely be touched in
+  v0.35.0 to surface active-op deep-links.
+
+Phase 4's Task 34 instruction becomes "execute the edit list
+above", with no further discovery needed.
+
+### §F.6 — Drift / breadcrumbs from §F (forwarded to §G)
+
+- **bulk.html anchor wording**: plan says "Active Jobs section" but
+  the page only has a singular "Active Job" `#active-job-section` at
+  line 327. (The plural-job concept lives at the unrelated "Job
+  History" section line 407, which is the wrong anchor.) Plan Task
+  29 should be amended to read "immediately above the Active Job
+  card (`#active-job-section` at line 327)".
+
+- **`pipeline-card.js` polling inconsistency**: uses bare
+  `setInterval` (line 480) rather than `AutoRefresh.start`. Pre-dates
+  v0.32.0 AutoRefresh helper. Not in scope for this plan, but Task
+  24 should explicitly NOT copy the pipeline-card pattern.
+
+- **Settings-page anchor**: the "inside that section, top" location
+  is awkward because Database Maintenance is a `<details>` element
+  whose first child must remain the `<summary>`. The widget will
+  visually appear above the "Create backups…" description text and
+  above the `<div class="card">` button row, but they're sibling
+  divs inside the same `<details>`. Task 28 author may want to wrap
+  the anchor in its own `<div class="card mb-2">` for visual
+  consistency with how `#pipeline-card-mount` is wrapped on
+  `bulk.html:95`. Tagged as design call, not blocking.
+
+- **History page is unversioned**: `static/history.html` has no
+  `?v=…` on any of its three script tags or its single CSS link.
+  Task 34's pass must add them when adding the
+  `active-op-widget.js` script tag, or v0.35.0's active-op-widget
+  rollout will hit stale-cache regressions on this page.
 
 ## §G — Plan amendments
 
