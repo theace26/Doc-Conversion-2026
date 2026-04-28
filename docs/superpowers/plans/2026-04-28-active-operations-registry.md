@@ -3328,7 +3328,7 @@ git commit -m "feat(active_ops): retrofit trash.restore_all + deprecated facade"
 
 ### Task 19: Retrofit `search.rebuild_index`
 
-**§G amendment applies** (recon §D.5): the search-rebuild endpoint is `POST /api/search/index/rebuild` at `api/routes/search.py:703-731`, NOT `/api/pipeline/rebuild-index` (the latter has no backend handler — see BUG-012, an orthogonal frontend pipeline-card.js bug). The endpoint's existing role of `SEARCH_USER` is **raised to `MANAGER`** (controller pre-decision; full re-index holds the Meilisearch index lock and is operator-class work).
+**§G amendment applies** (recon §D.5): the search-rebuild endpoint is `POST /api/search/index/rebuild` at `api/routes/search.py:703-731`, NOT `/api/pipeline/rebuild-index` (the latter has no backend handler — see BUG-014, an orthogonal frontend pipeline-card.js bug). The endpoint's existing role of `SEARCH_USER` is **raised to `MANAGER`** (controller pre-decision; full re-index holds the Meilisearch index lock and is operator-class work).
 
 Per-document progress IS available at `core/search_indexer.py:419-462` — both the `for f in files:` and `for entry in adobe_entries:` loops increment `status.documents_indexed` / `status.adobe_indexed` / `status.errors`. Add an `op_id: str | None = None` kwarg to `SearchIndexer.rebuild_index(...)` and tick `update_op` from inside the loops. Total = `len(files) + len(adobe_entries)` (both materialized upfront). Vector-side errors at lines 440-456 are best-effort and intentionally NOT reflected in `status.errors` — don't try to "fix" that.
 
@@ -3339,7 +3339,7 @@ Per-document progress IS available at `core/search_indexer.py:419-462` — both 
 
 - [ ] **Step 1: Confirm the rebuild handler location.**
 
-The endpoint is `POST /api/search/index/rebuild` at `api/routes/search.py:703-731`. The integration test should target this URL — NOT the non-existent `/api/pipeline/rebuild-index` URL that pipeline-card.js currently POSTs to (separate BUG-012, not in scope here).
+The endpoint is `POST /api/search/index/rebuild` at `api/routes/search.py:703-731`. The integration test should target this URL — NOT the non-existent `/api/pipeline/rebuild-index` URL that pipeline-card.js currently POSTs to (separate BUG-014, not in scope here).
 
 - [ ] **Step 2: Append integration test.**
 
@@ -5357,20 +5357,25 @@ git commit -m "docs(active_ops): admin-tools.md Active Operations Hub section"
 - [ ] **Step 1: Append 5 rows in the Planned section.**
 
 ```markdown
-| BUG-011 | planned | v0.36.x | Remove deprecated `/api/trash/empty/status` and `/api/trash/restore-all/status` after the v0.35.0 facade window. Endpoints currently return registry-derived data with `Deprecation: true` + `Sunset` headers. | spec §14, §17 P9 |
-| BUG-012 | planned | v0.36.x | Apply P1 (no-op-on-terminal) hardening to `BulkJob.tick()` and `lifecycle_scanner` _scan_state mutations. Currently partial. | spec §17 P1 |
-| BUG-014 | planned | v0.36.x | Periodic drift detection job (scheduler 03:55) that compares `bulk_jobs.processed` vs `active_operations.done` and `scan_runs` vs active_operations for the same op_id; logs `active_ops.drift_detected` on mismatch. | spec §17 P3 |
-| BUG-015 | planned | v0.36.x | Boot-time self-check that walks the scheduler job table and logs `scheduler.time_slot_collision` if two jobs are within 5 min of each other (and neither yields to the other). | spec §17 P7 |
-| BUG-016 | planned | v0.36.x | Audit deprecated public surfaces in the codebase and apply the v0.35.0 deprecation convention (`console.warn` for JS; `Deprecation` + `Sunset` headers for HTTP). | spec §17 P9 |
+| BUG-015 | planned | v0.36.x | Remove deprecated `/api/trash/empty/status` and `/api/trash/restore-all/status` after the v0.35.0 facade window. Endpoints currently return registry-derived data with `Deprecation: true` + `Sunset` headers. | spec §14, §17 P9 |
+| BUG-016 | planned | v0.36.x | Apply P1 (no-op-on-terminal) hardening to `BulkJob.tick()` and `lifecycle_scanner` _scan_state mutations. Currently partial. | spec §17 P1 |
+| BUG-017 | planned | v0.36.x | Periodic drift detection job (scheduler 03:55) that compares `bulk_jobs.processed` vs `active_operations.done` and `scan_runs` vs active_operations for the same op_id; logs `active_ops.drift_detected` on mismatch. | spec §17 P3 |
+| BUG-018 | planned | v0.36.x | Boot-time self-check that walks the scheduler job table and logs `scheduler.time_slot_collision` if two jobs are within 5 min of each other (and neither yields to the other). | spec §17 P7 |
+| BUG-019 | planned | v0.36.x | Audit deprecated public surfaces in the codebase and apply the v0.35.0 deprecation convention (`console.warn` for JS; `Deprecation` + `Sunset` headers for HTTP). | spec §17 P9 |
 ```
 
-(Note: BUG-013 is intentionally skipped — the P2 violation it would have tracked, the trash dicts without locks, is closed by v0.35.0's retrofit so no follow-on work remains.)
+(Note: this block was originally numbered BUG-011 / 012 / 014 / 015 / 016
+with a "BUG-013 intentionally skipped" caveat. After v0.34.3 shipped its
+own BUG-011 to main during the Phase 0 recon session, and Phase 0 itself
+allocated BUG-013 / 014 for two pre-existing-but-newly-discovered bugs
+(`tests/test_phase9/test_scheduler.py` import + `pipeline-card.js` URL),
+this reservation block was bumped forward to BUG-015..019.)
 
 - [ ] **Step 2: Commit.**
 
 ```bash
 git add docs/bug-log.md
-git commit -m "docs(active_ops): add BUG-011, 012, 014, 015, 016 (planned, v0.36.x)"
+git commit -m "docs(active_ops): add BUG-015, 016, 017, 018, 019 (planned, v0.36.x)"
 ```
 
 ---
@@ -5413,7 +5418,7 @@ Insert at the top of the file (before the v0.34.1 entry):
 
 10. **Codebase-wide patterns formalized (spec §17 P1–P10)** — gotchas.md and CLAUDE.md gain canonical references for: no-op on terminal state, asyncio.Lock for shared dicts, source-of-truth + drift rule, lifespan event gates, cancel-hook bridge, predicate-gated cleanup, scheduler time-slot allocation table, frontend CSS-vars-only, deprecation signals, DB writes through queue.
 
-11. **5 new planned BUG rows** queued for v0.36.x: deprecated endpoint removal (BUG-011), BulkJob/scanner P1 hardening (BUG-012), drift detection (BUG-014), scheduler collision self-check (BUG-015), deprecation surface audit (BUG-016).
+11. **5 new planned BUG rows** queued for v0.36.x: deprecated endpoint removal (BUG-015), BulkJob/scanner P1 hardening (BUG-016), drift detection (BUG-017), scheduler collision self-check (BUG-018), deprecation surface audit (BUG-019).
 
 12. **Audit cleanup ride-alongs** — orphaned `static/js/deletion-banner.js` deleted; stale `log_archiver` comments updated; `docs/scheduler-time-slots.md` (NEW) documents all 20 scheduler jobs.
 
@@ -5426,7 +5431,7 @@ Insert at the top of the file (before the v0.34.1 entry):
 - Click any operation card on Status → jump to its origin page; the operation pulses amber on arrival.
 - Cancel button on every cancellable op (DB backup/restore are intentionally uncancellable).
 - After container restart: ops in flight show as red "terminated by restart" on Status hub for 30 s, then auto-hide.
-- Old `/api/trash/empty/status` and `/api/trash/restore-all/status` endpoints kept as deprecated facades (returning registry-derived data with `Deprecation: true` + `Sunset` headers); removal in v0.36.x per BUG-011.
+- Old `/api/trash/empty/status` and `/api/trash/restore-all/status` endpoints kept as deprecated facades (returning registry-derived data with `Deprecation: true` + `Sunset` headers); removal in v0.36.x per BUG-015.
 
 **Spec:** [`docs/superpowers/specs/2026-04-28-active-operations-registry-design.md`](superpowers/specs/2026-04-28-active-operations-registry-design.md). 1,332 lines, 21 sections.
 

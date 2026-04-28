@@ -2672,7 +2672,9 @@ the affected plan task number(s) and the corrected instruction.
 > tasks via `**§G amendment applies**` notes. Pre-existing test
 > breakage (`tests/test_phase9/test_scheduler.py`) and the
 > orthogonal `pipeline-card.js` URL bug are tracked separately as
-> BUG-011 and BUG-012 in `docs/bug-log.md`.
+> BUG-013 and BUG-014 in `docs/bug-log.md` (originally numbered
+> BUG-011/012; renumbered after v0.34.3 shipped its own BUG-011 to
+> main during this Phase 0).
 
 ### Breadcrumbs from §A (full reconciliation deferred to Task 0.7)
 
@@ -2814,6 +2816,20 @@ the affected plan task number(s) and the corrected instruction.
   at `analysis.py:522-549` can take ~100 seconds inside a single FastAPI
   request worker. Not an active-ops concern but flagged for a future
   refactor (move to scheduled drain job).
+
+### Recon-staleness note (post-merge from main)
+
+> v0.34.3 shipped to `main` (commit `b9037d7`) DURING this Phase 0 recon
+> session. v0.34.3 modified `core/bulk_worker.py:21` (replaced
+> `_DISK_SPACE_REQUIRED_MULTIPLIER = 3` constant with a
+> `_get_disk_space_multiplier()` helper, ~+5 to +10 lines net). All §E
+> line numbers in `core/bulk_worker.py` (specifically: `BulkJob` class
+> line, `_worker.finally:866`, `cancel():1268`, terminal-branch lines
+> 478/551/586, counter sites 763/819/921/1031/1130/1234/1179/1209) are
+> shifted by that delta and must be re-verified before Phase 3 Task 23
+> (BulkJob retrofit) executes. Phase 1 (Tasks 1-10) is unaffected — it
+> does not touch `bulk_worker.py`. Re-run §E.3 / §E.4 / §E.5 grep
+> commands and update the recon doc surgically before Task 23 runs.
 
 ### Breadcrumbs from §E
 
