@@ -6,6 +6,68 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.32.8 — Storage page verifies all your paths on every load
+
+The **Storage** page used to verify the **Output Directory**
+on page load (since v0.29.1) but never verified your
+**Sources**. The green ✓ that occasionally appeared next to
+a source was a leftover from a recent **Add** action — it
+didn't survive a page refresh, and it only ever showed the
+most-recently-added path.
+
+**v0.32.8 closes the gap.** Every configured source is now
+verified on every page load:
+
+```
+KDrive Test DOCS    /host/d/k_drv_test
+                    ⟳ Verifying…
+                    /host/d/k_drv_test
+```
+
+then a beat later, resolved:
+
+```
+KDrive Test DOCS    /host/d/k_drv_test
+                    ✓ /host/d/k_drv_test
+                    Readable · 223 items
+```
+
+Or in the failure case:
+
+```
+Old USB             /mnt/shares/old-usb
+                    ✗ /mnt/shares/old-usb
+                    Path is not accessible (mount missing or unreadable)
+```
+
+### New ↻ Re-verify buttons
+
+Each section now has a small **↻ Re-verify** button next to
+its content header. One click re-runs validation for every
+path in that section without a full page reload. Useful when
+you've just plugged in a new drive or fixed a permission
+issue and want immediate feedback.
+
+### Auto-re-verify when you come back to the tab
+
+If you switch away from MarkFlow for **more than 30 seconds**
+and come back, the Storage page automatically re-verifies
+every path. Catches:
+
+- USB drives you unplugged while you were away
+- Network shares that dropped because of a Wi-Fi hiccup
+- Permission changes on a folder
+
+If everything's still good, you'll see a brief ⟳ flash then
+the same green checks. If something changed, you'll see the
+new state without having to refresh.
+
+The 30-second threshold means quick tab-flicks (clicking from
+Storage to Status and right back) don't trigger unnecessary
+re-validation.
+
+---
+
 ## v0.32.7 — Status page now actually shows "Enumerating source files…" during a scan
 
 A user reported on v0.32.6: clicked Force Bulk Scan against an

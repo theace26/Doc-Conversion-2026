@@ -175,24 +175,136 @@
 
   // ── Sources ──────────────────────────────────────────────────────────────
 
+  // Track active per-source verification widgets so reverifyAll() and
+  // the Page Visibility listener can re-run them without rebuilding
+  // the table. Map of source.id -> verify <div> element.
+  const _sourceVerifyWidgets = new Map();
+
   async function loadSources() {
     try {
       const { sources } = await api('/api/storage/sources');
       const tbody = $('sources-tbody');
       clearChildren(tbody);
+      _sourceVerifyWidgets.clear();
       if (!sources.length) {
         tbody.appendChild(makeRow(['', 'No sources configured.', '']));
         return;
       }
+      // v0.32.8: render rows synchronously, kick off per-source
+      // verification asynchronously. Each row gets a "Path & Status"
+      // cell that contains the path on the first line and an inline
+      // verification widget on the second. The widget starts in the
+      // ⟳ Verifying… pending state and async-resolves to ✓ / ✗ via
+      // /api/storage/validate.
       for (const s of sources) {
         const rmBtn = el('button', {
           text: 'Remove', cls: 'btn btn-sm btn-danger',
-          onClick: () => removeSource(s.id)
+          onClick: () => removeSource(s.id),
         });
-        tbody.appendChild(makeRow([s.label, s.path, rmBtn]));
+        // Path & Status cell — multi-line so the verification widget
+        // sits directly under the path it describes.
+        const pathCell = el('div');
+        pathCell.appendChild(el('div', { text: s.path, cls: 'mono text-sm' }));
+        const verifyEl = el('div', {
+          cls: 'storage-verify storage-verify-inline',
+          attrs: { 'aria-live': 'polite' },
+        });
+        // Initial pending state — clears the moment validation lands.
+        renderPendingVerify(verifyEl, s.path);
+        pathCell.appendChild(verifyEl);
+        _sourceVerifyWidgets.set(s.id, { el: verifyEl, path: s.path });
+        tbody.appendChild(makeRow([s.label, pathCell, rmBtn]));
+        // Fire validation in the background. Errors land as ✗ in the
+        // widget rather than as a global toast.
+        renderVerificationAt(verifyEl, s.path, 'source')
+          .catch(e => { /* renderVerificationAt swallows */ });
       }
     } catch (e) {
       showError(`Failed to load sources: ${e.message}`);
+    }
+  }
+
+  // v0.32.8: render the momentary "⟳ Verifying… <path>" state. Used
+  // both on first load and on every Re-verify / tab-focus re-check.
+  function renderPendingVerify(container, path) {
+    clearChildren(container);
+    const icon = el('span', {
+      cls: 'sv-icon sv-pending',
+      text: '⟳',
+      attrs: { 'aria-hidden': 'true' },
+    });
+    const pathCode = el('code', { cls: 'sv-path', text: path });
+    const line1 = el('div', { cls: 'sv-line' });
+    line1.appendChild(icon);
+    line1.appendChild(document.createTextNode(' '));
+    line1.appendChild(pathCode);
+    container.appendChild(line1);
+    container.appendChild(el('div', {
+      cls: 'sv-sub',
+      text: 'Verifying…',
+    }));
+  }
+
+  // v0.32.8: re-run verification on every visible storage-verify
+  // widget (per-source rows + output). Used by the manual Re-verify
+  // buttons + Page Visibility listener.
+  async function reverifyAll() {
+    const tasks = [];
+    // Each source row's widget
+    for (const [id, info] of _sourceVerifyWidgets.entries()) {
+      renderPendingVerify(info.el, info.path);
+      tasks.push(
+        renderVerificationAt(info.el, info.path, 'source')
+          .catch(() => {})
+      );
+    }
+    // Output widget (always present if a path is configured)
+    const outVerify = $('output-verify');
+    const outInput = $('output-path-input');
+    if (outVerify && outInput && outInput.value.trim()) {
+      const path = outInput.value.trim();
+      renderPendingVerify(outVerify, path);
+      tasks.push(
+        renderVerificationAt(outVerify, path, 'output')
+          .catch(() => {})
+      );
+    }
+    await Promise.all(tasks);
+  }
+
+  async function reverifySources() {
+    const btn = $('btn-reverify-sources');
+    if (btn) btn.disabled = true;
+    try {
+      for (const [id, info] of _sourceVerifyWidgets.entries()) {
+        renderPendingVerify(info.el, info.path);
+      }
+      const tasks = [];
+      for (const [id, info] of _sourceVerifyWidgets.entries()) {
+        tasks.push(
+          renderVerificationAt(info.el, info.path, 'source')
+            .catch(() => {})
+        );
+      }
+      await Promise.all(tasks);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async function reverifyOutput() {
+    const btn = $('btn-reverify-output');
+    if (btn) btn.disabled = true;
+    try {
+      const outVerify = $('output-verify');
+      const outInput = $('output-path-input');
+      if (outVerify && outInput && outInput.value.trim()) {
+        const path = outInput.value.trim();
+        renderPendingVerify(outVerify, path);
+        await renderVerificationAt(outVerify, path, 'output').catch(() => {});
+      }
+    } finally {
+      if (btn) btn.disabled = false;
     }
   }
 
@@ -788,6 +900,30 @@
     $('wizard-skip').addEventListener('click', wizardSkip);
     $('wizard-back').addEventListener('click', () => { if (_wizardStep > 1) showStep(_wizardStep - 1); });
     $('wizard-continue').addEventListener('click', wizardContinue);
+
+    // v0.32.8: manual Re-verify buttons (per section)
+    const reverifySrcBtn = $('btn-reverify-sources');
+    if (reverifySrcBtn) reverifySrcBtn.addEventListener('click', reverifySources);
+    const reverifyOutBtn = $('btn-reverify-output');
+    if (reverifyOutBtn) reverifyOutBtn.addEventListener('click', reverifyOutput);
+
+    // v0.32.8: auto-re-verify when the tab regains focus after being
+    // hidden for >30 s. Catches USB drives plugged/unplugged while
+    // the operator was away, network shares dropping, etc. The 30s
+    // threshold avoids spamming /api/storage/validate on every micro-
+    // tab-switch.
+    let _hiddenSince = null;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        _hiddenSince = Date.now();
+      } else if (document.visibilityState === 'visible' && _hiddenSince) {
+        const hiddenMs = Date.now() - _hiddenSince;
+        _hiddenSince = null;
+        if (hiddenMs > 30_000) {
+          reverifyAll();
+        }
+      }
+    });
 
     loadHostInfo();
     loadSources();

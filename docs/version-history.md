@@ -4,6 +4,144 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.32.8 — Storage page verifies every source on page load + on tab focus (2026-04-28)
+
+**Operator-feedback fix in response to a v0.32.7 user
+observation: "we should have the green check mark show up
+everytime markflow starts up and the user navigates to the
+page... a verification everytime the page is refreshed."**
+
+### The gap
+
+Output Directory has been verified on page load since
+v0.29.1 (`loadOutput()` calls `renderVerificationAt()`). But
+`loadSources()` only rendered the table rows — label, path,
+Remove button. No verification widget per row. The green ✓
+that sometimes appeared at the top of the Sources section was
+the `#source-add-verify` element populated by a recent Add
+action; it didn't survive a page refresh, and it only showed
+the most-recently-added source (operators with multiple
+sources only saw verification for one of them).
+
+### What ships in v0.32.8
+
+#### 1. Per-source inline verification on page load
+
+`loadSources()` now renders each source row with a multi-line
+"Path & Status" cell:
+- Line 1: the path (monospace)
+- Line 2: a `.storage-verify-inline` widget that starts in
+  the pending state (`⟳ Verifying…` with a CSS rotation
+  animation) and async-resolves to ✓ Readable · N items
+  / ✗ Unreachable via `/api/storage/validate`
+
+Verifications fire **in parallel** across all sources — the
+table renders synchronously and each row resolves at its own
+pace, so a slow-responding network source doesn't block fast-
+local ones.
+
+A new `Map<source.id, {el, path}>` (`_sourceVerifyWidgets`)
+tracks the active widgets so `reverifyAll()` and the Page
+Visibility listener can re-run them without rebuilding the
+table.
+
+#### 2. Per-section ↻ Re-verify buttons
+
+A small button next to each section's content header. One
+click → all that section's widgets flip back to pending and
+re-resolve. Buttons disable themselves while in flight to
+prevent click-storm.
+
+Three drivers:
+- `reverifyAll()` — re-runs sources + output (used by
+  Page Visibility listener)
+- `reverifySources()` — re-runs sources only (Sources
+  ↻ button)
+- `reverifyOutput()` — re-runs output only (Output ↻ button)
+
+#### 3. Auto-re-verify on tab focus (Page Visibility API)
+
+A `visibilitychange` listener tracks how long the tab has
+been hidden. When the tab regains focus after being hidden
+**>30 seconds**, `reverifyAll()` fires automatically.
+
+The 30-second threshold avoids hammering
+`/api/storage/validate` on every micro-tab-switch (operators
+flipping between Storage and another tab repeatedly within a
+minute don't trigger re-validation each time).
+
+This catches:
+- USB drives plugged or unplugged while the operator was away
+- SMB / NFS shares that dropped due to a network blip
+- Any path that became inaccessible (permission change, mount
+  expired, drive dismounted)
+
+If the operator returns and the path is still good, the
+re-verification is invisible (the green ✓ briefly flashes to
+⟳ then back to ✓). If the path changed status, the new state
+is reflected.
+
+### CSS additions (`static/markflow.css`)
+
+```css
+.storage-verify .sv-pending {
+  background: rgba(96,165,250,0.18);
+  color: #3b82f6;
+  animation: sv-pending-spin 1.4s linear infinite;
+}
+@keyframes sv-pending-spin { to { transform: rotate(360deg); } }
+.storage-verify-inline { margin-top: 0.25rem; }
+.storage-verify-inline .sv-line { font-size: 0.82rem; }
+.storage-verify-inline .sv-sub { font-size: 0.78rem; padding-left: 1.5rem; }
+.storage-reverify-btn { /* tiny button per section header */ }
+```
+
+The `.storage-verify-inline` modifier shrinks the existing
+`.storage-verify` typography slightly so per-row widgets
+don't dominate the table cells.
+
+### Cache-bust
+
+`?v=0.32.8` on `storage.js` (new — the existing storage.html
+script reference didn't have a version query string).
+`live-banner.js` cache-bust on the 3 pages that load it
+(`trash.html`, `status.html`, `pipeline-files.html`) is
+unchanged at `?v=0.32.7` — the file itself didn't change, no
+need to bump.
+
+### Files
+
+- `core/version.py` — bump to 0.32.8
+- `static/storage.html` — content-header rows gain
+  ↻ Re-verify buttons; sources table column renamed `Path`
+  → `Path & Status`; `?v=0.32.8` cache-bust on `storage.js`
+- `static/js/storage.js` — `_sourceVerifyWidgets` Map +
+  `renderPendingVerify` helper + `reverifyAll` /
+  `reverifySources` / `reverifyOutput` drivers + Page
+  Visibility listener wired in `init()`
+- `static/markflow.css` — `.sv-pending` style with
+  `sv-pending-spin` keyframe + `.storage-verify-inline`
+  compact variant + `.storage-reverify-btn` styling
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`
+
+No DB migration. No new dependencies. No backend changes —
+the existing `/api/storage/validate` endpoint already does
+all the heavy lifting; v0.32.8 just calls it more often.
+
+### Done criteria
+
+- ✅ Every configured source shows ✓/✗ on page load (was:
+  only the output)
+- ✅ Each section has a ↻ Re-verify button for manual on-
+  demand re-check
+- ✅ Returning to the tab after >30 s of hidden time
+  triggers an automatic re-verification of every path
+- ✅ Slow-responding sources don't block other rows from
+  resolving — verifications run in parallel
+
+---
+
 ## v0.32.7 — Status page Enumerating UI now actually renders during scans (2026-04-28)
 
 **One-line frontend fix. The "Enumerating source files…" UI

@@ -300,6 +300,32 @@ small, .text-sm { font-size: 0.85rem; }
 }
 .storage-verify .sv-ok  { background: #dcfce7; color: #15803d; }
 .storage-verify .sv-bad { background: #fee2e2; color: #b91c1c; }
+/* v0.32.8: pending state — momentary ⟳ Verifying… while
+ * /api/storage/validate is in flight on page load / tab focus. */
+.storage-verify .sv-pending {
+  background: rgba(96,165,250,0.18);
+  color: #3b82f6;
+  animation: sv-pending-spin 1.4s linear infinite;
+}
+@keyframes sv-pending-spin {
+  to { transform: rotate(360deg); }
+}
+.storage-verify-inline { margin-top: 0.25rem; }
+.storage-verify-inline .sv-line { font-size: 0.82rem; }
+.storage-verify-inline .sv-sub { font-size: 0.78rem; padding-left: 1.5rem; }
+.storage-reverify-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  padding: 0.15rem 0.55rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+.storage-reverify-btn:hover { color: var(--text); border-color: var(--accent); }
+.storage-reverify-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .storage-verify .sv-path {
   font-family: var(--font-mono, monospace);
   font-size: 0.85rem;

@@ -66,8 +66,12 @@
           <button id="btn-add-source" class="btn btn-primary" type="button">Add</button>
         </div>
         <div id="source-add-verify" class="storage-verify" aria-live="polite"></div>
+        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem">
+          <span class="text-sm text-muted" style="margin-right:auto">Configured sources (verified on page load):</span>
+          <button id="btn-reverify-sources" class="storage-reverify-btn" type="button" title="Re-check all source paths now">↻ Re-verify</button>
+        </div>
         <table class="table-compact" style="width:100%">
-          <thead><tr><th>Label</th><th>Path</th><th></th></tr></thead>
+          <thead><tr><th>Label</th><th>Path &amp; Status</th><th></th></tr></thead>
           <tbody id="sources-tbody"><tr><td colspan="3" class="text-muted">Loading…</td></tr></tbody>
         </table>
       </div>
@@ -91,6 +95,9 @@
           <button id="btn-save-output" class="btn btn-primary" type="button">Save</button>
         </div>
         <div id="output-verify" class="storage-verify" aria-live="polite"></div>
+        <div style="margin-top:0.4rem">
+          <button id="btn-reverify-output" class="storage-reverify-btn" type="button" title="Re-check the output path now">↻ Re-verify</button>
+        </div>
       </div>
     </details>
 
@@ -322,6 +329,7 @@
 
   <script src="/static/app.js"></script>
   <script src="/static/js/folder-picker.js"></script>
-  <script src="/static/js/storage.js" defer></script>
+  <!-- v0.32.8: cache-bust by version. Bump the ?v= when storage.js changes. -->
+  <script src="/static/js/storage.js?v=0.32.8" defer></script>
 </body>
 </html>
