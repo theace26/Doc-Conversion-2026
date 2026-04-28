@@ -4,7 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Status — MarkFlow</title>
-  <link rel="stylesheet" href="/static/markflow.css">
+  <!-- v0.32.9: cache-bust markflow.css since this page uses new
+       .job-card__progress--indeterminate + .job-card__progress-link
+       rules added in this release. Bump on every release that adds
+       CSS rules used by status.html. -->
+  <link rel="stylesheet" href="/static/markflow.css?v=0.32.9">
   <style>
     /* Clickable counter values (inline file list) */
     .job-card__counts .flp-counter { cursor: pointer; transition: opacity 0.15s; }
@@ -139,8 +143,8 @@
   </main>
 
   <script src="/static/app.js"></script>
-  <!-- v0.32.7: cache-bust by version. Bump the ?v= when live-banner.js OR status.html changes. -->
-  <script src="/static/js/live-banner.js?v=0.32.7"></script>
+  <!-- v0.32.9: cache-bust by version. Bump the ?v= when live-banner.js OR status.html changes. -->
+  <script src="/static/js/live-banner.js?v=0.32.9"></script>
   <script>
   (function () {
     var pollTimer = null;
@@ -296,48 +300,94 @@
       // after scan completes), so the enumerating UI never rendered
       // and operators saw "0 / ? files \u2014 ?%" the whole time.
       var enumerating = (job.status === 'scanning');
+      // v0.32.9: scan-phase progress data (added to /api/admin/active-jobs
+      // in the same release). When the BulkScanner is mid-walk and has
+      // reported scan_progress events, surface the rich numbers
+      // ("10,696 files scanned" + current file path) right on the
+      // Status card \u2014 same data the dedicated Bulk Jobs page sees via
+      // its SSE stream.
+      var sp = job.scan_progress || { scanned: 0, total: 0, current_file: '' };
       var progressLine;
+      var progressBarHtml;
       if (enumerating) {
         var startedAt = job.started_at ? new Date(job.started_at) : null;
         var elapsedSec = startedAt ? Math.round((Date.now() - startedAt.getTime()) / 1000) : 0;
-        var stuck = (elapsedSec > 120 && (!job.last_heartbeat));
-        progressLine =
-          '<div style="font-size:0.82rem;color:var(--text-muted)">' +
-            (stuck
-              ? '<span style="color:#fbbf24">\u26a0 Enumerating &mdash; stuck? ' +
-                'No progress for ' + fmtDur(elapsedSec) + '. ' +
-                'Stop the job and retry, or check the log viewer.</span>'
-              : '<span class="spinner" style="margin-right:0.4rem"></span>' +
-                'Enumerating source files\u2026 ' + fmtDur(elapsedSec) + ' elapsed') +
+        var stuck = (elapsedSec > 120 && (!job.last_heartbeat) && !sp.scanned);
+        // Indeterminate bar during scan: solid track with a sliding
+        // gradient. Replaces the legacy 0%-width fill which made the
+        // card look frozen during the enumeration window.
+        progressBarHtml =
+          '<div class="job-card__progress job-card__progress--indeterminate">' +
+            '<div class="job-card__progress-fill"></div>' +
           '</div>';
+        // Scanned-count + current-file display when the scanner has
+        // reported any progress; falls back to the elapsed-time spinner
+        // before the first scan_progress event lands.
+        if (sp.scanned > 0) {
+          var countStr = sp.total > 0
+            ? sp.scanned.toLocaleString() + ' / ' + sp.total.toLocaleString() + ' files scanned'
+            : sp.scanned.toLocaleString() + ' files scanned';
+          progressLine =
+            '<div style="font-size:0.82rem;color:var(--text-muted)">' +
+              '<span class="spinner" style="margin-right:0.4rem"></span>' +
+              'Scanning source files \u2014 ' + countStr +
+              ' \u2014 ' + fmtDur(elapsedSec) + ' elapsed' +
+            '</div>' +
+            (sp.current_file
+              ? '<div class="text-sm mono text-muted" style="margin-top:0.2rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
+                  + esc(sp.current_file) +
+                '</div>'
+              : '');
+        } else {
+          progressLine =
+            '<div style="font-size:0.82rem;color:var(--text-muted)">' +
+              (stuck
+                ? '<span style="color:#fbbf24">\u26a0 Enumerating &mdash; stuck? ' +
+                  'No progress for ' + fmtDur(elapsedSec) + '. ' +
+                  'Stop the job and retry, or check the log viewer.</span>'
+                : '<span class="spinner" style="margin-right:0.4rem"></span>' +
+                  'Enumerating source files\u2026 ' + fmtDur(elapsedSec) + ' elapsed') +
+            '</div>';
+        }
       } else {
+        progressBarHtml =
+          '<div class="job-card__progress">' +
+            '<div class="job-card__progress-fill" style="width:' + pct + '%"></div>' +
+          '</div>';
         progressLine =
           '<div style="font-size:0.82rem;color:var(--text-muted)">' +
             job.converted.toLocaleString() + ' / ' + (job.total_files || '?').toLocaleString() + ' files \u2014 ' + pctStr +
           '</div>';
       }
 
+      // v0.32.9: progress region wrapped in a click-through link to the
+      // dedicated Bulk Jobs page, scrolled to / centered on this job.
+      // Operators wanted "click on the card or progress bars and it
+      // takes you to bulk jobs."
+      var bulkUrl = '/bulk.html?job_id=' + encodeURIComponent(job.job_id);
+
       return '<div class="job-card' + (isActive ? ' job-card--active' : '') + '">' +
         '<div class="job-card__header">' +
           '<div>' +
             '<div class="job-card__title">' +
-              // Pill is now a clickable link to the log viewer with
-              // the job_id seeded as the search query so operators
-              // can see exactly what the scanner is doing.
+              // Pill is a clickable link to the log viewer with the
+              // job_id seeded as the search query so operators can see
+              // exactly what the scanner is doing.
               '<a href="/log-viewer.html?q=' + encodeURIComponent(job.job_id.slice(0,8)) + '&mode=history" ' +
                   'class="status-pill status-pill--' + job.status + ' status-pill--link" ' +
                   'title="Open log viewer filtered to this job ID">' +
                 job.status.toUpperCase() + '</a>' +
               ' <span class="text-muted text-sm mono">' + job.job_id.slice(0, 8) + '\u2026</span>' +
+              ' <a href="' + bulkUrl + '" class="job-card__open-link" title="Open this job in the Bulk Jobs page">\u2197 Open</a>' +
             '</div>' +
             '<div class="job-card__path">' + esc(job.display_source_path || job.source_path) + ' \u2192 ' + esc(job.display_output_path || job.output_path) + '</div>' +
           '</div>' +
           actions +
         '</div>' +
-        '<div class="job-card__progress">' +
-          '<div class="job-card__progress-fill" style="width:' + pct + '%"></div>' +
-        '</div>' +
-        progressLine +
+        '<a class="job-card__progress-link" href="' + bulkUrl + '" title="Open this job in the Bulk Jobs page">' +
+          progressBarHtml +
+          progressLine +
+        '</a>' +
         '<div class="job-card__counts">' +
           '<span class="text-ok">\u2713 <span class="flp-counter cv-converted" data-flp-job="' + job.job_id + '" data-flp-status="converted" title="Click to view converted files">' + job.converted.toLocaleString() + '</span> converted</span>' +
           '<span class="text-err">\u2717 <span class="flp-counter cv-failed" data-flp-job="' + job.job_id + '" data-flp-status="failed" title="Click to view failed files">' + job.failed.toLocaleString() + '</span> failed</span>' +

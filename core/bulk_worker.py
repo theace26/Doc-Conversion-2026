@@ -352,6 +352,16 @@ class BulkJob:
         self._skip_batch_count = 0
         self._review_queue_count = 0
         self._files_completed = 0  # Track total completed for max_files
+        # v0.32.9: scan-phase progress (separate from _total_pending /
+        # _converted which only populate after the scan finishes). The
+        # bulk worker's `_scan_progress_cb` updates these as scan_progress
+        # events fire so the polled /api/admin/active-jobs response can
+        # show the same rich data the bulk-page SSE stream surfaces:
+        # X / Y files scanned + the current file path. Reset on every new
+        # scan_progress event; final values stay in place after scan ends.
+        self._scan_scanned = 0
+        self._scan_total = 0
+        self._scan_current_file = ""
 
         # Job metadata for active-jobs panel
         self.started_at: datetime | None = None
@@ -383,6 +393,16 @@ class BulkJob:
 
             async def _scan_progress_cb(event: dict):
                 event_type = event.pop("event", "scan_progress")
+                # v0.32.9: stash latest scan-progress on the job so
+                # polled API consumers (Status page card) see the same
+                # rich numbers the SSE stream emits to bulk.html.
+                if event_type == "scan_progress":
+                    if "scanned" in event and isinstance(event["scanned"], int):
+                        self._scan_scanned = event["scanned"]
+                    if "total" in event and isinstance(event["total"], int):
+                        self._scan_total = event["total"]
+                    if "current_file" in event and isinstance(event["current_file"], str):
+                        self._scan_current_file = event["current_file"]
                 _emit_bulk_event(self.job_id, event_type, event)
 
             # Accumulate results across all source roots
@@ -1510,5 +1530,14 @@ async def get_all_active_jobs() -> list[dict]:
             "options":       job.options,
             "dir_stats":     dict(job.dir_stats),
             "progress":      progress,
+            # v0.32.9: scan-phase progress so the Status page card can
+            # render "X / Y files scanned" + current file during the
+            # enumeration window — same data the bulk.html SSE stream
+            # already gets via the scan_progress event.
+            "scan_progress": {
+                "scanned":      job._scan_scanned,
+                "total":        job._scan_total,
+                "current_file": job._scan_current_file,
+            },
         })
     return results

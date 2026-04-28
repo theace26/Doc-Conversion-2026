@@ -4,6 +4,175 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.32.9 — Status card matches Bulk Jobs scan progress + click-to-jump (2026-04-28)
+
+**The Status page active-job card now renders the same rich
+scan-phase data the Bulk Jobs page surfaces (X / Y files
+scanned + current file + indeterminate animated bar), and is
+click-through to `/bulk.html?job_id=<id>` with a smooth-scroll
++ highlight on the destination card.**
+
+### Why
+
+User comparing the two views of the same in-flight bulk scan:
+
+- **Status page (v0.32.7-v0.32.8)**: `[spinner] Enumerating
+  source files… 33s elapsed` and an empty progress bar. Fine
+  for "the scan exists" but invisible whether it's at 100
+  files scanned or 100,000.
+- **Bulk Jobs page**: `Scanning source files / 10,696 files
+  scanned / JOB SITE VISITS/2023 JOBSITE VISIT
+  PHOTOS/.../IMG_1979.jpg` + filled animated bar.
+
+The Status page card is the *first* place an operator sees the
+scan; the Bulk Jobs page is the *deep* view they have to
+navigate to. The richer data should be on both, and getting to
+the deep view should be a single click.
+
+### Backend changes
+
+`core/bulk_worker.py`:
+
+- `BulkJob.__init__` gains 3 new state fields:
+  ```python
+  self._scan_scanned = 0
+  self._scan_total = 0
+  self._scan_current_file = ""
+  ```
+- The `_scan_progress_cb` callback (which fires on every
+  `scan_progress` event the `BulkScanner` emits) now stashes
+  the latest values onto the job instance in addition to
+  forwarding the event to the SSE bus:
+  ```python
+  if event_type == "scan_progress":
+      if "scanned" in event and isinstance(event["scanned"], int):
+          self._scan_scanned = event["scanned"]
+      if "total" in event and isinstance(event["total"], int):
+          self._scan_total = event["total"]
+      if "current_file" in event and isinstance(event["current_file"], str):
+          self._scan_current_file = event["current_file"]
+  ```
+- `get_all_active_jobs()` returns a new `scan_progress` dict
+  in each job's payload:
+  ```json
+  "scan_progress": {
+      "scanned": 10696,
+      "total": 51684,
+      "current_file": "JOB SITE VISITS/2023.../IMG_1979.jpg"
+  }
+  ```
+
+The polled `/api/admin/active-jobs` endpoint now exposes the
+same data the per-job SSE stream emits.
+
+### Frontend — Status page
+
+`static/status.html`:
+
+- The `enumerating` block (where `job.status === 'scanning'`)
+  renders three states based on `scan_progress.scanned`:
+  - **scanned > 0**: rich line `[spinner] Scanning source
+    files — 10,696 / 51,684 files scanned — 33s elapsed`
+    plus a monospace current-file path beneath
+  - **scanned == 0 and elapsed < 120 s**: legacy
+    `[spinner] Enumerating source files… Xs elapsed`
+  - **scanned == 0 and elapsed > 120 s**: legacy
+    `⚠ Enumerating — stuck? No progress for X.` warning
+- The `<div class="job-card__progress">` becomes
+  `<div class="job-card__progress job-card__progress--indeterminate">`
+  during scanning. The new modifier replaces the empty
+  static-width bar with a sliding gradient sweep
+  (1.6 s ease-in-out infinite, full-width track).
+- The whole progress region (bar + line + current-file) is
+  wrapped in an `<a class="job-card__progress-link"
+  href="/bulk.html?job_id=<id>">` so clicking anywhere in
+  that area navigates to the deep view.
+- A small `↗ Open` button next to the job-id chip provides a
+  more deliberate alternative click target.
+
+### Frontend — Bulk Jobs page
+
+`static/bulk.html`:
+
+- New page-load IIFE reads `?job_id=` from `URLSearchParams`.
+  If present, polls every 250 ms (up to 5 s) for the
+  `active-job-section` div to be rendered by
+  `loadJobHistory`, then:
+  ```js
+  el.scrollIntoView({behavior: 'smooth', block: 'start'});
+  el.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.55)';
+  setTimeout(() => { el.style.boxShadow = ''; }, 1800);
+  ```
+  Smooth scroll + 1.8 s highlight flash draws the operator's
+  eye to the freshly-navigated card.
+- The retry-up-to-5s pattern handles the case where
+  `loadJobHistory` is still in-flight when the IIFE runs
+  (the function is async).
+
+### CSS additions
+
+`static/markflow.css`:
+
+```css
+.job-card__progress { ...; position: relative; }
+.job-card__progress--indeterminate .job-card__progress-fill {
+  width: 35% !important;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: jc-indeterminate-sweep 1.6s ease-in-out infinite;
+}
+@keyframes jc-indeterminate-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(370%); }
+}
+.job-card__progress-link {
+  display: block; cursor: pointer; ...
+  padding: 0.25rem; margin: -0.25rem;
+  transition: background 0.15s;
+}
+.job-card__progress-link:hover { background: rgba(99,102,241,0.06); }
+.job-card__open-link { ... }
+```
+
+### Cache-bust
+
+- `markflow.css` on `status.html`: new `?v=0.32.9` query
+  string (previously had none — relied on browser ETag
+  revalidation which is unreliable for stylesheets)
+- `live-banner.js` on `status.html`: bumped `?v=0.32.7 →
+  0.32.9` for consistency (file itself unchanged)
+- `bulk.html` doesn't need a CSS bust (uses no new CSS
+  rules); its JS change is picked up via standard HTML
+  revalidation
+
+### Files
+
+- `core/version.py` — bump to 0.32.9
+- `core/bulk_worker.py` — `_scan_*` state fields, callback
+  updates, `get_all_active_jobs` returns `scan_progress`
+- `static/status.html` — rich scan-phase rendering,
+  click-through `<a>` wrapper, ↗ Open button, CSS +
+  live-banner.js cache-bust
+- `static/bulk.html` — `?job_id=` honoring with smooth
+  scroll + highlight flash
+- `static/markflow.css` — indeterminate-bar modifier +
+  click-through link styling + open-link button styling
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`
+
+No DB migration. No new dependencies. No new scheduler jobs.
+
+### Done criteria
+
+- ✅ Status page card during a bulk-job scan shows the same
+  scanned-count + current-file the Bulk Jobs page shows
+- ✅ Indeterminate animated bar replaces the empty static bar
+- ✅ Clicking the progress region jumps to
+  `/bulk.html?job_id=<id>`
+- ✅ Bulk Jobs page scrolls the active job into view + flashes
+  it on landing from the click-through
+
+---
+
 ## v0.32.8 — Storage page verifies every source on page load + on tab focus (2026-04-28)
 
 **Operator-feedback fix in response to a v0.32.7 user

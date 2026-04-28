@@ -91,7 +91,115 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.32.8
+## Current Version — v0.32.9
+
+**Status page active-job card now mirrors the Bulk Jobs page's
+rich scan-progress display: scanned-count + current-file +
+indeterminate animated bar during the enumeration window. Plus
+the card is click-through — clicking the progress region (or
+the new ↗ Open button) jumps to `/bulk.html?job_id=<id>` and
+scrolls the active job into view with a brief highlight flash.**
+
+### Why this matters
+
+User reported on v0.32.7: "the progress bar on the status page
+should be the same type as the one on bulk jobs. Since, it is
+the one that I manually triggered. and when you click on the
+card or progress bars, it would take you to bulk jobs and
+center on the active scan."
+
+Status page card was showing only `[spinner] Enumerating source
+files… 33s elapsed` (v0.32.7's fix to render any feedback at
+all), while the Bulk Jobs page on the same job was showing
+`Scanning source files / 10,696 files scanned / JOB SITE
+VISITS/.../IMG_1979.jpg` with a filled progress bar. The
+two views of the same operation were unequal — and the Status
+card was the one operators were watching.
+
+### What changed
+
+#### Backend — `core/bulk_worker.py`
+
+- BulkJob gains 3 new state fields: `_scan_scanned`,
+  `_scan_total`, `_scan_current_file`. All initialized to 0/""
+  in `__init__`.
+- The `_scan_progress_cb` callback (which fires on every
+  scan_progress event from `BulkScanner`) now stashes the
+  latest values onto the job instance in addition to emitting
+  the SSE event.
+- `get_all_active_jobs()` returns a new `scan_progress` dict
+  with `scanned`, `total`, `current_file` so the polled API
+  surfaces the same data the SSE stream emits.
+
+#### Frontend — `static/status.html`
+
+- The enumerating block now renders a `Scanning source files —
+  10,696 / 51,684 files scanned — 33s elapsed` line plus a
+  monospace current-file path beneath, when `scan_progress.scanned > 0`.
+  Falls back to the v0.32.7 spinner+elapsed display before the
+  first scan_progress event lands.
+- The `<div class="job-card__progress">` becomes
+  `<div class="job-card__progress job-card__progress--indeterminate">`
+  during scanning — a sliding gradient sweep replaces the
+  static empty bar.
+- The whole progress region (bar + line + current-file) is
+  wrapped in an `<a class="job-card__progress-link"
+  href="/bulk.html?job_id=<id>">` — large click target that
+  jumps to the dedicated Bulk Jobs page.
+- A small `↗ Open` button next to the job-id chip provides a
+  more deliberate alternative click target.
+
+#### Frontend — `static/bulk.html`
+
+- New IIFE on page load reads `?job_id=` from the URL. If
+  present, polls every 250 ms (up to 5 s) for the
+  `active-job-section` to be rendered by `loadJobHistory`,
+  then `scrollIntoView({behavior: 'smooth', block: 'start'})`
+  + a 1.8 s box-shadow highlight flash to draw the operator's
+  eye to the freshly-navigated card.
+
+#### CSS additions — `static/markflow.css`
+
+- `.job-card__progress--indeterminate` modifier with a
+  `jc-indeterminate-sweep` keyframe animation
+- `.job-card__progress-link` hover-styled wrapper for the
+  click-through
+- `.job-card__open-link` styling for the small ↗ Open button
+
+### Cache-bust
+
+`?v=0.32.9` added to:
+- `markflow.css` reference on `status.html` (since this page
+  uses the new CSS rules — previously markflow.css had no
+  version query string and relied on browser ETag
+  revalidation, which can be unreliable for stylesheets)
+- `live-banner.js` reference on `status.html` bumped from
+  `?v=0.32.7` to `?v=0.32.9` (file itself unchanged; bumping
+  for consistency)
+
+`bulk.html` doesn't need a CSS bust (uses no new CSS rules);
+its inline JS changes are picked up via standard HTML
+revalidation.
+
+### Files
+
+- `core/version.py` — bump to 0.32.9
+- `core/bulk_worker.py` — `_scan_*` state fields, callback
+  updates, `get_all_active_jobs` returns `scan_progress`
+- `static/status.html` — rich scan-phase rendering,
+  click-through wrapper, ↗ Open button, CSS + JS cache-bust
+- `static/bulk.html` — `?job_id=` honoring with smooth scroll
+  + highlight flash
+- `static/markflow.css` — indeterminate-bar modifier +
+  click-through link styling + open-link button styling
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`
+
+No DB migration. No new dependencies. No new scheduler jobs.
+
+---
+
+## v0.32.8 — Storage page verifies every source on page load + on tab focus
 
 **Storage page: every configured source path is verified on
 page load (was: only the output path was). Each source row

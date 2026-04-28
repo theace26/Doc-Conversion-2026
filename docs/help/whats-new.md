@@ -6,6 +6,63 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.32.9 — Status page card now shows scan progress + jumps to Bulk Jobs
+
+The active-job card on the **Status** page used to show
+`[spinner] Enumerating source files… 33s elapsed` and an empty
+bar — fine for confirming the scan exists, useless for knowing
+whether it's at 100 files or 100,000. The same job on the
+**Bulk Jobs** page showed `Scanning source files / 10,696
+files scanned / IMG_1979.jpg` with a filled animated bar. The
+mismatch was odd because **Status is the page operators
+default to**, and the rich view was hidden behind a navigation.
+
+**v0.32.9 makes the Status card match.** During a bulk scan,
+you now see:
+
+```
+SCANNING ▸ fb326506…       [↗ Open]   [Pause]  [Stop]
+/host/d/k_drv_test → /host/d/Doc-Conv_Test
+
+[████░░░░░░░░░░░░░░░░░░ animated sliding sweep ░░░░░░░░░]
+⚙ Scanning source files — 10,696 / 51,684 files scanned — 33s elapsed
+JOB SITE VISITS/2023 JOBSITE VISIT PHOTOS/.../IMG_1979.jpg
+
+✓ 0 converted   ✗ 0 failed   ⏭ 0 skipped
+```
+
+Same `scanned` count, same `current_file`, same indeterminate
+animated bar. The two views are now equivalent in information
+density.
+
+### Click-through to Bulk Jobs
+
+Clicking the **progress bar** OR the new **↗ Open** button next
+to the job-id chip jumps you straight to **Bulk Jobs** filtered
+to that specific job:
+
+- The page scrolls the active-job section into view smoothly
+- The card flashes briefly with a blue highlight so you don't
+  lose your eye
+
+So the standard workflow is: notice a scan on Status → click
+the bar → land on Bulk Jobs at exactly the right card → see
+the worker breakdown, file list, controls. No hunting.
+
+### Why bother
+
+When 50K+ files are being scanned on an HDD, the difference
+between "we've enumerated 1,000 files" and "we've enumerated
+10,696 files" tells you whether the scan is making progress
+or genuinely stuck. Without the count, your only signal is
+"elapsed time grew" — which is also true for a stuck job.
+
+The current-file path is also a tell: if the same path stays
+on screen for many seconds, the scanner is hung on that file.
+If it cycles every poll, the scanner is moving.
+
+---
+
 ## v0.32.8 — Storage page verifies all your paths on every load
 
 The **Storage** page used to verify the **Output Directory**

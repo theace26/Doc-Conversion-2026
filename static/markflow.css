@@ -1249,8 +1249,47 @@ small, .text-sm { font-size: 0.85rem; }
 .job-card__header { display: flex; justify-content: space-between; align-items: flex-start; }
 .job-card__title { font-weight: 600; font-size: 1rem; }
 .job-card__path { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.15rem; word-break: break-all; }
-.job-card__progress { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
+.job-card__progress { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; position: relative; }
 .job-card__progress-fill { height: 100%; background: var(--accent); transition: width 0.4s ease; }
+/* v0.32.9: indeterminate scanning bar — full-width track with a
+ * sliding gradient sweep. Used during the bulk-job enumeration
+ * window so operators see motion even before total_files is known. */
+.job-card__progress--indeterminate .job-card__progress-fill {
+  width: 35% !important;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: jc-indeterminate-sweep 1.6s ease-in-out infinite;
+}
+@keyframes jc-indeterminate-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(370%); }
+}
+/* v0.32.9: click-through wrapper around the progress region.
+ * Carries operators to /bulk.html?job_id=<id> for the rich view. */
+.job-card__progress-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  padding: 0.25rem;
+  margin: -0.25rem;
+  transition: background 0.15s;
+}
+.job-card__progress-link:hover {
+  background: rgba(99,102,241,0.06);
+  text-decoration: none;
+}
+.job-card__open-link {
+  font-size: 0.75rem;
+  color: var(--accent);
+  text-decoration: none;
+  margin-left: 0.6rem;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  vertical-align: middle;
+}
+.job-card__open-link:hover { background: rgba(99,102,241,0.12); text-decoration: none; }
 .job-card__counts { display: flex; gap: 1rem; font-size: 0.8rem; flex-wrap: wrap; }
 .job-card__workers { font-size: 0.8rem; color: var(--text-muted); display: flex; flex-direction: column; gap: 0.25rem; }
 .job-card__worker-row { display: flex; gap: 0.5rem; align-items: center; }

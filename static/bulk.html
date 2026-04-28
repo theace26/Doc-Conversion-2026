@@ -1533,6 +1533,33 @@
   loadLocationDropdowns();
   loadJobHistory();
   loadGapFillCount();
+
+  // v0.32.9: honor ?job_id=<id> from the Status page click-through.
+  // After loadJobHistory finishes (which renders active-job-section
+  // if there's a running job), scroll the active job into view.
+  // Defer via setTimeout so the loadJobHistory's async render has
+  // had a tick to populate the DOM.
+  (function () {
+    var qs = new URLSearchParams(window.location.search);
+    var jobId = qs.get('job_id');
+    if (!jobId) return;
+    function scrollWhenReady(retries) {
+      var el = document.getElementById('active-job-section');
+      if (el && !el.hidden) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // Brief flash to draw the eye after navigation. Uses
+        // box-shadow rather than background so we don't disturb
+        // the existing card theming.
+        el.style.transition = 'box-shadow 0.25s ease-in-out';
+        el.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.55)';
+        setTimeout(function () { el.style.boxShadow = ''; }, 1800);
+        return;
+      }
+      if (retries > 0) setTimeout(function () { scrollWhenReady(retries - 1); }, 250);
+    }
+    // Try every 250ms for ~5s in case loadJobHistory takes time
+    setTimeout(function () { scrollWhenReady(20); }, 100);
+  })();
   </script>
 </body>
 </html>
