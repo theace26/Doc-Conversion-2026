@@ -1,0 +1,4877 @@
+# Active Operations Registry Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Unify every long-running file-related operation in MarkFlow under a single in-memory + DB-backed registry; surface progress on each operation's originating page (inline widget) and on the Status page (index hub) with click-through navigation.
+
+**Architecture:** New `core/active_ops.py` registry (in-memory dict + write-through to a new `active_operations` SQLite table). Workers register at start, update on tick, finish at end. One `GET /api/active-ops` endpoint feeds three frontend surfaces: sticky banner, inline per-page widget, Status hub. Cancel propagation via a hook registry that bridges the registry's cancel signal to each subsystem's native mechanism.
+
+**Tech Stack:** Python 3.11 + FastAPI + aiosqlite (existing); structlog (existing); APScheduler (existing); vanilla HTML + JS (existing — no SPA, no build step). All DB writes through `db_write_with_retry` single-writer queue (v0.23.0).
+
+**Spec:** [`docs/superpowers/specs/2026-04-28-active-operations-registry-design.md`](../specs/2026-04-28-active-operations-registry-design.md). Read it first — this plan does not duplicate the spec's rationale.
+
+**Target release:** v0.35.0 (after v0.34.2 OUTPUT_BASE hotfix ships).
+
+---
+
+## Pre-flight
+
+Before starting Task 1, verify the environment:
+
+- [ ] **Verify v0.34.2 has shipped (or skip if working on the v0.35.0 branch ahead of the hotfix).**
+
+```bash
+git log --oneline | grep "v0.34.2" | head -1
+```
+If empty: stop. v0.34.2 must ship first per spec §14. If proceeding ahead of v0.34.2 by design, note it in the eventual release commit.
+
+- [ ] **Verify baseline tests pass.**
+
+```bash
+docker-compose exec markflow pytest tests/ -q
+```
+Expected: all green. If any pre-existing failure, capture the count so post-feature comparison is meaningful.
+
+- [ ] **Verify current scheduler job count is 19.**
+
+```bash
+docker-compose exec markflow python -c "from core.scheduler import _SCHEDULED_JOBS; print(len(_SCHEDULED_JOBS))"
+```
+Expected: `19` (per spec §10; we add the 20th in Task 9).
+
+If the count differs, investigate before continuing — the spec assumed 19.
+
+- [ ] **Verify current migration version.**
+
+```bash
+docker-compose exec markflow python -c "from core.db.migrations import LATEST_VERSION; print(LATEST_VERSION)"
+```
+Expected: `28` (we add v29 in Task 1).
+
+---
+
+## Phase 1: Registry + DB foundation (Tasks 1–10)
+
+This phase ships the registry module with full unit-test coverage, the migration, the scheduler purge job, and the lifespan hydration. Workers do NOT register yet — that's Phase 3.
+
+### Task 1: Migration v29 — `active_operations` table
+
+**Files:**
+- Modify: `core/db/migrations.py` (add migration v29)
+- Test: `tests/test_active_ops.py` (NEW)
+
+- [ ] **Step 1: Create the test file with the migration test.**
+
+Write `tests/test_active_ops.py`:
+
+```python
+"""Unit tests for core.active_ops — Active Operations Registry (v0.35.0)."""
+from __future__ import annotations
+
+import asyncio
+import json
+import time
+import uuid
+
+import pytest
+
+from core.database import db_fetch_all, db_fetch_one
+
+
+@pytest.mark.asyncio
+async def test_migration_v29_creates_active_operations_table():
+    """Migration v29 must create the table with the schema in spec §3."""
+    # Schema check: table exists
+    row = await db_fetch_one(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='table' AND name='active_operations'"
+    )
+    assert row is not None, "active_operations table not created"
+
+    # Column shape (PRAGMA table_info returns rows of cid/name/type/...)
+    cols = await db_fetch_all("PRAGMA table_info(active_operations)")
+    col_map = {c["name"]: c["type"] for c in cols}
+
+    expected = {
+        "op_id": "TEXT",
+        "op_type": "TEXT",
+        "label": "TEXT",
+        "icon": "TEXT",
+        "origin_url": "TEXT",
+        "started_by": "TEXT",
+        "started_at_epoch": "REAL",
+        "last_progress_at_epoch": "REAL",
+        "finished_at_epoch": "REAL",
+        "total": "INTEGER",
+        "done": "INTEGER",
+        "errors": "INTEGER",
+        "error_msg": "TEXT",
+        "cancelled": "INTEGER",
+        "cancellable": "INTEGER",
+        "cancel_url": "TEXT",
+        "extra_json": "TEXT",
+    }
+    for col, typ in expected.items():
+        assert col in col_map, f"missing column: {col}"
+        assert col_map[col] == typ, (
+            f"column {col} type mismatch: expected {typ}, got {col_map[col]}"
+        )
+
+    # Indexes — partial indexes for running and finished
+    idx = await db_fetch_all(
+        "SELECT name FROM sqlite_master WHERE type='index' "
+        "AND tbl_name='active_operations'"
+    )
+    idx_names = {r["name"] for r in idx}
+    assert "idx_active_ops_running" in idx_names
+    assert "idx_active_ops_finished_at" in idx_names
+```
+
+- [ ] **Step 2: Run the test to confirm it fails.**
+
+```bash
+docker-compose exec markflow pytest tests/test_active_ops.py::test_migration_v29_creates_active_operations_table -v
+```
+Expected: FAIL with `assert row is not None` (table doesn't exist yet).
+
+- [ ] **Step 3: Add migration v29 to `core/db/migrations.py`.**
+
+Locate the `MIGRATIONS` list (at the bottom of the module, ordered by version). Append:
+
+```python
+# v29 — Active Operations Registry (v0.35.0). Spec:
+# docs/superpowers/specs/2026-04-28-active-operations-registry-design.md
+MIGRATIONS.append(Migration(
+    version=29,
+    description="Active operations registry table",
+    sql="""
+        CREATE TABLE IF NOT EXISTS active_operations (
+            op_id TEXT PRIMARY KEY,
+            op_type TEXT NOT NULL,
+            label TEXT NOT NULL,
+            icon TEXT NOT NULL,
+            origin_url TEXT NOT NULL,
+            started_by TEXT NOT NULL,
+            started_at_epoch REAL NOT NULL,
+            last_progress_at_epoch REAL NOT NULL,
+            finished_at_epoch REAL,
+            total INTEGER NOT NULL DEFAULT 0,
+            done INTEGER NOT NULL DEFAULT 0,
+            errors INTEGER NOT NULL DEFAULT 0,
+            error_msg TEXT,
+            cancelled INTEGER NOT NULL DEFAULT 0,
+            cancellable INTEGER NOT NULL DEFAULT 0,
+            cancel_url TEXT,
+            extra_json TEXT NOT NULL DEFAULT '{}'
+        );
+        CREATE INDEX IF NOT EXISTS idx_active_ops_running
+            ON active_operations (finished_at_epoch)
+            WHERE finished_at_epoch IS NULL;
+        CREATE INDEX IF NOT EXISTS idx_active_ops_finished_at
+            ON active_operations (finished_at_epoch DESC)
+            WHERE finished_at_epoch IS NOT NULL;
+    """,
+))
+```
+
+Update `LATEST_VERSION = 29` at the top of `core/db/migrations.py`.
+
+- [ ] **Step 4: Run the migration and re-run the test.**
+
+```bash
+docker-compose restart markflow
+# Wait ~10 s for startup
+docker-compose exec markflow pytest tests/test_active_ops.py::test_migration_v29_creates_active_operations_table -v
+```
+Expected: PASS.
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add core/db/migrations.py tests/test_active_ops.py
+git commit -m "feat(active_ops): migration v29 — active_operations table"
+```
+
+---
+
+### Task 2: `ActiveOperation` dataclass + op_type whitelist
+
+**Files:**
+- Create: `core/active_ops.py`
+- Modify: `tests/test_active_ops.py` (append)
+
+- [ ] **Step 1: Write failing tests for the dataclass + whitelist.**
+
+Append to `tests/test_active_ops.py`:
+
+```python
+def test_active_operation_dataclass_round_trip():
+    """Dataclass converts to dict and back losslessly via to_db / from_db."""
+    from core.active_ops import ActiveOperation
+
+    op = ActiveOperation(
+        op_id="abc-123",
+        op_type="pipeline.run_now",
+        label="Force Transcribe",
+        icon="⚙",
+        origin_url="/history.html",
+        started_by="op@example.com",
+        started_at_epoch=1700000000.0,
+        last_progress_at_epoch=1700000005.0,
+        cancellable=True,
+        extra={"scan_run_id": 42},
+    )
+    row = op.to_db_row()
+    assert row["op_id"] == "abc-123"
+    assert row["cancellable"] == 1   # bool → int
+    assert json.loads(row["extra_json"]) == {"scan_run_id": 42}
+
+    rebuilt = ActiveOperation.from_db_row(row)
+    assert rebuilt == op
+
+
+def test_op_type_whitelist_rejects_unknown():
+    """register_op() with an unknown op_type raises ValueError."""
+    from core.active_ops import OP_TYPES
+    assert "pipeline.run_now" in OP_TYPES
+    assert "pipeline.convert_selected" in OP_TYPES
+    assert "pipeline.scan" in OP_TYPES
+    assert "trash.empty" in OP_TYPES
+    assert "trash.restore_all" in OP_TYPES
+    assert "search.rebuild_index" in OP_TYPES
+    assert "analysis.rebuild" in OP_TYPES
+    assert "db.backup" in OP_TYPES
+    assert "db.restore" in OP_TYPES
+    assert "bulk.job" in OP_TYPES
+    assert "bogus.op" not in OP_TYPES
+```
+
+- [ ] **Step 2: Run to confirm failure.**
+
+```bash
+docker-compose exec markflow pytest tests/test_active_ops.py::test_active_operation_dataclass_round_trip tests/test_active_ops.py::test_op_type_whitelist_rejects_unknown -v
+```
+Expected: FAIL — `core.active_ops` module not found.
+
+- [ ] **Step 3: Create `core/active_ops.py` with the dataclass + whitelist.**
+
+```python
+"""Active Operations Registry (v0.35.0).
+
+Single source of truth for any long-running file-related operation in
+MarkFlow. Workers register at start of work, update on tick, finish at
+end. Frontend polls GET /api/active-ops for one unified view.
+
+Spec: docs/superpowers/specs/2026-04-28-active-operations-registry-design.md
+
+DRIFT RULE: bulk_jobs and scan_runs are sources of truth for their
+op_types ('bulk.job', 'pipeline.scan'); active_operations is derived
+state. On drift, source wins. See spec §17 P3.
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import time
+from dataclasses import dataclass, field
+from typing import Any, Awaitable, Callable
+
+import structlog
+
+log = structlog.get_logger(__name__)
+
+# ── op_type whitelist (spec §4) ────────────────────────────────────────
+OP_TYPES: frozenset[str] = frozenset({
+    "pipeline.run_now",
+    "pipeline.convert_selected",
+    "pipeline.scan",
+    "trash.empty",
+    "trash.restore_all",
+    "search.rebuild_index",
+    "analysis.rebuild",
+    "db.backup",
+    "db.restore",
+    "bulk.job",
+})
+
+
+@dataclass
+class ActiveOperation:
+    """One row in the registry. See spec §3 for field semantics."""
+    op_id: str
+    op_type: str
+    label: str
+    icon: str
+    origin_url: str
+    started_by: str
+    started_at_epoch: float
+    last_progress_at_epoch: float
+    finished_at_epoch: float | None = None
+    total: int = 0
+    done: int = 0
+    errors: int = 0
+    error_msg: str | None = None
+    cancelled: bool = False
+    cancellable: bool = False
+    cancel_url: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    def to_db_row(self) -> dict[str, Any]:
+        """Serialize for SQLite INSERT/UPDATE. Bool → int; extra → JSON."""
+        return {
+            "op_id": self.op_id,
+            "op_type": self.op_type,
+            "label": self.label,
+            "icon": self.icon,
+            "origin_url": self.origin_url,
+            "started_by": self.started_by,
+            "started_at_epoch": self.started_at_epoch,
+            "last_progress_at_epoch": self.last_progress_at_epoch,
+            "finished_at_epoch": self.finished_at_epoch,
+            "total": self.total,
+            "done": self.done,
+            "errors": self.errors,
+            "error_msg": self.error_msg,
+            "cancelled": 1 if self.cancelled else 0,
+            "cancellable": 1 if self.cancellable else 0,
+            "cancel_url": self.cancel_url,
+            "extra_json": json.dumps(self.extra),
+        }
+
+    @classmethod
+    def from_db_row(cls, row: dict[str, Any]) -> "ActiveOperation":
+        """Inverse of to_db_row()."""
+        return cls(
+            op_id=row["op_id"],
+            op_type=row["op_type"],
+            label=row["label"],
+            icon=row["icon"],
+            origin_url=row["origin_url"],
+            started_by=row["started_by"],
+            started_at_epoch=row["started_at_epoch"],
+            last_progress_at_epoch=row["last_progress_at_epoch"],
+            finished_at_epoch=row.get("finished_at_epoch"),
+            total=row.get("total", 0),
+            done=row.get("done", 0),
+            errors=row.get("errors", 0),
+            error_msg=row.get("error_msg"),
+            cancelled=bool(row.get("cancelled", 0)),
+            cancellable=bool(row.get("cancellable", 0)),
+            cancel_url=row.get("cancel_url"),
+            extra=json.loads(row.get("extra_json") or "{}"),
+        )
+
+    def to_api_dict(self) -> dict[str, Any]:
+        """JSON-serializable dict for HTTP responses. Bools as bools."""
+        return {
+            "op_id": self.op_id,
+            "op_type": self.op_type,
+            "label": self.label,
+            "icon": self.icon,
+            "origin_url": self.origin_url,
+            "started_by": self.started_by,
+            "started_at_epoch": self.started_at_epoch,
+            "last_progress_at_epoch": self.last_progress_at_epoch,
+            "finished_at_epoch": self.finished_at_epoch,
+            "total": self.total,
+            "done": self.done,
+            "errors": self.errors,
+            "error_msg": self.error_msg,
+            "cancelled": self.cancelled,
+            "cancellable": self.cancellable,
+            "cancel_url": self.cancel_url,
+            "extra": self.extra,
+        }
+```
+
+- [ ] **Step 4: Run tests; confirm pass.**
+
+```bash
+docker-compose exec markflow pytest tests/test_active_ops.py::test_active_operation_dataclass_round_trip tests/test_active_ops.py::test_op_type_whitelist_rejects_unknown -v
+```
+Expected: PASS.
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add core/active_ops.py tests/test_active_ops.py
+git commit -m "feat(active_ops): ActiveOperation dataclass + op_type whitelist"
+```
+
+---
+
+### Task 3: `register_op()` — basic functionality
+
+**Files:**
+- Modify: `core/active_ops.py` (append registry state + register_op)
+- Modify: `tests/test_active_ops.py` (append)
+
+- [ ] **Step 1: Write failing test.**
+
+Append to `tests/test_active_ops.py`:
+
+```python
+@pytest.mark.asyncio
+async def test_register_op_returns_unique_uuid_and_persists():
+    """register_op returns a UUID4 string, persists to DB,
+    and adds the op to the in-memory dict."""
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now",
+        label="Force Transcribe",
+        icon="⚙",
+        origin_url="/history.html",
+        started_by="test@example.com",
+        cancellable=True,
+        cancel_url=None,
+        extra={"scan_run_id": 99},
+    )
+    assert isinstance(op_id, str)
+    assert len(op_id) == 36   # uuid4 length
+
+    # Two registrations get different IDs
+    op_id_2 = await active_ops.register_op(
+        op_type="pipeline.run_now",
+        label="X",
+        icon="⚙",
+        origin_url="/history.html",
+        started_by="test@example.com",
+    )
+    assert op_id_2 != op_id
+
+    # Persisted to DB
+    row = await db_fetch_one(
+        "SELECT * FROM active_operations WHERE op_id=?", (op_id,)
+    )
+    assert row is not None
+    assert row["label"] == "Force Transcribe"
+    assert row["cancellable"] == 1
+    assert json.loads(row["extra_json"])["scan_run_id"] == 99
+    assert row["finished_at_epoch"] is None    # still running
+    assert row["total"] == 0
+    assert row["done"] == 0
+
+
+@pytest.mark.asyncio
+async def test_register_op_unknown_op_type_raises():
+    from core import active_ops
+    with pytest.raises(ValueError, match="unknown op_type"):
+        await active_ops.register_op(
+            op_type="bogus.op",
+            label="X", icon="?",
+            origin_url="/", started_by="x@x",
+        )
+
+
+@pytest.mark.asyncio
+async def test_register_op_cancellable_without_hook_raises():
+    """If cancellable=True but no cancel hook is registered for the
+    op_type, register_op refuses (spec F9). The hook itself is registered
+    by the subsystem at module import — for this test, we use an op_type
+    we know hasn't had its hook registered yet (use db.backup which is
+    uncancellable; flip cancellable=True to force the error)."""
+    from core import active_ops
+    with pytest.raises(RuntimeError, match="no cancel hook"):
+        await active_ops.register_op(
+            op_type="db.backup",
+            label="X", icon="?",
+            origin_url="/", started_by="x@x",
+            cancellable=True,
+        )
+```
+
+- [ ] **Step 2: Run; confirm failure.**
+
+```bash
+docker-compose exec markflow pytest tests/test_active_ops.py -k "register_op" -v
+```
+Expected: FAIL — `register_op` not defined.
+
+- [ ] **Step 3: Implement registry state + register_op in `core/active_ops.py`.**
+
+Append to `core/active_ops.py`:
+
+```python
+import uuid
+
+from core.db.connection import db_write_with_retry
+from core.database import db_fetch_one as _db_fetch_one
+
+
+# ── Registry state ─────────────────────────────────────────────────────
+_lock = asyncio.Lock()
+_ops: dict[str, ActiveOperation] = {}
+_cancel_hooks: dict[str, Callable[[str], Awaitable[None]]] = {}
+_hydration_complete = asyncio.Event()
+
+
+def register_cancel_hook(op_type: str, hook: Callable[[str], Awaitable[None]]) -> None:
+    """Subsystems call this at module import time to register their
+    cancel mechanism. Spec §9, P5."""
+    if op_type not in OP_TYPES:
+        raise ValueError(f"unknown op_type: {op_type}")
+    _cancel_hooks[op_type] = hook
+    log.info("active_ops.cancel_hook_registered", op_type=op_type)
+
+
+# ── Public surface ─────────────────────────────────────────────────────
+async def register_op(
+    *,
+    op_type: str,
+    label: str,
+    icon: str,
+    origin_url: str,
+    started_by: str,
+    cancellable: bool = False,
+    cancel_url: str | None = None,
+    extra: dict | None = None,
+) -> str:
+    """Register a new operation in the registry. Returns op_id (uuid4).
+
+    Blocks on _hydration_complete to ensure the registry has hydrated
+    from DB before any new op can be registered (spec §10, F5).
+
+    Raises:
+        ValueError: unknown op_type.
+        RuntimeError: cancellable=True but no cancel hook registered
+                      for op_type.
+    """
+    if op_type not in OP_TYPES:
+        raise ValueError(f"unknown op_type: {op_type}")
+    if cancellable and op_type not in _cancel_hooks:
+        raise RuntimeError(
+            f"no cancel hook registered for op_type {op_type!r}; "
+            "register one at module import via register_cancel_hook()"
+        )
+
+    await _hydration_complete.wait()
+
+    now = time.time()
+    op = ActiveOperation(
+        op_id=str(uuid.uuid4()),
+        op_type=op_type,
+        label=label,
+        icon=icon,
+        origin_url=origin_url,
+        started_by=started_by,
+        started_at_epoch=now,
+        last_progress_at_epoch=now,
+        cancellable=cancellable,
+        cancel_url=cancel_url,
+        extra=extra or {},
+    )
+
+    async with _lock:
+        _ops[op.op_id] = op
+
+    # Persist to DB. Failures logged + ignored — in-memory state is
+    # canonical during the process lifetime; DB is for restart-survival.
+    try:
+        row = op.to_db_row()
+        cols = ", ".join(row.keys())
+        placeholders = ", ".join("?" for _ in row)
+        await db_write_with_retry(
+            f"INSERT INTO active_operations ({cols}) VALUES ({placeholders})",
+            tuple(row.values()),
+        )
+    except Exception as exc:
+        log.error("active_ops.register_persist_failed",
+                  op_id=op.op_id, error=str(exc))
+
+    log.info("active_ops.registered",
+             op_id=op.op_id, op_type=op_type,
+             started_by=started_by)
+    return op.op_id
+```
+
+**Note:** `db_write_with_retry` signature varies by codebase. Verify it accepts `(sql, params)` or wraps a callable. If it's the lambda-callable form (per `api/routes/pipeline.py:325` example: `await db_write_with_retry(lambda: update_bulk_file(...))`), adapt the call:
+
+```python
+        await db_write_with_retry(
+            lambda: _execute_insert(row)
+        )
+```
+
+Add helper if needed:
+```python
+from core.database import _async_execute  # or whichever the project uses
+
+async def _persist_row(row: dict[str, Any]) -> None:
+    cols = ", ".join(row.keys())
+    placeholders = ", ".join("?" for _ in row)
+    sql = f"INSERT INTO active_operations ({cols}) VALUES ({placeholders})"
+    await _async_execute(sql, tuple(row.values()))
+```
+
+Inspect `core/db/connection.py` first to confirm the right pattern. If unsure, prefer the lambda form used elsewhere in the codebase.
+
+- [ ] **Step 4: Set _hydration_complete in conftest so tests don't hang.**
+
+Tests that call `register_op` will block forever waiting for hydration. Add to `tests/conftest.py` (create if missing):
+
+```python
+import pytest_asyncio
+
+@pytest_asyncio.fixture(autouse=True)
+async def _set_hydration_event():
+    """Tests don't run lifespan hydration — fake the event so register_op
+    doesn't block."""
+    from core import active_ops
+    active_ops._hydration_complete.set()
+    yield
+    # Don't clear — once set, leave set for the rest of the suite
+```
+
+- [ ] **Step 5: Run tests; confirm pass.**
+
+```bash
+docker-compose exec markflow pytest tests/test_active_ops.py -k "register_op" -v
+```
+Expected: PASS for all three.
+
+- [ ] **Step 6: Commit.**
+
+```bash
+git add core/active_ops.py tests/test_active_ops.py tests/conftest.py
+git commit -m "feat(active_ops): register_op() — persist + whitelist + cancel-hook validation"
+```
+
+---
+
+### Task 4: `update_op()` with 1.5s write-through debouncing
+
+**Files:**
+- Modify: `core/active_ops.py`
+- Modify: `tests/test_active_ops.py`
+
+- [ ] **Step 1: Write failing tests.**
+
+Append to `tests/test_active_ops.py`:
+
+```python
+@pytest.mark.asyncio
+async def test_update_op_modifies_in_memory_immediately():
+    """update_op reflects in-memory state synchronously — no waiting
+    for the DB debouncer."""
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="x@x",
+    )
+
+    await active_ops.update_op(op_id, total=100, done=10)
+
+    # In-memory check (synchronous via lock)
+    op = await active_ops.get_op(op_id)
+    assert op is not None
+    assert op.total == 100
+    assert op.done == 10
+
+
+@pytest.mark.asyncio
+async def test_update_op_debounces_db_writes():
+    """100 update_op calls within 1.5s produce ≤ 2 DB writes
+    (1 throttled + the final flush on subsequent update)."""
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="x@x",
+    )
+
+    # Tight loop of 100 updates; measure DB write count via spy
+    write_count = 0
+    real_persist = active_ops._persist_op_update
+
+    async def counting_persist(op: ActiveOperation) -> None:
+        nonlocal write_count
+        write_count += 1
+        await real_persist(op)
+
+    active_ops._persist_op_update = counting_persist
+    try:
+        for i in range(100):
+            await active_ops.update_op(op_id, done=i)
+        # Wait briefly for any in-flight debounced write
+        await asyncio.sleep(0.1)
+    finally:
+        active_ops._persist_op_update = real_persist
+
+    # First write happens (no prior throttle), subsequent throttled.
+    # Allow up to 2 writes (initial + one throttled boundary cross).
+    assert write_count <= 2, f"expected ≤2 DB writes, got {write_count}"
+
+
+@pytest.mark.asyncio
+async def test_update_op_first_error_forces_immediate_flush():
+    """Going from errors=0 to errors>0 flushes synchronously (operator
+    alerting is non-negotiable)."""
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="x@x",
+    )
+
+    write_count = 0
+    real_persist = active_ops._persist_op_update
+
+    async def counting_persist(op: ActiveOperation) -> None:
+        nonlocal write_count
+        write_count += 1
+        await real_persist(op)
+
+    active_ops._persist_op_update = counting_persist
+    try:
+        # 5 done-only updates (debounced)
+        for i in range(5):
+            await active_ops.update_op(op_id, done=i)
+        write_count_before_error = write_count
+
+        # First error — immediate flush
+        await active_ops.update_op(op_id, done=5, errors=1)
+    finally:
+        active_ops._persist_op_update = real_persist
+
+    assert write_count > write_count_before_error, (
+        "first-error update did not force a flush"
+    )
+```
+
+- [ ] **Step 2: Run tests; confirm failure.**
+
+```bash
+docker-compose exec markflow pytest tests/test_active_ops.py -k "update_op" -v
+```
+Expected: FAIL — `update_op` not defined.
+
+- [ ] **Step 3: Implement update_op + debouncer.**
+
+Append to `core/active_ops.py`:
+
+```python
+# ── Write-through debouncer (spec §10) ─────────────────────────────────
+_WRITE_THROTTLE_S = 1.5
+_last_persist_at: dict[str, float] = {}
+
+
+async def _persist_op_update(op: ActiveOperation) -> None:
+    """UPDATE the active_operations row from current ActiveOperation
+    state. Single source of truth for DB writes during update_op /
+    finish_op / cancel_op."""
+    row = op.to_db_row()
+    set_clauses = ", ".join(f"{k}=?" for k in row.keys() if k != "op_id")
+    sql = f"UPDATE active_operations SET {set_clauses} WHERE op_id=?"
+    params = tuple(v for k, v in row.items() if k != "op_id") + (op.op_id,)
+    try:
+        await db_write_with_retry(lambda: _async_execute(sql, params))
+    except Exception as exc:
+        log.warning("active_ops.persist_failed",
+                    op_id=op.op_id, error=str(exc))
+
+
+async def update_op(
+    op_id: str,
+    *,
+    total: int | None = None,
+    done: int | None = None,
+    errors: int | None = None,
+) -> None:
+    """Update progress fields for op_id. No-op + WARN log on
+    already-finished rows (spec F1)."""
+    async with _lock:
+        op = _ops.get(op_id)
+        if op is None:
+            log.warning("active_ops.update_unknown_op", op_id=op_id)
+            return
+        if op.finished_at_epoch is not None:
+            log.warning("active_ops.update_after_finish", op_id=op_id)
+            return
+
+        prior_errors = op.errors
+        if total is not None:
+            op.total = int(total)
+        if done is not None:
+            op.done = int(done)
+        if errors is not None:
+            op.errors = int(errors)
+        op.last_progress_at_epoch = time.time()
+
+        # Flush triggers (spec §10):
+        #   1. Time-based: 1.5s since last flush
+        #   2. First-error: errors went from 0 → >0
+        first_error = (prior_errors == 0 and op.errors > 0)
+        last = _last_persist_at.get(op_id, 0)
+        time_based = (time.time() - last) >= _WRITE_THROTTLE_S
+        should_persist = first_error or time_based
+
+        if should_persist:
+            _last_persist_at[op_id] = time.time()
+            # Snapshot a copy so we can persist outside the lock if needed
+            snapshot = ActiveOperation(**op.__dict__)
+
+    if should_persist:
+        await _persist_op_update(snapshot)
+```
+
+- [ ] **Step 4: Run tests; confirm pass.**
+
+```bash
+docker-compose exec markflow pytest tests/test_active_ops.py -k "update_op" -v
+```
+Expected: PASS for all three.
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add core/active_ops.py tests/test_active_ops.py
+git commit -m "feat(active_ops): update_op() with 1.5s debouncing + first-error flush"
+```
+
+---
+
+### Task 5: `finish_op()` with synchronous flush
+
+**Files:**
+- Modify: `core/active_ops.py`
+- Modify: `tests/test_active_ops.py`
+
+- [ ] **Step 1: Write failing tests.**
+
+Append:
+
+```python
+@pytest.mark.asyncio
+async def test_finish_op_marks_finished_at_epoch():
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="x@x",
+    )
+    await active_ops.update_op(op_id, total=100, done=100)
+    before = time.time()
+    await active_ops.finish_op(op_id)
+    after = time.time()
+
+    op = await active_ops.get_op(op_id)
+    assert op.finished_at_epoch is not None
+    assert before <= op.finished_at_epoch <= after
+
+    # Persisted to DB
+    row = await db_fetch_one(
+        "SELECT finished_at_epoch FROM active_operations WHERE op_id=?",
+        (op_id,),
+    )
+    assert row["finished_at_epoch"] is not None
+
+
+@pytest.mark.asyncio
+async def test_finish_op_with_error_msg():
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="x@x",
+    )
+    await active_ops.finish_op(op_id, error_msg="failed: connection lost")
+
+    op = await active_ops.get_op(op_id)
+    assert op.error_msg == "failed: connection lost"
+    assert op.finished_at_epoch is not None
+
+
+@pytest.mark.asyncio
+async def test_update_after_finish_is_noop():
+    """Spec F1: update_op on a finished row is a no-op + WARN."""
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="x@x",
+    )
+    await active_ops.finish_op(op_id)
+    finished_at = (await active_ops.get_op(op_id)).finished_at_epoch
+
+    # Try to update — should be ignored
+    await active_ops.update_op(op_id, done=999)
+    op = await active_ops.get_op(op_id)
+    assert op.done == 0   # unchanged
+    assert op.finished_at_epoch == finished_at   # not reopened
+```
+
+- [ ] **Step 2: Run; confirm failure.**
+
+```bash
+docker-compose exec markflow pytest tests/test_active_ops.py -k "finish_op or update_after_finish" -v
+```
+Expected: FAIL — `finish_op` not defined.
+
+- [ ] **Step 3: Implement finish_op + get_op.**
+
+Append to `core/active_ops.py`:
+
+```python
+async def finish_op(
+    op_id: str,
+    *,
+    error_msg: str | None = None,
+) -> None:
+    """Mark op as finished. Synchronously flushes to DB (final state
+    must persist — spec §10)."""
+    async with _lock:
+        op = _ops.get(op_id)
+        if op is None:
+            log.warning("active_ops.finish_unknown_op", op_id=op_id)
+            return
+        if op.finished_at_epoch is not None:
+            log.warning("active_ops.finish_already_finished",
+                        op_id=op_id)
+            return
+        op.finished_at_epoch = time.time()
+        op.last_progress_at_epoch = op.finished_at_epoch
+        if error_msg is not None:
+            op.error_msg = error_msg
+        snapshot = ActiveOperation(**op.__dict__)
+
+    # Synchronous flush — final state is non-negotiable
+    await _persist_op_update(snapshot)
+    log.info("active_ops.finished",
+             op_id=op_id, op_type=snapshot.op_type,
+             error_msg=error_msg,
+             duration_s=round(snapshot.finished_at_epoch - snapshot.started_at_epoch, 2))
+
+
+async def get_op(op_id: str) -> ActiveOperation | None:
+    """Read in-memory snapshot of op_id. Synchronous-style read; takes
+    the lock briefly to avoid mid-mutation reads."""
+    async with _lock:
+        op = _ops.get(op_id)
+        if op is None:
+            return None
+        # Return a copy so caller can't mutate registry state
+        return ActiveOperation(**op.__dict__)
+```
+
+- [ ] **Step 4: Run tests; confirm pass.**
+
+```bash
+docker-compose exec markflow pytest tests/test_active_ops.py -k "finish_op or update_after_finish" -v
+```
+Expected: PASS.
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add core/active_ops.py tests/test_active_ops.py
+git commit -m "feat(active_ops): finish_op() + get_op() with no-op-on-finished guard"
+```
+
+---
+
+### Task 6: `cancel_op()` + `is_cancelled()` + cancel-hook integration
+
+**Files:**
+- Modify: `core/active_ops.py`
+- Modify: `tests/test_active_ops.py`
+
+- [ ] **Step 1: Write failing tests.**
+
+```python
+@pytest.mark.asyncio
+async def test_cancel_op_invokes_registered_hook():
+    from core import active_ops
+
+    hook_called_with: list[str] = []
+
+    async def my_hook(op_id: str) -> None:
+        hook_called_with.append(op_id)
+
+    active_ops.register_cancel_hook("pipeline.run_now", my_hook)
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="x@x",
+        cancellable=True,
+    )
+
+    cancelled = await active_ops.cancel_op(op_id)
+    assert cancelled is True
+    assert hook_called_with == [op_id]
+
+    # cancelled flag is set in-memory
+    assert active_ops.is_cancelled(op_id) is True
+
+    op = await active_ops.get_op(op_id)
+    assert op.cancelled is True
+
+
+@pytest.mark.asyncio
+async def test_cancel_op_on_finished_returns_false():
+    from core import active_ops
+
+    async def hook(op_id: str) -> None: ...
+    active_ops.register_cancel_hook("pipeline.run_now", hook)
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="x@x",
+        cancellable=True,
+    )
+    await active_ops.finish_op(op_id)
+
+    result = await active_ops.cancel_op(op_id)
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_cancel_hook_raises_marks_op_failed_and_finished():
+    """Spec F10 — over-finalize on hook failure."""
+    from core import active_ops
+
+    async def bad_hook(op_id: str) -> None:
+        raise RuntimeError("native cancel failed")
+
+    active_ops.register_cancel_hook("pipeline.run_now", bad_hook)
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="x@x",
+        cancellable=True,
+    )
+
+    await active_ops.cancel_op(op_id)
+
+    op = await active_ops.get_op(op_id)
+    assert op.finished_at_epoch is not None
+    assert op.error_msg is not None
+    assert "native cancel failed" in op.error_msg
+
+
+def test_is_cancelled_synchronous():
+    """is_cancelled MUST be synchronous so workers can call it from
+    hot loops without awaiting."""
+    from core import active_ops
+    import inspect
+    assert not inspect.iscoroutinefunction(active_ops.is_cancelled)
+```
+
+- [ ] **Step 2: Run; confirm failure.**
+
+```bash
+docker-compose exec markflow pytest tests/test_active_ops.py -k "cancel" -v
+```
+
+- [ ] **Step 3: Implement cancel_op + is_cancelled.**
+
+Append:
+
+```python
+def is_cancelled(op_id: str) -> bool:
+    """Synchronous read of the cancelled flag. Workers call this from
+    hot loops — no await, no DB round-trip. Returns False if op_id
+    unknown.
+
+    NOTE: deliberately NOT async — the lock isn't taken here. The
+    cancelled bool is a write-once flag; readers seeing a stale False
+    miss one tick at most before observing True. Intentional tradeoff."""
+    op = _ops.get(op_id)
+    return bool(op and op.cancelled)
+
+
+async def cancel_op(op_id: str) -> bool:
+    """Operator-triggered cancel. Sets cancelled=True, invokes the
+    op_type's cancel hook, persists state. Returns True if hook fired,
+    False if op already finished or unknown.
+
+    If the hook raises, op is marked finished with error_msg set
+    (spec F10 — over-finalize on hook failure)."""
+    async with _lock:
+        op = _ops.get(op_id)
+        if op is None:
+            log.warning("active_ops.cancel_unknown_op", op_id=op_id)
+            return False
+        if op.finished_at_epoch is not None:
+            log.info("active_ops.cancel_already_finished", op_id=op_id)
+            return False
+        op.cancelled = True
+        snapshot = ActiveOperation(**op.__dict__)
+
+    # Invoke hook outside lock (hook may itself call back into registry)
+    hook = _cancel_hooks.get(snapshot.op_type)
+    if hook is None:
+        log.error("active_ops.cancel_no_hook",
+                  op_id=op_id, op_type=snapshot.op_type)
+        # Still over-finalize: a cancellable op with no hook is a bug,
+        # but we mustn't leave the op hanging
+        await finish_op(op_id, error_msg="No cancel hook registered (bug)")
+        return False
+
+    try:
+        await hook(op_id)
+        await _persist_op_update(snapshot)
+        log.info("active_ops.cancelled", op_id=op_id, op_type=snapshot.op_type)
+        return True
+    except Exception as exc:
+        log.error("active_ops.cancel_hook_failed",
+                  op_id=op_id, op_type=snapshot.op_type, error=str(exc))
+        await finish_op(
+            op_id,
+            error_msg=f"Cancel cleanup failed: {type(exc).__name__}: {exc}",
+        )
+        return False
+```
+
+- [ ] **Step 4: Run; confirm pass.**
+
+```bash
+docker-compose exec markflow pytest tests/test_active_ops.py -k "cancel or is_cancelled" -v
+```
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add core/active_ops.py tests/test_active_ops.py
+git commit -m "feat(active_ops): cancel_op() + is_cancelled() + hook bridge"
+```
+
+---
+
+### Task 7: `list_ops()` with 30s grace window
+
+**Files:**
+- Modify: `core/active_ops.py`
+- Modify: `tests/test_active_ops.py`
+
+- [ ] **Step 1: Write failing tests.**
+
+```python
+@pytest.mark.asyncio
+async def test_list_ops_returns_running_plus_recently_finished():
+    from core import active_ops
+
+    op_run = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="x@x",
+    )
+
+    op_done = await active_ops.register_op(
+        op_type="pipeline.run_now", label="Y", icon="⚙",
+        origin_url="/", started_by="x@x",
+    )
+    await active_ops.finish_op(op_done)   # finished now → in 30s window
+
+    ops = await active_ops.list_ops()
+    op_ids = {o.op_id for o in ops}
+    assert op_run in op_ids
+    assert op_done in op_ids
+
+
+@pytest.mark.asyncio
+async def test_list_ops_excludes_finished_older_than_30s():
+    """Manually back-date a finished_at_epoch to 31s ago and expect it
+    to be excluded from list_ops()."""
+    from core import active_ops
+    from core.db.connection import db_write_with_retry
+    from core.database import _async_execute
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="Z", icon="⚙",
+        origin_url="/", started_by="x@x",
+    )
+    await active_ops.finish_op(op_id)
+
+    # Back-date in DB
+    old_finish = time.time() - 31
+    await db_write_with_retry(lambda: _async_execute(
+        "UPDATE active_operations SET finished_at_epoch=? WHERE op_id=?",
+        (old_finish, op_id),
+    ))
+    # And in in-memory state
+    async with active_ops._lock:
+        active_ops._ops[op_id].finished_at_epoch = old_finish
+
+    ops = await active_ops.list_ops()
+    op_ids = {o.op_id for o in ops}
+    assert op_id not in op_ids
+```
+
+- [ ] **Step 2: Run; confirm failure.**
+
+```bash
+docker-compose exec markflow pytest tests/test_active_ops.py -k "list_ops" -v
+```
+
+- [ ] **Step 3: Implement list_ops.**
+
+Append:
+
+```python
+_GRACE_S = 30.0
+
+
+async def list_ops(include_finished: bool = True) -> list[ActiveOperation]:
+    """Returns running ops + ops finished within last 30s grace window.
+    Older finished ops are filtered out for UI hygiene (still in DB
+    until daily auto-purge — see spec §10)."""
+    cutoff = time.time() - _GRACE_S
+    async with _lock:
+        result: list[ActiveOperation] = []
+        for op in _ops.values():
+            if op.finished_at_epoch is None:
+                result.append(ActiveOperation(**op.__dict__))
+            elif include_finished and op.finished_at_epoch >= cutoff:
+                result.append(ActiveOperation(**op.__dict__))
+        # Stable order: running first (oldest first), then finished
+        # (most recent first)
+        result.sort(key=lambda o: (
+            o.finished_at_epoch is not None,
+            o.started_at_epoch if o.finished_at_epoch is None
+            else -o.finished_at_epoch,
+        ))
+    return result
+```
+
+- [ ] **Step 4: Run; confirm pass.**
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add core/active_ops.py tests/test_active_ops.py
+git commit -m "feat(active_ops): list_ops() with 30s grace window"
+```
+
+---
+
+### Task 8: `hydrate_on_startup()` with cap-at-20 + lifespan event
+
+**Files:**
+- Modify: `core/active_ops.py`
+- Modify: `tests/test_active_ops.py`
+
+- [ ] **Step 1: Write failing tests.**
+
+```python
+@pytest.mark.asyncio
+async def test_hydrate_marks_running_rows_as_terminated_by_restart():
+    """Pre-seed 5 rows with finished_at_epoch=NULL; hydrate must
+    flag them as terminated-by-restart."""
+    from core import active_ops
+    from core.db.connection import db_write_with_retry
+    from core.database import _async_execute
+
+    # Reset state: clear any prior in-memory ops, clear hydration event
+    async with active_ops._lock:
+        active_ops._ops.clear()
+    active_ops._hydration_complete.clear()
+
+    # Seed 5 running rows directly
+    now = time.time()
+    for i in range(5):
+        await db_write_with_retry(lambda i=i: _async_execute(
+            "INSERT INTO active_operations "
+            "(op_id, op_type, label, icon, origin_url, started_by, "
+            "started_at_epoch, last_progress_at_epoch) "
+            "VALUES (?, 'pipeline.run_now', 'X', '⚙', '/', 'x@x', ?, ?)",
+            (f"hydrate-test-{i}", now - i, now - i),
+        ))
+
+    # Run hydration
+    await active_ops.hydrate_on_startup()
+    assert active_ops._hydration_complete.is_set()
+
+    # All 5 rows now have finished_at_epoch set
+    rows = await db_fetch_all(
+        "SELECT op_id, finished_at_epoch, error_msg "
+        "FROM active_operations WHERE op_id LIKE 'hydrate-test-%'"
+    )
+    assert len(rows) == 5
+    for r in rows:
+        assert r["finished_at_epoch"] is not None
+        assert "restart" in (r["error_msg"] or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_hydrate_caps_visible_at_20():
+    """If 25 rows were running, the top 20 (most-recent) get a
+    finished_at_epoch within the 30s grace window; older 5 get
+    finished_at_epoch=now-31s so they fall outside."""
+    from core import active_ops
+    from core.db.connection import db_write_with_retry
+    from core.database import _async_execute
+
+    async with active_ops._lock:
+        active_ops._ops.clear()
+    active_ops._hydration_complete.clear()
+
+    now = time.time()
+    for i in range(25):
+        await db_write_with_retry(lambda i=i: _async_execute(
+            "INSERT INTO active_operations "
+            "(op_id, op_type, label, icon, origin_url, started_by, "
+            "started_at_epoch, last_progress_at_epoch) "
+            "VALUES (?, 'pipeline.run_now', 'X', '⚙', '/', 'x@x', ?, ?)",
+            (f"hydrate-cap-{i:02d}", now - i, now - i),
+        ))
+
+    await active_ops.hydrate_on_startup()
+
+    rows = await db_fetch_all(
+        "SELECT op_id, finished_at_epoch FROM active_operations "
+        "WHERE op_id LIKE 'hydrate-cap-%' ORDER BY started_at_epoch DESC"
+    )
+    assert len(rows) == 25
+    # Top 20 (most-recent — i=0..19) within grace window
+    for r in rows[:20]:
+        assert (now - r["finished_at_epoch"]) < 30
+    # Bottom 5 (i=20..24) outside grace window
+    for r in rows[20:]:
+        assert (now - r["finished_at_epoch"]) > 30
+
+
+@pytest.mark.asyncio
+async def test_hydrate_failure_does_not_crash():
+    """Spec F6 — hydration failure logs critical and sets event anyway,
+    so workers can still register (degraded mode)."""
+    from core import active_ops
+    from unittest.mock import patch
+
+    async with active_ops._lock:
+        active_ops._ops.clear()
+    active_ops._hydration_complete.clear()
+
+    with patch("core.active_ops.db_fetch_all",
+               side_effect=RuntimeError("db gone")):
+        await active_ops.hydrate_on_startup()
+
+    # Event still set (degraded mode)
+    assert active_ops._hydration_complete.is_set()
+```
+
+- [ ] **Step 2: Run; confirm failure.**
+
+```bash
+docker-compose exec markflow pytest tests/test_active_ops.py -k "hydrate" -v
+```
+
+- [ ] **Step 3: Implement hydrate_on_startup.**
+
+Append:
+
+```python
+from core.database import db_fetch_all as _db_fetch_all_module
+
+# Use module-level reference so tests can patch it
+db_fetch_all = _db_fetch_all_module
+
+
+_HYDRATE_CAP = 20
+_GRACE_PRE_FINALIZE_S = _GRACE_S + 1   # 31s — outside grace window
+
+
+async def hydrate_on_startup() -> None:
+    """Run from FastAPI lifespan BEFORE scheduler / routers come up.
+
+    Any row with finished_at_epoch IS NULL was running when the previous
+    process died. Mark up to 20 most-recent as terminated-by-restart
+    visible in the 30s grace window. Older ones get
+    finished_at_epoch=now()-31s so they show only via "show all" expand.
+
+    On any failure, set _hydration_complete anyway and log critical
+    (spec F6 — graceful degradation, never block startup)."""
+    try:
+        rows = await db_fetch_all(
+            "SELECT op_id FROM active_operations "
+            "WHERE finished_at_epoch IS NULL "
+            "ORDER BY started_at_epoch DESC"
+        )
+    except Exception as exc:
+        log.critical("active_ops.hydrate_query_failed", error=str(exc))
+        _hydration_complete.set()
+        return
+
+    if not rows:
+        log.info("active_ops.hydrate_complete", terminated_count=0)
+        _hydration_complete.set()
+        return
+
+    now = time.time()
+    msg = "Container restarted; operation state lost"
+    for i, row in enumerate(rows):
+        # Top 20: visible in 30s grace window
+        finished_at = now if i < _HYDRATE_CAP else (now - _GRACE_PRE_FINALIZE_S)
+        try:
+            await db_write_with_retry(
+                lambda r=row, fa=finished_at: _async_execute(
+                    "UPDATE active_operations SET "
+                    "finished_at_epoch=?, error_msg=? "
+                    "WHERE op_id=?",
+                    (fa, msg, r["op_id"]),
+                )
+            )
+        except Exception as exc:
+            log.error("active_ops.hydrate_update_failed",
+                      op_id=row["op_id"], error=str(exc))
+
+    log.warning(
+        "active_ops.terminated_by_restart",
+        total=len(rows),
+        surfaced_in_grace=min(_HYDRATE_CAP, len(rows)),
+    )
+    _hydration_complete.set()
+```
+
+- [ ] **Step 4: Run tests; confirm pass.**
+
+```bash
+docker-compose exec markflow pytest tests/test_active_ops.py -k "hydrate" -v
+```
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add core/active_ops.py tests/test_active_ops.py
+git commit -m "feat(active_ops): hydrate_on_startup() — terminate-by-restart with 20-cap"
+```
+
+---
+
+### Task 9: Daily auto-purge job (scheduler 03:50, 7-day retention)
+
+**Files:**
+- Modify: `core/scheduler.py`
+- Modify: `tests/test_active_ops.py`
+
+- [ ] **Step 1: Write failing test.**
+
+```python
+@pytest.mark.asyncio
+async def test_purge_deletes_rows_older_than_7d_excludes_running():
+    from core import active_ops
+    from core.db.connection import db_write_with_retry
+    from core.database import _async_execute
+
+    now = time.time()
+    eight_days_ago = now - (8 * 24 * 3600)
+    six_days_ago = now - (6 * 24 * 3600)
+
+    # Seed: 1 old finished, 1 recent finished, 1 running
+    rows = [
+        ("purge-old", eight_days_ago, eight_days_ago),
+        ("purge-recent", now, six_days_ago),
+        ("purge-running", None, now),
+    ]
+    for op_id, finished, started in rows:
+        await db_write_with_retry(lambda o=op_id, f=finished, s=started:
+            _async_execute(
+                "INSERT INTO active_operations "
+                "(op_id, op_type, label, icon, origin_url, started_by, "
+                "started_at_epoch, last_progress_at_epoch, "
+                "finished_at_epoch) "
+                "VALUES (?, 'pipeline.run_now', 'X', '⚙', '/', 'x@x', "
+                "?, ?, ?)",
+                (o, s, s, f),
+            ))
+
+    deleted = await active_ops.purge_old_active_ops()
+    assert deleted == 1   # only purge-old qualifies
+
+    remaining = await db_fetch_all(
+        "SELECT op_id FROM active_operations "
+        "WHERE op_id LIKE 'purge-%'"
+    )
+    op_ids = {r["op_id"] for r in remaining}
+    assert op_ids == {"purge-recent", "purge-running"}
+```
+
+- [ ] **Step 2: Run; confirm failure.**
+
+- [ ] **Step 3: Implement purge function.**
+
+Append to `core/active_ops.py`:
+
+```python
+_PURGE_RETENTION_S = 7 * 24 * 3600
+
+
+async def purge_old_active_ops() -> int:
+    """Delete finished_at_epoch < (now - 7d). Predicate excludes
+    running rows (spec P6 — predicate-gated cleanup). Returns count."""
+    cutoff = time.time() - _PURGE_RETENTION_S
+    deleted_holder = [0]
+
+    async def _do() -> None:
+        from aiosqlite import connect
+        # The exact path resolution depends on the project's connection
+        # helper; reuse db_write_with_retry's underlying _async_execute
+        # if it supports rowcount return. If not, do a SELECT COUNT
+        # before DELETE.
+        count_row = await _db_fetch_one(
+            "SELECT COUNT(*) AS cnt FROM active_operations "
+            "WHERE finished_at_epoch IS NOT NULL "
+            "AND finished_at_epoch < ?",
+            (cutoff,),
+        )
+        deleted_holder[0] = (count_row or {}).get("cnt", 0)
+        await _async_execute(
+            "DELETE FROM active_operations "
+            "WHERE finished_at_epoch IS NOT NULL "
+            "AND finished_at_epoch < ?",
+            (cutoff,),
+        )
+
+    try:
+        await db_write_with_retry(_do)
+    except Exception as exc:
+        log.error("active_ops.purge_failed", error=str(exc))
+        return 0
+
+    log.info("active_ops.purged",
+             count=deleted_holder[0],
+             cutoff_epoch=cutoff)
+    return deleted_holder[0]
+```
+
+- [ ] **Step 4: Register the scheduler job.**
+
+In `core/scheduler.py`, locate the `_register_jobs()` function (or wherever existing jobs are registered — search for an existing `add_job` call to find the pattern, e.g. the `_purge_old_logs` registration). Add:
+
+```python
+# Active Operations Registry — daily auto-purge of finished rows
+# older than 7 days (spec §10). Slot 03:50 is 10 min after the 03:30
+# DB backup to avoid contention (spec P7).
+from core.active_ops import purge_old_active_ops
+
+scheduler.add_job(
+    purge_old_active_ops,
+    trigger="cron",
+    hour=3, minute=50,
+    id="purge_old_active_ops",
+    replace_existing=True,
+)
+```
+
+Then bump the count expectation: if `core/scheduler.py` keeps a `_SCHEDULED_JOBS` list or similar, append `"purge_old_active_ops"`.
+
+- [ ] **Step 5: Run; confirm pass.**
+
+```bash
+docker-compose restart markflow   # picks up scheduler change
+docker-compose exec markflow pytest tests/test_active_ops.py -k "purge" -v
+```
+
+- [ ] **Step 6: Commit.**
+
+```bash
+git add core/active_ops.py core/scheduler.py tests/test_active_ops.py
+git commit -m "feat(active_ops): daily 03:50 auto-purge job (7d retention)"
+```
+
+---
+
+### Task 10: Wire `hydrate_on_startup` into `main.py` lifespan
+
+**Files:**
+- Modify: `main.py`
+
+- [ ] **Step 1: Inspect lifespan, find the right point.**
+
+```bash
+grep -n "lifespan\|asynccontextmanager\|init_db" main.py | head -20
+```
+Expected: a `@asynccontextmanager` function near the top, with calls to `init_db()` then scheduler startup. Hydration must run AFTER `init_db()` (table must exist) and BEFORE scheduler/router accepts traffic.
+
+- [ ] **Step 2: Add the hydration call.**
+
+In the lifespan function, immediately after the existing `await init_db()` (or equivalent migration runner) and BEFORE `scheduler.start()`:
+
+```python
+    # Active Operations Registry — hydrate from DB to mark
+    # any in-flight ops as terminated-by-restart (spec §10).
+    # Runs BEFORE scheduler / routers so workers can register safely.
+    from core.active_ops import hydrate_on_startup
+    await hydrate_on_startup()
+```
+
+- [ ] **Step 3: Restart and watch the log.**
+
+```bash
+docker-compose restart markflow
+docker-compose logs --tail=50 markflow | grep active_ops
+```
+Expected: at least `active_ops.hydrate_complete` log line on a clean DB.
+
+- [ ] **Step 4: Manual sanity check via shell.**
+
+```bash
+docker-compose exec markflow python -c "
+import asyncio
+from core import active_ops
+
+async def go():
+    op = await active_ops.register_op(
+        op_type='pipeline.run_now', label='Smoke', icon='⚙',
+        origin_url='/', started_by='smoke@test',
+    )
+    print('registered:', op)
+    await active_ops.update_op(op, total=10, done=3)
+    await active_ops.finish_op(op)
+    print('finished')
+    ops = await active_ops.list_ops()
+    print('list_ops:', len(ops), 'rows')
+
+asyncio.run(go())
+"
+```
+Expected: `registered: <uuid>`, `finished`, `list_ops: 1 rows` (the one we just made — visible because finish was within 30s).
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add main.py
+git commit -m "feat(active_ops): wire hydrate_on_startup into lifespan"
+```
+
+**End of Phase 1.** Registry foundation complete. No workers register yet; that's Phase 3. The next phase exposes the HTTP API.
+
+---
+
+## Phase 2: HTTP API (Tasks 11–13)
+
+Three tasks: GET endpoint, POST cancel endpoint, router registration.
+
+### Task 11: `GET /api/active-ops` endpoint
+
+**Files:**
+- Create: `api/routes/active_ops.py`
+- Create: `tests/test_active_ops_endpoint.py`
+
+- [ ] **Step 1: Write failing tests.**
+
+Create `tests/test_active_ops_endpoint.py`:
+
+```python
+"""HTTP route tests for /api/active-ops (v0.35.0)."""
+from __future__ import annotations
+
+import asyncio
+import time
+
+import pytest
+from httpx import AsyncClient
+
+from main import app   # adjust import if app lives elsewhere
+
+
+@pytest.mark.asyncio
+async def test_get_active_ops_requires_operator_role(monkeypatch):
+    """Anonymous request → 401/403 depending on auth setup."""
+    # Project uses DEV_BYPASS_AUTH=true by default per CLAUDE.md gotchas;
+    # explicitly disable for this test
+    monkeypatch.setenv("DEV_BYPASS_AUTH", "false")
+    async with AsyncClient(app=app, base_url="http://test") as ac:
+        resp = await ac.get("/api/active-ops")
+    assert resp.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_get_active_ops_returns_running_ops(authed_operator):
+    """authed_operator is a fixture (define in conftest) that yields
+    an AsyncClient with operator role. Existing project tests use a
+    similar pattern — find an example and mirror it."""
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="Test op", icon="⚙",
+        origin_url="/history.html", started_by="op@test",
+    )
+    try:
+        resp = await authed_operator.get("/api/active-ops")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "ops" in body
+        op_ids = {o["op_id"] for o in body["ops"]}
+        assert op_id in op_ids
+
+        # Verify shape of one op
+        op_dict = next(o for o in body["ops"] if o["op_id"] == op_id)
+        assert op_dict["op_type"] == "pipeline.run_now"
+        assert op_dict["label"] == "Test op"
+        assert op_dict["origin_url"] == "/history.html"
+        assert op_dict["finished_at_epoch"] is None
+        assert op_dict["cancellable"] is False
+    finally:
+        await active_ops.finish_op(op_id)
+
+
+@pytest.mark.asyncio
+async def test_get_active_ops_excludes_finished_older_than_30s(authed_operator):
+    """Spec §10 — 30s grace window."""
+    from core import active_ops
+    from core.db.connection import db_write_with_retry
+    from core.database import _async_execute
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="op@test",
+    )
+    await active_ops.finish_op(op_id)
+    # Back-date in DB and in-memory
+    old = time.time() - 31
+    await db_write_with_retry(lambda: _async_execute(
+        "UPDATE active_operations SET finished_at_epoch=? WHERE op_id=?",
+        (old, op_id),
+    ))
+    async with active_ops._lock:
+        active_ops._ops[op_id].finished_at_epoch = old
+
+    resp = await authed_operator.get("/api/active-ops")
+    op_ids = {o["op_id"] for o in resp.json()["ops"]}
+    assert op_id not in op_ids
+
+
+@pytest.mark.asyncio
+async def test_get_active_ops_no_cache_header(authed_operator):
+    resp = await authed_operator.get("/api/active-ops")
+    cc = resp.headers.get("cache-control", "").lower()
+    assert "no-cache" in cc or "no-store" in cc
+```
+
+If `authed_operator` fixture doesn't exist, look at any existing `tests/test_*_endpoint.py` to copy the pattern. Likely it builds an `AsyncClient` with a test JWT or with `DEV_BYPASS_AUTH=true`.
+
+- [ ] **Step 2: Run; confirm failure.**
+
+```bash
+docker-compose exec markflow pytest tests/test_active_ops_endpoint.py -v
+```
+Expected: FAIL — endpoints don't exist.
+
+- [ ] **Step 3: Implement the GET endpoint.**
+
+Create `api/routes/active_ops.py`:
+
+```python
+"""Active Operations Registry — HTTP API (v0.35.0).
+
+Spec: docs/superpowers/specs/2026-04-28-active-operations-registry-design.md
+
+Endpoints:
+    GET  /api/active-ops                  — running + finished-within-30s
+    POST /api/active-ops/{op_id}/cancel   — operator-triggered cancel
+"""
+from __future__ import annotations
+
+import structlog
+from fastapi import APIRouter, Depends, HTTPException, Response
+
+from core import active_ops
+from core.auth import AuthenticatedUser, UserRole, require_role
+
+log = structlog.get_logger(__name__)
+
+router = APIRouter(prefix="/api/active-ops", tags=["active-ops"])
+
+
+@router.get("")
+async def list_active_ops(
+    response: Response,
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+) -> dict:
+    """Return all currently-running ops + ops finished within last 30s.
+
+    The 30s window lets the UI keep showing a "Done" state briefly
+    after completion, so the operator gets visual confirmation."""
+    ops = await active_ops.list_ops()
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return {"ops": [op.to_api_dict() for op in ops]}
+```
+
+- [ ] **Step 4: Register the router in `main.py`.**
+
+In `main.py`, find existing `app.include_router(...)` calls and add:
+
+```python
+from api.routes import active_ops as active_ops_routes
+app.include_router(active_ops_routes.router)
+```
+
+(Do this near the other router registrations to keep them grouped.)
+
+- [ ] **Step 5: Restart and run tests.**
+
+```bash
+docker-compose restart markflow
+docker-compose exec markflow pytest tests/test_active_ops_endpoint.py -k "get_active_ops" -v
+```
+Expected: PASS.
+
+- [ ] **Step 6: Commit.**
+
+```bash
+git add api/routes/active_ops.py main.py tests/test_active_ops_endpoint.py
+git commit -m "feat(active_ops): GET /api/active-ops endpoint"
+```
+
+---
+
+### Task 12: `POST /api/active-ops/{op_id}/cancel`
+
+**Files:**
+- Modify: `api/routes/active_ops.py`
+- Modify: `tests/test_active_ops_endpoint.py`
+
+- [ ] **Step 1: Write failing tests.**
+
+Append to `tests/test_active_ops_endpoint.py`:
+
+```python
+@pytest.mark.asyncio
+async def test_cancel_requires_manager_role(authed_operator, authed_manager):
+    """Operator role can read but not cancel; Manager can cancel.
+    authed_manager is a Manager-role-equivalent fixture."""
+    from core import active_ops
+
+    async def hook(op_id: str) -> None: ...
+    active_ops.register_cancel_hook("pipeline.run_now", hook)
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="op@test",
+        cancellable=True,
+    )
+
+    # Operator → 403
+    resp_op = await authed_operator.post(f"/api/active-ops/{op_id}/cancel")
+    assert resp_op.status_code in (401, 403)
+
+    # Manager → 200
+    resp_mgr = await authed_manager.post(f"/api/active-ops/{op_id}/cancel")
+    assert resp_mgr.status_code == 200
+    body = resp_mgr.json()
+    assert body["cancelled"] is True
+
+
+@pytest.mark.asyncio
+async def test_cancel_404_on_unknown_op_id(authed_manager):
+    resp = await authed_manager.post(
+        "/api/active-ops/00000000-0000-0000-0000-000000000000/cancel"
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_cancel_400_on_already_finished(authed_manager):
+    from core import active_ops
+
+    async def hook(op_id: str) -> None: ...
+    active_ops.register_cancel_hook("pipeline.run_now", hook)
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="op@test",
+        cancellable=True,
+    )
+    await active_ops.finish_op(op_id)
+
+    resp = await authed_manager.post(f"/api/active-ops/{op_id}/cancel")
+    assert resp.status_code == 400
+    assert "finished" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_cancel_400_on_uncancellable(authed_manager):
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="db.backup", label="DB Backup", icon="💾",
+        origin_url="/settings.html", started_by="op@test",
+        cancellable=False,
+    )
+    try:
+        resp = await authed_manager.post(f"/api/active-ops/{op_id}/cancel")
+        assert resp.status_code == 400
+        assert "uncancellable" in resp.json()["detail"].lower()
+    finally:
+        await active_ops.finish_op(op_id)
+```
+
+- [ ] **Step 2: Run; confirm failure.**
+
+```bash
+docker-compose exec markflow pytest tests/test_active_ops_endpoint.py -k "cancel" -v
+```
+
+- [ ] **Step 3: Implement the cancel endpoint.**
+
+Append to `api/routes/active_ops.py`:
+
+```python
+@router.post("/{op_id}/cancel")
+async def cancel_active_op(
+    op_id: str,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+) -> dict:
+    """Cancel a running op. 404 if op_id unknown, 400 if op already
+    finished or op_type uncancellable."""
+    op = await active_ops.get_op(op_id)
+    if op is None:
+        raise HTTPException(status_code=404, detail=f"Unknown op_id: {op_id}")
+    if op.finished_at_epoch is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="Operation already finished — cancel ignored.",
+        )
+    if not op.cancellable:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Operation type {op.op_type!r} is uncancellable.",
+        )
+
+    cancelled = await active_ops.cancel_op(op_id)
+    log.info(
+        "active_ops.cancel_requested",
+        op_id=op_id, op_type=op.op_type, by=user.email, success=cancelled,
+    )
+    return {
+        "cancelled": cancelled,
+        "message": (
+            "Cancel signal sent. Operation will stop within "
+            "the next progress tick."
+            if cancelled else
+            "Cancel hook failed — see error_msg on the op."
+        ),
+    }
+```
+
+- [ ] **Step 4: Run; confirm pass.**
+
+```bash
+docker-compose restart markflow
+docker-compose exec markflow pytest tests/test_active_ops_endpoint.py -v
+```
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add api/routes/active_ops.py tests/test_active_ops_endpoint.py
+git commit -m "feat(active_ops): POST /api/active-ops/{id}/cancel"
+```
+
+---
+
+### Task 13: Smoke-test the API end-to-end
+
+**Files:** none (manual verification)
+
+- [ ] **Step 1: Trigger a real op via the registry shell.**
+
+```bash
+docker-compose exec markflow python -c "
+import asyncio
+from core import active_ops
+
+async def hook(op_id): print('hook:', op_id)
+active_ops.register_cancel_hook('pipeline.run_now', hook)
+
+async def go():
+    op_id = await active_ops.register_op(
+        op_type='pipeline.run_now', label='Smoke E2E', icon='⚙',
+        origin_url='/history.html', started_by='smoke@test',
+        cancellable=True,
+    )
+    print('op_id:', op_id)
+    await active_ops.update_op(op_id, total=10, done=3)
+    print('Visit http://localhost:8000/api/active-ops and verify')
+    print('Or: docker-compose exec markflow curl -s http://localhost:8000/api/active-ops | python -m json.tool')
+    await asyncio.sleep(20)
+    await active_ops.finish_op(op_id)
+    print('finished')
+
+asyncio.run(go())
+" &
+sleep 3
+docker-compose exec markflow curl -s http://localhost:8000/api/active-ops | python -m json.tool
+```
+Expected: JSON with `ops` array containing the smoke op.
+
+- [ ] **Step 2: Confirm cache-control header.**
+
+```bash
+docker-compose exec markflow curl -sI http://localhost:8000/api/active-ops | grep -i cache-control
+```
+Expected: `Cache-Control: no-cache, no-store, must-revalidate`.
+
+- [ ] **Step 3: No commit needed (manual check).**
+
+**End of Phase 2.** HTTP surface ready. Next: workers register through Phase 3.
+
+---
+
+## Phase 3: Worker retrofits (Tasks 14–23)
+
+Each of the 10 op_types gets its workers wired into the registry. Pattern is uniform:
+
+1. At the start of the worker's background task: `op_id = await active_ops.register_op(...)`
+2. Inside the loop: `await active_ops.update_op(op_id, total=t, done=d, errors=e)` and check `if active_ops.is_cancelled(op_id): break` if cancellable
+3. At the end: `await active_ops.finish_op(op_id, error_msg=...)`
+4. (Cancellable types only) Register a cancel hook at module import via `active_ops.register_cancel_hook(op_type, hook)`
+
+A new test file `tests/test_active_ops_integration.py` collects the end-to-end verification — one test per op_type proving the worker registers, ticks, and finishes.
+
+### Task 14: Retrofit `pipeline.run_now`
+
+**Files:**
+- Modify: `api/routes/pipeline.py` (`_run` background task in `run_pipeline_now`)
+- Modify: `core/scan_coordinator.py` (register cancel hook + add `is_run_now_cancelled_via_active_ops`)
+- Create: `tests/test_active_ops_integration.py`
+
+- [ ] **Step 1: Write the integration test.**
+
+Create `tests/test_active_ops_integration.py`:
+
+```python
+"""End-to-end integration tests for each op_type retrofit (v0.35.0)."""
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+
+from core import active_ops
+
+
+@pytest.mark.asyncio
+async def test_pipeline_run_now_registers_op(authed_manager):
+    """POST /api/pipeline/run-now should result in a pipeline.run_now
+    op visible in /api/active-ops."""
+    resp = await authed_manager.post("/api/pipeline/run-now")
+    assert resp.status_code == 200
+
+    # Brief wait for the BackgroundTasks dispatcher to fire
+    await asyncio.sleep(0.5)
+
+    ops = await active_ops.list_ops()
+    pipeline_ops = [o for o in ops if o.op_type == "pipeline.run_now"]
+    assert len(pipeline_ops) >= 1
+    op = pipeline_ops[0]
+    assert op.origin_url == "/history.html"
+    assert op.cancellable is True
+    assert op.icon != ""
+
+    # Don't leave the op hanging — cancel for test cleanup
+    await active_ops.cancel_op(op.op_id)
+```
+
+- [ ] **Step 2: Run; confirm failure.**
+
+```bash
+docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_pipeline_run_now_registers_op -v
+```
+Expected: FAIL — no pipeline.run_now op registered.
+
+- [ ] **Step 3: Register the cancel hook in `core/scan_coordinator.py`.**
+
+At the bottom of `core/scan_coordinator.py`, add:
+
+```python
+# Active Operations Registry — cancel hook for pipeline.run_now (v0.35.0).
+# When operator clicks Cancel on the active-ops widget, registry calls
+# this hook which translates to the existing notify_run_now_cancelled
+# primitive that scan_coordinator already exposes.
+from core.active_ops import register_cancel_hook
+
+
+async def _cancel_run_now_via_active_ops(op_id: str) -> None:
+    notify_run_now_cancelled()
+
+
+register_cancel_hook("pipeline.run_now", _cancel_run_now_via_active_ops)
+```
+
+- [ ] **Step 4: Wire `register_op` / `finish_op` into `_run` in `api/routes/pipeline.py`.**
+
+Replace the existing `_run` inner function in `run_pipeline_now()` (around line 203). Current shape:
+
+```python
+    async def _run():
+        register_run_now_scan()
+        try:
+            notify_run_now_started()
+            if is_any_bulk_active():
+                log.info("pipeline.run_now_waiting_for_bulk")
+                await wait_if_run_now_paused()
+                if is_run_now_cancelled():
+                    log.info("pipeline.run_now_cancelled_while_waiting")
+                    return
+            await run_lifecycle_scan(force=True)
+        finally:
+            unregister_run_now_scan()
+```
+
+Replace with:
+
+```python
+    async def _run():
+        from core import active_ops
+        op_id = await active_ops.register_op(
+            op_type="pipeline.run_now",
+            label="Force Transcribe / Convert Pending",
+            icon="⚙",   # ⚙
+            origin_url="/history.html",
+            started_by=user.email,
+            cancellable=True,
+            cancel_url=f"/api/active-ops/(populated by frontend)/cancel",
+        )
+        register_run_now_scan()
+        error_msg = None
+        try:
+            notify_run_now_started()
+            if is_any_bulk_active():
+                log.info("pipeline.run_now_waiting_for_bulk")
+                await wait_if_run_now_paused()
+                if is_run_now_cancelled():
+                    log.info("pipeline.run_now_cancelled_while_waiting")
+                    error_msg = "Cancelled while waiting for bulk job"
+                    return
+            await run_lifecycle_scan(force=True)
+        except Exception as exc:
+            error_msg = f"{type(exc).__name__}: {exc}"
+            log.error("pipeline.run_now_failed", error=error_msg)
+            raise
+        finally:
+            unregister_run_now_scan()
+            await active_ops.finish_op(op_id, error_msg=error_msg)
+```
+
+**Note on `cancel_url`:** the URL contains the op_id, but op_id isn't known until `register_op` returns. The frontend doesn't actually use `cancel_url` — it constructs the URL from `/api/active-ops/{op.op_id}/cancel`. So the field is informational; we can leave it as the templated placeholder or set it to `None`. Set to `None` for clarity:
+
+```python
+            cancel_url=None,
+```
+
+(`None` means "frontend computes the URL from op_id"; non-None would mean "use this exact URL". For all our op_types in v1, frontend computes from op_id.)
+
+- [ ] **Step 5: Add per-tick progress updates.**
+
+`run_lifecycle_scan` already updates the `scan_runs` row as it goes. To bridge that into active_ops without changing the scanner internals, add a lightweight progress poller in `_run`. Insert before `await run_lifecycle_scan(force=True)`:
+
+```python
+            # Progress mirror: poll scan_runs every 2s and reflect into
+            # active_ops. Spec §17 P3: scan_runs is source of truth;
+            # active_ops is derived. The poller exits when run_lifecycle_scan
+            # returns.
+            async def _mirror_progress() -> None:
+                while True:
+                    await asyncio.sleep(2)
+                    if active_ops.is_cancelled(op_id):
+                        return
+                    try:
+                        from core.database import get_latest_scan_run
+                        scan = await get_latest_scan_run()
+                        if scan and scan.get("status") == "running":
+                            await active_ops.update_op(
+                                op_id,
+                                total=scan.get("files_total") or 0,
+                                done=scan.get("files_scanned") or 0,
+                                errors=scan.get("files_errored") or 0,
+                            )
+                    except Exception:
+                        pass
+
+            mirror_task = asyncio.create_task(_mirror_progress())
+            try:
+                await run_lifecycle_scan(force=True)
+            finally:
+                mirror_task.cancel()
+```
+
+`files_total`/`files_errored` may not exist as columns; use whatever the actual scan_runs schema provides. Inspect `core/db/scan_runs.py` (or whichever module) to confirm column names before writing.
+
+- [ ] **Step 6: Run integration test; confirm pass.**
+
+```bash
+docker-compose restart markflow
+docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_pipeline_run_now_registers_op -v
+```
+
+- [ ] **Step 7: Commit.**
+
+```bash
+git add api/routes/pipeline.py core/scan_coordinator.py tests/test_active_ops_integration.py
+git commit -m "feat(active_ops): retrofit pipeline.run_now + cancel hook"
+```
+
+---
+
+### Task 15: Retrofit `pipeline.convert_selected`
+
+**Files:**
+- Modify: `api/routes/pipeline.py` (`_convert_one_pending_file`, `_run_convert_selected_batch`, `convert_selected_files`)
+- Modify: `tests/test_active_ops_integration.py`
+
+- [ ] **Step 1: Append integration test.**
+
+```python
+@pytest.mark.asyncio
+async def test_convert_selected_registers_op(authed_operator, sample_pending_file_id):
+    """POST /api/pipeline/convert-selected with valid file_ids registers
+    a pipeline.convert_selected op. sample_pending_file_id is a fixture
+    returning a known-pending bulk_files.id (set up via test seed)."""
+    resp = await authed_operator.post(
+        "/api/pipeline/convert-selected",
+        json={"file_ids": [sample_pending_file_id]},
+    )
+    assert resp.status_code == 200
+
+    await asyncio.sleep(0.5)
+    ops = await active_ops.list_ops()
+    cs_ops = [o for o in ops if o.op_type == "pipeline.convert_selected"]
+    assert len(cs_ops) >= 1
+    assert cs_ops[0].cancellable is True
+```
+
+If `sample_pending_file_id` fixture doesn't exist, define one in `tests/conftest.py`:
+
+```python
+@pytest_asyncio.fixture
+async def sample_pending_file_id():
+    """Insert a fake pending bulk_files row and return its id."""
+    from core.db.connection import db_write_with_retry
+    from core.database import _async_execute
+    fid = "test-pending-" + uuid.uuid4().hex[:8]
+    await db_write_with_retry(lambda: _async_execute(
+        "INSERT INTO bulk_files (id, source_path, status, file_ext) "
+        "VALUES (?, '/tmp/fake.pdf', 'pending', 'pdf')",
+        (fid,),
+    ))
+    yield fid
+    await db_write_with_retry(lambda: _async_execute(
+        "DELETE FROM bulk_files WHERE id=?", (fid,),
+    ))
+```
+
+- [ ] **Step 2: Register cancel hook for `pipeline.convert_selected`.**
+
+At the bottom of `api/routes/pipeline.py`:
+
+```python
+# Active Operations Registry — cancel hook for pipeline.convert_selected.
+# Workers in _run_convert_selected_batch check active_ops.is_cancelled
+# per-file; this hook is a no-op (the registry's cancelled flag IS the
+# signal). Hook still required for register-time validation.
+from core.active_ops import register_cancel_hook as _register_cancel_hook
+
+
+async def _cancel_convert_selected_via_active_ops(op_id: str) -> None:
+    pass   # workers check is_cancelled() per file; no extra signal
+
+
+_register_cancel_hook("pipeline.convert_selected",
+                      _cancel_convert_selected_via_active_ops)
+```
+
+- [ ] **Step 3: Wire register/update/finish into `_run_convert_selected_batch`.**
+
+Replace the body of `_run_convert_selected_batch`:
+
+```python
+async def _run_convert_selected_batch(files: list[dict], user_email: str) -> None:
+    """Spawn per-file conversion tasks with a concurrency cap so a
+    100-file selection doesn't melt the worker pool. Caps at 4."""
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.convert_selected",
+        label=f"Convert Selected ({len(files)} files)",
+        icon="⚙",
+        origin_url="/history.html",
+        started_by=user_email,
+        cancellable=True,
+        extra={"file_count": len(files)},
+    )
+
+    sem = asyncio.Semaphore(4)
+    done_count = [0]
+    error_count = [0]
+    error_msg_holder = [None]
+
+    async def _bound(f: dict) -> None:
+        if active_ops.is_cancelled(op_id):
+            return
+        async with sem:
+            if active_ops.is_cancelled(op_id):
+                return
+            try:
+                await _convert_one_pending_file(f, user_email)
+            except Exception as exc:
+                error_count[0] += 1
+                log.error("convert_selected.file_failed",
+                          file_id=f.get("id"),
+                          error=f"{type(exc).__name__}: {exc}")
+            done_count[0] += 1
+            await active_ops.update_op(
+                op_id,
+                total=len(files),
+                done=done_count[0],
+                errors=error_count[0],
+            )
+
+    try:
+        await asyncio.gather(*(_bound(f) for f in files),
+                             return_exceptions=False)
+        if active_ops.is_cancelled(op_id):
+            error_msg_holder[0] = "Cancelled by operator"
+    except Exception as exc:
+        error_msg_holder[0] = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        await active_ops.finish_op(op_id, error_msg=error_msg_holder[0])
+
+    log.info(
+        "convert_selected.batch_complete",
+        count=len(files), errors=error_count[0],
+        cancelled=active_ops.is_cancelled(op_id),
+        user=user_email,
+    )
+```
+
+- [ ] **Step 4: Run integration test; confirm pass.**
+
+```bash
+docker-compose restart markflow
+docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_convert_selected_registers_op -v
+```
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add api/routes/pipeline.py tests/test_active_ops_integration.py tests/conftest.py
+git commit -m "feat(active_ops): retrofit pipeline.convert_selected + cancel"
+```
+
+---
+
+### Task 16: Retrofit `pipeline.scan` (lifecycle scanner)
+
+**Files:**
+- Modify: `core/lifecycle_scanner.py` (`run_lifecycle_scan` and tick paths)
+- Modify: `tests/test_active_ops_integration.py`
+
+- [ ] **Step 1: Append integration test.**
+
+```python
+@pytest.mark.asyncio
+async def test_pipeline_scan_registers_op_when_running(authed_manager):
+    """Triggering a scan registers a pipeline.scan op. Note: when
+    pipeline.run_now is the trigger, BOTH pipeline.run_now AND
+    pipeline.scan ops should appear (run_now is the orchestration;
+    scan is the work itself)."""
+    resp = await authed_manager.post("/api/pipeline/run-now")
+    assert resp.status_code == 200
+
+    # Wait long enough for scan to start
+    await asyncio.sleep(2)
+
+    ops = await active_ops.list_ops()
+    op_types = {o.op_type for o in ops}
+    assert "pipeline.scan" in op_types
+
+    scan_op = next(o for o in ops if o.op_type == "pipeline.scan")
+    assert scan_op.origin_url == "/status.html"
+    assert scan_op.cancellable is True
+
+    # Cleanup
+    for op in ops:
+        if op.op_type in ("pipeline.run_now", "pipeline.scan"):
+            await active_ops.cancel_op(op.op_id)
+```
+
+- [ ] **Step 2: Register cancel hook in `core/lifecycle_scanner.py`.**
+
+```python
+# Active Operations Registry — cancel hook for pipeline.scan.
+# Scanner observes active_ops.is_cancelled(op_id) at the top of each
+# batch loop. No extra subsystem signal needed.
+from core.active_ops import register_cancel_hook as _register_cancel_hook
+
+
+async def _cancel_scan_via_active_ops(op_id: str) -> None:
+    pass
+
+
+_register_cancel_hook("pipeline.scan", _cancel_scan_via_active_ops)
+```
+
+- [ ] **Step 3: Wrap `run_lifecycle_scan` body with register/finish.**
+
+In `run_lifecycle_scan(force: bool = False)` (or the public scan entry point), wrap the existing body:
+
+```python
+async def run_lifecycle_scan(force: bool = False) -> None:
+    """... existing docstring ..."""
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.scan",
+        label="Pipeline scan" + (" (manual)" if force else ""),
+        icon="\U0001F50D",   # 🔍
+        origin_url="/status.html",
+        started_by="scheduler" if not force else "operator",
+        cancellable=True,
+        extra={"trigger": "manual" if force else "scheduled"},
+    )
+    error_msg = None
+    try:
+        # ... existing scan body, with periodic active_ops.update_op
+        # calls and is_cancelled() checks as below ...
+
+        # Inside the file-iteration loop, around the existing
+        # progress / counter updates, add:
+        #
+        #     if active_ops.is_cancelled(op_id):
+        #         log.info("lifecycle_scanner.cancelled_by_active_ops")
+        #         break
+        #     await active_ops.update_op(
+        #         op_id,
+        #         total=total_files_estimate,
+        #         done=files_processed_so_far,
+        #         errors=files_errored_so_far,
+        #     )
+    except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        if active_ops.is_cancelled(op_id) and error_msg is None:
+            error_msg = "Cancelled by operator"
+        await active_ops.finish_op(op_id, error_msg=error_msg)
+```
+
+The exact tick locations depend on the scanner's existing loop — find every existing place where the `scan_runs` row is updated (via `update_scan_run` or similar) and add an `await active_ops.update_op(op_id, ...)` immediately after, mirroring the same counters.
+
+- [ ] **Step 4: Run integration test; confirm pass.**
+
+```bash
+docker-compose restart markflow
+docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_pipeline_scan_registers_op_when_running -v
+```
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add core/lifecycle_scanner.py tests/test_active_ops_integration.py
+git commit -m "feat(active_ops): retrofit pipeline.scan + cancel"
+```
+
+---
+
+### Task 17: Retrofit `trash.empty` + deprecated facade endpoint
+
+**Files:**
+- Modify: `api/routes/trash.py` (replace `_empty_trash_status` worker with registry calls)
+- Modify: `tests/test_active_ops_integration.py`
+
+- [ ] **Step 1: Append integration test.**
+
+```python
+@pytest.mark.asyncio
+async def test_trash_empty_registers_op_replacing_old_dict(authed_manager):
+    resp = await authed_manager.post("/api/trash/empty")
+    assert resp.status_code == 200
+
+    await asyncio.sleep(0.5)
+    ops = await active_ops.list_ops()
+    trash_ops = [o for o in ops if o.op_type == "trash.empty"]
+    assert len(trash_ops) >= 1
+    assert trash_ops[0].origin_url == "/trash.html"
+
+    # Old facade still works (returns shape derived from registry)
+    resp_facade = await authed_manager.get("/api/trash/empty/status")
+    assert resp_facade.status_code == 200
+    body = resp_facade.json()
+    # Must include legacy keys: running, total, done, errors
+    assert {"running", "total", "done", "errors"}.issubset(body.keys())
+    assert body["running"] is True or body["running"] is False
+    # Deprecation header
+    assert resp_facade.headers.get("Deprecation", "").lower() == "true"
+```
+
+- [ ] **Step 2: Register cancel hook + retrofit worker in `api/routes/trash.py`.**
+
+Find the existing `_empty_trash_status` module-level dict and the worker that mutates it (likely an async function called from a background task). Replace.
+
+At module top of `api/routes/trash.py`:
+
+```python
+# Active Operations Registry retrofit (v0.35.0). Replaces the legacy
+# _empty_trash_status / _restore_all_status module dicts. The legacy
+# /api/trash/empty/status and /api/trash/restore-all/status endpoints
+# remain as deprecated facades for one release (BUG-011, slated for
+# removal in v0.36.x).
+from core import active_ops
+from core.active_ops import register_cancel_hook as _register_cancel_hook
+
+_empty_trash_op_id: str | None = None
+_empty_trash_cancel_event = asyncio.Event()
+
+
+async def _cancel_empty_trash_via_active_ops(op_id: str) -> None:
+    _empty_trash_cancel_event.set()
+
+
+_register_cancel_hook("trash.empty", _cancel_empty_trash_via_active_ops)
+```
+
+In the existing worker function (find the function that processes trash files and mutates `_empty_trash_status`), replace dict mutations with registry calls:
+
+```python
+async def _empty_trash_worker(user_email: str) -> None:
+    global _empty_trash_op_id
+
+    op_id = await active_ops.register_op(
+        op_type="trash.empty",
+        label="Emptying trash",
+        icon="\U0001F5D1",   # 🗑
+        origin_url="/trash.html",
+        started_by=user_email,
+        cancellable=True,
+    )
+    _empty_trash_op_id = op_id
+    _empty_trash_cancel_event.clear()
+
+    error_msg = None
+    try:
+        files_to_purge = await _list_trash_files()
+        total = len(files_to_purge)
+        await active_ops.update_op(op_id, total=total)
+
+        done = 0
+        errors = 0
+        for f in files_to_purge:
+            if (active_ops.is_cancelled(op_id)
+                    or _empty_trash_cancel_event.is_set()):
+                error_msg = "Cancelled by operator"
+                break
+            try:
+                await _delete_trash_file(f)
+            except Exception as exc:
+                errors += 1
+                log.warning("trash.empty.file_failed",
+                            file=str(f), error=str(exc))
+            done += 1
+            await active_ops.update_op(op_id, done=done, errors=errors)
+    except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        await active_ops.finish_op(op_id, error_msg=error_msg)
+        _empty_trash_op_id = None
+```
+
+`_list_trash_files()` and `_delete_trash_file()` are placeholders for the existing helper functions — find and reuse the actual names in the current code.
+
+- [ ] **Step 3: Convert `/api/trash/empty/status` to a deprecated facade.**
+
+Replace the existing `GET /api/trash/empty/status` handler:
+
+```python
+@router.get("/empty/status")
+async def empty_trash_status_legacy(
+    response: Response,
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+) -> dict:
+    """DEPRECATED facade — use GET /api/active-ops with op_type filter
+    'trash.empty' instead. Kept for one release; removal scheduled
+    for v0.36.x (BUG-011)."""
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = "Sun, 01 Jun 2026 00:00:00 GMT"
+    response.headers["Link"] = '</api/active-ops>; rel="successor-version"'
+
+    if _empty_trash_op_id is None:
+        return {"running": False, "total": 0, "done": 0, "errors": 0}
+    op = await active_ops.get_op(_empty_trash_op_id)
+    if op is None:
+        return {"running": False, "total": 0, "done": 0, "errors": 0}
+    return {
+        "running": op.finished_at_epoch is None,
+        "total": op.total,
+        "done": op.done,
+        "errors": op.errors,
+        "started_at_epoch": op.started_at_epoch,
+        "last_progress_at_epoch": op.last_progress_at_epoch,
+    }
+```
+
+- [ ] **Step 4: Run integration test; confirm pass.**
+
+```bash
+docker-compose restart markflow
+docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_trash_empty_registers_op_replacing_old_dict -v
+```
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add api/routes/trash.py tests/test_active_ops_integration.py
+git commit -m "feat(active_ops): retrofit trash.empty + deprecated facade"
+```
+
+---
+
+### Task 18: Retrofit `trash.restore_all` + facade
+
+**Files:**
+- Modify: `api/routes/trash.py`
+- Modify: `tests/test_active_ops_integration.py`
+
+- [ ] **Step 1: Append integration test.**
+
+```python
+@pytest.mark.asyncio
+async def test_trash_restore_all_registers_op(authed_manager):
+    resp = await authed_manager.post("/api/trash/restore-all")
+    assert resp.status_code == 200
+    await asyncio.sleep(0.5)
+    ops = await active_ops.list_ops()
+    matching = [o for o in ops if o.op_type == "trash.restore_all"]
+    assert len(matching) >= 1
+    assert matching[0].origin_url == "/trash.html"
+
+    resp_facade = await authed_manager.get("/api/trash/restore-all/status")
+    assert resp_facade.headers.get("Deprecation", "").lower() == "true"
+```
+
+- [ ] **Step 2: Repeat the Task 17 pattern for restore_all in `api/routes/trash.py`.**
+
+At module level:
+
+```python
+_restore_all_op_id: str | None = None
+_restore_all_cancel_event = asyncio.Event()
+
+
+async def _cancel_restore_all_via_active_ops(op_id: str) -> None:
+    _restore_all_cancel_event.set()
+
+
+_register_cancel_hook("trash.restore_all", _cancel_restore_all_via_active_ops)
+```
+
+Worker:
+
+```python
+async def _restore_all_worker(user_email: str) -> None:
+    global _restore_all_op_id
+
+    op_id = await active_ops.register_op(
+        op_type="trash.restore_all",
+        label="Restoring all from trash",
+        icon="♻",   # ♻
+        origin_url="/trash.html",
+        started_by=user_email,
+        cancellable=True,
+    )
+    _restore_all_op_id = op_id
+    _restore_all_cancel_event.clear()
+
+    error_msg = None
+    try:
+        files_to_restore = await _list_trashed_files()
+        total = len(files_to_restore)
+        await active_ops.update_op(op_id, total=total)
+
+        done = 0
+        errors = 0
+        for f in files_to_restore:
+            if (active_ops.is_cancelled(op_id)
+                    or _restore_all_cancel_event.is_set()):
+                error_msg = "Cancelled by operator"
+                break
+            try:
+                await _restore_trash_file(f)
+            except Exception as exc:
+                errors += 1
+                log.warning("trash.restore_all.file_failed",
+                            file=str(f), error=str(exc))
+            done += 1
+            await active_ops.update_op(op_id, done=done, errors=errors)
+    except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        await active_ops.finish_op(op_id, error_msg=error_msg)
+        _restore_all_op_id = None
+```
+
+Facade:
+
+```python
+@router.get("/restore-all/status")
+async def restore_all_status_legacy(
+    response: Response,
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+) -> dict:
+    """DEPRECATED — use GET /api/active-ops (BUG-011)."""
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = "Sun, 01 Jun 2026 00:00:00 GMT"
+    response.headers["Link"] = '</api/active-ops>; rel="successor-version"'
+
+    if _restore_all_op_id is None:
+        return {"running": False, "total": 0, "done": 0, "errors": 0}
+    op = await active_ops.get_op(_restore_all_op_id)
+    if op is None:
+        return {"running": False, "total": 0, "done": 0, "errors": 0}
+    return {
+        "running": op.finished_at_epoch is None,
+        "total": op.total,
+        "done": op.done,
+        "errors": op.errors,
+        "started_at_epoch": op.started_at_epoch,
+        "last_progress_at_epoch": op.last_progress_at_epoch,
+    }
+```
+
+- [ ] **Step 3: Run integration test; confirm pass.**
+
+```bash
+docker-compose restart markflow
+docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_trash_restore_all_registers_op -v
+```
+
+- [ ] **Step 4: Commit.**
+
+```bash
+git add api/routes/trash.py tests/test_active_ops_integration.py
+git commit -m "feat(active_ops): retrofit trash.restore_all + deprecated facade"
+```
+
+---
+
+### Task 19: Retrofit `search.rebuild_index`
+
+**Files:**
+- Modify: `api/routes/pipeline.py` (the `/api/pipeline/rebuild-index` handler) OR wherever it lives — `grep -rn 'rebuild-index' api/` to confirm.
+- Modify: `tests/test_active_ops_integration.py`
+
+- [ ] **Step 1: Locate the rebuild-index handler.**
+
+```bash
+grep -rn 'rebuild.index\|rebuild_index' api/ core/ | head -10
+```
+Identify the file + function. The frontend's pipeline-card.js POSTs to `/api/pipeline/rebuild-index`.
+
+- [ ] **Step 2: Append integration test.**
+
+```python
+@pytest.mark.asyncio
+async def test_search_rebuild_index_registers_op(authed_manager):
+    resp = await authed_manager.post("/api/pipeline/rebuild-index")
+    assert resp.status_code == 200
+    await asyncio.sleep(0.3)
+    ops = await active_ops.list_ops()
+    rebuild_ops = [o for o in ops if o.op_type == "search.rebuild_index"]
+    assert len(rebuild_ops) >= 1
+    assert rebuild_ops[0].origin_url == "/settings.html"
+    assert rebuild_ops[0].cancellable is False   # uncancellable per spec §9
+```
+
+- [ ] **Step 3: Wire register/update/finish into the handler's background task.**
+
+Inside the existing rebuild background task, add:
+
+```python
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="search.rebuild_index",
+        label="Rebuilding search index",
+        icon="\U0001F504",   # 🔄
+        origin_url="/settings.html",
+        started_by=user_email,
+        cancellable=False,   # Meili rebuild is atomic-ish; no cancel
+        extra={"indexes": ["documents", "adobe-files", "transcripts"]},
+    )
+    error_msg = None
+    try:
+        # ... existing rebuild body ...
+        # Where the existing code emits per-document progress, add:
+        #     await active_ops.update_op(op_id, total=total_docs, done=docs_indexed)
+    except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        await active_ops.finish_op(op_id, error_msg=error_msg)
+```
+
+If the existing rebuild has no progress signal (just runs to completion), keep total=0 / done=0 — UI will show indeterminate spinner.
+
+- [ ] **Step 4: Run; confirm pass.**
+
+```bash
+docker-compose restart markflow
+docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_search_rebuild_index_registers_op -v
+```
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add <files> tests/test_active_ops_integration.py
+git commit -m "feat(active_ops): retrofit search.rebuild_index"
+```
+
+---
+
+### Task 20: Retrofit `analysis.rebuild`
+
+**Files:**
+- Modify: `api/routes/analysis.py` (the bulk re-analyze endpoint from v0.31.0)
+- Modify: `tests/test_active_ops_integration.py`
+
+- [ ] **Step 1: Locate the bulk re-analyze handler.**
+
+```bash
+grep -rn "re_analyze\|reanalyze\|rebuild_analysis" api/routes/analysis.py | head -10
+```
+
+- [ ] **Step 2: Append integration test.**
+
+```python
+@pytest.mark.asyncio
+async def test_analysis_rebuild_registers_op(authed_operator):
+    """Bulk re-analyze (v0.31.0) endpoint registers analysis.rebuild op.
+    Use a small batch_id sample. Adjust path to match the actual
+    endpoint discovered in Step 1."""
+    # Find a real batch_id; if none exist, create one via test seed
+    resp = await authed_operator.post(
+        "/api/analysis/batches/<test-batch-id>/re-analyze",
+    )
+    if resp.status_code == 404:
+        pytest.skip("No batches available for this integration test")
+    assert resp.status_code in (200, 202)
+    await asyncio.sleep(0.3)
+    ops = await active_ops.list_ops()
+    matching = [o for o in ops if o.op_type == "analysis.rebuild"]
+    assert len(matching) >= 1
+    assert matching[0].origin_url == "/batch-management.html"
+    assert matching[0].cancellable is True
+```
+
+- [ ] **Step 3: Register cancel hook + retrofit the worker.**
+
+At module top of `api/routes/analysis.py`:
+
+```python
+from core import active_ops
+from core.active_ops import register_cancel_hook as _register_cancel_hook
+
+
+async def _cancel_analysis_rebuild_via_active_ops(op_id: str) -> None:
+    pass   # workers check is_cancelled() per file
+
+
+_register_cancel_hook("analysis.rebuild", _cancel_analysis_rebuild_via_active_ops)
+```
+
+In the bulk re-analyze worker:
+
+```python
+    op_id = await active_ops.register_op(
+        op_type="analysis.rebuild",
+        label=f"Re-analyzing batch {batch_id}",
+        icon="♻",   # ♻
+        origin_url="/batch-management.html",
+        started_by=user_email,
+        cancellable=True,
+        extra={"batch_id": batch_id},
+    )
+    error_msg = None
+    try:
+        # ... iterate over files in the batch ...
+        for i, f in enumerate(files_to_reanalyze):
+            if active_ops.is_cancelled(op_id):
+                error_msg = "Cancelled by operator"
+                break
+            await _re_analyze_one(f)
+            await active_ops.update_op(
+                op_id,
+                total=len(files_to_reanalyze),
+                done=i + 1,
+            )
+    except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        await active_ops.finish_op(op_id, error_msg=error_msg)
+```
+
+- [ ] **Step 4: Run; confirm pass.**
+
+```bash
+docker-compose restart markflow
+docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_analysis_rebuild_registers_op -v
+```
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add api/routes/analysis.py tests/test_active_ops_integration.py
+git commit -m "feat(active_ops): retrofit analysis.rebuild + cancel"
+```
+
+---
+
+### Task 21: Retrofit `db.backup`
+
+**Files:**
+- Modify: `api/routes/admin.py` or wherever `/api/admin/db/backup` lives — `grep -rn "db_backup\|/backup" api/ core/db_backup.py | head -10`
+- Modify: `tests/test_active_ops_integration.py`
+
+- [ ] **Step 1: Append integration test.**
+
+```python
+@pytest.mark.asyncio
+async def test_db_backup_registers_op(authed_admin):
+    """authed_admin: ADMIN-role fixture. DB backup typically requires
+    ADMIN, not just MANAGER. Verify the actual role on the existing
+    endpoint."""
+    resp = await authed_admin.post("/api/admin/db/backup")
+    assert resp.status_code in (200, 202)
+    await asyncio.sleep(0.3)
+    ops = await active_ops.list_ops()
+    matching = [o for o in ops if o.op_type == "db.backup"]
+    assert len(matching) >= 1
+    assert matching[0].origin_url == "/settings.html"
+    assert matching[0].cancellable is False
+```
+
+- [ ] **Step 2: Wire register/finish in the backup handler.**
+
+```python
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="db.backup",
+        label="Database backup",
+        icon="\U0001F4BE",   # 💾
+        origin_url="/settings.html",
+        started_by=user.email,
+        cancellable=False,
+        extra={"path": str(backup_path)},
+    )
+    error_msg = None
+    try:
+        # ... existing backup body ...
+        # If progress is available (it's bounded by db file size),
+        # emit periodic update_op calls during the backup.
+    except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        await active_ops.finish_op(op_id, error_msg=error_msg)
+```
+
+- [ ] **Step 3: Run; confirm pass.**
+
+```bash
+docker-compose restart markflow
+docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_db_backup_registers_op -v
+```
+
+- [ ] **Step 4: Commit.**
+
+```bash
+git add <files> tests/test_active_ops_integration.py
+git commit -m "feat(active_ops): retrofit db.backup"
+```
+
+---
+
+### Task 22: Retrofit `db.restore`
+
+**Files:**
+- Modify: same module as Task 21 (the restore handler is adjacent)
+- Modify: `tests/test_active_ops_integration.py`
+
+- [ ] **Step 1: Append integration test.**
+
+```python
+@pytest.mark.asyncio
+async def test_db_restore_registers_op(authed_admin, sample_backup_file):
+    """sample_backup_file is a fixture pointing at a known good
+    backup .sqlite file produced by a previous test or seeded."""
+    resp = await authed_admin.post(
+        "/api/admin/db/restore",
+        json={"backup_path": str(sample_backup_file)},
+    )
+    if resp.status_code == 404:
+        pytest.skip("Restore endpoint shape may differ — adjust path")
+    assert resp.status_code in (200, 202)
+    await asyncio.sleep(0.3)
+    ops = await active_ops.list_ops()
+    matching = [o for o in ops if o.op_type == "db.restore"]
+    assert len(matching) >= 1
+    assert matching[0].cancellable is False
+```
+
+- [ ] **Step 2: Wire register/finish in the restore handler.**
+
+```python
+    op_id = await active_ops.register_op(
+        op_type="db.restore",
+        label="Database restore",
+        icon="↩",   # ↩
+        origin_url="/settings.html",
+        started_by=user.email,
+        cancellable=False,
+        extra={"path": str(restore_path)},
+    )
+    error_msg = None
+    try:
+        # ... existing restore body ...
+    except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        await active_ops.finish_op(op_id, error_msg=error_msg)
+```
+
+- [ ] **Step 3: Run; confirm pass.**
+
+- [ ] **Step 4: Commit.**
+
+```bash
+git add <files> tests/test_active_ops_integration.py
+git commit -m "feat(active_ops): retrofit db.restore"
+```
+
+---
+
+### Task 23: Retrofit `bulk.job` (BulkJob thin mirror)
+
+**Files:**
+- Modify: `core/bulk_worker.py` (BulkJob class — `run()` / `tick()` / `finalize()`)
+- Modify: `tests/test_active_ops_integration.py`
+
+- [ ] **Step 1: Append integration test.**
+
+```python
+@pytest.mark.asyncio
+async def test_bulk_job_registers_thin_mirror(authed_manager,
+                                                 small_bulk_job):
+    """small_bulk_job is a fixture that creates a tiny convertible
+    bulk job and yields its job_id. Adjust to match existing test
+    helpers in the project."""
+    job_id = small_bulk_job
+    await asyncio.sleep(1)   # let BulkJob.run() start
+
+    ops = await active_ops.list_ops()
+    bulk_ops = [o for o in ops if o.op_type == "bulk.job"]
+    assert len(bulk_ops) >= 1
+    op = bulk_ops[0]
+    assert op.origin_url == f"/bulk.html?job_id={job_id}"
+    assert op.extra.get("bulk_job_id") == job_id
+    assert op.cancellable is True
+```
+
+- [ ] **Step 2: Register cancel hook in `core/bulk_worker.py`.**
+
+At module top:
+
+```python
+from core import active_ops
+from core.active_ops import register_cancel_hook as _register_cancel_hook
+
+
+async def _cancel_bulk_job_via_active_ops(op_id: str) -> None:
+    op = await active_ops.get_op(op_id)
+    if op is None:
+        return
+    bulk_job_id = op.extra.get("bulk_job_id")
+    if not bulk_job_id:
+        return
+    # Existing BulkJob.cancel() expects a job_id; reuse it
+    BulkJob.cancel(bulk_job_id)
+
+
+_register_cancel_hook("bulk.job", _cancel_bulk_job_via_active_ops)
+```
+
+- [ ] **Step 3: Wire BulkJob lifecycle into the registry.**
+
+Add an `_active_op_id: str | None = None` instance attribute to BulkJob (`__init__`).
+
+In `BulkJob.run()` (or whichever method starts the job):
+
+```python
+    self._active_op_id = await active_ops.register_op(
+        op_type="bulk.job",
+        label=f"Bulk job: {self.kind}",
+        icon="⚙",   # ⚙
+        origin_url=f"/bulk.html?job_id={self.id}",
+        started_by=self.user_email,
+        cancellable=True,
+        extra={"bulk_job_id": self.id, "kind": self.kind},
+    )
+```
+
+In the per-file or per-batch tick (find the existing place where bulk_jobs.processed / failed counters are updated):
+
+```python
+    if self._active_op_id:
+        await active_ops.update_op(
+            self._active_op_id,
+            total=self.total,
+            done=self.processed,
+            errors=self.failed,
+        )
+```
+
+In `BulkJob.finalize()` (or the equivalent terminal method):
+
+```python
+    if self._active_op_id:
+        error_msg = None
+        if self.terminal_error:
+            error_msg = self.terminal_error
+        elif self.cancelled:
+            error_msg = "Cancelled by operator"
+        await active_ops.finish_op(self._active_op_id, error_msg=error_msg)
+```
+
+- [ ] **Step 4: Run; confirm pass.**
+
+```bash
+docker-compose restart markflow
+docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_bulk_job_registers_thin_mirror -v
+```
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add core/bulk_worker.py tests/test_active_ops_integration.py
+git commit -m "feat(active_ops): BulkJob thin mirror + cancel hook"
+```
+
+**End of Phase 3.** All 10 op_types now register through the registry. Frontend is next.
+
+---
+
+## Phase 4: Frontend (Tasks 24–34)
+
+Frontend tests stay manual per project convention (CLAUDE.md). Each task ends with a smoke check. Cache-bust convention: every script-tag query string becomes `?v=0.35.0`.
+
+### Task 24: `static/js/active-ops-poller.js` — shared poller
+
+**Files:**
+- Create: `static/js/active-ops-poller.js`
+
+- [ ] **Step 1: Create the file.**
+
+```js
+/**
+ * Active Operations Poller — shared frontend module (v0.35.0).
+ *
+ * One source of polling for /api/active-ops. Pages register subscribers;
+ * one HTTP request per tick fans out to all subscribers. Visibility-
+ * aware (pauses while tab hidden, matches auto-refresh.js convention).
+ *
+ * Public surface:
+ *   window.ActiveOpsPoller.subscribe(handler);    // handler(ops_array)
+ *   window.ActiveOpsPoller.unsubscribe(handler);
+ *   window.ActiveOpsPoller.refresh();              // force one tick
+ *
+ * Backend contract: GET /api/active-ops returns {"ops": [...]}.
+ *
+ * Security: all values handed to subscribers are JSON primitives
+ * (the server controls the shape). Subscribers must use textContent /
+ * createElement, never innerHTML. See active-op-widget.js for
+ * conventions.
+ */
+(function () {
+  'use strict';
+
+  if (window.__activeOpsPollerInstalled) return;
+  window.__activeOpsPollerInstalled = true;
+
+  var POLL_MS = 2000;
+  var subscribers = [];
+  var lastResult = null;
+  var pollTimer = null;
+
+  async function fetchOnce() {
+    try {
+      var res = await fetch('/api/active-ops', { credentials: 'same-origin' });
+      if (!res.ok) return null;
+      var body = await res.json();
+      return Array.isArray(body && body.ops) ? body.ops : [];
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function tick() {
+    if (document.visibilityState !== 'visible') return;
+    var ops = await fetchOnce();
+    if (ops == null) return;   // network error; keep last result for subscribers
+    lastResult = ops;
+    for (var i = 0; i < subscribers.length; i++) {
+      try { subscribers[i](ops); } catch (e) { /* subscriber bug; isolate */ }
+    }
+  }
+
+  function startPolling() {
+    if (pollTimer) return;
+    tick();
+    pollTimer = setInterval(tick, POLL_MS);
+  }
+
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') {
+      startPolling();
+      tick();
+    } else {
+      stopPolling();
+    }
+  });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startPolling);
+  } else {
+    startPolling();
+  }
+
+  window.ActiveOpsPoller = {
+    subscribe: function (handler) {
+      if (typeof handler !== 'function') return;
+      subscribers.push(handler);
+      // If we have a cached result, deliver it immediately
+      if (lastResult) { try { handler(lastResult); } catch (e) {} }
+    },
+    unsubscribe: function (handler) {
+      var i = subscribers.indexOf(handler);
+      if (i >= 0) subscribers.splice(i, 1);
+    },
+    refresh: tick,
+  };
+})();
+```
+
+- [ ] **Step 2: Smoke test in browser.**
+
+After loading any page (e.g., `/status.html`) with this script tag added, open DevTools console:
+
+```js
+ActiveOpsPoller.subscribe(ops => console.log('ops:', ops.length));
+```
+
+Expected: console logs an op count every 2s.
+
+- [ ] **Step 3: Commit.**
+
+```bash
+git add static/js/active-ops-poller.js
+git commit -m "feat(active_ops): shared frontend poller (v0.35.0)"
+```
+
+---
+
+### Task 25: `static/js/active-op-widget.js` — inline widget
+
+**Files:**
+- Create: `static/js/active-op-widget.js`
+
+- [ ] **Step 1: Create the file.**
+
+```js
+/**
+ * Active Op Widget — inline progress display (v0.35.0).
+ *
+ * Mounts a self-updating list of currently-running operations matching
+ * a per-page filter. Used on origin pages (history.html, trash.html,
+ * settings.html, batch-management.html, bulk.html).
+ *
+ * Public:
+ *   window.mountActiveOpWidget(containerEl, opts);
+ *
+ * Options:
+ *   filter:        (op) => bool  — page-specific predicate
+ *   highlightOpId: string        — pulse-and-scroll this op on first render
+ *
+ * Styling: CSS variables only (var(--surface), var(--text), etc.).
+ * No hardcoded colors. UX redesign can re-skin without touching JS
+ * (spec §17 P8).
+ *
+ * Security: all rendered content via createElement + textContent.
+ */
+(function () {
+  'use strict';
+
+  function el(tag, opts, kids) {
+    var n = document.createElement(tag);
+    if (opts) {
+      if (opts.text != null) n.textContent = String(opts.text);
+      if (opts.cls) n.className = opts.cls;
+      if (opts.style) n.style.cssText = opts.style;
+      if (opts.attrs) {
+        for (var k in opts.attrs) n.setAttribute(k, opts.attrs[k]);
+      }
+      if (opts.onClick) n.addEventListener('click', opts.onClick);
+    }
+    if (kids) {
+      for (var i = 0; i < kids.length; i++) {
+        if (kids[i] != null) n.appendChild(kids[i]);
+      }
+    }
+    return n;
+  }
+
+  function fmtNum(x) {
+    return x == null ? '?' : Number(x).toLocaleString();
+  }
+
+  function fmtDuration(seconds) {
+    if (!isFinite(seconds) || seconds < 0) return '?';
+    seconds = Math.round(seconds);
+    if (seconds < 60) return seconds + 's';
+    var m = Math.floor(seconds / 60), s = seconds % 60;
+    if (m < 60) return m + 'm ' + s + 's';
+    var h = Math.floor(m / 60);
+    return h + 'h ' + (m % 60) + 'm';
+  }
+
+  // Per-op rate state (EWMA over done deltas) for client-side ETA.
+  // Server doesn't ship ETA; we derive it.
+  function makeRateTracker() {
+    var lastDone = null, lastT = null, rate = 0, ALPHA = 0.3;
+    return function update(done) {
+      var now = Date.now();
+      if (lastDone != null && lastT != null) {
+        var dt = (now - lastT) / 1000;
+        var dd = done - lastDone;
+        if (dt > 0 && dd >= 0) {
+          var instant = dd / dt;
+          rate = (rate === 0) ? instant : ALPHA * instant + (1 - ALPHA) * rate;
+        }
+      }
+      lastDone = done;
+      lastT = now;
+      return rate;
+    };
+  }
+
+  function buildRow(op, rateTracker, opts) {
+    var card = el('div', {
+      cls: 'card active-op-row',
+      attrs: { 'data-op-id': op.op_id },
+      style: 'padding:0.75rem 1rem; margin-bottom:0.5rem;',
+    });
+
+    var header = el('div', {
+      style: 'display:flex; align-items:center; gap:0.5rem; margin-bottom:0.4rem;',
+    });
+    header.appendChild(el('span', { text: op.icon || '⏳', style: 'font-size:1.1rem;' }));
+    header.appendChild(el('strong', { text: op.label }));
+
+    if (op.cancellable && !op.finished_at_epoch) {
+      var cancelBtn = el('button', {
+        cls: 'btn btn-ghost btn-sm',
+        text: 'Cancel',
+        attrs: { type: 'button' },
+        style: 'margin-left:auto;',
+        onClick: async function () {
+          cancelBtn.disabled = true;
+          cancelBtn.textContent = 'Cancelling…';
+          try {
+            await fetch('/api/active-ops/' + encodeURIComponent(op.op_id) + '/cancel', {
+              method: 'POST', credentials: 'same-origin',
+            });
+          } catch (e) {}
+        },
+      });
+      header.appendChild(cancelBtn);
+    }
+    card.appendChild(header);
+
+    // Progress bar
+    var pct = (op.total > 0)
+      ? Math.min(100, Math.round((op.done / op.total) * 100))
+      : 0;
+    var barTrack = el('div', {
+      style: 'height:6px; background:var(--surface-alt, rgba(255,255,255,0.08)); '
+           + 'border-radius:3px; overflow:hidden; margin-bottom:0.3rem;',
+    });
+    var barFill = el('div', {
+      style: 'height:100%; width:' + pct + '%; '
+           + 'background:var(--accent, var(--ok)); '
+           + 'transition:width 0.4s ease-out;',
+    });
+    barTrack.appendChild(barFill);
+    card.appendChild(barTrack);
+
+    // Counter line
+    var rate = rateTracker(op.done || 0);
+    var remaining = Math.max(0, (op.total || 0) - (op.done || 0));
+    var eta = (rate > 0) ? remaining / rate : null;
+    var elapsed = (Date.now() / 1000) - op.started_at_epoch;
+
+    var enumerating = !op.finished_at_epoch
+      && (!op.total || op.total <= 0);
+    var counterText;
+    if (op.finished_at_epoch) {
+      counterText = (op.error_msg
+        ? '✗ ' + op.error_msg
+        : '✓ Done · ' + fmtNum(op.done) + (op.total ? ' / ' + fmtNum(op.total) : '')
+          + (op.errors ? ' (' + op.errors + ' errors)' : ''));
+    } else if (enumerating) {
+      counterText = 'Starting…';
+    } else {
+      counterText = fmtNum(op.done) + ' / ' + fmtNum(op.total)
+        + (op.errors ? ' (' + op.errors + ' errors)' : '')
+        + ' · ' + (rate ? rate.toFixed(1) : '—') + '/s'
+        + ' · ETA ' + (eta != null ? fmtDuration(eta) : '—');
+    }
+    var counterLine = el('div', {
+      cls: 'text-sm text-muted',
+      style: 'font-family:ui-monospace,monospace;',
+      text: counterText,
+    });
+    card.appendChild(counterLine);
+
+    // Footer line: started + by
+    var footer = el('div', {
+      cls: 'text-sm text-muted',
+      style: 'margin-top:0.2rem;',
+      text: 'started ' + fmtDuration(elapsed) + ' ago by ' + (op.started_by || '?'),
+    });
+    card.appendChild(footer);
+
+    if (op.finished_at_epoch) {
+      card.style.opacity = '0.7';
+      barFill.style.background = op.error_msg
+        ? 'var(--error)'
+        : 'var(--ok)';
+    }
+
+    return card;
+  }
+
+  function highlightCard(card) {
+    card.style.transition = 'box-shadow 0.4s ease';
+    card.style.boxShadow = '0 0 0 3px rgba(245, 158, 11, 0.55)';
+    setTimeout(function () {
+      card.style.boxShadow = 'none';
+    }, 1800);
+    try { card.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {}
+  }
+
+  window.mountActiveOpWidget = function (containerEl, opts) {
+    if (!containerEl) return { destroy: function () {} };
+    opts = opts || {};
+    var filter = opts.filter || function () { return true; };
+    var highlightOpId = opts.highlightOpId || null;
+
+    // Per-op rate trackers, keyed by op_id (kept across renders so
+    // EWMA isn't reset on every poll tick)
+    var rateTrackers = Object.create(null);
+    var didHighlight = false;
+
+    function render(ops) {
+      var matching = ops.filter(filter);
+      while (containerEl.firstChild) containerEl.removeChild(containerEl.firstChild);
+      if (matching.length === 0) {
+        containerEl.style.display = 'none';
+        return;
+      }
+      containerEl.style.display = 'block';
+      for (var i = 0; i < matching.length; i++) {
+        var op = matching[i];
+        if (!rateTrackers[op.op_id]) rateTrackers[op.op_id] = makeRateTracker();
+        var card = buildRow(op, rateTrackers[op.op_id], opts);
+        containerEl.appendChild(card);
+        if (highlightOpId && op.op_id === highlightOpId && !didHighlight) {
+          didHighlight = true;
+          setTimeout(highlightCard.bind(null, card), 50);
+        }
+      }
+    }
+
+    if (window.ActiveOpsPoller) {
+      window.ActiveOpsPoller.subscribe(render);
+      return {
+        destroy: function () {
+          if (window.ActiveOpsPoller) window.ActiveOpsPoller.unsubscribe(render);
+        },
+      };
+    }
+    return { destroy: function () {} };
+  };
+})();
+```
+
+- [ ] **Step 2: Commit.**
+
+```bash
+git add static/js/active-op-widget.js
+git commit -m "feat(active_ops): inline active-op-widget.js"
+```
+
+---
+
+### Task 26: `static/js/active-ops-hub.js` — Status page index
+
+**Files:**
+- Create: `static/js/active-ops-hub.js`
+
+- [ ] **Step 1: Create the file.**
+
+```js
+/**
+ * Active Operations Hub — Status page index section (v0.35.0).
+ *
+ * Renders one clickable row per running op + an expandable
+ * "Operations terminated by restart" card when applicable.
+ *
+ * Click navigates to op.origin_url + ?op_id=<id> for in-page
+ * highlight on arrival.
+ *
+ * Public: window.mountActiveOpsHub(containerEl).
+ */
+(function () {
+  'use strict';
+
+  function el(tag, opts, kids) {
+    var n = document.createElement(tag);
+    if (opts) {
+      if (opts.text != null) n.textContent = String(opts.text);
+      if (opts.cls) n.className = opts.cls;
+      if (opts.style) n.style.cssText = opts.style;
+      if (opts.href) n.href = opts.href;
+      if (opts.attrs) {
+        for (var k in opts.attrs) n.setAttribute(k, opts.attrs[k]);
+      }
+      if (opts.onClick) n.addEventListener('click', opts.onClick);
+    }
+    if (kids) {
+      for (var i = 0; i < kids.length; i++) {
+        if (kids[i] != null) n.appendChild(kids[i]);
+      }
+    }
+    return n;
+  }
+
+  function fmtNum(x) {
+    return x == null ? '?' : Number(x).toLocaleString();
+  }
+
+  function isTerminatedByRestart(op) {
+    return op.finished_at_epoch != null
+      && op.error_msg
+      && op.error_msg.toLowerCase().indexOf('restart') >= 0;
+  }
+
+  function buildOpRow(op) {
+    // Origin URL with ?op_id deep-link for in-page highlight
+    var url = op.origin_url || '#';
+    if (url.indexOf('?') >= 0) url += '&op_id=' + encodeURIComponent(op.op_id);
+    else url += '?op_id=' + encodeURIComponent(op.op_id);
+
+    var pct = (op.total > 0)
+      ? Math.round((op.done / op.total) * 100)
+      : null;
+
+    var row = el('a', {
+      href: url,
+      style: 'display:flex; align-items:center; gap:1rem; '
+           + 'padding:0.5rem 0.75rem; border-bottom:1px solid var(--border); '
+           + 'text-decoration:none; color:inherit;',
+    });
+    row.appendChild(el('span', { text: op.icon || '⏳', style: 'font-size:1.05rem;' }));
+    row.appendChild(el('strong', { text: op.label, style: 'flex:1; min-width:0;' }));
+    row.appendChild(el('span', {
+      cls: 'text-sm text-muted',
+      style: 'font-family:ui-monospace,monospace;',
+      text: fmtNum(op.done) + ' / ' + fmtNum(op.total)
+        + (pct != null ? ' (' + pct + '%)' : ''),
+    }));
+    row.appendChild(el('span', { text: '→', style: 'color:var(--text-muted);' }));
+    row.title = (op.error_msg ? '✗ ' + op.error_msg + ' · ' : '')
+      + 'Click to jump to ' + (op.origin_url || '/');
+
+    if (op.finished_at_epoch && op.error_msg) {
+      row.style.background = 'rgba(220, 38, 38, 0.06)';
+    } else if (op.finished_at_epoch) {
+      row.style.opacity = '0.7';
+    }
+    return row;
+  }
+
+  window.mountActiveOpsHub = function (containerEl) {
+    if (!containerEl) return { destroy: function () {} };
+
+    function render(ops) {
+      while (containerEl.firstChild) containerEl.removeChild(containerEl.firstChild);
+
+      var running = ops.filter(function (op) {
+        return !op.finished_at_epoch && !isTerminatedByRestart(op);
+      });
+      var terminated = ops.filter(isTerminatedByRestart);
+
+      // Active Operations card
+      var activeCard = el('div', {
+        cls: 'card mb-2',
+        style: 'padding:1rem 1.25rem;',
+      });
+      activeCard.appendChild(el('h3', {
+        text: 'Active Operations (' + running.length + ')',
+        style: 'margin:0 0 0.5rem 0;',
+      }));
+      if (running.length === 0) {
+        activeCard.appendChild(el('div', {
+          cls: 'text-sm text-muted',
+          text: 'Nothing running right now.',
+        }));
+      } else {
+        var listWrap = el('div');
+        for (var i = 0; i < running.length; i++) {
+          listWrap.appendChild(buildOpRow(running[i]));
+        }
+        activeCard.appendChild(listWrap);
+      }
+      containerEl.appendChild(activeCard);
+
+      // Terminated-by-restart card (if any)
+      if (terminated.length > 0) {
+        var termCard = el('div', {
+          cls: 'card mb-2',
+          style: 'padding:1rem 1.25rem; '
+               + 'border:1px solid rgba(245, 158, 11, 0.4); '
+               + 'background:rgba(245, 158, 11, 0.04);',
+        });
+        termCard.appendChild(el('h3', {
+          text: 'Operations terminated by restart (' + terminated.length + ')',
+          style: 'margin:0 0 0.5rem 0;',
+        }));
+        var maxShown = 20;
+        var shown = terminated.slice(0, maxShown);
+        var listWrap = el('div');
+        for (var j = 0; j < shown.length; j++) {
+          listWrap.appendChild(buildOpRow(shown[j]));
+        }
+        termCard.appendChild(listWrap);
+        if (terminated.length > maxShown) {
+          var more = el('button', {
+            cls: 'btn btn-ghost btn-sm',
+            text: 'Show all ' + terminated.length,
+            attrs: { type: 'button' },
+            style: 'margin-top:0.5rem;',
+          });
+          var expanded = false;
+          more.addEventListener('click', function () {
+            if (expanded) return;
+            expanded = true;
+            for (var k = maxShown; k < terminated.length; k++) {
+              listWrap.appendChild(buildOpRow(terminated[k]));
+            }
+            more.remove();
+          });
+          termCard.appendChild(more);
+        }
+        containerEl.appendChild(termCard);
+      }
+    }
+
+    if (window.ActiveOpsPoller) {
+      window.ActiveOpsPoller.subscribe(render);
+      return {
+        destroy: function () {
+          if (window.ActiveOpsPoller) window.ActiveOpsPoller.unsubscribe(render);
+        },
+      };
+    }
+    return { destroy: function () {} };
+  };
+})();
+```
+
+- [ ] **Step 2: Commit.**
+
+```bash
+git add static/js/active-ops-hub.js
+git commit -m "feat(active_ops): Status page hub index module"
+```
+
+---
+
+### Task 27: Retrofit `static/js/live-banner.js` to consume the poller + CSS-var migration
+
+**Files:**
+- Modify: `static/js/live-banner.js`
+
+- [ ] **Step 1: Strip the per-endpoint poll loop; subscribe to the shared poller.**
+
+Replace the body of `live-banner.js` with the version below (preserve the existing license/comment block at top):
+
+```js
+(function () {
+  'use strict';
+
+  if (window.__liveBannerInstalled) return;
+  window.__liveBannerInstalled = true;
+
+  var FINISHED_GRACE_MS = 4000;
+
+  // ── Banner DOM (CSS-vars only — spec §17 P8) ──────────────────────
+  var bannerEl = null, iconEl = null, labelEl = null,
+      barFillEl = null, counterEl = null, rateEl = null, etaEl = null;
+
+  function makeSpan(opts) {
+    var s = document.createElement('span');
+    if (opts && opts.cls) s.className = opts.cls;
+    if (opts && opts.style) s.style.cssText = opts.style;
+    if (opts && opts.text != null) s.textContent = opts.text;
+    return s;
+  }
+
+  function ensureBanner() {
+    if (bannerEl) return bannerEl;
+    var el = document.createElement('div');
+    el.id = 'live-status-banner';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    el.style.cssText = [
+      'position: fixed',
+      'top: 56px',
+      'left: 0', 'right: 0', 'z-index: 90',
+      'background: var(--surface-alt, var(--surface))',
+      'border-bottom: 1px solid var(--border)',
+      'color: var(--text)',
+      'font-family: system-ui, sans-serif',
+      'font-size: 0.85rem',
+      'padding: 0.5rem 1rem',
+      'display: none', 'gap: 1rem', 'align-items: center',
+      'box-shadow: 0 2px 6px rgba(0,0,0,0.3)',
+    ].join(';');
+
+    iconEl = makeSpan({ style: 'font-size:1.05rem;', text: '⏳' });
+    labelEl = makeSpan({ style: 'font-weight:600;', text: 'Working' });
+    var progressWrap = makeSpan({ style: 'flex:1; min-width:8rem; max-width:24rem;' });
+    var barTrack = document.createElement('div');
+    barTrack.style.cssText = 'height:6px; background:var(--surface); border-radius:3px; overflow:hidden;';
+    barFillEl = document.createElement('div');
+    barFillEl.style.cssText = 'height:100%; background:var(--accent, var(--ok)); width:0%; transition:width 0.4s ease-out;';
+    barTrack.appendChild(barFillEl);
+    progressWrap.appendChild(barTrack);
+    counterEl = makeSpan({ style: 'font-family:ui-monospace,monospace; font-size:0.78rem; white-space:nowrap;', text: '0 / 0' });
+    rateEl = makeSpan({ style: 'font-family:ui-monospace,monospace; font-size:0.78rem; color:var(--text-muted); white-space:nowrap;', text: '— /s' });
+    etaEl = makeSpan({ style: 'font-family:ui-monospace,monospace; font-size:0.78rem; color:var(--text-muted); white-space:nowrap;', text: 'ETA —' });
+    var closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.title = 'Hide banner (operation continues)';
+    closeBtn.textContent = '×';
+    closeBtn.style.cssText = 'background:transparent; border:0; color:var(--text-muted); font-size:1.1rem; cursor:pointer; padding:0 0.25rem; line-height:1;';
+    closeBtn.addEventListener('click', function () { el.style.display = 'none'; bannerDismissed = true; });
+
+    el.appendChild(iconEl); el.appendChild(labelEl);
+    el.appendChild(progressWrap);
+    el.appendChild(counterEl); el.appendChild(rateEl); el.appendChild(etaEl);
+    el.appendChild(closeBtn);
+    document.body.appendChild(el);
+    bannerEl = el;
+    return el;
+  }
+
+  // ── Rate / ETA ────────────────────────────────────────────────────
+  function makeRateTracker() {
+    var lastDone = null, lastT = null, rate = 0, ALPHA = 0.3;
+    return function update(done) {
+      var now = Date.now();
+      if (lastDone != null && lastT != null) {
+        var dt = (now - lastT) / 1000, dd = done - lastDone;
+        if (dt > 0 && dd >= 0) {
+          var instant = dd / dt;
+          rate = (rate === 0) ? instant : ALPHA * instant + (1 - ALPHA) * rate;
+        }
+      }
+      lastDone = done; lastT = now;
+      return rate;
+    };
+  }
+  var rateTrackers = {};
+  function getRate(opId, done) {
+    if (!rateTrackers[opId]) rateTrackers[opId] = makeRateTracker();
+    return rateTrackers[opId](done);
+  }
+  function fmtDuration(seconds) {
+    if (!isFinite(seconds) || seconds < 0) return '?';
+    seconds = Math.round(seconds);
+    if (seconds < 60) return seconds + 's';
+    var m = Math.floor(seconds / 60), s = seconds % 60;
+    if (m < 60) return m + 'm ' + s + 's';
+    return Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+  }
+  function fmtNum(n) { return n == null ? '?' : Number(n).toLocaleString(); }
+
+  var bannerDismissed = false;
+  var lastShownKey = null;
+  var finishedAt = null;
+
+  function showBanner(state) {
+    var el = ensureBanner();
+    el.style.display = 'flex';
+    document.body.classList.add('live-banner-visible');
+    if (!document.getElementById('live-banner-spacer-style')) {
+      var s = document.createElement('style');
+      s.id = 'live-banner-spacer-style';
+      s.textContent = 'body.live-banner-visible { padding-top: 44px; }';
+      document.head.appendChild(s);
+    }
+    iconEl.textContent = state.icon || '⏳';
+    labelEl.textContent = state.label || 'Working';
+
+    var enumerating = state.running && (!state.total || state.total <= 0) && !state.finished;
+    var pct = state.total > 0 ? Math.min(100, Math.round((state.done / state.total) * 100)) : 0;
+    barFillEl.style.width = pct + '%';
+    if (enumerating) {
+      counterEl.textContent = 'Starting…';
+      rateEl.textContent = ''; etaEl.textContent = '';
+    } else {
+      counterEl.textContent = fmtNum(state.done) + ' / ' + fmtNum(state.total) +
+        (state.errors ? ' (' + state.errors + ' errors)' : '');
+      rateEl.textContent = (state.rate ? state.rate.toFixed(1) : '—') + ' /s';
+      etaEl.textContent = 'ETA ' + (state.eta != null ? fmtDuration(state.eta) : '—');
+    }
+    if (state.finished) {
+      barFillEl.style.background = state.error_msg ? 'var(--error)' : 'var(--ok)';
+      etaEl.textContent = state.error_msg ? '✗' : 'Done';
+    } else {
+      barFillEl.style.background = 'var(--accent, var(--ok))';
+    }
+  }
+
+  function hideBanner() {
+    if (bannerEl) bannerEl.style.display = 'none';
+    document.body.classList.remove('live-banner-visible');
+  }
+
+  // ── Subscribe to poller ──────────────────────────────────────────
+  function onOps(ops) {
+    var running = null;
+    for (var i = 0; i < ops.length; i++) {
+      if (!ops[i].finished_at_epoch) {
+        if (!running || ops[i].started_at_epoch > running.started_at_epoch) {
+          running = ops[i];
+        }
+      }
+    }
+
+    if (running) {
+      if (running.op_id !== lastShownKey) {
+        bannerDismissed = false;
+        lastShownKey = running.op_id;
+        finishedAt = null;
+      }
+      if (bannerDismissed) return;
+      var rate = getRate(running.op_id, running.done || 0);
+      var remaining = Math.max(0, (running.total || 0) - (running.done || 0));
+      var eta = (rate > 0) ? remaining / rate : null;
+      showBanner({
+        icon: running.icon, label: running.label,
+        done: running.done, total: running.total,
+        errors: running.errors, rate: rate, eta: eta,
+        running: true, finished: false,
+      });
+      return;
+    }
+
+    // Nothing running — was the last-shown op finished recently?
+    if (lastShownKey) {
+      var lastFinished = null;
+      for (var j = 0; j < ops.length; j++) {
+        if (ops[j].op_id === lastShownKey) { lastFinished = ops[j]; break; }
+      }
+      if (lastFinished && lastFinished.finished_at_epoch) {
+        if (!finishedAt) finishedAt = Date.now();
+        if (Date.now() - finishedAt < FINISHED_GRACE_MS && !bannerDismissed) {
+          showBanner({
+            icon: lastFinished.icon, label: lastFinished.label,
+            done: lastFinished.done, total: lastFinished.total,
+            errors: lastFinished.errors,
+            error_msg: lastFinished.error_msg,
+            rate: 0, eta: 0, finished: true,
+          });
+          return;
+        }
+      }
+      lastShownKey = null; finishedAt = null;
+      rateTrackers = {}; bannerDismissed = false;
+    }
+    hideBanner();
+  }
+
+  if (window.ActiveOpsPoller) {
+    window.ActiveOpsPoller.subscribe(onOps);
+  }
+
+  // ── Deprecated legacy hook ───────────────────────────────────────
+  window.LiveBanner = {
+    register: function () {
+      console.warn(
+        'LiveBanner.register() is deprecated since v0.35.0. ' +
+        'The /api/active-ops registry is the source of truth.'
+      );
+    },
+    refresh: function () {
+      if (window.ActiveOpsPoller) window.ActiveOpsPoller.refresh();
+    },
+  };
+})();
+```
+
+- [ ] **Step 2: Smoke test.**
+
+Restart, load `/trash.html`, trigger Empty Trash → banner shows `🗑 Emptying trash` with progress.
+
+- [ ] **Step 3: Commit.**
+
+```bash
+git add static/js/live-banner.js
+git commit -m "feat(active_ops): retrofit live-banner.js to consume poller (P8 CSS vars)"
+```
+
+---
+
+### Task 28: Mount widget on `/history.html`
+
+**Files:**
+- Modify: `static/history.html`
+
+- [ ] **Step 1: Add mount anchor + script tags + cache-bust pass.**
+
+In `static/history.html`:
+
+1. Above the `<div id="pending-files-section">` (or wherever the Pending Files section starts — search the HTML), insert the mount anchor:
+
+```html
+<div id="active-op-widget-mount-pipeline" style="margin-bottom:0.75rem"></div>
+```
+
+2. Near the end of the file, where existing scripts are, add (cache-bust to `?v=0.35.0`):
+
+```html
+<script src="/static/js/active-ops-poller.js?v=0.35.0"></script>
+<script src="/static/js/active-op-widget.js?v=0.35.0"></script>
+<script>
+  (function () {
+    var params = new URLSearchParams(window.location.search);
+    var hl = params.get('op_id');
+    var mount = document.getElementById('active-op-widget-mount-pipeline');
+    if (mount && typeof window.mountActiveOpWidget === 'function') {
+      window.mountActiveOpWidget(mount, {
+        filter: function (op) {
+          return op.op_type && op.op_type.indexOf('pipeline.') === 0;
+        },
+        highlightOpId: hl,
+      });
+    }
+  })();
+</script>
+```
+
+3. Bump every existing `?v=…` query string in the file to `?v=0.35.0`.
+
+- [ ] **Step 2: Smoke test.**
+
+Trigger Force Transcribe → widget appears above Pending Files with progress.
+
+- [ ] **Step 3: Commit.**
+
+```bash
+git add static/history.html
+git commit -m "feat(active_ops): mount widget on history.html + cache-bust v0.35.0"
+```
+
+---
+
+### Task 29: Mount widget on `/trash.html`
+
+**Files:**
+- Modify: `static/trash.html`
+
+- [ ] **Step 1: Insert mount anchor + scripts.**
+
+Above the existing trash file table:
+
+```html
+<div id="active-op-widget-mount-trash" style="margin-bottom:0.75rem"></div>
+```
+
+Near script tags (cache-bust to `?v=0.35.0`):
+
+```html
+<script src="/static/js/active-ops-poller.js?v=0.35.0"></script>
+<script src="/static/js/active-op-widget.js?v=0.35.0"></script>
+<script>
+  (function () {
+    var params = new URLSearchParams(window.location.search);
+    var hl = params.get('op_id');
+    var mount = document.getElementById('active-op-widget-mount-trash');
+    if (mount && typeof window.mountActiveOpWidget === 'function') {
+      window.mountActiveOpWidget(mount, {
+        filter: function (op) {
+          return op.op_type && op.op_type.indexOf('trash.') === 0;
+        },
+        highlightOpId: hl,
+      });
+    }
+  })();
+</script>
+```
+
+Bump every existing `?v=` to `?v=0.35.0` in the file.
+
+- [ ] **Step 2: Smoke test:** trigger Empty Trash → widget appears.
+
+- [ ] **Step 3: Commit.**
+
+```bash
+git add static/trash.html
+git commit -m "feat(active_ops): mount widget on trash.html + cache-bust v0.35.0"
+```
+
+---
+
+### Task 30: Mount compact widget on `/bulk.html`
+
+**Files:**
+- Modify: `static/bulk.html`
+
+- [ ] **Step 1: Insert above the existing Active Jobs section.**
+
+```html
+<div id="active-op-widget-mount-nonbulk" style="margin-bottom:0.75rem"></div>
+```
+
+Scripts:
+
+```html
+<script src="/static/js/active-ops-poller.js?v=0.35.0"></script>
+<script src="/static/js/active-op-widget.js?v=0.35.0"></script>
+<script>
+  (function () {
+    var params = new URLSearchParams(window.location.search);
+    var hl = params.get('op_id');
+    var mount = document.getElementById('active-op-widget-mount-nonbulk');
+    if (mount && typeof window.mountActiveOpWidget === 'function') {
+      window.mountActiveOpWidget(mount, {
+        filter: function (op) {
+          return op.op_type && op.op_type.indexOf('bulk.') !== 0;
+        },
+        highlightOpId: hl,
+      });
+    }
+  })();
+</script>
+```
+
+Cache-bust pass: every `?v=` → `?v=0.35.0`.
+
+- [ ] **Step 2: Smoke test:** non-bulk op (Force Transcribe from another tab) shows here while bulk jobs continue in the existing rich Active Jobs view.
+
+- [ ] **Step 3: Commit.**
+
+```bash
+git add static/bulk.html
+git commit -m "feat(active_ops): mount widget on bulk.html + cache-bust v0.35.0"
+```
+
+---
+
+### Task 31: Mount widget on `/settings.html`
+
+**Files:**
+- Modify: `static/settings.html`
+
+- [ ] **Step 1: Insert anchor in the Database & Search section.**
+
+```html
+<div id="active-op-widget-mount-settings" style="margin-bottom:0.75rem"></div>
+```
+
+Scripts:
+
+```html
+<script src="/static/js/active-ops-poller.js?v=0.35.0"></script>
+<script src="/static/js/active-op-widget.js?v=0.35.0"></script>
+<script>
+  (function () {
+    var params = new URLSearchParams(window.location.search);
+    var hl = params.get('op_id');
+    var mount = document.getElementById('active-op-widget-mount-settings');
+    if (mount && typeof window.mountActiveOpWidget === 'function') {
+      window.mountActiveOpWidget(mount, {
+        filter: function (op) {
+          return op.op_type && (
+            op.op_type.indexOf('db.') === 0 ||
+            op.op_type === 'search.rebuild_index'
+          );
+        },
+        highlightOpId: hl,
+      });
+    }
+  })();
+</script>
+```
+
+Cache-bust pass: every `?v=` → `?v=0.35.0`.
+
+- [ ] **Step 2: Smoke test:** trigger DB Backup → widget appears.
+
+- [ ] **Step 3: Commit.**
+
+```bash
+git add static/settings.html
+git commit -m "feat(active_ops): mount widget on settings.html + cache-bust v0.35.0"
+```
+
+---
+
+### Task 32: Mount widget on `/batch-management.html`
+
+**Files:**
+- Modify: `static/batch-management.html`
+
+- [ ] **Step 1: Insert anchor + scripts** following the pattern from Task 31, with filter:
+
+```js
+        filter: function (op) {
+          return op.op_type === 'analysis.rebuild';
+        },
+```
+
+Cache-bust pass: every `?v=` → `?v=0.35.0`.
+
+- [ ] **Step 2: Smoke test:** trigger Bulk Re-analyze → widget appears.
+
+- [ ] **Step 3: Commit.**
+
+```bash
+git add static/batch-management.html
+git commit -m "feat(active_ops): mount widget on batch-management.html + cache-bust v0.35.0"
+```
+
+---
+
+### Task 33: Mount hub on `/status.html`
+
+**Files:**
+- Modify: `static/status.html`
+
+- [ ] **Step 1: Insert hub mount above the existing pipeline-card-mount.**
+
+In `static/status.html`, find the existing `<div id="pipeline-card-mount">` and insert ABOVE it:
+
+```html
+<!-- v0.35.0: Active Operations index — single-pane view of every
+     long-running op. Each row click navigates to the op's
+     originating page with ?op_id=… for highlight on arrival. -->
+<div id="active-ops-hub-mount" style="margin-top:1rem"></div>
+```
+
+Scripts (add to the script block at the bottom; the page already loads `live-banner.js` and `pipeline-card.js`):
+
+```html
+<script src="/static/js/active-ops-poller.js?v=0.35.0"></script>
+<script src="/static/js/active-ops-hub.js?v=0.35.0"></script>
+<script>
+  (function () {
+    var mount = document.getElementById('active-ops-hub-mount');
+    if (mount && typeof window.mountActiveOpsHub === 'function') {
+      window.mountActiveOpsHub(mount);
+    }
+  })();
+</script>
+```
+
+Cache-bust pass: bump every `?v=` (including `live-banner.js` and `pipeline-card.js`) to `?v=0.35.0`.
+
+- [ ] **Step 2: Smoke test:**
+
+1. Trigger several ops at once (run Empty Trash, then Force Transcribe, then DB Backup).
+2. Visit `/status.html` → all three appear in the index.
+3. Click the Force Transcribe row → navigates to `/history.html?op_id=…` and the in-page widget pulses amber.
+
+- [ ] **Step 3: Commit.**
+
+```bash
+git add static/status.html
+git commit -m "feat(active_ops): mount hub on status.html + cache-bust v0.35.0"
+```
+
+---
+
+### Task 34: Cache-bust pass on remaining pages
+
+**Files:**
+- Modify: `static/pipeline-files.html`, `static/preview.html`, and any other page in `static/*.html` whose `?v=…` query strings are < 0.35.0.
+
+- [ ] **Step 1: Inventory.**
+
+```bash
+grep -l '\?v=0\.3[0-4]' static/*.html
+```
+
+Expected output: `static/pipeline-files.html`, `static/preview.html`, possibly `static/log-viewer.html`, etc.
+
+- [ ] **Step 2: Bump every `?v=…` query string to `?v=0.35.0` in those files.**
+
+For each file, use a single sed-style replace (or manual edits) to update every occurrence.
+
+- [ ] **Step 3: Smoke test:** load each affected page; DevTools Network tab shows scripts loaded with `?v=0.35.0` (no 304 cache hits on stale).
+
+- [ ] **Step 4: Commit.**
+
+```bash
+git add static/*.html
+git commit -m "ops(active_ops): cache-bust convention pass v0.35.0 (audit P8)"
+```
+
+**End of Phase 4.** UI is fully wired. Final phase: cleanup + docs.
+
+---
+
+## Phase 5: Cleanup + documentation (Tasks 35–46)
+
+This phase cleans up audit findings and updates all 5 release-discipline docs (per CLAUDE.md). The release commit lands at the end of Task 46.
+
+### Task 35: Delete orphaned `static/js/deletion-banner.js`
+
+**Files:**
+- Delete: `static/js/deletion-banner.js`
+
+- [ ] **Step 1: Verify zero callers.**
+
+```bash
+grep -rn "deletion-banner\|checkDeletionBanner" static/ docs/ | grep -v "deletion-banner.js:"
+```
+Expected: no output (zero references outside the file itself).
+
+If the grep finds anything, STOP. Investigate and either keep the file or fix the reference before deleting.
+
+- [ ] **Step 2: Delete the file.**
+
+```bash
+git rm static/js/deletion-banner.js
+```
+
+- [ ] **Step 3: Commit.**
+
+```bash
+git commit -m "chore: delete orphaned deletion-banner.js (audit MEDIUM #6)"
+```
+
+---
+
+### Task 36: Update stale `log_archiver` references
+
+**Files:**
+- Modify: `core/scheduler.py:780` (comment)
+- Modify: `api/routes/logs.py:124` (comment)
+- Modify: `docs/gotchas.md` (the `log_archiver` line, around `:276`)
+
+- [ ] **Step 1: Find each reference.**
+
+```bash
+grep -n "log_archiver" core/scheduler.py api/routes/logs.py docs/gotchas.md
+```
+
+- [ ] **Step 2: Update each comment to reference `core/log_manager.py`.**
+
+For `core/scheduler.py` and `api/routes/logs.py`: edit the comment line to say `core/log_manager.py` instead of `core/log_archiver` (the module was consolidated in v0.31.0).
+
+For `docs/gotchas.md`: update the `"The log_archiver scheduler job (every 6h)..."` line to read:
+
+```
+The log management scheduler job (every 6h) — implemented in
+`core/log_manager.py` since v0.31.0 — quietly compresses ...
+```
+
+- [ ] **Step 3: Commit.**
+
+```bash
+git add core/scheduler.py api/routes/logs.py docs/gotchas.md
+git commit -m "chore: update stale log_archiver comments → log_manager"
+```
+
+---
+
+### Task 37: Create `docs/scheduler-time-slots.md` (P7)
+
+**Files:**
+- Create: `docs/scheduler-time-slots.md`
+
+- [ ] **Step 1: Inventory the current scheduler jobs.**
+
+```bash
+grep -n "scheduler.add_job\|cron\|trigger=" core/scheduler.py | head -40
+```
+
+Capture every job's `id` + cron schedule + brief description.
+
+- [ ] **Step 2: Write the doc.**
+
+```markdown
+# Scheduler time-slot allocation
+
+Canonical table of every scheduled job in MarkFlow. Update on every
+job add/move (spec §17 P7).
+
+| Slot (HH:MM, UTC) | Job ID | Duration estimate | Yields to bulk? | Description |
+|---|---|---|---|---|
+| 00:15 | trash_expiry | < 5m | yes | Move marked-for-deletion → in_trash, purge expired |
+| 00:30 | lifecycle_scan | 10–60m | yes | Periodic source-tree walk |
+| 03:00 | db_integrity_check | 5–15m | yes | SQLite PRAGMA integrity_check |
+| 03:15 | db_compaction | 5–30m | yes | VACUUM + ANALYZE |
+| 03:30 | db_backup | 2–10m | yes | Online backup API → backup file |
+| **03:50** | **purge_old_active_ops** | **< 1m** | **yes** | **NEW v0.35.0 — delete finished ops > 7d** |
+| 04:00 | log_management_cycle | 1–5m | no | Compress + rotate logs |
+| 04:30 | stale_data_check | 5m | yes | Detect orphaned rows / drifted state |
+| 06:00 | start_business_hours | < 1m | n/a | Mode override for bulk worker |
+| ... | ... | ... | ... | ... |
+
+(Fill in the remaining 11 jobs from `grep` output. Total expected
+post-v0.35.0: 20 jobs.)
+
+## Adding a new job
+
+1. Find a 5-min slot with no neighboring conflicts (no other job
+   within ±15 min in this table).
+2. If your job runs longer than 5 min, ensure it `yields to bulk`
+   via `is_any_bulk_active()` (per gotcha P6).
+3. Add a row to this table BEFORE adding the `scheduler.add_job(...)`
+   call.
+4. Update the total job count in `CLAUDE.md` (e.g., 20 → 21).
+
+## Why this exists
+
+Pre-v0.35.0, scheduler times were scattered across `core/scheduler.py`
+with no central reference. The v0.35.0 audit found that adding the
+new auto-purge job at 03:45 nearly collided with the 03:30 DB backup
+(15-min spacing — the limit of safety). Without this table, future
+additions would hit similar conflicts. See spec §17 P7.
+
+A boot-time self-check that flags collisions automatically is
+queued as `BUG-015: planned`.
+```
+
+- [ ] **Step 3: Add module docstring reference.**
+
+In `core/scheduler.py`, near the top:
+
+```python
+"""Scheduler job registry.
+
+When adding a new job, FIRST update docs/scheduler-time-slots.md
+to claim a time slot and document conflict checks (spec §17 P7)."""
+```
+
+- [ ] **Step 4: Commit.**
+
+```bash
+git add docs/scheduler-time-slots.md core/scheduler.py
+git commit -m "docs(active_ops): scheduler time-slot allocation table (P7)"
+```
+
+---
+
+### Task 38: Update `docs/gotchas.md` with two new sections
+
+**Files:**
+- Modify: `docs/gotchas.md`
+
+- [ ] **Step 1: Add "Active Operations Registry" section.**
+
+At the top of `docs/gotchas.md`, add a new top-level section (before existing sections):
+
+```markdown
+## Active Operations Registry
+
+- **Every long-running op MUST call `register_op()` at start and `finish_op()` at end.** Otherwise restart hydration marks it as `terminated_by_restart` (cosmetic noise on the next page load).
+- **`is_cancelled(op_id)` is synchronous** — call it from worker hot loops without `await`. The cancelled flag is a write-once bool; readers seeing a stale False miss one tick at most.
+- **`bulk_jobs` and `scan_runs` are sources of truth for `'bulk.job'` and `'pipeline.scan'` op_types; `active_operations` is derived state.** On drift, source wins (spec §17 P3).
+- **A cancellable op_type MUST register a cancel hook at module import via `register_cancel_hook()`.** Failing to register raises `RuntimeError` at first `register_op()` — caught at import in tests, never at runtime.
+- **`op_id` is uuid4** (36 chars). Never reuse; never embed in path-traversal-sensitive paths without quoting.
+- **Cancel hook is invoked OUTSIDE the registry lock** — the hook may call back into the registry safely.
+- **DB writes are debounced at 1.5s.** A worker emitting 100 ticks/sec produces ~1 DB write/sec. `finish_op()` always synchronously flushes (terminal state must persist).
+- **Schema: `active_operations` table (migration v29).** See `core/active_ops.py` docstring for the field-by-field contract.
+```
+
+- [ ] **Step 2: Add "Long-running operations & shared state" section.**
+
+Add another new top-level section (the P1–P10 patterns from spec §17):
+
+```markdown
+## Long-running operations & shared state
+
+These are project-wide conventions adopted in v0.35.0. New code MUST follow.
+
+### P1 — No-op on already-terminal state
+Any function that mutates a "running" entity (counter, state-machine row, in-flight op) MUST no-op + WARN log on terminal-state inputs. Don't reopen finished work.
+
+### P2 — `asyncio.Lock` for shared in-process mutable state
+Any in-process dict / list mutated by multiple async tasks needs a lock. Counters can be intentional last-writer-wins (the lock just serializes the read-modify-write); structural state must serialize.
+
+### P3 — Single source of truth + drift rule
+Thin mirrors must explicitly name the source and document the drift-resolution rule. Examples: `source_files` is source for file intrinsics; `bulk_files` is derived. `bulk_jobs` is source for bulk job state; active_operations row with `op_type='bulk.job'` is derived.
+
+### P4 — Lifespan ordering with `asyncio.Event` gates
+Any subsystem that needs to "be ready" before workers can use it MUST expose an `asyncio.Event` that gates dependent operations.
+
+### P5 — Cancel-hook bridge for cross-subsystem cancellation
+When a generic surface (registry, API, UI) accepts cancel but the actual mechanism lives elsewhere, register an explicit hook. Hook absence on a cancellable entity is a registration-time error.
+
+### P6 — Predicate-gated cleanup
+Any scheduled cleanup job MUST gate on a predicate that excludes running entities. Time windows alone are not enough.
+
+### P7 — Scheduler time-slot allocation table
+Scheduled jobs declare their time slots in `docs/scheduler-time-slots.md`. Adding a new job requires checking the table for conflicts.
+
+### P8 — Frontend: CSS variables only, named anchor mounts
+New `static/js/*.js` modules use CSS custom properties exclusively. Any element a JS module mounts into MUST have a stable ID anchor; deleting/moving the anchor degrades silently.
+
+### P9 — Deprecation with `console.warn` + `Sunset` header
+Deprecated public surfaces emit deprecation signals (JS: console.warn; HTTP: Deprecation/Sunset headers per RFC 8594).
+
+### P10 — DB writes always go through `db_write_with_retry`
+The single-writer queue (v0.23.0) is universal. NO subsystem implements its own retry/serialization logic.
+```
+
+- [ ] **Step 3: Commit.**
+
+```bash
+git add docs/gotchas.md
+git commit -m "docs(active_ops): add Active Ops Registry + P1–P10 sections to gotchas"
+```
+
+---
+
+### Task 39: Update `CLAUDE.md` Architecture Reminders
+
+**Files:**
+- Modify: `CLAUDE.md`
+
+- [ ] **Step 1: Add a "Long-running operations" subsection to the Architecture Reminders block.**
+
+After the existing bullet list (the "All phases 0–11 are Done" line), add:
+
+```markdown
+### Long-running operations
+
+Every long-running file-related op routes through `core/active_ops.py`
+(v0.35.0+). Never roll your own progress dict.
+
+- **Active Operations Registry** — `register_op()`, `update_op()`, `finish_op()`, `cancel_op()`, `is_cancelled()`. See gotchas.md.
+- **Shared mutable state needs `asyncio.Lock`** (P2).
+- **Source-of-truth + drift rule** for any thin-mirror pair (P3).
+- **Subsystem cancel signals bridged via `register_cancel_hook()`** — never silent (P5).
+- **Lifespan-event gating** for any subsystem-ready dependency (P4).
+- **Predicate-gated scheduler cleanup** — never wall-clock-only (P6).
+- **Scheduler time slots declared in `docs/scheduler-time-slots.md`** (P7).
+- **Frontend: CSS variables only, named-anchor mounts, silent degradation** (P8).
+- **Deprecation signals: `console.warn` (JS) + `Sunset` header (HTTP)** (P9).
+- **DB writes always through `db_write_with_retry`** (P10).
+```
+
+- [ ] **Step 2: Update the Critical Files table to add `core/active_ops.py`.**
+
+Add a new row:
+
+```markdown
+| `core/active_ops.py` | Active Operations Registry — single source of truth for long-running ops (v0.35.0) |
+```
+
+- [ ] **Step 3: Commit.**
+
+```bash
+git add CLAUDE.md
+git commit -m "docs(active_ops): CLAUDE.md Architecture Reminders + active_ops.py row"
+```
+
+---
+
+### Task 40: Update `docs/key-files.md`
+
+**Files:**
+- Modify: `docs/key-files.md`
+
+- [ ] **Step 1: Add 6 new rows.**
+
+```markdown
+| `core/active_ops.py` | Active Operations Registry. Workers register, update, finish; hydrates on startup; auto-purge daily. v0.35.0+ |
+| `api/routes/active_ops.py` | HTTP API: `GET /api/active-ops`, `POST /api/active-ops/{id}/cancel`. v0.35.0+ |
+| `static/js/active-ops-poller.js` | Shared frontend poller for `/api/active-ops`. Visibility-aware. v0.35.0+ |
+| `static/js/active-op-widget.js` | Inline progress widget mounted on origin pages (history, trash, settings, batch-management, bulk). v0.35.0+ |
+| `static/js/active-ops-hub.js` | Status page Active Operations index section. v0.35.0+ |
+| `docs/scheduler-time-slots.md` | Canonical scheduler job time-slot allocation table (spec §17 P7). v0.35.0+ |
+```
+
+- [ ] **Step 2: Commit.**
+
+```bash
+git add docs/key-files.md
+git commit -m "docs(active_ops): 6 new rows in key-files.md"
+```
+
+---
+
+### Task 41: Update `docs/help/whats-new.md`
+
+**Files:**
+- Modify: `docs/help/whats-new.md`
+
+- [ ] **Step 1: Add operator-friendly section at the top.**
+
+```markdown
+## v0.35.0 — Active Operations Hub (April 28, 2026)
+
+### What's new for you
+
+**Force Transcribe and every other long-running action now show a progress bar where you started it AND on the Status page.** Click any active operation card on Status to jump back to where you started it (the corresponding progress widget pulses amber to confirm).
+
+**Operations covered:** Force Transcribe / Convert Pending, Convert Selected, Pipeline scans, Empty Trash, Restore All from Trash, Rebuild Search Index, Bulk Re-analyze, Database Backup, Database Restore, Bulk Conversion jobs.
+
+**Cancel button** on every cancellable operation's progress widget.
+
+**Restart safety:** if MarkFlow restarts while operations are in flight, you'll see them marked "terminated by restart" on the Status page so you know what was lost (instead of operations silently disappearing).
+
+### What's changed for you behind the scenes
+
+The old Trash status banner (Empty Trash / Restore All progress) is now powered by the same registry that drives the new widgets. Same look, same behavior — just a unified system underneath.
+
+### Known limitations
+
+- Cancel for Database Backup / Restore is intentionally disabled (data integrity). Wait for completion or revert via a fresh restore from a different snapshot.
+- Multi-tab: clicking Force Transcribe in two browser tabs creates two operations (the second errors out since one is already queued). A future release will deduplicate.
+```
+
+- [ ] **Step 2: Commit.**
+
+```bash
+git add docs/help/whats-new.md
+git commit -m "docs(active_ops): whats-new entry for v0.35.0"
+```
+
+---
+
+### Task 42: Update `docs/help/admin-tools.md`
+
+**Files:**
+- Modify: `docs/help/admin-tools.md`
+
+- [ ] **Step 1: Add "Active Operations Hub" section.**
+
+Insert a new section near the top:
+
+```markdown
+## Active Operations Hub (Status page, v0.35.0+)
+
+The Status page now shows a unified index of every long-running operation MarkFlow is currently running. Each row is clickable and navigates to the page where the operation was started, with the operation highlighted on arrival.
+
+### What appears in the index
+
+- **Force Transcribe / Convert Pending** (originating page: History) — when an operator clicks Force Transcribe.
+- **Convert Selected** — per-call entry from the History Pending Files bulk-action bar.
+- **Pipeline scan** — every scheduled or manual scan registers here.
+- **Emptying trash / Restoring all** — both Trash bulk operations.
+- **Database backup / restore** — from Settings.
+- **Search index rebuild** — from Settings.
+- **Bulk re-analyze** — per-batch entry from Batch Management.
+- **Bulk conversion job** — thin summary of any active BulkJob; click navigates to the rich Active Jobs view below.
+
+### Programmatic access
+
+`GET /api/active-ops` returns `{"ops": [...]}` with one row per running operation plus operations finished in the last 30 seconds. Authentication: OPERATOR+ via JWT or X-API-Key.
+
+`POST /api/active-ops/{op_id}/cancel` requests cancellation. Authentication: MANAGER+. Returns `400` if the operation is uncancellable or already finished, `404` if the op_id is unknown.
+
+Example:
+```bash
+curl -s http://localhost:8000/api/active-ops | jq '.ops[] | {label, op_type, done, total}'
+```
+
+### Restart behavior
+
+If MarkFlow restarts while operations are in flight, the registry marks them `terminated_by_restart` on next startup. The Status hub shows up to 20 most-recently-started terminated ops (with an expand button for the full list). Older terminated rows are pre-finalized so they fall outside the 30-second grace window — visible only via "Show all" expansion.
+
+### Audit trail
+
+Every register / update / finish / cancel emits a structured log event (`active_ops.registered`, `active_ops.finished`, etc.). Search via Log Viewer with `?q=active_ops`.
+```
+
+- [ ] **Step 2: Commit.**
+
+```bash
+git add docs/help/admin-tools.md
+git commit -m "docs(active_ops): admin-tools.md Active Operations Hub section"
+```
+
+---
+
+### Task 43: Add 5 new BUG-NNN rows to `docs/bug-log.md`
+
+**Files:**
+- Modify: `docs/bug-log.md`
+
+- [ ] **Step 1: Append 5 rows in the Planned section.**
+
+```markdown
+| BUG-011 | planned | v0.36.x | Remove deprecated `/api/trash/empty/status` and `/api/trash/restore-all/status` after the v0.35.0 facade window. Endpoints currently return registry-derived data with `Deprecation: true` + `Sunset` headers. | spec §14, §17 P9 |
+| BUG-012 | planned | v0.36.x | Apply P1 (no-op-on-terminal) hardening to `BulkJob.tick()` and `lifecycle_scanner` _scan_state mutations. Currently partial. | spec §17 P1 |
+| BUG-014 | planned | v0.36.x | Periodic drift detection job (scheduler 03:55) that compares `bulk_jobs.processed` vs `active_operations.done` and `scan_runs` vs active_operations for the same op_id; logs `active_ops.drift_detected` on mismatch. | spec §17 P3 |
+| BUG-015 | planned | v0.36.x | Boot-time self-check that walks the scheduler job table and logs `scheduler.time_slot_collision` if two jobs are within 5 min of each other (and neither yields to the other). | spec §17 P7 |
+| BUG-016 | planned | v0.36.x | Audit deprecated public surfaces in the codebase and apply the v0.35.0 deprecation convention (`console.warn` for JS; `Deprecation` + `Sunset` headers for HTTP). | spec §17 P9 |
+```
+
+(Note: BUG-013 is intentionally skipped — the P2 violation it would have tracked, the trash dicts without locks, is closed by v0.35.0's retrofit so no follow-on work remains.)
+
+- [ ] **Step 2: Commit.**
+
+```bash
+git add docs/bug-log.md
+git commit -m "docs(active_ops): add BUG-011, 012, 014, 015, 016 (planned, v0.36.x)"
+```
+
+---
+
+### Task 44: Update `docs/version-history.md`
+
+**Files:**
+- Modify: `docs/version-history.md`
+
+- [ ] **Step 1: Prepend a new v0.35.0 entry.**
+
+Insert at the top of the file (before the v0.34.1 entry):
+
+```markdown
+## v0.35.0 — Active Operations Registry (2026-04-28)
+
+**Goal:** Single source of truth for every long-running file-related op in MarkFlow. Workers register at start, update on tick, finish at end. One unified frontend surface (sticky banner, inline per-page widget, Status hub) consumes one polling endpoint. Replaces the v0.32.6 ad-hoc trash status dicts with a generic registry that 10 op_types route through.
+
+**Why this matters:** Operators triggered Force Transcribe (and most other long-running actions) and got a toast — then nothing. No progress, no cancel, no idea whether the action was still running. The Status page showed bulk jobs and pipeline scan but nothing else. v0.35.0 closes the gap with a unified hub.
+
+**What changed:**
+
+1. **`core/active_ops.py` (NEW)** — registry: register / update / finish / cancel / list / get, in-memory dict + DB write-through, hydrate on startup, daily auto-purge. ~300 LOC.
+
+2. **Migration v29** — `active_operations` table (idempotent CREATE).
+
+3. **`api/routes/active_ops.py` (NEW)** — `GET /api/active-ops` (OPERATOR+), `POST /api/active-ops/{op_id}/cancel` (MANAGER+).
+
+4. **10 op_type retrofits** — `pipeline.run_now`, `pipeline.convert_selected`, `pipeline.scan`, `trash.empty`, `trash.restore_all`, `search.rebuild_index`, `analysis.rebuild`, `db.backup`, `db.restore`, `bulk.job` (thin mirror).
+
+5. **5 cancel hooks** registered in scan_coordinator, pipeline routes (×2), lifecycle_scanner, trash routes, analysis routes, bulk_worker — bridging registry cancel to each subsystem's native primitive.
+
+6. **3 new frontend modules** — `active-ops-poller.js` (shared poller), `active-op-widget.js` (inline widget), `active-ops-hub.js` (Status index). Consume `/api/active-ops` with `ActiveOpsPoller.subscribe()`.
+
+7. **`live-banner.js` retrofitted** — drops endpoint list; subscribes to poller; hardcoded RGBA colors migrated to CSS variables (P8).
+
+8. **6 origin pages mounted** — history, trash, bulk, settings, batch-management mount the inline widget; status mounts the hub.
+
+9. **Cache-bust convention pass** — every JS script-tag query string bumped to `?v=0.35.0` across all `static/*.html`.
+
+10. **Codebase-wide patterns formalized (spec §17 P1–P10)** — gotchas.md and CLAUDE.md gain canonical references for: no-op on terminal state, asyncio.Lock for shared dicts, source-of-truth + drift rule, lifespan event gates, cancel-hook bridge, predicate-gated cleanup, scheduler time-slot allocation table, frontend CSS-vars-only, deprecation signals, DB writes through queue.
+
+11. **5 new planned BUG rows** queued for v0.36.x: deprecated endpoint removal (BUG-011), BulkJob/scanner P1 hardening (BUG-012), drift detection (BUG-014), scheduler collision self-check (BUG-015), deprecation surface audit (BUG-016).
+
+12. **Audit cleanup ride-alongs** — orphaned `static/js/deletion-banner.js` deleted; stale `log_archiver` comments updated; `docs/scheduler-time-slots.md` (NEW) documents all 20 scheduler jobs.
+
+**Files:** ~9 new + ~20 modified + 1 deleted. ~1,400 LOC new, ~500 LOC modified. Migration v29 idempotent. No new dependencies.
+
+**Order:** Shipped after v0.34.2 (BUG-010 OUTPUT_BASE hotfix, 5 missed consumers).
+
+**Operator-visible:**
+- Click Force Transcribe → progress widget appears above Pending Files; same widget visible on Status hub.
+- Click any operation card on Status → jump to its origin page; the operation pulses amber on arrival.
+- Cancel button on every cancellable op (DB backup/restore are intentionally uncancellable).
+- After container restart: ops in flight show as red "terminated by restart" on Status hub for 30 s, then auto-hide.
+- Old `/api/trash/empty/status` and `/api/trash/restore-all/status` endpoints kept as deprecated facades (returning registry-derived data with `Deprecation: true` + `Sunset` headers); removal in v0.36.x per BUG-011.
+
+**Spec:** [`docs/superpowers/specs/2026-04-28-active-operations-registry-design.md`](superpowers/specs/2026-04-28-active-operations-registry-design.md). 1,332 lines, 21 sections.
+
+**Plan:** [`docs/superpowers/plans/2026-04-28-active-operations-registry.md`](superpowers/plans/2026-04-28-active-operations-registry.md). 46 tasks across 5 phases.
+
+---
+```
+
+- [ ] **Step 2: Commit.**
+
+```bash
+git add docs/version-history.md
+git commit -m "docs(active_ops): version-history entry for v0.35.0"
+```
+
+---
+
+### Task 45: Bump `core/version.py` to 0.35.0
+
+**Files:**
+- Modify: `core/version.py`
+
+- [ ] **Step 1: Edit.**
+
+```python
+__version__ = "0.35.0"
+```
+
+- [ ] **Step 2: Verify the version is exposed via `/api/health` or wherever it's read.**
+
+```bash
+docker-compose restart markflow
+docker-compose exec markflow curl -s http://localhost:8000/api/health | python -m json.tool | grep -i version
+```
+Expected: shows `0.35.0`.
+
+- [ ] **Step 3: Commit.**
+
+```bash
+git add core/version.py
+git commit -m "release: v0.35.0 — Active Operations Registry"
+```
+
+---
+
+### Task 46: End-to-end smoke test + release tag
+
+**Files:** none (verification only)
+
+- [ ] **Step 1: Walk the spec §13 smoke checklist.**
+
+Run all 6 manual smoke tests from spec §13:
+
+1. Trigger Force Transcribe → widget appears on history.html. ✅
+2. Navigate to Status → card visible, click → return to history.html with op highlighted. ✅
+3. Empty trash → both surfaces (banner + status card) update in sync. ✅
+4. Cancel a running pipeline.convert_selected → worker stops within 1 tick. ✅
+5. Restart container with op in flight → Status shows "terminated by restart" card on first load. ✅
+6. Run 25 ops simultaneously, restart → Status shows 20 in grace window + "Show all 25" expandable card. ✅
+
+If any smoke test fails, STOP. The relevant Phase task may need a follow-up commit.
+
+- [ ] **Step 2: Run the full test suite.**
+
+```bash
+docker-compose exec markflow pytest tests/ -q
+```
+Expected: all green. New tests added in this plan: ~45 (unit) + ~10 (endpoint) + ~10 (integration) = 65 new.
+
+- [ ] **Step 3: Final commit hygiene check.**
+
+```bash
+git status
+git log --oneline -50
+```
+Expected: working tree clean. Recent commits show the v0.35.0 progression.
+
+- [ ] **Step 4: Tag the release.**
+
+```bash
+git tag -a v0.35.0 -m "v0.35.0 — Active Operations Registry"
+```
+
+- [ ] **Step 5: Push (if your house rule says push after a feature ships).**
+
+```bash
+git push origin main
+git push origin v0.35.0
+```
+
+**Plan complete.** v0.35.0 ships.
+
+---
+
+## Self-review (engineer reads this before starting)
+
+This section is a sanity scan I ran on the plan after writing it. Use it as a pre-flight checklist; if any item is unclear, re-read the spec section it points at before proceeding.
+
+### Spec coverage check
+
+| Spec § | Plan task(s) |
+|---|---|
+| §3 schema | Task 1 (migration v29) |
+| §3 dataclass | Task 2 |
+| §5 register/update/finish/cancel | Tasks 3, 4, 5, 6 |
+| §5 list_ops/get_op | Tasks 7, 5 |
+| §10 hydrate on startup | Tasks 8, 10 |
+| §10 auto-purge | Task 9 |
+| §6 HTTP API | Tasks 11, 12 |
+| §4 v1 op set | Tasks 14–23 |
+| §9 cancel hook bridge | Tasks 14, 15, 16, 17, 18, 20, 23 |
+| §6 frontend modules | Tasks 24, 25, 26, 27 |
+| §6 per-page mounts | Tasks 28–33 |
+| §6 cache-bust pass | Task 34 |
+| §17 P1 (no-op on finish) | Task 5 (impl), gotchas in Task 38 |
+| §17 P2 (asyncio.Lock) | Task 3 (impl), gotchas |
+| §17 P3 (source-of-truth) | gotchas, Task 38 |
+| §17 P5 (cancel hook) | Tasks 6, 14–23 |
+| §17 P6 (predicate-gated) | Task 9 (purge SQL) |
+| §17 P7 (time-slot table) | Task 37 |
+| §17 P8 (CSS vars) | Task 27 (live-banner CSS migration) |
+| §17 P9 (deprecation) | Tasks 17, 18 (Sunset headers) |
+| §17 P10 (DB writes through queue) | Tasks 3, 4, 5 (use db_write_with_retry) |
+| §15 5-doc discipline | Tasks 38, 39, 40, 41, 42, 43, 44 |
+| §13 testing strategy | Tasks 1–9 (unit), 11–12 (endpoint), 14–23 (integration), 46 (smoke) |
+| §16 file count | matches: 9 new + 20 modified + 1 deleted |
+
+**Gaps:** none identified. Every spec section has at least one task.
+
+### Placeholder scan
+
+I searched the plan for `TBD`, `TODO`, `FIXME`, vague "implement appropriate", "add validation", "handle edge cases" — none present. Two intentional placeholders remain that the engineer fills in at execution time:
+
+- Task 19 file path: spec is intentionally indeterminate (`grep` to find it because the search-rebuild handler may live in `api/routes/pipeline.py` or `api/routes/admin.py`). This is a discovery task, not a placeholder bug.
+- Task 23 BulkJob method names (`run`, `tick`, `finalize`): named explicitly because the project's BulkJob class may use slightly different names. Step 3 instructs the engineer to find the actual method.
+
+These are not failures — they're explicit discovery instructions because the project state is too dynamic to hard-code line numbers.
+
+### Type / signature consistency
+
+Checked:
+- `register_op` signature in Task 3 matches every call site in Tasks 14–23 ✓
+- `update_op(op_id, *, total, done, errors)` consistent ✓
+- `finish_op(op_id, *, error_msg)` consistent ✓
+- `is_cancelled(op_id) -> bool` synchronous in Task 6, called as such in workers ✓
+- Cancel hook signature `Callable[[str], Awaitable[None]]` consistent in Tasks 6, 14, 15, 16, 17, 18, 20, 23 ✓
+- `to_api_dict()` shape returned by `/api/active-ops` matches what `active-op-widget.js` and `active-ops-hub.js` consume (op_id, op_type, label, icon, origin_url, started_by, started_at_epoch, finished_at_epoch, total, done, errors, error_msg, cancellable, cancel_url, extra) ✓
+
+No drift detected.
+
+### Scope check
+
+This is one cohesive registry subsystem. The 10 retrofits in Phase 3 share an identical pattern (register / update / finish / hook). Frontend has 3 new modules + 1 retrofit + 6 mount sites. Documentation updates 5 files. Commits are frequent (one per task = 46 commits) — supports incremental review.
+
+Decomposition note: if execution stalls partway, Phases 1+2 (registry + HTTP API) ship in isolation as a usable internal API even without the workers retrofitted. Phases 3 / 4 / 5 each add value incrementally. So this plan is naturally checkpointable.
+
+### Risk / known unknowns
+
+- `db_write_with_retry` signature: the plan uses both call shapes (`(sql, params)` and lambda). Step 3 of Task 3 instructs the engineer to inspect `core/db/connection.py` and pick the project's actual convention before proceeding. If the project uses both, mirror existing call sites.
+- `_async_execute` may not be a public symbol — check the actual export name.
+- `test_active_ops_endpoint.py` assumes `authed_operator` / `authed_manager` / `authed_admin` fixtures exist. If not, the engineer mirrors the existing pattern from any `tests/test_*_endpoint.py` file.
+- Origin URL for `bulk.job` — the spec says `/bulk.html?job_id={id}`. Confirm `/bulk.html` accepts `job_id` deep-links (v0.32.9 added this; should still work).
+- Pipeline scan `update_op` ticks rely on `scan_runs` columns named `files_total`, `files_scanned`, `files_errored`. These names may differ. Step 5 of Task 14 says to verify column names against the actual schema.
+
+---
+
+## Execution handoff
+
+**Plan complete and saved to `docs/superpowers/plans/2026-04-28-active-operations-registry.md`.** Two execution options:
+
+**1. Subagent-Driven (recommended)** — I dispatch a fresh subagent per task, review between tasks, fast iteration. Good fit for this plan because the 46 tasks are individually small and the spec is the source of truth — fresh-context subagents won't drift.
+
+**2. Inline Execution** — I execute tasks in this session using executing-plans, batch with checkpoints for review. Good fit if you want to ride along on every step.
+
+**Which approach?**
+
