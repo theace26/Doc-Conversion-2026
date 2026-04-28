@@ -62,3 +62,44 @@ async def test_migration_v29_creates_active_operations_table(client):
     idx_names = {r["name"] for r in idx}
     assert "idx_active_ops_running" in idx_names
     assert "idx_active_ops_finished_at" in idx_names
+
+
+def test_active_operation_dataclass_round_trip():
+    """Dataclass converts to dict and back losslessly via to_db / from_db."""
+    from core.active_ops import ActiveOperation
+
+    op = ActiveOperation(
+        op_id="abc-123",
+        op_type="pipeline.run_now",
+        label="Force Transcribe",
+        icon="⚙",
+        origin_url="/history.html",
+        started_by="op@example.com",
+        started_at_epoch=1700000000.0,
+        last_progress_at_epoch=1700000005.0,
+        cancellable=True,
+        extra={"scan_run_id": 42},
+    )
+    row = op.to_db_row()
+    assert row["op_id"] == "abc-123"
+    assert row["cancellable"] == 1   # bool → int
+    assert json.loads(row["extra_json"]) == {"scan_run_id": 42}
+
+    rebuilt = ActiveOperation.from_db_row(row)
+    assert rebuilt == op
+
+
+def test_op_type_whitelist_rejects_unknown():
+    """register_op() with an unknown op_type raises ValueError."""
+    from core.active_ops import OP_TYPES
+    assert "pipeline.run_now" in OP_TYPES
+    assert "pipeline.convert_selected" in OP_TYPES
+    assert "pipeline.scan" in OP_TYPES
+    assert "trash.empty" in OP_TYPES
+    assert "trash.restore_all" in OP_TYPES
+    assert "search.rebuild_index" in OP_TYPES
+    assert "analysis.rebuild" in OP_TYPES
+    assert "db.backup" in OP_TYPES
+    assert "db.restore" in OP_TYPES
+    assert "bulk.job" in OP_TYPES
+    assert "bogus.op" not in OP_TYPES
