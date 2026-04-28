@@ -4,6 +4,118 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.32.11 — Lifecycle scan state hydrates from DB on startup (2026-04-28)
+
+**Single bug fix. The Status page's "Lifecycle Scanner" card
+showed `Last scan: never` after every container restart, even
+when the `scan_runs` table had dozens of completed scans.
+Operators using "Status" as the canonical "what's happening"
+page got a misleading read.**
+
+### The bug
+
+`core.lifecycle_scanner._scan_state` is a module-level dict
+that holds the current scan's progress (running flag,
+percentage, current file, etc.) and the cached "last scan"
+timestamps. The dict initializes with `last_scan_at=None`.
+The scan-finished branch at `_scan_state["last_scan_at"] =
+now_iso()` only fires when a scan completes inside the
+current process. After a container restart, the dict resets
+to `None` and the API endpoint
+`GET /api/scanner/progress` returns:
+
+```json
+{"running": false, "last_scan_at": null, "last_scan_run_id": null, ...}
+```
+
+The Status page's `renderLifecycle()` reads that and prints
+`Last scan: never`. But the DB's `scan_runs` table is
+durable — every scan that ever finished writes a row with
+`finished_at` populated. The bug was just that the in-memory
+state didn't read from it.
+
+Diagnosed via:
+```bash
+$ curl -s http://localhost:8000/api/scanner/progress
+{"running": true, ..., "last_scan_at": null, "last_scan_run_id": null}
+
+$ curl -s http://localhost:8000/api/pipeline/status | jq .last_scan
+{
+  "id": "473f5456...", "status": "running", "files_scanned": 21529, ...
+}
+
+# DB knew the truth all along:
+$ docker exec ... python3 -c "...SELECT * FROM scan_runs ORDER BY started_at DESC LIMIT 3"
+running    started_at=2026-04-28 02:55:50  finished_at=None     files=21529
+interrupted started_at=2026-04-28 02:14:57  finished_at=02:22:56 files=28504
+cancelled  started_at=2026-04-27 23:14:40  finished_at=23:24:44 files=36738
+```
+
+So `/api/pipeline/status` reads from the DB and gets accurate
+timestamps. `/api/scanner/progress` reads from the in-memory
+dict and misses everything that ran in prior process
+lifetimes.
+
+### The fix
+
+New function `hydrate_scan_state_from_db()` in
+`core/lifecycle_scanner.py`. Queries the most recent finished
+`scan_runs` row and populates `_scan_state["last_scan_at"]` +
+`last_scan_run_id` if they're still None. Safe to call
+repeatedly; only fills in fields that are currently None and
+never overwrites an active scan's state.
+
+Wired into `main.py`'s `lifespan` startup hook (Phase 9,
+right before scheduler start). Result: by the time the
+container's `/api/scanner/progress` endpoint serves its first
+request, the in-memory state already reflects DB history.
+
+### Operator-visible change
+
+Before:
+```
+LIFECYCLE SCANNER  idle
+Last scan: never
+```
+
+After (matches the same data the Pending card shows):
+```
+LIFECYCLE SCANNER  idle
+Last scan: 2026-04-28 02:22:56 — 28,504 files scanned
+```
+
+### Files
+
+- `core/version.py` — bump to 0.32.11
+- `core/lifecycle_scanner.py` — new
+  `hydrate_scan_state_from_db()`; `db_fetch_one` import
+- `main.py` — call hydration in lifespan startup, before
+  scheduler start
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`
+
+No DB migration. No new dependencies. No new endpoints. No
+new scheduler jobs.
+
+### Best-practice note (deferred)
+
+The Status page currently shows BOTH a "Lifecycle Scanner"
+card and a Pipeline strip + Pending card with overlapping
+data. The right architectural move is to **promote the rich
+Pipeline card** (the one on Image 11 from /index.html — Mode,
+Last Scan, Next Scan, Source Files, Pending, Interval) to be
+the canonical card on Status, and either remove the
+standalone Lifecycle Scanner card or visually nest it under
+Pipeline as a sub-component. Single source of truth, no
+mirroring drift.
+
+This work is **not in v0.32.11** — only the data-source bug
+is fixed. The merge is a UX redesign with implications for
+the home page (which would gain a summary card linking to
+Status). Plan and ship in a follow-up release.
+
+---
+
 ## v0.32.10 — Pipeline header descriptive scan info (2026-04-28)
 
 **Each cell of the Bulk Jobs page Pipeline header gains a

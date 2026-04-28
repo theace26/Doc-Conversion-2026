@@ -6,6 +6,60 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.32.11 — "Last scan: never" no longer lies after a restart
+
+Small but irritating bug: every time you restarted the
+container, the **Lifecycle Scanner** card on the Status page
+read **"Last scan: never"** — even when the system had run
+dozens of scans before. The scan history was always there in
+the database; the card just wasn't reading from it.
+
+### What you saw before
+
+After `docker-compose up -d`, open Status →
+
+```
+LIFECYCLE SCANNER  idle
+Last scan: never
+```
+
+…even though the Pending card right below was showing
+`Last scan: 28,504 files (0 new, 0 modified) — interrupted`.
+Same scan, two cards, contradictory reads.
+
+### What you see now
+
+```
+LIFECYCLE SCANNER  idle
+Last scan: 2026-04-28 02:22 PM (28m ago)
+```
+
+Card matches what every other card on the page already knew.
+Data was always correct in the DB; this release hooks the
+in-memory cache up to it on container startup.
+
+### Heads-up: the two-card display is on the cleanup list
+
+The Status page currently shows three places with
+overlapping pieces of the same scan data:
+
+1. The **Pipeline strip** at the top (chip counts).
+2. The **Lifecycle Scanner** card (just fixed).
+3. The **Pending** card (also shows `Last scan: …`).
+
+A future release will consolidate them. The plan is to
+promote the rich Pipeline card from the home page (with
+Mode / Last Scan / Next Scan / Source Files / Pending /
+Interval and Pause / Run Now buttons) to be **the** canonical
+status card on the Status page, and drop the standalone
+Lifecycle Scanner card. The home page will gain a small
+summary that deep-links to Status. Single source of truth,
+no drift.
+
+That's not in this release — only the data-source bug.
+
+---
+
 ## v0.32.10 — Pipeline header on Bulk Jobs is now self-explanatory
 
 The Pipeline header at the top of the **Bulk Jobs** page used

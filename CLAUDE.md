@@ -91,7 +91,82 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.32.10
+## Current Version — v0.32.11
+
+**Single bug fix: the Status page Lifecycle Scanner card
+showed `Last scan: never` after every container restart
+because the in-memory `_scan_state` dict reset to None on
+process boot — even though the `scan_runs` table had dozens
+of completed rows the card could have read from. Hydration
+function now runs on startup (in main.py's lifespan) to
+populate `last_scan_at` + `last_scan_run_id` from the most
+recent finished scan_run before the API endpoint serves its
+first request.**
+
+### Why the bug existed
+
+`/api/scanner/progress` reads
+`core.lifecycle_scanner._scan_state` — a module-level dict
+that initializes with `last_scan_at=None`. Only updated
+in-process when a scan completes. Container restart →
+process restart → dict resets → endpoint returns
+`last_scan_at: null` → frontend renders "never."
+
+`/api/pipeline/status` reads from the DB's `scan_runs` table
+directly, so it had accurate data the whole time. Two
+endpoints, two data sources, opposite results — same scan,
+different stories.
+
+### Fix
+
+`hydrate_scan_state_from_db()` in
+`core/lifecycle_scanner.py`:
+- Queries the most recent `scan_runs` row with
+  `finished_at IS NOT NULL`
+- Populates `_scan_state["last_scan_at"]` and
+  `_scan_state["last_scan_run_id"]` if they're currently None
+- Safe to call repeatedly (no-op if state is populated)
+- Best-effort: failures log a warning, never raise
+
+Called once on app startup in main.py's `lifespan` (Phase 9,
+right before `start_scheduler`).
+
+### Files
+
+- `core/version.py` — bump to 0.32.11
+- `core/lifecycle_scanner.py` — new
+  `hydrate_scan_state_from_db()` + `db_fetch_one` import
+- `main.py` — call hydration in lifespan startup before
+  scheduler start
+- `CLAUDE.md`, `docs/version-history.md`,
+  `docs/help/whats-new.md`
+
+No DB migration. No new dependencies. No new endpoints.
+
+### Operator-visible change
+
+Status page → Lifecycle Scanner card now shows the actual
+last scan timestamp instead of "never" — matches the data
+the Pending card already shows.
+
+### Best-practice note (deferred)
+
+The Status page presents Pipeline + Lifecycle Scanner +
+Pending as parallel top-level cards even though they all
+read overlapping subsets of the same scan data. The right
+fix is to **promote the rich Pipeline card** (the one on
+/index.html — Mode/Last Scan/Next Scan/Source Files/
+Pending/Interval) to be the canonical card on Status, drop
+the standalone Lifecycle Scanner card (its data is already
+in the Pipeline card), and add a summary card with a
+link-to-status on the home page. Single source of truth, no
+mirroring. **Not in this release** — that's a UX redesign
+with implications across pages; planning + shipping
+separately.
+
+---
+
+## v0.32.10 — Pipeline header on the Bulk Jobs page is now descriptive
 
 **Pipeline header on the Bulk Jobs page is now descriptive
 instead of cryptic. Each cell renders a multi-line block: the

@@ -288,6 +288,18 @@ async def lifespan(app: FastAPI):
     # Phase 9: Start scheduler + health-gated initial pipeline cycle
     from core.scheduler import start_scheduler, stop_scheduler
     from core.metrics_collector import record_activity_event
+
+    # v0.32.10: hydrate the lifecycle scanner's in-memory state from
+    # the DB so the Status page's "Last scan" reflects history, not
+    # just whatever ran since this container started. Without this,
+    # the Lifecycle Scanner card shows "Last scan: never" after every
+    # restart even when scan_runs has dozens of completed rows.
+    try:
+        from core.lifecycle_scanner import hydrate_scan_state_from_db
+        await hydrate_scan_state_from_db()
+    except Exception as exc:  # noqa: BLE001 — best-effort
+        log.warning("markflow.scan_state_hydration_failed", error=str(exc))
+
     try:
         start_scheduler()
 

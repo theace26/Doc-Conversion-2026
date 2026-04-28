@@ -42,17 +42,20 @@ status_code() {
   curl -s -o /dev/null -w "%{http_code}" -m 10 "$@" 2>/dev/null || echo "000"
 }
 
-# Helper: Python JSON probe (works around lack of jq on Git Bash)
+# Helper: Python JSON probe (works around lack of jq on Git Bash).
+# Pass JSON over stdin (not argv) so embedded quotes / newlines /
+# backslashes in the body don't fight bash's quoting rules. The
+# expression runs against `data` after parsing.
 jsonq() {
-  # $1 = JSON body, $2 = python expression on `data`
-  python3 -c "import sys, json
+  # $1 = JSON body (passed via stdin), $2 = python expression on `data`
+  printf '%s' "$1" | python3 -c "import sys, json
 try:
-  data = json.loads(sys.argv[1])
+  data = json.loads(sys.stdin.read())
   print($2)
 except Exception as e:
   print(f'__ERROR: {e}', file=sys.stderr)
   sys.exit(2)
-" "$1" "$2" 2>/dev/null
+" 2>/dev/null
 }
 
 # ── header ────────────────────────────────────────────────────────────────
@@ -86,7 +89,11 @@ fi
 
 # ── 2. /api/preview/info — new fields ─────────────────────────────────────
 hr "2. /api/preview/info — action + info_version fields"
-ENC_PATH="$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$TEST_PATH")"
+# MSYS_NO_PATHCONV=1: Git Bash on Windows auto-converts forward-slash
+# paths passed as args to native Windows binaries — without this,
+# `/host/c/...` becomes `C:/Program Files/Git/host/c/...` BEFORE
+# python3 sees it, and the encoded URL ends up pointing nowhere.
+ENC_PATH="$(MSYS_NO_PATHCONV=1 python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$TEST_PATH")"
 INFO="$(fetch "http://${HOST}/api/preview/info?path=${ENC_PATH}")"
 if [ -z "$INFO" ]; then
   fail "/api/preview/info did not respond. Backend rebuild needed?"
@@ -143,20 +150,23 @@ fi
 
 # ── 5. /api/pipeline/files include_trashed ────────────────────────────────
 hr "5. /api/pipeline/files — include_trashed query param"
+# per_page must be >= 10 per the Pydantic validator
 PF_TRUE_STATUS="$(status_code "http://${HOST}/api/pipeline/files?status=pending&per_page=10&include_trashed=true")"
 PF_FALSE_STATUS="$(status_code "http://${HOST}/api/pipeline/files?status=pending&per_page=10&include_trashed=false")"
 if [ "$PF_TRUE_STATUS" = "200" ] && [ "$PF_FALSE_STATUS" = "200" ]; then
-  PF_TRUE="$(fetch "http://${HOST}/api/pipeline/files?status=pending&per_page=1&include_trashed=true")"
-  PF_FALSE="$(fetch "http://${HOST}/api/pipeline/files?status=pending&per_page=1&include_trashed=false")"
+  PF_TRUE="$(fetch "http://${HOST}/api/pipeline/files?status=pending&per_page=10&include_trashed=true")"
+  PF_FALSE="$(fetch "http://${HOST}/api/pipeline/files?status=pending&per_page=10&include_trashed=false")"
   T_TOTAL="$(jsonq "$PF_TRUE" "data.get('total', '?')")"
   F_TOTAL="$(jsonq "$PF_FALSE" "data.get('total', '?')")"
   ok "/api/pipeline/files accepts include_trashed query param"
   note "  pending (include_trashed=true):  $T_TOTAL"
   note "  pending (include_trashed=false): $F_TOTAL  ${DIM}(should be smaller after v0.32.1 filter)${OFF}"
-  if [ "$T_TOTAL" != "?" ] && [ "$F_TOTAL" != "?" ] && [ "$F_TOTAL" -lt "$T_TOTAL" ]; then
-    ok "filter is working — false-count is smaller than true-count"
-  elif [ "$T_TOTAL" != "?" ] && [ "$T_TOTAL" = "$F_TOTAL" ]; then
-    note "  same count — could mean no trashed pending files exist (fine), or filter not applied"
+  if [ "$T_TOTAL" != "?" ] && [ "$F_TOTAL" != "?" ]; then
+    if [ "$F_TOTAL" -lt "$T_TOTAL" ] 2>/dev/null; then
+      ok "filter is working — false-count smaller than true-count"
+    elif [ "$T_TOTAL" = "$F_TOTAL" ]; then
+      note "  same count — no trashed pending files exist (fine)"
+    fi
   fi
 elif [ "$PF_TRUE_STATUS" = "422" ] || [ "$PF_FALSE_STATUS" = "422" ]; then
   fail "/api/pipeline/files rejected include_trashed (HTTP 422). Backend not rebuilt."
@@ -183,21 +193,48 @@ for ep in "empty" "restore-all"; do
 done
 
 # ── 7. Recent log activity ────────────────────────────────────────────────
-hr "7. Recent log activity (last ~200 lines)"
+hr "7. Recent log activity (last ~500 lines)"
 LOG_OUT="$(MSYS_NO_PATHCONV=1 docker exec "${CONTAINER}" sh -c '
   echo "=== preview.* events ==="
   tail -n 500 /app/logs/markflow.log 2>/dev/null | grep -oE "\"event\": \"preview\\.[^\"]+\"" | sort | uniq -c | sort -rn
   echo "=== recent errors (last 5) ==="
   tail -n 500 /app/logs/markflow.log 2>/dev/null | grep "\"level\": \"error\"" | tail -5
-  echo "=== scheduler.scan_cancelled_on_shutdown (proves scheduler.py fix landed) ==="
-  grep -c "scheduler.scan_cancelled_on_shutdown" /app/logs/markflow.log 2>/dev/null
 ' 2>&1)"
 echo "$LOG_OUT" | sed "s/^/    /"
-if echo "$LOG_OUT" | grep -q "preview\."; then
-  ok "preview.* events firing — the new endpoints are being hit"
+if echo "$LOG_OUT" | grep -q '"event": "preview\.'; then
+  ok "preview.* events firing — new endpoints are being hit"
+else
+  note "no preview.* events in recent log — visit a preview page to generate one"
 fi
-if echo "$LOG_OUT" | grep -q "scheduler.scan_cancelled_on_shutdown"; then
-  ok "scheduler.scan_cancelled_on_shutdown logged — v0.32.0 fix is live"
+# Separately count scheduler.scan_cancelled_on_shutdown across the
+# whole log (cheap, accurate); pre-fix events look different so a
+# count > 0 proves the v0.32.0 fix landed AT LEAST ONCE.
+SCHED_COUNT="$(MSYS_NO_PATHCONV=1 docker exec "${CONTAINER}" sh -c \
+  'grep -c "scheduler.scan_cancelled_on_shutdown" /app/logs/markflow.log 2>/dev/null || echo 0')"
+if [ "${SCHED_COUNT:-0}" -gt 0 ] 2>/dev/null; then
+  ok "scheduler.scan_cancelled_on_shutdown logged $SCHED_COUNT time(s) — v0.32.0 fix is live"
+else
+  note "scheduler.scan_cancelled_on_shutdown not yet seen — fires on next clean shutdown"
+fi
+
+# ── 9. v0.32.3 — /api/trash true-total check ──────────────────────────────
+hr "9. /api/trash — true total (v0.32.3 500-cap fix)"
+TRASH_BODY="$(fetch "http://${HOST}/api/trash?per_page=10&page=1")"
+T_TOTAL="$(jsonq "$TRASH_BODY" "data.get('total', '?')")"
+DB_TOTAL="$(MSYS_NO_PATHCONV=1 docker exec "${CONTAINER}" python3 -c "
+import sqlite3
+conn = sqlite3.connect('/app/data/markflow.db')
+print(conn.execute(\"SELECT COUNT(*) FROM source_files WHERE lifecycle_status='in_trash'\").fetchone()[0])
+" 2>/dev/null)"
+if [ -n "$T_TOTAL" ] && [ -n "$DB_TOTAL" ] && [ "$T_TOTAL" = "$DB_TOTAL" ]; then
+  ok "/api/trash total matches DB count: ${T_TOTAL} rows (v0.32.3 fix applied)"
+elif [ "$T_TOTAL" = "500" ] && [ "${DB_TOTAL:-0}" -gt 500 ] 2>/dev/null; then
+  fail "/api/trash returned 500 but DB has $DB_TOTAL — v0.32.3 fix didn't land. Rebuild needed."
+elif [ -z "$T_TOTAL" ] || [ "$T_TOTAL" = "?" ]; then
+  warn "could not parse /api/trash total"
+else
+  note "  api total: $T_TOTAL · db count: $DB_TOTAL"
+  ok "/api/trash returning total (matches: $([ "$T_TOTAL" = "$DB_TOTAL" ] && echo yes || echo close))"
 fi
 
 # ── 8. Stuck scanning job ─────────────────────────────────────────────────

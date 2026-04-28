@@ -38,6 +38,7 @@ from core.database import (
     create_scan_run,
     create_version_snapshot,
     db_fetch_all,
+    db_fetch_one,
     get_source_file_by_path,
     get_next_version_number,
     get_scan_run,
@@ -123,6 +124,42 @@ _scan_state: dict = {
 def get_scan_state() -> dict:
     """Return a snapshot of the current lifecycle scan state."""
     return dict(_scan_state)
+
+
+async def hydrate_scan_state_from_db() -> None:
+    """Populate `_scan_state["last_scan_at"]` and `last_scan_run_id`
+    from the most recent finished `scan_runs` row.
+
+    The in-memory state resets to None on container restart, but the
+    DB has a persistent record of every scan that ever ran. Without
+    this hydration, the Status page's Lifecycle Scanner card shows
+    "Last scan: never" after every restart even when the DB has
+    plenty of completed scans. Called once on app startup from
+    main.py's lifespan.
+
+    Safe to call repeatedly; it only fills in fields that are
+    currently None and never overwrites an active scan's state.
+    """
+    if _scan_state.get("last_scan_at") is not None:
+        return  # already populated, don't clobber
+    try:
+        row = await db_fetch_one(
+            """SELECT id, finished_at, status FROM scan_runs
+               WHERE finished_at IS NOT NULL
+               ORDER BY finished_at DESC
+               LIMIT 1"""
+        )
+        if row and row.get("finished_at"):
+            _scan_state["last_scan_at"] = row["finished_at"]
+            _scan_state["last_scan_run_id"] = row["id"]
+            log.info(
+                "lifecycle_scanner.state_hydrated",
+                last_scan_at=row["finished_at"],
+                last_scan_run_id=row["id"],
+                last_scan_status=row.get("status"),
+            )
+    except Exception as exc:  # noqa: BLE001 — startup hydration is best-effort
+        log.warning("lifecycle_scanner.hydration_failed", error=str(exc))
 
 
 def compute_file_hash(file_path: Path) -> str | None:
