@@ -1215,7 +1215,628 @@ async def get_latest_scan_run() -> dict | None:
 
 ## §D — trash.py + analysis.py + admin.py + search rebuild (Phase 3 prep, Tasks 17–22)
 
-*To be filled by Task 0.4.*
+> **§G drift breadcrumbs (read first):**
+> 1. **Trash workers do NOT live in `api/routes/trash.py`.** The route handlers are 4-line `asyncio.create_task(...)` shims. The actual workers (`purge_all_trash`, `restore_all_trash`) and the in-memory dicts (`_empty_trash_status`, `_restore_all_status`) live in **`core/lifecycle_manager.py:274-476`**. Tasks 17 (empty-trash retrofit) and 18 (restore-all retrofit) must edit `core/lifecycle_manager.py`, NOT `api/routes/trash.py`.
+> 2. **There is NO cancel mechanism for empty-trash or restore-all.** Neither worker checks an `asyncio.Event` or a flag during its loop. The `_empty_trash_status` dict has no `cancel_requested` field; `purge_all_trash` runs to completion once started. Same for `restore_all_trash`. **Tasks 17/18 will need to introduce the cancel primitive** — either (a) cooperative `is_cancelled(op_id)` polling inside the per-batch loop, or (b) a new `asyncio.Event` in lifecycle_manager that the registry's `cancel_op()` flips. Recommend (a) because it matches the convert-selected pattern (§C.2.1) and avoids a second cancel-bridge surface.
+> 3. **Re-analyze endpoints are NOT `/api/analysis/batches/{id}/re-analyze`.** Real paths: `POST /api/analysis/queue/{entry_id}/reanalyze` (single row) and `POST /api/analysis/queue/reanalyze-bulk` (filter-driven). Both are **synchronous DELETE+enqueue** — they do NOT spawn a background worker. The actual analysis work is performed later by the `analysis_drain` scheduled job (§A.4.2 row 17). **The "re-analyze" op is a misnomer for the registry** — there is no long-running worker for the registry to track on the request side. Either (a) skip Task 20 entirely, (b) move the registration into the queue-drain scheduled job, or (c) register a short-lived op around the bulk-reanalyze handler (likely shows as 0%→100% in well under a second). Document this in §G; Task 0.7 picks the resolution.
+> 4. **DB backup/restore endpoints are NOT under `/api/admin/...`** — they live at `POST /api/db/backup`, `POST /api/db/restore`, `GET /api/db/backups` in **`api/routes/db_health.py:124-200`** (router prefix `/api/db`). Role is **`ADMIN`** (matches spec assumption). Both handlers are **synchronous**: FastAPI returns the result dict (or `FileResponse`) directly; there is NO `BackgroundTasks` dispatch and NO `asyncio.create_task`. The work happens via `asyncio.to_thread(_backup_sync, ...)` and `asyncio.to_thread(_integrity_check_sync, ...)` inside the awaited `backup_database()` / `restore_database()` calls.
+> 5. **Search rebuild endpoint is NOT `/api/pipeline/rebuild-index`.** The real backend handler is `POST /api/search/index/rebuild` in **`api/routes/search.py:703-731`**. Role is **`SEARCH_USER`** (lowest tier — surprising; spec assumed MANAGER+, see §D.5 for raise-the-bar recommendation). The frontend at `static/js/pipeline-card.js:285` POSTs to `/api/pipeline/rebuild-index` — **a URL that does not exist on the backend**. This is a separate frontend bug, not an active-ops concern, but flagged here so Task 19 doesn't waste time chasing the `pipeline.py` red herring.
+> 6. **Search rebuild iterates per-document in a single async fn** — there is a real `for f in files:` loop with `documents_indexed += 1` ticks at `core/search_indexer.py:419-462`. Task 19 CAN wire `update_op(processed=...)` into that loop, but the indexer is currently a closed `RebuildStatus` dataclass (lines 150-152 of `search_indexer.py`); plumbing op_id through means either (a) accepting an `op_id` kwarg in `rebuild_index(...)` and calling `update_op` from inside, or (b) returning iteratively via an async generator and updating from the route handler's `_rebuild()` closure. Option (a) is simpler and matches the existing `job_id` kwarg pattern.
+
+---
+
+### §D.1 — `_empty_trash_status` worker (Task 17)
+
+**Endpoint location:** `api/routes/trash.py:61-96` (POST `/api/trash/empty`).
+**Worker location:** `core/lifecycle_manager.py:294-404` (`purge_all_trash`).
+**Status dict location:** `core/lifecycle_manager.py:274-281` (module-level, mutated in-place).
+**Status getter:** `core/lifecycle_manager.py:284-285` (returns `dict(_empty_trash_status)`).
+**Progress bumper:** `core/lifecycle_manager.py:288-291` (`_bump_empty_progress` — stamps `last_progress_at_epoch`).
+
+**Endpoint dispatch — verbatim from `api/routes/trash.py:61-96`:**
+
+```python
+@router.post("/empty")
+async def empty_trash(
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+) -> dict:
+    """Purge all trashed files. Batched DB operations, runs in background."""
+    from core.lifecycle_manager import purge_all_trash, get_empty_trash_status
+
+    status = get_empty_trash_status()
+    if status["running"]:
+        return {
+            "status": "already_running",
+            "total": status.get("total", 0),
+            "done": status.get("done", 0),
+            "started_at_epoch": status.get("started_at_epoch", 0.0),
+            "last_progress_at_epoch": status.get("last_progress_at_epoch", 0.0),
+            "progress": status,
+        }
+
+    from core.db.lifecycle import count_source_files_by_lifecycle_status
+    total = await count_source_files_by_lifecycle_status("in_trash")
+
+    if total == 0:
+        return {"status": "done", "purged_count": 0}
+
+    # Fire and forget — returns immediately, purge runs in background.
+    asyncio.create_task(purge_all_trash())
+    return {"status": "started", "total": total}
+```
+
+**Key dispatch facts:**
+- `asyncio.create_task(purge_all_trash())` — NOT `BackgroundTasks`. Purge starts immediately, endpoint returns at the next event-loop yield.
+- The endpoint does NOT receive an op_id back — the worker has no parameter for one. **Task 17 implementation choice:** either (a) call `register_op(...)` inside the worker (worker creates its own op_id and stores it on `_empty_trash_status`), or (b) `register_op` in the endpoint, pass op_id into `purge_all_trash(op_id=...)` (requires changing the signature). (b) is cleaner — endpoint already returns immediately and can include `op_id` in its response payload.
+
+**Worker — verbatim from `core/lifecycle_manager.py:274-404` (the full body Task 17 must transform):**
+
+```python
+_empty_trash_status: dict = {
+    "running": False,
+    "total": 0,
+    "done": 0,
+    "errors": 0,
+    "started_at_epoch": 0.0,
+    "last_progress_at_epoch": 0.0,
+}
+
+
+def get_empty_trash_status() -> dict:
+    return dict(_empty_trash_status)
+
+
+def _bump_empty_progress() -> None:
+    """Stamp `last_progress_at_epoch` whenever total or done changes."""
+    _empty_trash_status["last_progress_at_epoch"] = time.time()
+
+
+async def purge_all_trash() -> int:
+    """Batch-purge all trashed files. Runs as a background task."""
+    global _empty_trash_status
+
+    if _empty_trash_status["running"]:
+        log.warning("empty_trash.already_running")
+        return 0
+
+    started = time.time()
+    _empty_trash_status = {
+        "running": True,
+        "total": 0,
+        "done": 0,
+        "errors": 0,
+        "started_at_epoch": started,
+        "last_progress_at_epoch": started,
+    }
+
+    try:
+        from core.database import get_source_files_by_lifecycle_status
+        source_files = await get_source_files_by_lifecycle_status(
+            "in_trash", limit=None,
+        )
+        if not source_files:
+            return 0
+
+        # Collect all bulk_file IDs and their trash paths
+        bf_ids: list[str] = []
+        sf_ids: list[str] = []
+        trash_paths: list[Path] = []
+
+        for sf in source_files:
+            sf_ids.append(sf["id"])
+            bf_rows = await db_fetch_all(
+                "SELECT id, output_path FROM bulk_files WHERE source_file_id = ?",
+                (sf["id"],),
+            )
+            for bf in bf_rows:
+                bf_ids.append(bf["id"])
+                output_path = bf.get("output_path")
+                if output_path:
+                    tp = get_trash_path(_output_root(), Path(output_path))
+                    if tp.exists():
+                        trash_paths.append(tp)
+
+        _empty_trash_status["total"] = len(bf_ids)             # ← total set HERE (line 348)
+        _bump_empty_progress()
+        log.info("empty_trash.starting", total_bf=len(bf_ids), total_sf=len(sf_ids),
+                 trash_files=len(trash_paths))
+
+        # Phase 1: Delete disk files in thread pool
+        async def _delete_file(p: Path) -> None:
+            try:
+                await asyncio.to_thread(p.unlink)
+            except OSError:
+                pass
+
+        for i in range(0, len(trash_paths), 50):
+            batch = trash_paths[i:i + 50]
+            await asyncio.gather(*[_delete_file(p) for p in batch])
+            await asyncio.sleep(0)
+
+        # Phase 2: Batch UPDATE bulk_files in chunks of 200
+        now = datetime.now(timezone.utc).isoformat()
+        chunk_size = 200
+        for i in range(0, len(bf_ids), chunk_size):
+            chunk = bf_ids[i:i + chunk_size]
+            placeholders = ",".join("?" for _ in chunk)
+            await db_execute(
+                f"UPDATE bulk_files SET lifecycle_status='purged', purged_at=? "
+                f"WHERE id IN ({placeholders})",
+                (now, *chunk),
+            )
+            _empty_trash_status["done"] += len(chunk)          # ← done bumped HERE (line 377)
+            _bump_empty_progress()
+            await asyncio.sleep(0)
+
+        # Phase 3: Batch UPDATE source_files in chunks of 200
+        for i in range(0, len(sf_ids), chunk_size):
+            chunk = sf_ids[i:i + chunk_size]
+            placeholders = ",".join("?" for _ in chunk)
+            await db_execute(
+                f"UPDATE source_files SET lifecycle_status='purged', purged_at=? "
+                f"WHERE id IN ({placeholders})",
+                (now, *chunk),
+            )
+            _bump_empty_progress()
+            await asyncio.sleep(0)
+
+        log.info("empty_trash.complete", purged=len(bf_ids))
+        return len(bf_ids)
+
+    except Exception as exc:
+        log.error("empty_trash.failed", error=str(exc))
+        _empty_trash_status["errors"] += 1                     # ← errors bumped HERE (line 398)
+        return _empty_trash_status["done"]
+    finally:
+        _empty_trash_status["running"] = False
+```
+
+**Side-by-side mutation map (every dict mutation; what becomes `update_op` / `finish_op` after retrofit):**
+
+| File:Line | Existing mutation | Task 17 retrofit |
+|---|---|---|
+| `lifecycle_manager.py:308-315` | `_empty_trash_status = {running:True, ...}` (full reset) | Keep AND add `op_id = await register_op(op_type="empty_trash", label="Empty trash", total=None)` immediately AFTER the reset. |
+| `lifecycle_manager.py:348` | `_empty_trash_status["total"] = len(bf_ids)` | Keep AND add `await update_op(op_id, total=len(bf_ids))` |
+| `lifecycle_manager.py:377` | `_empty_trash_status["done"] += len(chunk)` | Keep AND add `await update_op(op_id, processed=_empty_trash_status["done"])` (debounced — Phase 1 Task 4 makes this safe per-chunk) |
+| `lifecycle_manager.py:398` | `_empty_trash_status["errors"] += 1` | Keep AND add `await update_op(op_id, errors=1, error="empty_trash.failed: " + str(exc))` |
+| `lifecycle_manager.py:401` | `_empty_trash_status["running"] = False` | Add **before** that line: `await finish_op(op_id, status="failed" if errors else "completed")` |
+
+**Cancel mechanism:** None exists. Per breadcrumb #2 above, Task 17 must introduce one. Recommended insertion point: top of each `for chunk in ...` loop iteration in Phases 1, 2, 3 — `if await is_cancelled(op_id): break` (or `return`). The cancel response shape on the frontend remains `_empty_trash_status["running"]=False` plus the new registry-side `status="cancelled"`.
+
+**Total vs done decision:** `_empty_trash_status["total"]` is set ONCE at line 348 (after the file-enumeration phase completes). Until that point, `total` is 0 and the registry would show indeterminate. The `update_op(total=...)` call at the same site lifts it to determinate immediately. Per-chunk `done` ticks at line 377 cover the `bulk_files` phase only — the `source_files` phase 3 (lines 382-391) does NOT increment `done`. **Implication:** the registry's `processed` will reach `total` at the END of phase 2, then the `source_files` phase runs invisibly. Since phase 3 is fast (single UPDATE chunks, no disk I/O), this is acceptable; documenting it so Task 17 doesn't over-engineer a phase-3 ticker.
+
+---
+
+### §D.2 — `_restore_all_status` worker (Task 18)
+
+**Endpoint location:** `api/routes/trash.py:108-134` (POST `/api/trash/restore-all`).
+**Worker location:** `core/lifecycle_manager.py:427-476` (`restore_all_trash`).
+**Status dict location:** `core/lifecycle_manager.py:409-416` (module-level).
+**Status getter:** `core/lifecycle_manager.py:419-420`.
+**Progress bumper:** `core/lifecycle_manager.py:423-424`.
+
+**Endpoint dispatch — verbatim from `api/routes/trash.py:108-134`:**
+
+```python
+@router.post("/restore-all")
+async def restore_all_trash(
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+) -> dict:
+    """Restore all trashed files. Runs in background."""
+    from core.lifecycle_manager import restore_all_trash, get_restore_all_status
+
+    status = get_restore_all_status()
+    if status["running"]:
+        return {
+            "status": "already_running",
+            "total": status.get("total", 0),
+            "done": status.get("done", 0),
+            "started_at_epoch": status.get("started_at_epoch", 0.0),
+            "last_progress_at_epoch": status.get("last_progress_at_epoch", 0.0),
+            "progress": status,
+        }
+
+    from core.db.lifecycle import count_source_files_by_lifecycle_status
+    total = await count_source_files_by_lifecycle_status("in_trash")
+    if total == 0:
+        return {"status": "done", "restored_count": 0}
+
+    asyncio.create_task(restore_all_trash())
+    return {"status": "started", "total": total}
+```
+
+**Note on import shadowing:** the route handler is named `restore_all_trash` AND the imported worker is also `restore_all_trash` — same name, distinct module scopes. The endpoint lambda imports `restore_all_trash` from `core.lifecycle_manager` lazily inside the function body so there is no conflict. Task 18 must preserve this lazy-import pattern (or rename one side).
+
+**Worker — verbatim from `core/lifecycle_manager.py:409-476`:**
+
+```python
+_restore_all_status: dict = {
+    "running": False,
+    "total": 0,
+    "done": 0,
+    "errors": 0,
+    "started_at_epoch": 0.0,
+    "last_progress_at_epoch": 0.0,
+}
+
+
+def get_restore_all_status() -> dict:
+    return dict(_restore_all_status)
+
+
+def _bump_restore_progress() -> None:
+    _restore_all_status["last_progress_at_epoch"] = time.time()
+
+
+async def restore_all_trash() -> int:
+    """Restore all trashed files back to active. Runs as background task."""
+    global _restore_all_status
+    if _restore_all_status["running"]:
+        return 0
+    started = time.time()
+    _restore_all_status = {
+        "running": True,
+        "total": 0,
+        "done": 0,
+        "errors": 0,
+        "started_at_epoch": started,
+        "last_progress_at_epoch": started,
+    }
+    try:
+        from core.database import get_source_files_by_lifecycle_status
+        source_files = await get_source_files_by_lifecycle_status(
+            "in_trash", limit=None,
+        )
+        bf_ids = []
+        for sf in source_files:
+            rows = await db_fetch_all(
+                "SELECT id FROM bulk_files WHERE source_file_id = ?", (sf["id"],),
+            )
+            bf_ids.extend(r["id"] for r in rows)
+        _restore_all_status["total"] = len(bf_ids)             # ← total set HERE (line 453)
+        _bump_restore_progress()
+        log.info("restore_all.starting", total=len(bf_ids))
+        for i, bf_id in enumerate(bf_ids):
+            try:
+                await restore_file(bf_id, scan_run_id="bulk_restore")
+                _restore_all_status["done"] += 1               # ← done bumped HERE (line 459)
+            except Exception:
+                _restore_all_status["errors"] += 1             # ← errors bumped HERE (line 461)
+            _bump_restore_progress()
+            if (i + 1) % 50 == 0:
+                await asyncio.sleep(0)
+        log.info("restore_all.complete", restored=_restore_all_status["done"],
+                 errors=_restore_all_status["errors"])
+        return _restore_all_status["done"]
+    except Exception as exc:
+        log.error("restore_all.failed", error=str(exc))
+        return _restore_all_status["done"]
+    finally:
+        _restore_all_status["running"] = False
+```
+
+**Side-by-side mutation map (Task 18):**
+
+| File:Line | Existing mutation | Task 18 retrofit |
+|---|---|---|
+| `lifecycle_manager.py:433-440` | `_restore_all_status = {running:True, ...}` | Keep AND add `op_id = await register_op(op_type="restore_all", label="Restore all from trash", total=None)` after the reset. |
+| `lifecycle_manager.py:453` | `_restore_all_status["total"] = len(bf_ids)` | Keep AND add `await update_op(op_id, total=len(bf_ids))` |
+| `lifecycle_manager.py:459` | `_restore_all_status["done"] += 1` | Keep AND add `await update_op(op_id, processed=_restore_all_status["done"])` (debounced, per-row safe) |
+| `lifecycle_manager.py:461` | `_restore_all_status["errors"] += 1` | Keep AND add `await update_op(op_id, errors=_restore_all_status["errors"])` |
+| `lifecycle_manager.py:474` | `_restore_all_status["running"] = False` | Add **before** that line: `await finish_op(op_id, status="failed" if exc was raised else ("cancelled" if cancel_hit else "completed"))` |
+
+**Symmetric to empty-trash:** Yes — same dict shape, same dispatch pattern, same lack-of-cancel. Same recommendation as §D.1: introduce cooperative `is_cancelled(op_id)` polling at the top of the per-row loop body (line 456 `for i, bf_id in enumerate(bf_ids):`).
+
+**Difference from empty-trash:** restore_all uses **per-row** ticking (`done += 1` per file), whereas empty-trash uses **per-chunk** (200-row) ticking. The 1.5s debounce in Phase 1 Task 4's `update_op` is the cushion that keeps per-row calls safe — at 50 files/sec the registry sees ~75 writes/sec collapsed to one per debounce window.
+
+---
+
+### §D.3 — Re-analyze handlers (Task 20)
+
+> **Major drift — see §G breadcrumb #3.** The spec assumed `POST /api/analysis/batches/{id}/re-analyze` with a long-running worker. Reality is two synchronous DELETE+enqueue endpoints; the actual analysis happens via the `analysis_drain` scheduled job (§A.4 row 17, runs every 5 min).
+
+**Endpoint 1 — single-row reanalyze:** `POST /api/analysis/queue/{entry_id}/reanalyze`
+**Location:** `api/routes/analysis.py:335-404`.
+**Role:** `OPERATOR`.
+**Body:** none — entry_id is a path param.
+**Pattern:** `SELECT row → db_write_with_retry(DELETE) → enqueue_for_analysis()`. **Synchronous, single-row, completes in milliseconds.** No long-running work; no progress to track. Registry value here is dubious — registering an op that finishes 50ms later is noise.
+
+**Endpoint 2 — bulk reanalyze:** `POST /api/analysis/queue/reanalyze-bulk`
+**Location:** `api/routes/analysis.py:427-577`.
+**Role:** `OPERATOR`.
+**Body:** `BulkReanalyzeRequest` (`analyzed_before_iso`, `analyzed_after_iso`, `provider_id`, `model`, `status`, `dry_run`).
+**Cap:** `BULK_REANALYZE_CAP = 10000` rows per call.
+**Pattern (verbatim from `analysis.py:506-549`, when `dry_run=False`):**
+
+```python
+row_ids = [r["id"] for r in rows]
+
+async def _delete_all():
+    return await delete_rows_by_ids(row_ids)
+deleted = await db_write_with_retry(_delete_all)
+
+new_entry_ids: list[str] = []
+dropped = 0
+failed = 0
+failure_samples: list[str] = []
+for r in rows:
+    try:
+        new_id = await enqueue_for_analysis(
+            source_path=r["source_path"],
+            content_hash=r["content_hash"],
+            job_id=r["job_id"],
+            scan_run_id=r["scan_run_id"],
+            file_category=r["file_category"] or "image",
+        )
+    except Exception as exc:
+        failed += 1
+        if len(failure_samples) < 5:
+            failure_samples.append(...)
+        log.warning("analysis.reanalyze_bulk_enqueue_failed", ...)
+        continue
+    if new_id is None:
+        dropped += 1
+    else:
+        new_entry_ids.append(new_id)
+```
+
+**Pattern characteristics:**
+- Entire bulk loop runs **inside** the request handler — at the 10K cap with ~10ms per `enqueue_for_analysis` this can take ~100s, occupying one worker thread and blocking the response. **This is a possible concurrent-request foot-gun** (separate from active-ops scope, flag for §G).
+- No background dispatch — the handler returns AFTER all rows are deleted+re-enqueued.
+- Per-row exception handling (each enqueue wrapped in try/except).
+- Returns `{matched, deleted, re_enqueued, new_entry_ids, dropped, failed, failure_samples}`.
+
+**Task 20 retrofit options (Task 0.7 to decide):**
+
+| Option | Description | Trade-off |
+|---|---|---|
+| **A — drop Task 20** | Re-analyze ops aren't long-running enough to be worth registering. Skip from registry. | Spec line 750 listed `analysis.rebuild` as a registry op_type. Drop it. |
+| **B — register synchronously** | Wrap the bulk handler body in `register_op` / `finish_op` with per-row `update_op(processed=..., errors=...)` ticks during the for-loop at lines 522-549. | The handler is already blocking — adding registry calls is consistent. UI shows the op for ~10–100s while bulk completes. |
+| **C — move to scheduler** | Refactor the bulk handler to enqueue a job descriptor and have a scheduled worker process it. Register the op around the worker, not the handler. | Significantly larger refactor. Probably out-of-scope for v0.35.0. |
+
+**Recommendation:** Option B — minimal scope, matches existing pattern (handler stays synchronous, registry shows progress while caller waits). The single-row endpoint at `/api/analysis/queue/{entry_id}/reanalyze` is too fast to register and should NOT be wrapped (would just produce 50ms ops that flicker on screen).
+
+**op_type whitelist update (Phase 1 Task 2):** if Task 20 picks Option B, name the type `analysis.reanalyze_bulk` (NOT `analysis.rebuild` per spec line 796 — the actual operation is "re-enqueue rows for re-analysis", and Adobe-style indexing rebuilds are a separate concern handled via the search rebuild path).
+
+**Per-row iteration site (where update_op ticks plug in):** `analysis.py:522` (`for r in rows:`). The `processed` counter is `len(new_entry_ids) + dropped + failed`; `errors` is `failed`. Both are computed AFTER the loop in the existing code — under Option B they need to be moved inline so `update_op` can tick on each iteration.
+
+---
+
+### §D.4 — DB backup / restore handlers (Tasks 21, 22)
+
+> **Major drift — see §G breadcrumb #4.** Endpoints live at `/api/db/...` (router prefix in `api/routes/db_health.py:23`), NOT `/api/admin/...`.
+
+**Endpoints (all in `api/routes/db_health.py`):**
+
+| Method | Path | Handler | Line | Role | Synchronous? |
+|---|---|---|---|---|---|
+| POST | `/api/db/backup` | `db_backup` | 124-147 | ADMIN | **Yes** — awaits `backup_database()` directly |
+| POST | `/api/db/restore` | `db_restore` | 150-189 | ADMIN | **Yes** — awaits `restore_database()` directly |
+| GET | `/api/db/backups` | `db_list_backups` | 192-200 | ADMIN | Yes (list operation, no work to register) |
+
+**Worker locations:** `core/db_backup.py:90-157` (`backup_database`), `:215-...` (`restore_database`).
+
+**Synchronous dispatch — verbatim from `api/routes/db_health.py:124-147`:**
+
+```python
+@router.post("/backup")
+async def db_backup(
+    download: bool = False,
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
+    """Create a DB backup."""
+    from core.db_backup import backup_database
+
+    result = await backup_database(download=download)
+
+    # download=True returns a FileResponse on success
+    if isinstance(result, FileResponse):
+        log.info("db_backup.requested", user=user.email, download=download, ok=True)
+        return result
+
+    log.info("db_backup.requested", user=user.email, download=download, ok=result.get("ok"))
+    if not result.get("ok", False):
+        err = result.get("error", "Backup failed")
+        raise HTTPException(status_code=_error_to_http_status(result), detail=err)
+    return result
+```
+
+**Inside `backup_database()`** (`core/db_backup.py:90-157`):
+- Refuses if any bulk job is `running`/`scanning` (returns `{"ok": False, ...}`, NOT an exception).
+- `await asyncio.to_thread(_backup_sync, DB_PATH, dest)` — actual copy via SQLite online-backup API.
+- For a 100 MB DB: a few seconds. For multi-GB: tens of seconds. NOT atomic from the caller's perspective.
+- Returns either a `dict` or a `FileResponse`.
+
+**Inside `restore_database()`** (`core/db_backup.py:215+`):
+- Same blocking-job refusal.
+- `await asyncio.to_thread(_integrity_check_sync, candidate)` — pre-flight check.
+- Pool shutdown + file rotation + integrity recheck + pool restart — multi-phase, all awaited inline.
+- **Caller receives the response only AFTER restore completes** (or fails).
+
+**Implications for Tasks 21 & 22 (registry pattern adjustment):**
+
+Per the task instruction footnote: "If backup is synchronous (no background task), the registry pattern needs adjusting — `register_op` happens inline, `finish_op` happens before the response is returned." **Confirmed: backup AND restore are both fully synchronous.** The retrofit pattern is:
+
+```python
+@router.post("/backup")
+async def db_backup(download: bool = False, user=Depends(require_role(UserRole.ADMIN))):
+    from core.active_ops import register_op, finish_op
+    from core.db_backup import backup_database
+
+    op_id = await register_op(op_type="db.backup", label="Database backup",
+                               total=None)  # indeterminate — no progress signal
+    try:
+        result = await backup_database(download=download)
+        if isinstance(result, FileResponse):
+            await finish_op(op_id, status="completed")
+            return result
+        if not result.get("ok"):
+            await finish_op(op_id, status="failed", error=result.get("error"))
+            raise HTTPException(status_code=_error_to_http_status(result),
+                                detail=result.get("error", "Backup failed"))
+        await finish_op(op_id, status="completed")
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        await finish_op(op_id, status="failed", error=str(exc))
+        raise
+```
+
+**Key behavioral notes:**
+- The op appears in the registry for the duration of the backup/restore — a few seconds for typical sizes.
+- **No progress hook** inside `_backup_sync` (it's a single `conn.backup(...)` call from the SQLite C API, with no per-page callback exposed). Likewise no progress hook inside `_integrity_check_sync` or the file-rotation phase. **Task 21/22's `update_op` calls are minimal** — basically just `register_op` → `finish_op`, no intermediate ticks. UI shows indeterminate spinner for the duration.
+- Cancel: there is **no cooperative cancel** for SQLite's online backup or integrity check. Tasks 21/22 should register with `cancel_hook=None`; the registry's `cancel_op()` will still flip the dict but the actual work cannot be interrupted. UI must communicate this (op_type in the "uncancellable" list per spec line 461).
+- Role: `ADMIN` confirmed — matches spec assumption.
+
+**op_type whitelist (Phase 1 Task 2):** `db.backup` and `db.restore` (matches spec lines 750 / 1325 — design spec already names these correctly, only the route path was wrong).
+
+---
+
+### §D.5 — Search index rebuild (Task 19)
+
+> **Major drift — see §G breadcrumb #5.** Endpoint is `POST /api/search/index/rebuild` at `api/routes/search.py:703`, NOT `/api/pipeline/rebuild-index`. The frontend calls a non-existent URL — separate bug, log in §G.
+
+**Endpoint — verbatim from `api/routes/search.py:701-731`:**
+
+```python
+# ── POST /api/search/index/rebuild ──────────────────────────────────────────
+
+@router.post("/index/rebuild")
+async def rebuild_index(
+    body: dict | None = None,
+    user: AuthenticatedUser = Depends(require_role(UserRole.SEARCH_USER)),
+):
+    """Trigger a full index rebuild."""
+    client = get_meili_client()
+    if not await client.health_check():
+        raise HTTPException(
+            status_code=503,
+            detail="Meilisearch is not available for rebuild.",
+        )
+
+    job_id = (body or {}).get("job_id")
+    indexer = get_search_indexer()
+    if not indexer:
+        raise HTTPException(status_code=503, detail="Search indexer not initialized.")
+
+    async def _rebuild():
+        result = await indexer.rebuild_index(job_id=job_id)
+        log.info(
+            "search_rebuild_complete",
+            documents=result.documents_indexed,
+            adobe=result.adobe_indexed,
+            errors=result.errors,
+        )
+
+    asyncio.create_task(_rebuild())
+    return {"status": "rebuild_started", "job_id": job_id}
+```
+
+**Dispatch pattern:** `asyncio.create_task(_rebuild())`. Endpoint returns immediately with `{"status": "rebuild_started"}`. Same model as trash workers.
+
+**Worker location:** `core/search_indexer.py:393-...` (`SearchIndexer.rebuild_index`).
+
+**Progress emission — IS available, per-document.** Verbatim from `core/search_indexer.py:419-462`:
+
+```python
+for f in files:
+    if error_monitor.should_abort():
+        break
+    await pressure.adaptive_delay()
+
+    output_path = f.get("output_path")
+    if not output_path:
+        continue
+    md_path = Path(output_path)
+    if md_path.exists():
+        ok = await self.index_document(md_path, f.get("job_id", ""))
+        if ok:
+            status.documents_indexed += 1                  # ← per-doc tick HERE
+            error_monitor.record_success()
+            # Vector index (best-effort)
+            ...
+        else:
+            status.errors += 1                             # ← per-doc error tick HERE
+            error_monitor.record_error("index_document failed")
+    else:
+        status.errors += 1
+        error_monitor.record_error(f"file not found: {output_path}")
+
+# Re-index Adobe entries (skip if already aborted)
+if not error_monitor.aborted:
+    adobe_entries = await get_unindexed_adobe_entries(limit=10000)
+    for entry in adobe_entries:
+        ...
+        ok = await self.index_adobe_file(result, "")
+        if ok:
+            status.adobe_indexed += 1                      # ← per-Adobe tick HERE
+        else:
+            status.errors += 1
+```
+
+**Two phases, both with iterable progress:**
+1. **Document phase** — `for f in files:` (line 419). `status.documents_indexed += 1` per success, `status.errors += 1` per failure.
+2. **Adobe phase** — `for entry in adobe_entries:` (line 467). `status.adobe_indexed += 1` per success, `status.errors += 1` per failure.
+
+**Total computation:** `len(files) + len(adobe_entries)`. Both lists are materialized upfront (`files` at line 406-414, `adobe_entries` at line 466 with `limit=10000`). Total IS knowable at the start of each phase but NOT at registration time (would require an extra `SELECT COUNT(*)` round-trip — cheap, ~ms).
+
+**Task 19 retrofit shape (Option A — `op_id` kwarg, recommended):**
+
+```python
+# In core/search_indexer.py:393:
+async def rebuild_index(self, job_id: str | None = None,
+                        op_id: str | None = None) -> RebuildStatus:
+    ...
+    if op_id:
+        from core.active_ops import update_op, is_cancelled
+    ...
+    files = await ...
+    if op_id:
+        await update_op(op_id, total=len(files))   # initial total — Adobe added below
+
+    for f in files:
+        if op_id and await is_cancelled(op_id):
+            break
+        ...
+        if ok:
+            status.documents_indexed += 1
+            if op_id:
+                await update_op(op_id,
+                                processed=status.documents_indexed + status.adobe_indexed,
+                                errors=status.errors)
+        ...
+
+    if not error_monitor.aborted:
+        adobe_entries = await get_unindexed_adobe_entries(limit=10000)
+        if op_id:
+            await update_op(op_id, total=len(files) + len(adobe_entries))   # raise total
+        for entry in adobe_entries:
+            ...
+```
+
+**Endpoint-side wiring (Task 19 — `api/routes/search.py:703-731`):**
+
+```python
+async def _rebuild():
+    op_id = await register_op(op_type="search.rebuild_index",
+                               label="Search index rebuild", total=None)
+    try:
+        result = await indexer.rebuild_index(job_id=job_id, op_id=op_id)
+        await finish_op(op_id,
+                        status="cancelled" if cancel_was_hit else "completed")
+    except Exception as exc:
+        await finish_op(op_id, status="failed", error=str(exc))
+        raise
+```
+
+**Cancel:** Cooperative via `is_cancelled(op_id)` polled at the top of each per-document iteration. The existing `error_monitor.should_abort()` is the analogous pattern — same loop position, same "exit gracefully on signal" semantics.
+
+**Role recommendation (drift):** Spec table at line 461 lists this op as `uncancellable` — but with the `is_cancelled` poll wired in, it IS cancellable mid-iteration. Update spec accordingly. Also the existing endpoint role is `SEARCH_USER` (lowest tier, line 706). **Recommend raising to `MANAGER`** for active-ops-era — a full re-index is a heavy mutation that holds Meilisearch's index lock for the duration. Defer to Task 0.7 / Task 19 implementer; flag in §G.
+
+**Adobe Vector index side-effect:** lines 440-456 call `vec.index_document(...)` best-effort per doc. Failures are swallowed and don't increment `status.errors`. The registry's `errors` count therefore underreports vector failures. Documented for the Task 19 implementer; out of scope to "fix" — best-effort is intentional per CLAUDE.md gotcha.
+
+---
 
 ## §E — lifecycle_scanner.py + bulk_worker.py (Phase 3 prep, Tasks 16, 23)
 
@@ -1290,3 +1911,83 @@ the affected plan task number(s) and the corrected instruction.
   for CRUD helpers (`create_scan_run`, `update_scan_run`,
   `get_scan_run`, `get_latest_scan_run` at lines 316-345) and at
   `core/db/schema.py:266-279` + `:563-567` for the column list.
+
+### Breadcrumbs from §D
+
+- **Trash workers do not live in `api/routes/trash.py`.** Tasks 17 and
+  18 must edit `core/lifecycle_manager.py:274-476`. The route handlers
+  in `trash.py` are 4-line `asyncio.create_task(...)` shims; the in-memory
+  status dicts (`_empty_trash_status`, `_restore_all_status`) and the
+  worker functions (`purge_all_trash`, `restore_all_trash`) are all in
+  `lifecycle_manager.py`.
+
+- **Empty-trash and restore-all have NO cancel mechanism today.** Neither
+  `purge_all_trash` nor `restore_all_trash` checks any flag/event during
+  its loop. Tasks 17/18 must introduce cooperative cancel via
+  `is_cancelled(op_id)` polling at the top of each per-batch (or per-row)
+  loop iteration. Recommend NOT introducing a second cancel-bridge surface
+  in lifecycle_manager — let the registry's polled flag be the only signal.
+
+- **Re-analyze endpoints are NOT `/api/analysis/batches/{id}/re-analyze`**
+  as the plan assumed. Real endpoints:
+  - `POST /api/analysis/queue/{entry_id}/reanalyze` — single row, ms-fast,
+    not worth registering.
+  - `POST /api/analysis/queue/reanalyze-bulk` — synchronous DELETE+enqueue
+    of up to 10K rows; **all work runs inside the request handler**. The
+    actual analysis runs later via the `analysis_drain` scheduled job
+    (§A.4 row 17). Task 20 needs to choose between (A) drop the task,
+    (B) wrap the bulk handler synchronously with `register_op` /
+    `finish_op` and per-row `update_op` ticks at `analysis.py:522`, or
+    (C) refactor into a scheduler-driven worker. Recommend B; defer
+    final decision to Task 0.7.
+
+- **DB backup/restore endpoints are at `/api/db/...`, NOT `/api/admin/...`.**
+  Located in `api/routes/db_health.py:124-200` (router prefix `/api/db`,
+  set at line 23). Role is `ADMIN` (matches spec). **Both handlers are
+  fully synchronous** — `await backup_database(...)` / `await
+  restore_database(...)` complete before the response returns. The
+  registry pattern for Tasks 21 & 22 is therefore: `register_op` BEFORE
+  the await, `finish_op` BEFORE the return — no `BackgroundTasks`, no
+  `asyncio.create_task`. There is **no progress hook** inside the SQLite
+  online-backup C call or the integrity-check thread, so `update_op`
+  ticks are minimal (just register → finish; UI is indeterminate for
+  the duration). Cancel hook is `None` — neither operation supports
+  cooperative cancel; spec line 461 already lists these as
+  uncancellable.
+
+- **Search rebuild endpoint is `POST /api/search/index/rebuild`**, NOT
+  `/api/pipeline/rebuild-index`. Located at `api/routes/search.py:703-731`.
+  Existing role is `SEARCH_USER` (lowest tier). **Recommend raising to
+  `MANAGER`** when wiring active-ops — a full re-index holds the
+  Meilisearch index lock and is operator-class work. Defer to Task 0.7
+  / Task 19 implementer.
+
+- **Frontend/backend URL mismatch (orthogonal bug):** `static/js/pipeline-card.js:285`
+  POSTs to `/api/pipeline/rebuild-index`, but no such handler exists on
+  the backend (only `/api/search/index/rebuild`). This is a separate
+  pre-existing bug, NOT an active-ops concern, but flagged here so Task
+  19 doesn't waste time hunting in `pipeline.py`. Open a separate
+  ticket/bug-log row to fix the frontend URL.
+
+- **Search rebuild progress IS available** per-document at
+  `core/search_indexer.py:419-462`. The `for f in files:` and `for
+  entry in adobe_entries:` loops both increment `status.documents_indexed`
+  / `status.adobe_indexed` / `status.errors`. Task 19 retrofit: add an
+  `op_id: str | None = None` kwarg to `SearchIndexer.rebuild_index(...)`
+  and tick `update_op` from inside the loops. Total = `len(files) +
+  len(adobe_entries)` — both sets are materialized upfront, so the total
+  can be raised once after each phase's enumeration completes. UI shows
+  determinate progress.
+
+- **Vector index side-effect in search rebuild is best-effort** — failures
+  at `search_indexer.py:440-456` (`vec.index_document(...)`) are swallowed
+  and do NOT increment `status.errors`. The registry's `errors` count
+  therefore underreports vector-side failures. Out of scope to fix —
+  best-effort vector indexing is intentional per CLAUDE.md gotcha. Task
+  19 implementer should be aware so they don't try to "fix" it.
+
+- **Bulk re-analyze handler is a possible long-blocking foot-gun.**
+  At the 10K row cap (`BULK_REANALYZE_CAP`), the synchronous for-loop
+  at `analysis.py:522-549` can take ~100 seconds inside a single FastAPI
+  request worker. Not an active-ops concern but flagged for a future
+  refactor (move to scheduled drain job).
