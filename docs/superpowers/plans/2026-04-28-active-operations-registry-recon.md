@@ -1840,7 +1840,512 @@ async def _rebuild():
 
 ## §E — lifecycle_scanner.py + bulk_worker.py (Phase 3 prep, Tasks 16, 23)
 
-*To be filled by Task 0.5.*
+This is the largest recon section. Task 16 retrofits `lifecycle_scanner.py`
+to mirror progress into the registry; Task 23 retrofits `BulkJob` in
+`bulk_worker.py`. Spec assumed both files had a small, predictable shape
+(single `run`/`tick`/`finalize` pair, `total/processed/failed` triple,
+classmethod `cancel(job_id)`); reality is more granular and there are
+**two distinct entry points** for lifecycle scans, **multiple per-file
+counter sites** in BulkJob, and a sibling `BulkOcrGapFillJob` that the
+spec did not enumerate.
+
+### §E.1 — `lifecycle_scanner.py` structure (1,234 lines)
+
+**Top-level inventory** (`grep -n "^async def\|^def\|^class"`):
+
+| Line | Symbol | Notes |
+|------|--------|-------|
+| 60 | `def _should_cancel() -> bool` | Combined `should_stop() OR is_lifecycle_cancelled()` check |
+| 65 | `async def _process_file_with_retry(...)` | Wraps `_process_file` with 3-attempt retry on `database is locked` |
+| 110 | (module dict) `_scan_state: dict` | In-memory state — `running`, `run_id`, `started_at`, `scanned`, `total`, `pct`, `current_file`, `eta_seconds`, `last_scan_at`, `last_scan_run_id` |
+| 124 | `def get_scan_state() -> dict` | Snapshot accessor (returns copy) |
+| 129 | `async def hydrate_scan_state_from_db()` | Populates `last_scan_at` / `last_scan_run_id` from latest finished `scan_runs` row at startup |
+| 165 | `def compute_file_hash(file_path) -> str | None` | SHA-256 helper |
+| **180** | **`async def run_lifecycle_scan(source_path=None, job_id=None) -> str`** | **The scanner's actual entry point. Returns `scan_run_id`.** |
+| 553 | `async def _process_file(...)` | Per-file ingest (insert/update source_files + bulk_files) |
+| 653 | `async def _find_hash_match_in_seen(...)` | Move-detection helper |
+| 670 | `async def _serial_lifecycle_walk(...)` | Single-thread walker (HDD/network mounts) |
+| 772 | `async def _parallel_lifecycle_walk(...)` | Multi-thread walker (SSD) |
+| 1025 | `async def _lifecycle_process_entry(...)` | Per-file dispatch inside serial walk |
+| 1073 | `def _update_scan_progress(...)` | Updates `_scan_state` dict — current_file, pct, eta |
+| 1099 | `async def _flush_counters_to_db(scan_run_id, counters)` | Crash-resilience: persists `counters` into `scan_runs` every ~500 files |
+| 1120 | `def _count_files_sync(source_root)` | os.walk pre-count for total estimate |
+| 1134 | `async def _execute_auto_conversion(decision, scan_run_id, source_root, job_id)` | Builds + runs an auto-converted `BulkJob` after a scan completes |
+
+**Two entry points exist for "run a lifecycle scan":**
+
+1. **`core.scheduler.run_lifecycle_scan(force: bool = False)`** at
+   `core/scheduler.py:62-116` — the **gating wrapper**. Checks
+   `pipeline_enabled`, `_pipeline_paused`, `_is_business_hours_async()`,
+   `scanner_enabled`, and "any bulk job active"; if any gate fails, it
+   logs and returns without doing work. On success it imports and awaits
+   the inner worker (`from core.lifecycle_scanner import run_lifecycle_scan
+   as _scan; scan_run_id = await _scan()`). Wraps `asyncio.CancelledError`
+   for shutdown safety (v0.32.0 fix mentioned in CLAUDE.md). Note: this
+   wrapper returns `None`, NOT a `scan_run_id` — only the inner returns
+   the id.
+
+2. **`core.lifecycle_scanner.run_lifecycle_scan(source_path: str | None = None, job_id: str | None = None) -> str`**
+   at `core/lifecycle_scanner.py:180` — the **actual scanner**. This is
+   what does the work, registers in `scan_coordinator`, walks the trees,
+   updates `scan_runs`, and returns the new `scan_run_id`.
+
+**All callers** (rg `run_lifecycle_scan\b`, excluding the scanner module):
+
+| Caller | Which entry point | How it's invoked |
+|--------|-------------------|------------------|
+| `core/scheduler.py:707` | wrapper (self) | scheduled job — `scheduler.add_job(run_lifecycle_scan, ...)` (interval trigger) |
+| `core/scheduler.py:487-495` | inner | inside the run-now coordinator's "wait then go" branch |
+| `core/scheduler.py:105` | inner (via wrapper) | top of wrapper imports inner as `_scan` and awaits it |
+| `core/pipeline_startup.py:107-108` | wrapper (`force=True`) | startup-time auto-scan if pipeline was running pre-restart |
+| `api/routes/pipeline.py:42, 217` | wrapper (`force=True`) | `POST /api/pipeline/run-now` background task |
+| `api/routes/scanner.py:85-91` | inner | `POST /api/scanner/run-now` background task — bypasses gating wrapper |
+| `tests/test_phase9/test_lifecycle_scanner.py:38, 69, 95, 106, 124` | inner | direct test calls |
+| `tests/test_phase9/test_scheduler.py:34, 45, 48` | wrapper | tests of the gating wrapper |
+
+**Task 16 hook decision:** wrap **the inner worker** (`core.lifecycle_scanner.run_lifecycle_scan`),
+not the wrapper. Rationale: (a) the wrapper sometimes returns without doing
+work (gates), so registering an op there would leak no-op rows; (b) the
+wrapper does not know the `scan_run_id` (only the inner does); (c) the
+scanner-route entry point at `api/routes/scanner.py` calls the inner
+directly and would otherwise miss registration. Register at the very top
+of the inner's body (right after `scan_run_id = uuid.uuid4().hex` at line
+185, before any early-return cases like "no source roots"); finish at
+line 550 (the final `return scan_run_id`) AND at line 227 (the early
+"no valid roots" return) AND at line 205 (the "no source path" return).
+
+**Cooperative cancel point(s)** for the inner worker:
+
+- Top of every directory iteration in `_serial_lifecycle_walk`
+  (line 715 — `if _should_cancel() or error_monitor.should_abort()`)
+- Per-file inside the inner `for filename in filenames` loop (line 743)
+- Per-file in `_parallel_lifecycle_walk` (line 949 — `if _should_cancel()`)
+- Between source roots in the outer `for source_root in valid_roots:` loop
+  (line 354 — `if _should_cancel()`)
+- After all walks, before deletion detection (line 408 — `if _should_cancel()`)
+
+`_should_cancel()` already polls both `should_stop()` (global) and
+`is_lifecycle_cancelled()` (scan_coordinator's bulk-job-priority signal).
+Task 16's cancel-hook bridge wires the registry's `cancel_op()` to call
+`cancel_lifecycle_scan(reason="active_ops_registry")` from
+`core/scan_coordinator.py:83` — same pattern as Task 14's run-now bridge
+(per §C breadcrumb).
+
+**Shutdown handling:** `core.scheduler.run_lifecycle_scan` (wrapper) at
+`scheduler.py:108-114` catches `asyncio.CancelledError` and logs
+`scheduler.scan_cancelled_on_shutdown` (the v0.32.0 fix). The inner
+worker does NOT explicitly catch `CancelledError` — it relies on
+`_should_cancel()` polling. If a `CancelledError` propagates through the
+inner worker mid-scan, `update_scan_run` will not be called and the
+scan_runs row will be left with `status='running'` until the next
+`hydrate_scan_state_from_db()` or `cleanup_orphaned_jobs()` run. **For
+the registry, this means Task 16 must finish_op in a `finally:` block, not
+just at the return points** — otherwise CancelledError shutdowns would
+leave `running` rows in active_operations for `hydrate_on_startup` to
+clean up.
+
+### §E.2 — `run_lifecycle_scan` body anatomy (lines 180-550)
+
+**Function header (verbatim, lines 180-184):**
+
+```python
+async def run_lifecycle_scan(
+    source_path: str | None = None,
+    job_id: str | None = None,
+) -> str:
+    """Run a full lifecycle scan. Returns scan_run_id."""
+```
+
+**First 20 body lines (185-205) — early-return / setup:**
+
+```python
+    scan_run_id = uuid.uuid4().hex
+
+    # Resolve source paths — collect all configured source locations
+    source_roots: list[Path] = []
+    if source_path:
+        source_roots = [Path(source_path)]
+    else:
+        env_path = os.getenv("BULK_SOURCE_PATH", "")
+        if env_path:
+            source_roots = [Path(env_path)]
+        else:
+            try:
+                from core.database import list_locations
+                locs = await list_locations(type_filter="source")
+                source_roots = [Path(loc["path"]) for loc in locs]
+            except Exception:
+                pass
+
+    if not source_roots:
+        log.warning("lifecycle_scan.no_source_path")
+        return scan_run_id          # ← early-return #1, no scan_runs row created
+```
+
+**Three early-return paths in the function (Task 16 must finish_op for all):**
+
+- Line 205: `return scan_run_id` — no source path; **no scan_runs row created**.
+  Registry should still finish_op as `failed` (or skip register entirely
+  if we register AFTER the source-resolution check — recommended).
+- Line 227: `return scan_run_id` after `update_scan_run(... status='failed' ...)`
+  — no valid roots. Already creates a `scan_runs` row. Registry finishes
+  as `failed`.
+- Line 531: `return scan_run_id` after `auto_convert_skipped_cancelled`
+  log line — finished but cancelled before auto-conversion trigger.
+  Registry finishes as `cancelled`.
+- Line 550: `return scan_run_id` — full normal completion path. Registry
+  finishes as `succeeded`.
+
+**Last 20 lines (530-550) — finalization:**
+
+```python
+    if cancelled:
+        log.info("lifecycle_scan.auto_convert_skipped_cancelled")
+        return scan_run_id
+
+    try:
+        from core.auto_converter import get_auto_conversion_engine
+
+        engine = get_auto_conversion_engine()
+        decision = await engine.on_scan_complete(
+            scan_run_id=scan_run_id,
+            new_files=counters["files_new"],
+            modified_files=counters["files_modified"],
+        )
+
+        if decision.should_convert:
+            await _execute_auto_conversion(
+                decision, scan_run_id, source_root, job_id
+            )
+    except Exception as exc:
+        log.error("lifecycle_scan.auto_convert_trigger_failed", error=str(exc))
+
+    return scan_run_id
+```
+
+**Existing `scan_runs` row update sites** (every one is a candidate
+`update_op` mirror site — but NOT every one is needed; the registry
+update_op has its own 1.5s debounce, so we tick only at the natural
+counter-flush points):
+
+| Line | Call | What it writes | Mirror with `update_op`? |
+|------|------|----------------|---------------------------|
+| 221 | `await create_scan_run(scan_run_id)` | initial row | NO — Task 16 calls `register_op` here instead |
+| 222 | `await update_scan_run(... status='failed' ...)` | early-fail | NO — finish_op handles this |
+| 233 | `await create_scan_run(scan_run_id)` | success-path initial row | NO — already done by register_op |
+| 474 | `await update_scan_run(... status='complete' or 'cancelled' ...)` | terminal | NO — finish_op handles this |
+| **766** | **`await _flush_counters_to_db(scan_run_id, counters)`** | per-500-file checkpoint (serial walk) | **YES — best tick site** |
+| **989** | **`await _flush_counters_to_db(scan_run_id, counters)`** | per-500-file checkpoint (parallel walk) | **YES — best tick site** |
+| 1107 | `await update_scan_run(...)` inside `_flush_counters_to_db` | (called by 766/989) | NO — caller is the tick site |
+
+**Tick-mirror recommendation for Task 16:** add `update_op` calls
+**inside** `_flush_counters_to_db` at line 1099 — this gives a single
+mirror site that both the serial and parallel walkers feed automatically.
+The function would need an `op_id: str | None = None` kwarg threaded
+through both walk callers (lines 766, 989) and through `run_lifecycle_scan`
+itself. Total = `_scan_state["total"]` (set at line 263 from
+`_count_files_sync`); processed = `counters["files_scanned"]`; failed =
+`counters["errors"]`.
+
+**Optional finer-grained ticks** — `_update_scan_progress` at lines 980,
+1067 fires every 25 files (current_file). Could be mirrored too if the
+op-detail panel wants live "current file" display, but the 1.5s debounce
+in `update_op` already throttles, so adding a second mirror site is
+redundant. Skip.
+
+### §E.3 — `bulk_worker.py` structure (1,543 lines)
+
+**Top-level inventory** (`grep -n "^async def\|^def\|^class"`):
+
+| Line | Symbol | Notes |
+|------|--------|-------|
+| 57 | `class CounterAccumulator` | Buffered DB-counter writer (per-job batch flusher) |
+| 95 | `def _should_enqueue_for_analysis(source_path)` | Image analysis predicate |
+| 102 | `def _analysis_category(source_path)` | Image vs document classifier |
+| 113 | `def get_bulk_progress_queue(job_id)` | SSE queue accessor |
+| 117 | `def _emit_bulk_event(job_id, event, data)` | SSE event helper |
+| 127 | (module dict) `_active_jobs: dict[str, "BulkJob"]` | **Active job registry** |
+| 131 | `def get_active_job(job_id) -> BulkJob | None` | Lookup |
+| 135 | `def register_job(job)` | Insert |
+| 139 | `def deregister_job(job_id)` | Remove |
+| 145 | `def _map_output_path(...)` | Path helper |
+| 151 | `def _map_sidecar_dir(...)` | Path helper |
+| 158 | `async def _index_vector_async(...)` | Detached vector indexing task |
+| 200 | `async def _index_vector_with_backpressure(...)` | Bounded variant |
+| 216 | `async def _estimate_ocr_confidence(...)` | OCR pre-check |
+| 238 | `def _prescan_pdf_sync(...)` | OCR pre-check helper |
+| 270 | `def _osd_confidence(...)` | Tesseract orientation confidence |
+| **309** | **`class BulkJob`** | **Main worker class — see §E.4** |
+| 1283 | `def get_gap_fill_queue(gap_fill_id)` | SSE queue for gap-fill |
+| **1287** | **`class BulkOcrGapFillJob`** | **Sibling job class — see §E.4 sub-section** |
+| 1479 | `def _emit_gap_fill_event(...)` | SSE helper |
+| 1490 | `async def get_all_active_jobs() -> list[dict]` | Serializer for /api/admin/active-jobs |
+
+**`BulkJob` class — lines 309-1274 (965 lines).** Methods:
+
+| Line | Method | Notes |
+|------|--------|-------|
+| 310 | `__init__(job_id, source_paths, output_path, worker_count=4, fidelity_tier=2, ocr_mode='auto', include_adobe=True, max_files=None, overrides=None)` | Sets attrs + `_pause_event`/`_cancel_event` |
+| **378** | **`async def run(self) -> None`** | **Full lifecycle: scan → enqueue → workers → finalize. ~220 lines.** |
+| 600 | `async def _precheck_disk_space(self) -> str | None` | Pre-flight free-space check |
+| 665 | `async def _worker(self, worker_id)` | Per-worker loop — pulls from `_queue`, dispatches to `_process_convertible` or `_process_adobe` |
+| 880 | `async def _check_confidence_prescan(self, file_dict)` | OCR pre-check (skip-for-review path) |
+| 942 | `async def _process_convertible(self, file_dict, worker_id=0)` | Convert one file via `_convert_file_sync` |
+| 1143 | `async def _index_adobe_l2(self, file_dict)` | Level-2 Adobe metadata indexing |
+| 1193 | `async def _process_adobe(self, file_dict, worker_id=0)` | Standalone Adobe-only path |
+| **1246** | **`async def pause(self)`** | Clears `_pause_event`, updates DB `paused`, emits SSE |
+| **1261** | **`async def resume(self)`** | Sets `_pause_event`, updates DB `running`, emits SSE |
+| **1268** | **`async def cancel(self, reason: str = "Cancelled by user")`** | **Instance method, NOT a classmethod. Sets `_cancel_event` + `_pause_event`, updates DB `cancelled`** |
+
+### §E.4 — BulkJob tick-mirror insertion points (Task 23)
+
+**Instance attributes used for progress** (`grep "self\._converted\|self\._skipped\|self\._failed\|self\._adobe_indexed\|self\._review_queue_count\|self\._total_pending\|self\._scanning"`):
+
+| Attr | Purpose | Reset/init | Increment sites |
+|------|---------|------------|------------------|
+| `self._converted` | files successfully converted | line 346 (init=0) | **line 1031** (in `_process_convertible` success branch) |
+| `self._failed` | files that errored | line 348 | **line 819** (worker.except), **line 1130** (in `_process_convertible` failure branch), **line 1234** (in `_process_adobe` failure branch) |
+| `self._skipped` | scan-time skip OR review-queue skip | line 347, line 495 (post-scan = scan_result.skipped_count) | **line 763** (path-safety skip), **line 921** (`_check_confidence_prescan` review-queue) |
+| `self._adobe_indexed` | files Level-2-Adobe-indexed | line 349 | **line 1179** (`_index_adobe_l2`), **line 1209** (`_process_adobe`) |
+| `self._review_queue_count` | files routed to manual review | line 353 | **line 922** (`_check_confidence_prescan`) |
+| `self._total_pending` | total files queued (set after scan) | line 350 (init=0); line 526 (`= len(pending_files)`) | n/a (set once) |
+| `self._scanning` | True until scan phase ends | line 351 (init=True); line 494 (`= False`) | n/a (boolean flip once) |
+| `self._files_completed` | total finished (any outcome) — used for `max_files` cap | line 354 (init=0) | line 866 (in `_worker.finally`) — increments on EVERY file regardless of outcome |
+| `self._scan_scanned`, `self._scan_total`, `self._scan_current_file` | scan-phase progress (v0.32.9) | lines 362-364 | line 401-405 (scan_progress callback) |
+
+**Important:** the spec assumed `self.total / self.processed / self.failed`.
+Reality is `self._total_pending` (private) / outcome-split into
+`_converted + _skipped + _failed + _adobe_indexed + _review_queue_count`
+/ all underscore-prefixed. Task 23 must read these names directly.
+
+**Recommended `update_op` mirror values:**
+
+- `total = self._total_pending` (0 during scan phase; correct after line 526)
+- `processed = self._converted + self._skipped + self._failed` (matches what
+  `get_all_active_jobs` already computes at line 1507 as `completed`)
+- `failed = self._failed` (does NOT include `_skipped` — skipped files are
+  intentional outcomes, not errors)
+
+**Tick-mirror insertion points (one mirror call per terminal-ish branch):**
+
+1. **`run` start** (register_op site) — line 383, **right after `register_job(self)`**:
+   ```python
+   register_job(self)                                    # existing
+   register_task(self.job_id, asyncio.current_task())    # existing
+   _bulk_progress_queues[self.job_id] = ...              # existing
+   # NEW: register_op(op_id=self.job_id, op_type="bulk_job", scope=...,
+   #                   role_required="manager", cancel_hook=self.cancel)
+   ```
+   Total is unknown at this point (still scanning), so register with `total=None`;
+   first `update_op` after scan completes will raise it.
+
+2. **Post-scan total raised** — line 494-500, right after `self._scanning = False`
+   and `self._total_pending = len(pending_files)` is set (actually that's line 526):
+   ```python
+   self._total_pending = len(pending_files)              # existing line 526
+   # NEW: update_op(self.job_id, total=self._total_pending)
+   ```
+
+3. **Per-file completion ticks** — the **single best site** is the
+   `finally:` block in `_worker` at line 830-866, just after
+   `self._files_completed += 1` (line 866):
+   ```python
+   self._files_completed += 1                            # existing line 866
+   # NEW: update_op(self.job_id,
+   #                processed=self._converted + self._skipped + self._failed,
+   #                failed=self._failed)
+   ```
+   Rationale: this `finally:` runs after EVERY file regardless of outcome
+   (success / failure / skip / db-lock-requeue), and the `update_op` 1.5s
+   debounce will collapse the rapid-fire ticks. Adding mirrors at each
+   of the 6 individual increment sites would be 6× as much edit surface
+   for the same effective tick rate.
+
+4. **Pause / resume** — instance methods at line 1246 / 1261:
+   - Spec §17 P3 says "treat paused as still-running" in registry. The
+     BulkJob's `pause()` updates DB `bulk_jobs.status='paused'` (line 1249)
+     but the **registry op_status stays `running`** during pause. This
+     matches spec — paused-then-resumed-then-finished should record the
+     terminal state from `cancel/finish`, not the pause.
+   - **No `update_op` call needed in `pause`/`resume`.** The processed
+     counter already pauses (workers are blocked on `_pause_event.wait()`),
+     so the next tick after resume will reflect any progress that happened
+     mid-pause.
+
+5. **Job finalize** — three terminal branches in `run()`:
+   - **Disk-space failure** (line 478-491): `update_bulk_job_status(... 'failed' ...)` + `_emit_bulk_event(... 'done' ...)` then `return`. **ADD** `finish_op(self.job_id, status='failed', error_msg=disk_err)` before `return`.
+   - **Normal completion** (line 551-572): determines `final_status` ('completed' or 'cancelled' based on `_cancel_event.is_set()`), updates DB, emits `job_complete` + `done`. **ADD** `finish_op(self.job_id, status='succeeded' if final_status=='completed' else 'cancelled', error_msg=cancel_reason)`.
+   - **Fatal exception** (line 586-594): outer `except Exception`. **ADD** `finish_op(self.job_id, status='failed', error_msg=str(exc))` before `_emit_bulk_event(... 'done' ...)`.
+   - **OR**, simpler: put a single `finish_op` in the **`finally:` block at line 595-598** that derives the status from `self._cancel_event` / sentinel. This avoids 3 separate edits but loses the disk-space-specific error_msg. Recommend: hit all 3 explicitly for clean error_msg semantics.
+
+**Quoted insertion-site context — `_worker.finally` block (lines 830-877):**
+
+```python
+            finally:
+                # Clear worker from current_files
+                self.current_files = [e for e in self.current_files if e["worker_id"] != worker_id + 1]
+
+                # Record completion for ETA tracking
+                await self._eta_tracker.record_completion()
+                now = time.monotonic()
+                if now - self._last_eta_write >= ETA_UPDATE_INTERVAL:
+                    snap = await self._eta_tracker.snapshot()
+                    _emit_bulk_event(self.job_id, "progress_update", {...})
+                    try:
+                        await db_write_with_retry(lambda: update_bulk_job_status(
+                            self.job_id, "running",
+                            eta_seconds=snap.eta_seconds,
+                            files_per_second=snap.files_per_second,
+                            eta_updated_at=datetime.now(timezone.utc).isoformat(),
+                        ))
+                    except Exception:
+                        pass  # ETA DB write is non-critical
+                    log.info("bulk_progress", ...)
+                    self._last_eta_write = now
+
+                # Check max_files limit (auto-conversion batch cap)
+                self._files_completed += 1
+                # ── INSERT update_op CALL HERE ──
+                if self.max_files and self._files_completed >= self.max_files:
+                    ...
+                    self._cancel_event.set()
+                    self._pause_event.set()
+                    break
+```
+
+**Quoted insertion-site context — `run` finally (lines 595-598):**
+
+```python
+        finally:
+            notify_bulk_completed(job_id=self.job_id)
+            unregister_task(self.job_id)
+            deregister_job(self.job_id)
+```
+
+A registry `finish_op(self.job_id, ...)` call here would be a safety
+net that catches any path the explicit terminals miss — but on a 2nd
+read this is risky because `finish_op` after an explicit `finish_op`
+could double-flush. Spec Task 5 says `finish_op` is idempotent on
+`(op_id, terminal_status)` — verify in Task 5 before using this fallback.
+
+### §E.4a — `BulkOcrGapFillJob` (sibling class, lines 1287-1476)
+
+The spec did NOT enumerate this. It is a parallel async job class with
+the same shape (`_queue`, `_cancel_event`, `_processed`, `_failed`,
+`_total`, `run()`, `cancel()`) used by the OCR gap-fill admin route.
+Live-tracked via the module-level `_active_gap_fills: dict[str, BulkOcrGapFillJob]`
+at line 1280 (a separate registry from `_active_jobs`).
+
+**Counter shape (lines 1308-1310):** uses a single **`_processed` /
+`_failed` / `_total`** triple — the same three-counter SHAPE the spec
+originally assumed for BulkJob (just underscored, like the rest of the
+file). Different from `BulkJob`'s outcome-split counters (`_converted`,
+`_skipped`, `_failed`, `_adobe_indexed`, `_review_queue_count` plus a
+total `_files_completed`). So the spec's `total/processed/failed` shape
+DOES exist in the codebase — on `BulkOcrGapFillJob`, not `BulkJob`.
+
+**Cancel API:** `async def cancel(self) -> None` at line 1475 — instance
+method, no args, just sets `_cancel_event`.
+
+**Registry retrofit (out of scope for Task 23 v1 but worth flagging):**
+`BulkOcrGapFillJob.run()` would map cleanly to `op_type='ocr_gap_fill'`
+with the exact same hook pattern as `BulkJob`. Defer to a follow-up task
+once the BulkJob retrofit is settled, then duplicate the pattern.
+
+### §E.5 — BulkJob cancel mechanism
+
+**`grep -n "def cancel\|self.cancelled\|self._cancel\|cancel_event\|cancel_pending" core/bulk_worker.py`**:
+
+| Line | Reference |
+|------|-----------|
+| 339 | `self._cancel_event = asyncio.Event()` (BulkJob.__init__) |
+| 413 | `if self._cancel_event.is_set() or should_stop():` (run, between source roots) |
+| 551 | `if self._cancel_event.is_set():` (run, after worker gather) |
+| 693 | `self._cancel_event.set()` (worker, error-rate abort) |
+| 698 | `if self._cancel_event.is_set():` (worker, top of loop) |
+| 705 | `if self._cancel_event.is_set():` (worker, post-pause re-check) |
+| **874** | `self._cancel_event.set()` (worker, max_files cap reached) |
+| 880 | `async def _check_confidence_prescan(...)` |
+| 1246 | `async def pause(self)` |
+| 1261 | `async def resume(self)` |
+| **1268** | **`async def cancel(self, reason: str = "Cancelled by user") -> None:`** |
+| 1271 | `self._cancel_event.set()` (cancel method body) |
+| 1306 | `self._cancel_event = asyncio.Event()` (BulkOcrGapFillJob.__init__) |
+| 1390 | `if self._cancel_event.is_set():` (gap-fill worker) |
+| 1475 | `async def cancel(self)` (BulkOcrGapFillJob) |
+| 1495 | `if job._cancel_event.is_set():` (get_all_active_jobs) |
+
+**Cancel API (verbatim, lines 1268-1274):**
+
+```python
+    async def cancel(self, reason: str = "Cancelled by user") -> None:
+        """Cancel the job. Workers drain queue and exit."""
+        self._cancel_reason = reason
+        self._cancel_event.set()
+        self._pause_event.set()  # unblock any paused workers so they can drain
+        await update_bulk_job_status(self.job_id, "cancelled")
+        log.info("bulk_job_cancelled", job_id=self.job_id, reason=reason)
+```
+
+**Spec assumed `BulkJob.cancel(job_id)` is a classmethod.** It is **NOT** —
+it's an `async` instance method that takes only `self` and a `reason` kwarg.
+The lookup happens externally:
+
+```python
+# api/routes/bulk.py:365-368
+active = get_active_job(job_id)
+if not active:
+    raise HTTPException(status_code=404, detail="Job not found or not running.")
+await active.cancel()
+```
+
+So the registry's cancel-hook bridge for `op_type='bulk_job'` is:
+
+```python
+# Pseudo-code for Task 23 cancel-hook registration:
+async def _bulk_cancel_hook(op_id: str, reason: str = "active_ops_registry"):
+    job = get_active_job(op_id)  # op_id == job.job_id
+    if job is not None:
+        await job.cancel(reason=reason)
+    # else: job already finished or never existed; cancel is a no-op
+```
+
+This hook is registered at `register_op(... cancel_hook=_bulk_cancel_hook)`
+in the `run()` start retrofit. The hook closure captures the lookup
+pattern (`get_active_job`) — it does NOT capture `self`, because by the
+time the hook fires the job may have moved on or restarted.
+
+**Pause / resume semantics for the registry (spec §17 P3 verification):**
+
+- `pause()` clears `_pause_event` → workers block on `await self._pause_event.wait()` (line 702)
+- `resume()` sets `_pause_event` → workers continue
+- DB `bulk_jobs.status` cycles through `paused` ↔ `running` (lines 1250, 1264)
+- **Registry `op_status` stays `running` during pause** — this matches
+  spec §17 P3 ("paused = still-running"). No special handling needed in
+  `pause()` / `resume()`. The next per-file `update_op` after `resume()`
+  is what re-confirms liveness.
+
+**Terminal state attribute (`error_msg` mirror site):**
+
+The spec assumed `self.terminal_error`. **This does not exist.** Reality:
+
+- `self._cancel_reason` (set in `cancel()` at line 1270, AND set in
+  worker error-rate-abort at line 692) — this is the user-/system-facing
+  cancel description
+- For fatal exception path: the `except Exception as exc` at line 586
+  uses `str(exc)` directly when calling `update_bulk_job_status(... error_msg=...)`
+- Disk-space failure: uses the local `disk_err` string
+
+**Mapping for `finish_op`'s `error_msg` parameter:**
+
+| Terminal branch | Source of error_msg |
+|-----------------|---------------------|
+| Disk-space fail | local `disk_err` (line 482) |
+| Cancelled | `getattr(self, '_cancel_reason', 'Cancelled by user')` (already done at line 553) |
+| Fatal exception | `str(exc)` (line 590) |
+| Normal completion | `None` |
+
+
 
 ## §F — Frontend conventions: HTML mount points, CSS vars, JS patterns (Phase 4 prep)
 
@@ -1991,3 +2496,136 @@ the affected plan task number(s) and the corrected instruction.
   at `analysis.py:522-549` can take ~100 seconds inside a single FastAPI
   request worker. Not an active-ops concern but flagged for a future
   refactor (move to scheduled drain job).
+
+### Breadcrumbs from §E
+
+- **Two `run_lifecycle_scan` symbols exist.** `core.scheduler.run_lifecycle_scan(force=False)`
+  is a thin gating wrapper that returns `None`; `core.lifecycle_scanner.run_lifecycle_scan(source_path=None, job_id=None)`
+  is the actual worker that returns `scan_run_id`. Task 16 must hook the
+  **inner** worker (in `lifecycle_scanner.py`), not the wrapper.
+  Rationale: (a) wrapper sometimes returns without doing work (gating
+  layers); (b) wrapper does not know `scan_run_id`; (c) `api/routes/scanner.py`
+  bypasses the wrapper and calls the inner directly. Hook locations: top
+  of inner worker after `scan_run_id = uuid.uuid4().hex` (line 185),
+  with `finish_op` in a `finally:` block to handle the implicit
+  `asyncio.CancelledError` shutdown path that the inner does NOT
+  explicitly catch.
+
+- **The cleanest tick-mirror site for lifecycle scans is inside
+  `_flush_counters_to_db`** at `core/lifecycle_scanner.py:1099`. Both the
+  serial walker (line 766) and the parallel walker (line 989) call this
+  every ~500 files. Threading an `op_id: str | None = None` kwarg through
+  these three functions adds a single mirror site for both walk
+  strategies. The 25-file `_update_scan_progress` ticks (lines 980, 1067)
+  are too fine-grained — would compete with the registry's 1.5s debounce
+  for no benefit. Skip those.
+
+- **Lifecycle scan total = `_scan_state["total"]`**, set at line 263
+  from the `_count_files_sync` pre-walk. Note: this is the in-memory
+  `_scan_state` dict, NOT the `scan_runs` table. The pre-walk has a 30s
+  timeout (line 261); on timeout `_scan_state["total"] = 0` and Task 16's
+  `register_op(... total=None)` should pass `None` rather than 0 in that
+  case so the UI shows indeterminate progress.
+
+- **`run_lifecycle_scan` has 4 distinct return paths**, all need
+  `finish_op`: line 205 (no source path → no scan_runs row), line 227
+  (no valid roots → failed scan_runs row), line 531 (cancelled before
+  auto-conversion → cancelled scan_runs row), line 550 (full success →
+  complete scan_runs row). Easiest is to wrap the entire body in a
+  `try/finally` block where `finally:` reads the local `cancelled` flag
+  + a captured exception to determine `op_status`.
+
+- **`BulkJob.cancel()` is an instance method, NOT a classmethod.** Spec
+  Task 23 pseudo-code assumed `BulkJob.cancel(job_id)` (classmethod
+  taking the job_id). Reality: `async def cancel(self, reason: str = "Cancelled by user") -> None`
+  at `core/bulk_worker.py:1268`. The lookup happens externally via
+  `get_active_job(job_id) -> BulkJob | None` at line 131. Task 23's
+  cancel-hook closure must do the lookup itself:
+  ```python
+  async def _bulk_cancel_hook(op_id: str, reason: str = "active_ops_registry"):
+      job = get_active_job(op_id)
+      if job is not None:
+          await job.cancel(reason=reason)
+  ```
+  Register with `register_op(... cancel_hook=_bulk_cancel_hook)` at line 383
+  inside `BulkJob.run()`, after the existing `register_job(self)` call.
+  Do NOT capture `self` in the closure — the registry op_id maps to the
+  bulk job_id, and the closure must rely on the live `_active_jobs`
+  registry to find the current instance (the original may have been
+  GC'd if the hook fires after `run()` finishes).
+
+- **BulkJob counter shape diverges from spec.** Spec assumed
+  `self.total / self.processed / self.failed` (public, three-counter).
+  Reality: all underscore-prefixed and outcome-split:
+  - `self._total_pending` (post-scan total)
+  - `self._converted` + `self._skipped` + `self._failed` + `self._adobe_indexed`
+    + `self._review_queue_count` (five outcome counters)
+  - `self._files_completed` (any-outcome counter for `max_files` cap)
+  Task 23's `update_op` mapping:
+  - `total = self._total_pending` (or `None` while `self._scanning`)
+  - `processed = self._converted + self._skipped + self._failed`
+    (matches the existing `completed` calc in `get_all_active_jobs:1507`)
+  - `failed = self._failed` (does NOT include `_skipped` — skipped
+    is an intentional outcome, not an error)
+
+- **Single best tick-mirror site in BulkJob**: the `finally:` block in
+  `_worker` at `core/bulk_worker.py:830-866`, immediately after
+  `self._files_completed += 1` on line 866. This block runs after
+  EVERY file regardless of outcome (success / failure / skip /
+  db-lock-requeue). Adding mirrors at each of the 6 individual
+  `self._converted += 1` / `self._failed += 1` / etc. sites would be
+  6× the edit surface for the same effective tick rate (since the
+  registry's 1.5s debounce collapses rapid-fire ticks anyway).
+
+- **No `update_op` call in `pause()` / `resume()`** (spec §17 P3
+  alignment). DB `bulk_jobs.status` cycles `paused`↔`running` but the
+  registry op_status stays `running` throughout. Workers block on
+  `_pause_event.wait()` so no progress happens during pause anyway —
+  the next post-resume per-file tick is what re-confirms liveness.
+
+- **`finish_op` in BulkJob.run() — three terminal branches:** disk-space
+  failure (line 478-491), normal completion (line 551-572), fatal
+  exception (line 586-594). Recommend explicit `finish_op` calls in each
+  for clean `error_msg` semantics:
+  - Disk-space: `error_msg=disk_err` (local var at line 482)
+  - Cancelled: `error_msg=getattr(self, '_cancel_reason', 'Cancelled by user')`
+    (already used at line 553)
+  - Fatal: `error_msg=str(exc)` (already used at line 590)
+  - Normal completion: `error_msg=None`
+  Optionally add a defensive `finish_op` in the `finally:` block at
+  line 595-598 as a safety net — but only if Task 5 confirms
+  `finish_op` is idempotent on `(op_id, terminal_status)`.
+
+- **Spec assumption `self.terminal_error` does not exist.** The actual
+  attributes are `self._cancel_reason` (set in `cancel()` at line 1270
+  AND in worker's error-rate-abort path at line 692) and the local
+  `cancel_reason` / `disk_err` / `str(exc)` strings in `run()`. Task 23
+  must thread these explicitly into `finish_op(error_msg=...)`.
+
+- **`BulkOcrGapFillJob` is a sibling registry candidate** (not in spec).
+  At `core/bulk_worker.py:1287-1476` — same shape as `BulkJob` but with
+  the **non-underscored** counter names (`self._processed`, `self._failed`,
+  `self._total`) the spec originally assumed. Tracked in a separate
+  `_active_gap_fills` dict at line 1280. Out of scope for Task 23 v1
+  (spec only enumerates `bulk_job` op_type), but flag for a follow-up:
+  `op_type='ocr_gap_fill'` would map cleanly with the same retrofit
+  pattern. Defer until BulkJob retrofit is settled.
+
+- **Lifecycle scanner `_should_cancel()` already exists** at
+  `core/lifecycle_scanner.py:60` and combines `should_stop()` (global)
+  + `is_lifecycle_cancelled()` (scan_coordinator). Task 16's
+  cancel-hook bridge wires the registry's `cancel_op()` to call
+  `cancel_lifecycle_scan(reason="active_ops_registry")` from
+  `core/scan_coordinator.py:83` — it does NOT need to monkey-patch
+  `_should_cancel`. Same pattern as Task 14's run-now bridge (per §C
+  breadcrumb).
+
+- **Inner `run_lifecycle_scan` does NOT explicitly catch `CancelledError`.**
+  The wrapper (`core/scheduler.py:108-114`) does, but the inner relies
+  on `_should_cancel()` polling. If a `CancelledError` propagates through
+  the inner mid-scan, the `update_scan_run` at line 474 is skipped and
+  the row is left `running`. **For Task 16 this means `finish_op` MUST
+  live in a `try/finally` block in the inner**, not just at the four
+  `return scan_run_id` sites — otherwise CancelledError shutdowns leak
+  `running` rows into `active_operations` for `hydrate_on_startup` to
+  reconcile.
