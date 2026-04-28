@@ -72,6 +72,7 @@ user-visible features or changing UX. Article inventory:
 | [`settings-guide.md`](docs/help/settings-guide.md) | Settings page section-by-section reference |
 | [`keyboard-shortcuts.md`](docs/help/keyboard-shortcuts.md) | Page-level keyboard shortcuts |
 | [`troubleshooting.md`](docs/help/troubleshooting.md) | Common problems + fixes by symptom |
+| [`bug-log.md`](docs/help/bug-log.md) | Operator-facing explainer of the engineering bug-log + how it's used (v0.34.x) |
 
 ### Implementation plans / specs (`docs/superpowers/`)
 
@@ -89,6 +90,31 @@ If a task touches **bulk / lifecycle / auth / password / GPU / OCR / search / ve
 read the relevant `gotchas.md` section first. Most bugs in those areas have already
 been hit and documented. For "what changed and why" questions, jump to
 `version-history.md`. For "where does X live" questions, jump to `key-files.md`.
+For "is this bug already known / planned?" questions, jump to `bug-log.md`.
+
+### Documentation discipline (per release)
+
+On **every release** that fixes a bug or introduces a known bug, the
+following docs MUST be updated together — the bug-log is the canonical
+ledger that ties them all together:
+
+1. **`docs/bug-log.md`** — move the relevant row(s) from Open / Planned
+   to Shipped (history); set `status: shipped-vX.Y.Z`. If the release
+   discovered new bugs, add new `BUG-NNN` rows with `status: open`.
+2. **`docs/version-history.md`** — append the per-release narrative
+   entry; if the release closed a bug, the entry references the
+   `BUG-NNN` ID(s).
+3. **`docs/help/whats-new.md`** — operator-facing summary for any
+   user-visible bug fix.
+4. **`docs/gotchas.md`** — if the fix exposed a class of bug worth
+   not recreating, add a row in the relevant subsystem section
+   (cite the `BUG-NNN` for traceability).
+5. **`CLAUDE.md`** — update the Current Version block.
+
+If a release doesn't fix a bug (e.g. pure feature add), step 1 is
+skipped but the bug-log is still re-checked for any open items the
+release might inadvertently affect (apply the
+`checking-blast-radius` skill before shipping).
 
 ---
 
