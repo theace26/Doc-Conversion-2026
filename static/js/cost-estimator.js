@@ -295,12 +295,19 @@
 
     // Stale-rate warning + raw-data link footer
     var footer = el('div', { cls: 'text-sm text-muted', style: 'margin-top:0.6rem;display:flex;gap:0.6rem;flex-wrap:wrap' });
-    var settingsLink = el('a', { text: 'Set cycle start day →', attrs: { href: '/settings.html#billing-cycle-start-day' } });
+    var settingsLink = el('a', { text: 'Set cycle start day →', attrs: { href: '/settings.html#billing-section' } });
     settingsLink.style.color = 'var(--accent)';
     footer.appendChild(settingsLink);
     var ratesLink = el('a', { text: 'Edit rate table →', attrs: { href: '/api/admin/llm-costs', target: '_blank', rel: 'noopener' } });
     ratesLink.style.color = 'var(--accent)';
     footer.appendChild(ratesLink);
+    // v0.33.3: CSV export for finance.
+    var csvLink = el('a', {
+      text: '↓ Export CSV',
+      attrs: { href: '/api/analysis/cost/period.csv', download: '' },
+    });
+    csvLink.style.color = 'var(--accent)';
+    footer.appendChild(csvLink);
     container.appendChild(footer);
 
     if (opts.staleness && opts.staleness.is_stale) {

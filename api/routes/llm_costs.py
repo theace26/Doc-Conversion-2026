@@ -18,11 +18,13 @@ same `X-API-Key` or JWT used elsewhere in MarkFlow:
 
 from __future__ import annotations
 
+import csv
+import io
 from datetime import datetime, timedelta, timezone
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from core.auth import AuthenticatedUser, UserRole, require_role
 from core.database import get_preference
@@ -200,6 +202,126 @@ async def get_period_cost(
         cycle_start_day=cycle_start_day,
     )
     return to_dict(summary)
+
+
+@router.get("/api/analysis/cost/period.csv")
+async def get_period_cost_csv(
+    days: int | None = Query(
+        None,
+        ge=1,
+        le=365,
+        description="If set, use a trailing N-day window instead of the billing cycle.",
+    ),
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+):
+    """v0.33.3: CSV export of period cost data.
+
+    Useful for handing to finance / pasting into a spreadsheet. Same
+    underlying data as `GET /api/analysis/cost/period` but flattened
+    into one row per provider/model/day. Honors the same `days` query
+    parameter as the JSON endpoint.
+
+    Returns Content-Type: text/csv with a Content-Disposition that
+    suggests a filename based on the cycle window.
+    """
+    cycle_start_day_pref = await get_preference("billing_cycle_start_day", "1")
+    try:
+        cycle_start_day = int(cycle_start_day_pref or "1")
+    except (TypeError, ValueError):
+        cycle_start_day = 1
+
+    # Reuse the same SQL fetch logic as the JSON endpoint
+    if days is not None:
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=days)
+        rows = await db_fetch_all(
+            """SELECT provider_id, model, tokens_used, analyzed_at
+               FROM analysis_queue
+               WHERE status = 'completed'
+                 AND tokens_used IS NOT NULL
+                 AND analyzed_at >= ?
+               ORDER BY analyzed_at""",
+            (start.isoformat(),),
+        )
+        cycle_label = f"trailing-{days}d"
+    else:
+        rows = await db_fetch_all(
+            """SELECT provider_id, model, tokens_used, analyzed_at
+               FROM analysis_queue
+               WHERE status = 'completed'
+                 AND tokens_used IS NOT NULL
+               ORDER BY analyzed_at"""
+        )
+        cycle_label = f"cycle-day{cycle_start_day}"
+
+    # Aggregate by (provider, model, date) at the SQL-result level so
+    # finance gets a clean per-day-per-model breakdown instead of one
+    # row per analysis. Compute USD per row then sum.
+    bucket: dict[tuple, dict] = {}
+    for r in rows:
+        provider = (r["provider_id"] or "unknown").lower()
+        model = r["model"] or "unknown"
+        analyzed_at = r["analyzed_at"] or ""
+        # Normalize to YYYY-MM-DD
+        try:
+            ts = analyzed_at.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(ts)
+            day = dt.strftime("%Y-%m-%d")
+        except (ValueError, AttributeError):
+            day = analyzed_at[:10] or "unknown"
+        est = estimate_cost(provider, model, r["tokens_used"])
+        if est.cost_usd is None:
+            continue
+        key = (day, provider, model)
+        b = bucket.setdefault(key, {
+            "day": day,
+            "provider": provider,
+            "model": model,
+            "file_count": 0,
+            "tokens": 0,
+            "cost_usd": 0.0,
+        })
+        b["file_count"] += 1
+        b["tokens"] += r["tokens_used"]
+        b["cost_usd"] = round(b["cost_usd"] + est.cost_usd, 6)
+
+    # Render CSV
+    out = io.StringIO()
+    writer = csv.writer(out, lineterminator="\n")
+    writer.writerow(["date", "provider", "model", "files_analyzed",
+                     "tokens", "cost_usd"])
+    total_files = 0
+    total_tokens = 0
+    total_cost = 0.0
+    # Sort by (day, provider, model) for deterministic output
+    for key in sorted(bucket.keys()):
+        b = bucket[key]
+        writer.writerow([b["day"], b["provider"], b["model"],
+                         b["file_count"], b["tokens"],
+                         f"{b['cost_usd']:.6f}"])
+        total_files += b["file_count"]
+        total_tokens += b["tokens"]
+        total_cost += b["cost_usd"]
+    writer.writerow([])
+    writer.writerow(["TOTAL", "", "", total_files, total_tokens,
+                     f"{total_cost:.6f}"])
+
+    log.info(
+        "llm_cost.csv_exported",
+        actor=user.email,
+        cycle_label=cycle_label,
+        row_count=len(bucket),
+        total_cost_usd=round(total_cost, 6),
+    )
+
+    filename = f"markflow-llm-costs-{cycle_label}-{datetime.utcnow().strftime('%Y%m%d')}.csv"
+    return Response(
+        content=out.getvalue(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
 
 
 @router.get("/api/analysis/cost/staleness")

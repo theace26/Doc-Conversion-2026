@@ -4,6 +4,102 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.33.3 — LLM token + cost estimation, Phase 3 (operational hardening) (2026-04-28)
+
+**Closes the cost-estimation subsystem with finance-grade exports,
+auto-staleness detection, and a fully-documented audit trail.**
+
+### What landed
+
+**CSV export endpoint** — `GET /api/analysis/cost/period.csv`
+(OPERATOR+). Same data as the JSON `/period` endpoint but flattened
+into one row per `(date, provider, model)` with columns: `date,
+provider, model, files_analyzed, tokens, cost_usd`. Trailing TOTAL
+row. Honors `?days=N` for trailing windows. Audit-trail event
+`llm_cost.csv_exported` records actor + cycle label so admins can
+see who pulled what. Suggested filename includes the cycle window
++ today's date.
+
+**Daily staleness check** — new scheduler job
+`check_llm_costs_staleness` runs at 03:30 daily (quiet window before
+the 04:00 trash auto-purge). Calls `core.llm_costs.is_data_stale()`;
+if true, emits a `llm_costs.stale` warning event with `updated_at`,
+`threshold_days`, `source_url`, and a `hint` field telling the admin
+exactly which file to edit + which endpoint to hit. Job count log
+line bumped from 18 to 19.
+
+**Stale-rate warning surfaced in UI** — the Admin Provider Spend card
+already had the warning footer wired in v0.33.2; v0.33.3's value is
+that the operator now has a *server-side* signal too (the daily log
+event) that doesn't depend on someone opening the Admin page to see
+the visual warning. Both surfaces work in parallel.
+
+**Export CSV button** on the Provider Spend card. Added to the
+existing footer alongside "Set cycle start day" + "Edit rate table".
+Uses standard `<a href="..." download>` so the browser handles the
+download flow.
+
+**Audit trail documented**. Help doc points operators at
+`/api/logs/search?q=llm_cost` to grep the full cost-calculation
+history. Events catalogued:
+
+- `llm_cost.computed` — every successful estimate (per-row,
+  per-batch, per-period scopes)
+- `llm_cost.no_rate` — rate-table miss (provider/model not in JSON)
+- `llm_cost.no_tokens` — `tokens_used` is null
+- `llm_cost.csv_exported` — CSV download
+- `llm_costs.loaded` / `llm_costs.file_missing` /
+  `llm_costs.load_failed` — lifecycle events
+- `llm_cost.rate_table_reloaded` — admin hot-reload
+- `llm_costs.stale` — daily staleness check fires
+
+### Why a daily warning instead of a daily refresh
+
+The plan was explicit: **no automatic refresh of the rate table**.
+Pricing pages can change schema, drop models, or add new SKUs that
+don't fit the loader's expectations. An automatic scrape against
+provider websites is fragile and can introduce wrong values silently.
+The right pattern is operator-curated: emit a clear "this is N days
+old" warning, link the operator to the source URLs, and let them
+update + reload on their own schedule.
+
+### Tests
+
+Two new tests added:
+
+- `test_is_data_stale_old_date` — explicit stale path with
+  `updated_at = "2020-01-01"` ensures `is_data_stale(threshold_days=90)`
+  returns True (was previously only tested on the negative path).
+- `test_aggregate_period_per_provider_breakdown_handles_zero_cost`
+  — Ollama rows ($0.00) must NOT be silently dropped from the
+  `by_provider` breakdown. Finance needs to see free inference is
+  happening, not assume nothing ran. Regression guard.
+
+### Files
+
+- `core/version.py` — bump to 0.33.3
+- `core/scheduler.py` — `check_llm_costs_staleness()` helper +
+  CronTrigger(hour=3, minute=30) job; `scheduler.started` log line
+  jobs count 18 → 19
+- `api/routes/llm_costs.py` — `GET /api/analysis/cost/period.csv`
+  endpoint (one row per `(date, provider, model)`, TOTAL footer,
+  audit-trail event)
+- `static/js/cost-estimator.js` — Export CSV link added to footer
+- `tests/test_llm_costs.py` — 2 new tests (24 total now)
+- `docs/help/admin-tools.md`, `docs/help/whats-new.md`,
+  `docs/version-history.md`, `CLAUDE.md`
+
+No DB migration. No new dependencies.
+
+### Operator-visible change
+
+- Admin → Provider Spend card → new "↓ Export CSV" link.
+- Daily log warning when rate data >90 days old (search
+  `llm_costs.stale` in Log Viewer).
+- All cost calculations searchable as `llm_cost.*` events.
+
+---
+
 ## v0.33.2 — LLM token + cost estimation, Phase 2 (UI surfaces) (2026-04-28)
 
 **UI release on top of v0.33.1's backend. Three operator-facing surfaces

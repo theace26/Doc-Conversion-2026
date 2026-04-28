@@ -6,6 +6,100 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.33.3 — Token + cost estimation: CSV export, stale-rate warning, audit trail
+
+The third and final phase of the cost-estimation subsystem. Adds the
+operational pieces you'd need for actually running this in
+production: CSV export for finance, automatic warning when your
+rate data goes stale, and a documented audit trail.
+
+### What you can do now
+
+**1. Export your cost data as CSV.** Click the new **↓ Export CSV**
+link in the footer of the Provider Spend card on the Admin page.
+You get a file like:
+
+```csv
+date,provider,model,files_analyzed,tokens,cost_usd
+2026-04-15,anthropic,claude-opus-4-6,42,178452,8.030340
+2026-04-16,anthropic,claude-opus-4-6,38,162001,7.290045
+...
+
+TOTAL,,,1199,1602202,72.099090
+```
+
+Open it in Excel, Google Sheets, or hand it to your accountant.
+One row per (date, provider, model), with a TOTAL footer.
+
+**2. Get warned when your rate table goes stale.** MarkFlow now
+runs a daily check at **03:30** to see if your loaded
+`llm_costs.json` file is older than **90 days**. If it is, you
+get:
+
+- An **amber warning** at the bottom of the Provider Spend card
+  on the Admin page (already there since v0.33.2, but now driven
+  by the same backend signal).
+- A **log warning event** (`llm_costs.stale`) so admins can grep
+  for it without having to open the UI.
+
+The warning includes the file's `updated_at` field, the threshold
+(90 days), the source URLs to check, and a hint telling you
+exactly which file to edit and which endpoint to hit.
+
+**3. Audit-trail every cost calculation.** Every time MarkFlow
+estimates a cost — whether you opened a batch, pulled the period
+endpoint, or an external program hit the API — it writes a
+`llm_cost.computed` event to the log. To see them all from the
+last hour:
+
+Open the [Log Viewer](/log-viewer.html?q=llm_cost.computed) with
+`q=llm_cost.computed` pre-filled. Or hit the API:
+
+```bash
+curl -H "X-API-Key: <key>" \
+  "http://localhost:8000/api/logs/search?q=llm_cost&hours=1"
+```
+
+### Why we don't auto-refresh the rate table
+
+You might wonder: "if MarkFlow knows the rate data is stale, why
+doesn't it just go fetch the latest rates from the providers?"
+
+Two reasons:
+
+- **Pricing pages change schema.** A scrape that worked last
+  quarter might silently start producing wrong values when
+  Anthropic, OpenAI, etc. redesign their pricing tables.
+- **Wrong rates are worse than stale rates.** A 6-month-old rate
+  table is usually correct (providers don't change pricing
+  often), and the warning tells you exactly when to refresh.
+  Auto-fetched-and-wrong is dangerous.
+
+So the design is: MarkFlow nags you when it's been too long;
+you check the source URLs (linked in the warning); you edit
+`llm_costs.json` yourself; you POST to
+`/api/admin/llm-costs/reload` to apply without restart.
+
+### Subsystem status: complete
+
+That wraps the three-phase cost-estimation rollout:
+
+- **v0.33.1** — backend foundation (rate table + 6 API
+  endpoints + 22 tests)
+- **v0.33.2** — UI surfaces (per-batch panel, Provider Spend
+  card, Settings entry, comprehensive API integrator docs)
+- **v0.33.3** — operational hardening (CSV export, stale-rate
+  warning, daily check, audit trail)
+
+You now have everything you need to: see what each batch costs,
+track monthly running totals, project month-end, hand CSVs to
+finance, get warned before your rate data goes too stale, and
+trace every calculation via the log. External integrators like
+IP2A can hook in via the documented X-API-Key + JWT API at
+[`docs/help/admin-tools.md`](admin-tools.md).
+
+---
+
 ## v0.33.2 — Token + cost estimation: now visible in the UI
 
 The backend that v0.33.1 shipped is now wired up to three operator-

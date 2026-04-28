@@ -334,3 +334,37 @@ def test_is_data_stale_no_updated_at(tmp_path, monkeypatch):
     monkeypatch.setattr(lc, "_DATA_FILE", p)
     lc.load_costs()
     assert lc.is_data_stale() is True
+
+
+def test_is_data_stale_old_date(tmp_path, monkeypatch):
+    """Explicit stale path: updated_at = 2020-01-01 → > 90 days."""
+    payload = {
+        "schema_version": 1,
+        "updated_at": "2020-01-01",
+        "providers": {},
+    }
+    p = tmp_path / "old.json"
+    p.write_text(json.dumps(payload))
+    monkeypatch.setattr(lc, "_DATA_FILE", p)
+    lc.load_costs()
+    assert lc.is_data_stale(threshold_days=90) is True
+
+
+# ── CSV-export reachable from the route layer (smoke only — full
+# integration via test_api_integration.py requires a live container) ───
+
+
+def test_aggregate_period_per_provider_breakdown_handles_zero_cost(loaded_table):
+    """Ollama rows ($0.00) must NOT be silently dropped from
+    by_provider — they should appear with cost=0.00 so finance can
+    see free inference is happening, not assume nothing ran."""
+    today = datetime(2026, 4, 20, 12, 0, tzinfo=timezone.utc)
+    rows = [
+        {"provider_id": "ollama", "model": "llava:7b",
+         "tokens_used": 5_000_000, "analyzed_at": "2026-04-15T10:00:00+00:00"},
+    ]
+    summary = lc.aggregate_period_cost(rows, cycle_start_day=1, today=today)
+    assert summary.file_count == 1
+    assert summary.total_tokens == 5_000_000
+    assert summary.total_cost_usd == 0.0
+    assert summary.by_provider.get("ollama") == 0.0

@@ -625,6 +625,37 @@ async def run_mount_health_check() -> None:
         log.error("mount_health.failed", error=str(exc))
 
 
+async def check_llm_costs_staleness() -> None:
+    """v0.33.3: daily check that the LLM rate table on disk is fresh.
+
+    Emits a `llm_costs.stale` warning event if `llm_costs.json:updated_at`
+    is older than 90 days, so admins can grep the log for the warning
+    and refresh the file from the providers' published pricing pages.
+    Doesn't auto-update — the file is operator-curated by design.
+    """
+    try:
+        from core.llm_costs import get_costs, is_data_stale
+        threshold_days = 90
+        table = get_costs()
+        if not table.updated_at:
+            log.warning(
+                "llm_costs.stale",
+                reason="updated_at field empty in llm_costs.json",
+                source_url=table.source_url,
+            )
+            return
+        if is_data_stale(threshold_days=threshold_days):
+            log.warning(
+                "llm_costs.stale",
+                updated_at=table.updated_at,
+                threshold_days=threshold_days,
+                source_url=table.source_url,
+                hint="edit core/data/llm_costs.json against current provider pricing, then POST /api/admin/llm-costs/reload",
+            )
+    except Exception as exc:
+        log.error("llm_costs.staleness_check_failed", error=str(exc))
+
+
 def start_scheduler() -> None:
     """Register all jobs and start the scheduler. Called from lifespan."""
     from core.metrics_collector import collect_metrics, collect_disk_snapshot, purge_old_metrics
@@ -858,8 +889,21 @@ def start_scheduler() -> None:
         misfire_grace_time=120,
     )
 
+    # v0.33.3: LLM rate-table staleness check — daily at 03:30 (quiet
+    # window before the 04:00 trash auto-purge). Emits a warning event
+    # if llm_costs.json:updated_at is older than 90 days.
+    scheduler.add_job(
+        check_llm_costs_staleness,
+        trigger=CronTrigger(hour=3, minute=30),
+        id="check_llm_costs_staleness",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=300,
+    )
+
     scheduler.start()
-    log.info("scheduler.started", jobs=18)
+    log.info("scheduler.started", jobs=19)
 
 
 def get_pipeline_status() -> dict:

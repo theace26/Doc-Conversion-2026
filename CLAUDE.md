@@ -91,7 +91,91 @@ been hit and documented. For "what changed and why" questions, jump to
 
 ---
 
-## Current Version — v0.33.2
+## Current Version — v0.33.3
+
+**Token + cost estimation subsystem — Phase 3 (operational hardening).
+Adds CSV export of period cost data (for finance), an amber stale-rate
+warning surfaced both in the API + the Admin Provider Spend card, a
+daily 03:30 scheduler job (`check_llm_costs_staleness`, scheduler job
+count 18→19) that emits a `llm_costs.stale` warning event when
+`llm_costs.json:updated_at` is older than 90 days, and an audit-trail
+section in the help docs documenting how to grep cost calculations
+via `/api/logs/search?q=llm_cost`.**
+
+### Why this matters
+
+v0.33.1 + v0.33.2 shipped cost estimation but didn't address two
+operational concerns:
+1. **Finance can't read JSON.** They need a parseable file format
+   for spreadsheet imports.
+2. **Rate data goes stale.** Providers update pricing periodically
+   and there's no signal that the rate table is now wrong. Audit
+   reviewers also need to be able to point at "every cost
+   calculation that fired in the past N days."
+
+v0.33.3 closes both gaps.
+
+### What changed
+
+**1. CSV export** — `GET /api/analysis/cost/period.csv` (OPERATOR+).
+Same data as the JSON endpoint, flattened into one row per
+provider/model/day with columns: `date, provider, model,
+files_analyzed, tokens, cost_usd`. Trailing TOTAL row. Honors the
+same `?days=N` query parameter as the JSON endpoint. Audit-trail
+log line `llm_cost.csv_exported` records actor + cycle label.
+
+**2. Stale-rate warning surfaced in UI**. The Admin Provider Spend
+card now displays an amber warning footer when `is_stale=true`:
+*"⚠ Rate data is N days old (threshold 90). Check provider pricing
+pages and update llm_costs.json."* Driven by the existing
+`/api/analysis/cost/staleness` endpoint that v0.33.1 shipped.
+
+**3. Daily scheduler job** — `check_llm_costs_staleness` runs at
+03:30 daily (quiet window before the 04:00 trash auto-purge).
+Emits a `llm_costs.stale` warning event with `updated_at`,
+`threshold_days`, `source_url`, and a `hint` field telling the
+admin exactly which file to edit + which endpoint to hit. Job
+count: 18 → 19.
+
+**4. Audit trail documented**. Help doc points to
+`/api/logs/search?q=llm_cost` for cost-calculation history.
+Already-emitted events: `llm_cost.computed` (every estimate),
+`llm_cost.no_rate` (rate-table miss), `llm_cost.csv_exported`
+(CSV download), `llm_costs.stale` (daily check), and
+`llm_costs.loaded` / `llm_cost.rate_table_reloaded` (lifecycle).
+
+**5. CSV export button** on the Provider Spend card. Adds an
+"↓ Export CSV" link to the existing footer (alongside "Set cycle
+start day" + "Edit rate table"). Browser triggers the standard
+download flow via `download` attribute.
+
+### Files
+
+- `core/version.py` — bump to 0.33.3
+- `core/scheduler.py` — `check_llm_costs_staleness()` helper +
+  scheduler job; jobs count log line bumped from 18 to 19
+- `api/routes/llm_costs.py` — `GET /api/analysis/cost/period.csv`
+  endpoint with the same auth + window logic as the JSON variant
+- `static/js/cost-estimator.js` — Export CSV link + (existing)
+  stale-rate warning footer
+- `tests/test_llm_costs.py` — explicit stale path test +
+  zero-cost (Ollama) period-aggregation test
+- `docs/help/admin-tools.md`, `docs/help/whats-new.md`,
+  `docs/version-history.md`, `docs/key-files.md`, `CLAUDE.md`
+
+No DB migration. No new dependencies. One new endpoint
+(`period.csv`). One new scheduler job (`check_llm_costs_staleness`).
+
+### Operator-visible change
+
+- Admin → Provider Spend card: new "↓ Export CSV" link.
+- Admin → Provider Spend card: amber warning when rate data is
+  stale (>90 days old).
+- Log Viewer: searchable `llm_cost.*` and `llm_costs.*` events.
+
+---
+
+## v0.33.2 — Token + cost estimation, Phase 2 (UI surfaces)
 
 **Token + cost estimation subsystem — Phase 2 (UI surfaces). Adds the
 per-batch Cost Estimate panel on the Batch Management page, the

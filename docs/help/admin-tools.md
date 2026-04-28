@@ -741,18 +741,49 @@ async function batchCost(batchId) {
 }
 ```
 
-#### Audit trail
+#### Audit trail (v0.33.3)
 
-Every cost calculation emits a `llm_cost.computed` (or `llm_cost.no_rate`)
-structured log line. To see every cost call from the past hour:
+Every cost-related event emits a structured log line you can grep.
+To see every cost call from the past hour:
 
 ```bash
 curl -H "X-API-Key: $KEY" \
   "http://markflow.local:8000/api/logs/search?q=llm_cost&hours=1"
 ```
 
-…or open the [Log Viewer](/log-viewer.html?q=llm_cost.computed) with the
-query pre-filled.
+…or open the [Log Viewer](/log-viewer.html?q=llm_cost.computed) with
+the query pre-filled.
+
+| Event | When it fires |
+|-------|---------------|
+| `llm_cost.computed` | Every successful per-row, per-batch, or per-period estimate. Includes `scope`, `total_cost_usd`, `rates_used`. |
+| `llm_cost.no_rate` | Rate table doesn't have an entry for the row's `provider/model`. Includes the missing `provider` + `model` so you can add them to `llm_costs.json`. |
+| `llm_cost.no_tokens` | A row's `tokens_used` is null (analysis incomplete). |
+| `llm_cost.csv_exported` | Operator downloaded the CSV export. Includes the `actor` email + cycle label. |
+| `llm_costs.loaded` | Rate table loaded successfully on startup or via reload. |
+| `llm_costs.file_missing` / `llm_costs.load_failed` | Loader couldn't read or parse `llm_costs.json`. |
+| `llm_cost.rate_table_reloaded` | Admin hit the `/reload` endpoint. Includes the `actor`. |
+| `llm_costs.stale` | Daily 03:30 staleness check found `updated_at` >90 days old. |
+
+#### CSV export (v0.33.3)
+
+Hit the **↓ Export CSV** link on the Provider Spend card or the
+endpoint directly:
+
+```bash
+curl -H "X-API-Key: $KEY" \
+  -o markflow-llm-costs.csv \
+  "http://markflow.local:8000/api/analysis/cost/period.csv"
+
+# or trailing-7-day window
+curl -H "X-API-Key: $KEY" \
+  -o markflow-llm-costs-7d.csv \
+  "http://markflow.local:8000/api/analysis/cost/period.csv?days=7"
+```
+
+The CSV has columns `date, provider, model, files_analyzed, tokens,
+cost_usd` with one row per (date, provider, model) and a TOTAL footer
+row. Suitable for spreadsheet imports without further parsing.
 
 ---
 
