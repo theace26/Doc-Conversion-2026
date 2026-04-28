@@ -20,15 +20,20 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from core.auth import AuthenticatedUser, UserRole, require_role
 
 from api.models import BatchStatus, FileStatus
-from core.converter import OUTPUT_BASE, get_progress_queue, _progress_queues
+from core.converter import get_progress_queue, _progress_queues
 from core.database import db_fetch_all, get_batch_state
+from core.storage_paths import get_output_root
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/batch", tags=["batch"])
 
 
 def _batch_dir(batch_id: str) -> Path:
-    return OUTPUT_BASE / batch_id
+    # v0.34.1 BUG-005: re-resolve via shared resolver on every call.
+    # Pre-fix this captured `OUTPUT_BASE` at module-import time, which
+    # silently 404'd download requests when bulk pipelines wrote to a
+    # Storage-Manager-resolved path different from the env var.
+    return get_output_root() / batch_id
 
 
 def _validate_batch_id(batch_id: str) -> None:

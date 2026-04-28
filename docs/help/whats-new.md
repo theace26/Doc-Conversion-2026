@@ -6,6 +6,49 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.34.1 — Convert-page write-guard + folder-picker fix
+
+Single bug-fix release closing 9 entangled bugs (BUG-001..009 in the
+[Bug Log](/help.html#bug-log)) tied together by `OUTPUT_BASE` having
+been captured as a stale module-level constant across 6 consumers.
+
+### What's fixed
+
+1. **Convert page actually works** — drop a PDF → conversion runs to
+   completion instead of getting rejected by the v0.25.0 write guard.
+2. **Folder picker no longer strands you in an empty modal** — the
+   drives sidebar always populates from a known-good fetch, even when
+   the requested initial path is invalid. Output-mode auto-fallback
+   to `/mnt/output-repo` when given a non-browsable initial path.
+3. **Output Directory defaults sensibly** — Convert page now seeds
+   the field from your Storage Manager configured path instead of
+   the legacy `/app/output` placeholder.
+4. **Download Batch / History download / Lifecycle scanner / MCP all
+   agree** — pre-fix these 5 consumers silently drifted from the
+   Storage Manager output path whenever it diverged from `OUTPUT_DIR`.
+   All 6 consumers now go through one shared resolver.
+
+### Why this matters
+
+This was the second-most-frustrating UX failure on the list (after
+the v0.32.x trash empty), and it had a critical silent-failure tail:
+the lifecycle scanner walked the wrong tree when output diverged,
+producing **no soft-delete tracking**. Files removed from the source
+share never entered the trash because the scanner couldn't find
+their corresponding output. v0.34.1 fixes all of it in one cut.
+
+### What you should know
+
+- API consumers calling `/api/convert` with `output_dir` outside the
+  allow-list now get a clear HTTP 422 instead of a silent write to
+  somewhere unexpected.
+- If neither Storage Manager nor any env var is configured, Convert
+  returns 422 with a "configure the Storage page" message instead
+  of falling through to a default that the write guard would reject
+  anyway.
+
+---
+
 ## v0.34.0 — Deep handler for Adobe Premiere project files (`.prproj`)
 
 Premiere Pro project files used to get the same metadata-only treatment

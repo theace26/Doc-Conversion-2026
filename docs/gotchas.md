@@ -101,6 +101,25 @@ the relevant subsystem. Referenced from CLAUDE.md.
   level in `core.mount_manager` and is shared by the lifespan remount,
   the scheduler health probe, and the `/api/storage/shares` routes.
 
+- **Output paths must go through `core.storage_paths.get_output_root()`**
+  (v0.34.1): never freeze `OUTPUT_BASE` / `OUTPUT_DIR` /
+  `OUTPUT_REPO_ROOT` as a module-level constant — that captures a
+  stale value at import time and silently drifts from the Storage
+  Manager configured path. Use the resolver function on every read.
+  Pre-v0.34.1 this anti-pattern hid 5 silent-failure consumers
+  (Download Batch 404, History download 404, lifecycle scanner
+  walking the wrong tree, MCP returning wrong paths to AI clients,
+  `/ocr-images` mount serving from wrong dir). See BUG-001..009 in
+  `docs/bug-log.md`.
+
+- **`/ocr-images` static mount captures the resolved path at app
+  startup, not at request time**: `StaticFiles` binds the directory
+  argument once when `app.mount(...)` runs. So a Storage Manager
+  output reconfiguration at runtime requires a container restart for
+  `/ocr-images` to follow. All other consumers (converter, batch
+  download, history download, lifecycle scanner, MCP) re-resolve per
+  call and DO follow runtime reconfigs.
+
 ---
 
 ## Database & aiosqlite

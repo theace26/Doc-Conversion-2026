@@ -12,7 +12,19 @@ import structlog
 
 log = structlog.get_logger(__name__)
 
-OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "output"))
+# v0.34.1 BUG-008: replaced module-level frozen constant with a getter
+# that re-resolves via the shared Storage Paths resolver. Pre-fix the
+# MCP server returned stale env-var-derived paths to AI clients
+# whenever Storage Manager's configured output diverged from OUTPUT_DIR.
+def _output_dir() -> Path:
+    from core.storage_paths import get_output_root
+    return get_output_root()
+
+
+# Back-compat alias retained so any internal caller still expecting the
+# constant import path keeps working. Re-resolve when the module loads
+# (one-shot; consumers below call _output_dir() to re-resolve at use).
+OUTPUT_DIR = _output_dir()
 
 
 async def search_documents(
@@ -75,7 +87,7 @@ async def read_document(path: str, max_tokens: int = 8000) -> str:
         # Try as-is first, then relative to output dir
         file_path = Path(path)
         if not file_path.is_absolute():
-            file_path = OUTPUT_DIR / path
+            file_path = _output_dir() / path
 
         if not file_path.exists():
             return f"File not found: {path}"
@@ -98,7 +110,8 @@ async def read_document(path: str, max_tokens: int = 8000) -> str:
 async def list_directory(path: str = "", show_stats: bool = False) -> str:
     """List documents and folders in the MarkFlow repository."""
     try:
-        base = OUTPUT_DIR / path if path else OUTPUT_DIR
+        out_root = _output_dir()
+        base = out_root / path if path else out_root
         if not base.exists():
             return f"Directory not found: {path or 'output root'}"
 
@@ -270,7 +283,7 @@ async def get_document_summary(path: str) -> str:
 
         file_path = Path(path)
         if not file_path.is_absolute():
-            file_path = OUTPUT_DIR / path
+            file_path = _output_dir() / path
 
         if not file_path.exists():
             return f"File not found: {path}"

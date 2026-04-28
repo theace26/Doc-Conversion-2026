@@ -80,14 +80,64 @@ class FolderPicker {
     this.selectedPath = null;
     this._updateSelectBtn();
 
-    // If mode is "output", start at the output repo
+    // v0.34.1 Fix B (BUG-002): if the picker was given an initialPath
+    // that the browse endpoint won't accept (e.g. the legacy
+    // /app/output value still cached in the Convert page field), don't
+    // strand the operator — fall back to /mnt/output-repo for output
+    // mode and /host for source / any modes. The previous logic only
+    // remapped exact-match '' or '/host', leaving every other invalid
+    // initialPath to fail open into the empty-sidebar dead end.
     let startPath = this.initialPath;
-    if (this.mode === 'output' && (!startPath || startPath === '/host')) {
+    if (!this._isBrowsablePath(startPath)) {
+      const fallback = (this.mode === 'output') ? '/mnt/output-repo' : '/host';
+      // eslint-disable-next-line no-console
+      console.info('FolderPicker: initialPath',
+                   JSON.stringify(startPath),
+                   'is not under an allowed browse root; remapping to', fallback);
+      startPath = fallback;
+    } else if (this.mode === 'output' && startPath === '/host') {
+      // Legacy contract: when someone passes '/host' specifically in
+      // output mode, jump straight to the output repo.
       startPath = '/mnt/output-repo';
     }
 
     this.dialog.showModal();
-    this._navigate(startPath);
+
+    // v0.34.1 Fix A (BUG-001): always populate the drives sidebar from
+    // a known-good fetch BEFORE attempting to navigate to the
+    // (possibly invalid) startPath. If startPath fails, the operator
+    // still has a clickable sidebar to navigate elsewhere instead of
+    // being stranded.
+    this._loadDrivesSidebar().finally(() => this._navigate(startPath));
+  }
+
+  // v0.34.1 Fix B helper: same allow-list as api/routes/browse.py
+  // ALLOWED_BROWSE_ROOTS. Keep these in sync.
+  _isBrowsablePath(p) {
+    if (!p || typeof p !== 'string') return false;
+    if (p === '/host' || p === '/mnt/output-repo') return true;
+    return p.startsWith('/host/') || p.startsWith('/mnt/output-repo/');
+  }
+
+  // v0.34.1 Fix A: hoisted drives-only fetch. Calls /api/browse on the
+  // always-allowed root '/host' to harvest the drives array, then
+  // renders the sidebar. Idempotent — safe to call again from
+  // _render() when normal navigation succeeds.
+  async _loadDrivesSidebar() {
+    try {
+      const resp = await fetch('/api/browse?path=/host', { credentials: 'same-origin' });
+      if (!resp.ok) {
+        // /host should always be browsable; if not, render an empty
+        // sidebar with a clear hint instead of leaving it blank.
+        this._renderDrives([]);
+        return;
+      }
+      const data = await resp.json();
+      this._renderDrives(data.drives || []);
+    } catch (e) {
+      // Network failure — leave the sidebar empty but don't crash.
+      this._renderDrives([]);
+    }
   }
 
   close() {

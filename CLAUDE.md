@@ -118,133 +118,117 @@ release might inadvertently affect (apply the
 
 ---
 
-## Current Version — v0.34.0
+## Current Version — v0.34.1
 
-**`.prproj` deep handler — Premiere Pro project files now go through
-a dedicated parser instead of `AdobeHandler`'s metadata-only treatment.
-Streams the gzipped XML through `lxml.iterparse`, harvests every clip
-path / sequence / bin defensively, renders a structured Markdown
-summary, and persists the media-refs cross-reference to a new
-`prproj_media_refs` table. Three OPERATOR+ API endpoints expose the
-relationship; the preview page gains a "Used in Premiere projects"
-sidebar card. All three plan phases shipped as a single release. New
-comprehensive `developer-reference.md` help article covers the full
-API surface, DB schema, log event taxonomy, and operational runbook
-for engineers + integrators.**
+**Convert-page write-guard + folder-picker fix + 5 silent-failure
+consumers — single-cut bug-fix release closing 9 entangled bugs
+(BUG-001..009 in `docs/bug-log.md`). Tied together by `OUTPUT_BASE`
+having been captured as a module-level constant at import time across
+6 consumers, each silently drifting from the Storage Manager (v0.25.0+)
+configured path. New `core/storage_paths.py` resolver becomes the
+single source of truth; Convert page picker now always populates its
+drives sidebar even on initial-navigation failure.**
 
 ### Why this matters
 
-Premiere project files are gzipped XML — they're machine-readable but
-the previous handler chain extracted only filename + creator + modify
-date. Operators editing in shared NAS environments routinely lose
-track of which Premiere project a given clip belongs to. With the
-deep handler, MarkFlow becomes the authority on that relationship —
-searchable by clip filename and queryable via API.
+Operator hit two visible failures from one click on the Convert page:
+(1) drop a PDF → write-guard rejection; (2) click Browse → modal
+opens with empty drives sidebar. Diagnosis traced both to 4 root
+causes plus 5 silent-failure consumers downstream — Download Batch
+404, History download 404, **lifecycle scanner walking the wrong
+tree → no soft-delete tracking**, MCP returning wrong paths to AI
+clients, `/ocr-images` mount serving from wrong dir. All 9 fixed in
+one cut to avoid v0.34.1 + v0.34.2 + ... patches drifting across the
+codebase.
 
 ### What changed
 
-**1. New parser** — `formats/prproj/parser.py` (~430 LOC). Defensive
-`lxml.iterparse` walker. Tag-name substring matching (Premiere's
-`Clip` / `MasterClip` / `ClipDef` / `Sequence` / `Bin` /
-`FilePath` / `URL` / `MediaSource` etc. vary by version).
-`schema_confidence` heuristic (`high` / `medium` / `low`). Security
-hardened: `resolve_entities=False`, `no_network=True`, no
-`recover=False` mode. `parse_prproj(path) -> PrprojDocument` is the
-public entry point; `PrprojDocument` is a frozen dataclass tree with
-`MediaRef`, `Sequence`, `Bin`.
+**1. New shared resolver `core/storage_paths.py`** (~120 LOC).
+`get_output_root()` consults Storage Manager > BULK_OUTPUT_PATH >
+OUTPUT_DIR > fallback `output/`. Pure function, re-resolves on every
+call so Storage Manager runtime reconfigs take effect without a
+restart.
 
-**2. New handler** — `formats/prproj/handler.py` (~340 LOC). Renders
-project metadata table, sequence list, media list (grouped by type),
-ASCII-art bin tree, parse warnings. Falls back to AdobeHandler-style
-metadata-only on hard parse failure (gzip corruption, encrypted
-project, unknown root). `formats/__init__.py` imports it after
-`AdobeHandler` so the registry's last-writer-wins behaviour gives the
-new handler the `prproj` slot. `AdobeHandler.EXTENSIONS` also drops
-`prproj` defensively.
+**2. Convert page chain** — `api/routes/convert.py` validates
+`output_dir` Form param against `is_write_allowed()` early and
+threads it through `_run_batch_and_cleanup` to
+`convert_batch(output_dir=...)`. HTTP 422 with structured error
+payload when rejected. New `convert.output_dir_resolved` /
+`convert.output_dir_rejected` log events. `core/converter.py`
+`ConversionOrchestrator` re-resolves default output base per-batch.
 
-**3. New `prproj_media_refs` table** — schema in `_SCHEMA_SQL` +
-idempotent migration v28. FK `ON DELETE CASCADE` on `bulk_files.id`.
-Indexed on `media_path` and `project_id` for sub-millisecond lookups
-in either direction.
+**3. 5 downstream consumers unified behind the resolver**:
+`api/routes/batch.py:_batch_dir` (BUG-005), `api/routes/history.py`
+download path (BUG-006), `core/lifecycle_manager.py:OUTPUT_REPO_ROOT`
+→ getter w/ 4 call sites (BUG-007 — the dangerous one), `mcp_server/
+tools.py:OUTPUT_DIR` → getter w/ 4 call sites (BUG-008), `main.py:507`
+`/ocr-images` mount (BUG-009; caveat: mount binds at app startup and
+needs container restart for runtime Storage Manager reconfigs).
 
-**4. New module `core/db/prproj_refs.py`** (~270 LOC). Two parallel
-surfaces: async (used by API routes) + sync (used by handler, which
-runs in worker threads). The sync path opens a short-lived sqlite3
-connection with WAL + busy_timeout. Failures log + swallow — never
-fail an ingest because of cross-ref persistence.
+**4. Folder picker fixes** (`static/js/folder-picker.js`):
+`_loadDrivesSidebar()` always populates drives BEFORE attempting the
+requested startPath (BUG-001 — empty sidebar on failed nav).
+`_isBrowsablePath(p)` mirrors `ALLOWED_BROWSE_ROOTS`; non-browsable
+initialPaths remap to `/mnt/output-repo` (output mode) or `/host`
+(other modes) (BUG-002).
 
-**5. New router `api/routes/prproj.py`** at `/api/prproj` — three
-OPERATOR+ endpoints:
-- `GET /api/prproj/references?path=<media_path>` — reverse lookup
-- `GET /api/prproj/{project_id}/media` — forward lookup
-- `GET /api/prproj/stats` — `{n_projects, n_media_refs, top_5_most_referenced}`
+**5. Convert page Output Directory** (`static/index.html`) — seeds
+from `/api/storage/output` before falling back to last-save-directory
+preference. Picker `initialPath` no longer falls back to legacy
+`/app/output`.
 
-**6. Preview page card** — `static/preview.html` gains a "Used in
-Premiere projects" card in the right sidebar, mounted only for
-media-shaped paths (video / audio / image / graphic). New shared
-module `static/js/prproj-refs.js` (~120 LOC) — public surface
-`window.PrprojRefs.{fetchProjectsReferencing, renderReferencesCard,
-isLikelyMediaPath}`. All DOM via `createElement` + `textContent`
-(XSS-safe per project gotcha — mirrors `cost-estimator.js`).
+**6. `tests/test_convert_output_dir.py`** — 7 new tests covering
+resolver priority chain + 422 paths.
 
-**7. New comprehensive help article** — `docs/help/developer-reference.md`.
-Deep-dive on every API endpoint, DB schema overview, log event
-taxonomy, format handler architecture, Docker / CLI workflows,
-environment variables, operational runbook. Linked from
-`_index.json` Integration category.
-
-**8. Updated help wiki** — `adobe-files.md` gains a "Premiere Pro
-Projects (Deep Parse)" section. `admin-tools.md` gains a "Premiere
-project cross-reference -- v0.34.0" section with operator +
-integrator treatment + curl/Python/JS samples. `whats-new.md` v0.34.0
-entry with worked example.
-
-### Phase 1.5 deferred
-
-- **Sequence-clip linkage** — `MediaRef.in_use_in_sequences` is empty
-  in v0.34.0; populating it requires a second iterparse pass.
-- **Title text** + **marker comments** — denser schemas; deferred.
-- **Phase 0 fixtures** — synthetic fixtures generated inside the test
-  suite; `test_real_fixtures_if_present` auto-sweeps any `.prproj`
-  files dropped into `tests/fixtures/prproj/`.
+**7. `docs/bug-log.md`** — BUG-001..009 moved to Shipped (history)
+section, marked `shipped-v0.34.1`.
 
 ### Files
 
-- `core/version.py` — bump to 0.34.0
-- `formats/prproj/__init__.py` — NEW (marker)
-- `formats/prproj/parser.py` — NEW (~430 LOC)
-- `formats/prproj/handler.py` — NEW (~340 LOC)
-- `formats/__init__.py` — register PrprojHandler after AdobeHandler
-- `formats/adobe_handler.py` — drop `prproj` from EXTENSIONS + clean
-  up 4 inline references
-- `core/db/schema.py` — `prproj_media_refs` DDL + migration v28
-- `core/db/prproj_refs.py` — NEW (~270 LOC)
-- `api/routes/prproj.py` — NEW
-- `main.py` — register the new router
-- `static/js/prproj-refs.js` — NEW (~120 LOC)
-- `static/preview.html` — sidebar card mount + 2 CSS rules + load hook
-- `tests/test_prproj_handler.py` — NEW (12 tests)
-- `tests/test_prproj_refs.py` — NEW (7 tests)
-- `tests/fixtures/prproj/README.md` — NEW (Phase 0 placeholder)
-- `docs/help/developer-reference.md` — NEW (comprehensive reference)
-- `docs/help/_index.json` — register developer-reference article
-- `docs/help/adobe-files.md`, `docs/help/admin-tools.md`,
-  `docs/help/whats-new.md` — v0.34.0 sections
-- `docs/version-history.md`, `docs/key-files.md`, `CLAUDE.md`
+- `core/version.py` — bump to 0.34.1
+- `core/storage_paths.py` — NEW (~120 LOC)
+- `core/converter.py` — per-batch resolution + `output_dir` param
+- `api/routes/convert.py` — validate + propagate `output_dir`
+- `api/routes/batch.py`, `api/routes/history.py` — use resolver
+- `core/lifecycle_manager.py` — `_output_root()` getter, 4 call sites
+- `mcp_server/tools.py` — `_output_dir()` getter, 3 call sites
+- `main.py` — `/ocr-images` uses resolver
+- `static/js/folder-picker.js` — `_loadDrivesSidebar` +
+  `_isBrowsablePath` + `open()` rewrite
+- `static/index.html` — Convert page seeds output dir from Storage
+  Manager + better placeholder
+- `tests/test_convert_output_dir.py` — NEW (7 tests)
+- `docs/bug-log.md`, `docs/version-history.md`, `docs/key-files.md`,
+  `docs/help/whats-new.md`, `docs/gotchas.md`, `CLAUDE.md`
 
-No new pip dependencies (`lxml>=5.0.0` already present). No new
-scheduler job. Migration v28 is idempotent.
+No DB migration. No new dependencies. No new endpoints.
 
 ### Operator-visible change
 
-- `.prproj` files now produce a structured Markdown summary instead
-  of metadata-only stubs.
-- Search page surfaces `prproj` as a facet chip when there are
-  matching results.
-- Preview page (for video / audio / image / graphic files) shows
-  "Used in Premiere projects" card.
-- New `/api/prproj/*` endpoints; new help article at
-  `/help.html#developer-reference`.
+- Convert page → drop a PDF → conversion completes (was: write-guard
+  rejection).
+- Convert page → click Browse → drives sidebar visible + output-repo
+  contents in main pane (was: empty modal).
+- Output Directory field defaults to the Storage Manager configured
+  path (was: legacy `/app/output` placeholder).
+- Download Batch / History download / Lifecycle scanner / MCP all
+  now agree on where output lives.
+
+---
+
+## v0.34.0 (carried-forward summary) — `.prproj` deep handler
+
+`.prproj` files now go through a dedicated parser instead of
+AdobeHandler's metadata-only treatment. Streams gzipped XML through
+`lxml.iterparse`, harvests every clip path / sequence / bin
+defensively, renders structured Markdown, and persists the media-refs
+cross-reference to a new `prproj_media_refs` table. Three OPERATOR+
+API endpoints (`/api/prproj/{references,…/media,stats}`); preview
+page gains "Used in Premiere projects" sidebar card. New
+`docs/help/developer-reference.md` covers the full API surface, DB
+schema, log event taxonomy, format handler architecture, Docker /
+CLI workflows, and operational runbook. Migration v28 (idempotent)
+adds the cross-reference table.
 
 ---
 

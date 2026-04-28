@@ -51,29 +51,7 @@ not narrative.
 
 ## Open / Planned
 
-### v0.33.4 — Convert page write-guard + folder picker (planned)
-
-Plan: [`docs/superpowers/plans/2026-04-28-convert-page-write-guard-fix.md`](superpowers/plans/2026-04-28-convert-page-write-guard-fix.md)
-
-| ID | Status | Sev | Summary | Details |
-|----|--------|-----|---------|---------|
-| BUG-001 | planned (v0.33.4) | high | Folder picker leaves drives sidebar empty when initial navigation fails | `static/js/folder-picker.js:_renderDrives` only fires from `_render()` on `/api/browse` 200; on a 4xx the sidebar stays blank and the operator can't navigate anywhere. Latent across all 5 picker call sites; today only Convert page hits it. Plan §"Fix A". |
-| BUG-002 | planned (v0.33.4) | high | Folder picker output-mode doesn't remap out-of-allowed initialPath | Picker's `open()` only remaps to `/mnt/output-repo` when `initialPath` is empty or exactly `'/host'`. Convert page passes `'/app/output'` which the picker faithfully tries to navigate to, gets 403, hits BUG-001. Plan §"Fix B". |
-| BUG-003 | planned (v0.33.4) | high | `/api/convert` accepts `output_dir` Form param but ignores it | `api/routes/convert.py:40` declares `output_dir` and stores it as `last_save_directory` preference but never passes it to the orchestrator. User-picked destination silently discarded. Plan §"Fix C". |
-| BUG-004 | planned (v0.33.4) | critical | `OUTPUT_BASE = /app/output` violates v0.25.0+ write guard | `core/converter.py:65` defaults to relative `output` → `/app/output` in container, outside Storage Manager allowed roots. Single-file convert always rejected unless operator manually set `OUTPUT_DIR=/mnt/output-repo` in env. Umbrella for BUG-005..009 (silent failure consumers). Plan §"Fix D". |
-| BUG-005 | planned (v0.33.4) | high | Download Batch button silently 404s when bulk wrote elsewhere | Silent consumer of BUG-004. `api/routes/batch.py:31` looks in `OUTPUT_BASE / batch_id`; if bulk pipeline (which uses Storage Manager since v0.31.6) wrote to `/mnt/output-repo` instead, the download endpoint silently 404s. |
-| BUG-006 | planned (v0.33.4) | high | History download links silently 404s | Silent consumer of BUG-004. `api/routes/history.py:269` same pattern as BUG-005. |
-| BUG-007 | planned (v0.33.4) | critical | Lifecycle scanner walks wrong tree → no soft-delete tracking | Silent consumer of BUG-004. `core/lifecycle_manager.py:40` (`OUTPUT_REPO_ROOT`) walks the env-resolved path; if writes go to a Storage-Manager-resolved different path, lifecycle never sees them → no soft-delete entries → files never enter trash after source removal. **Data-management invariant violated.** |
-| BUG-008 | planned (v0.33.4) | medium | MCP returns wrong paths to AI clients | Silent consumer of BUG-004. `mcp_server/tools.py:15` resolves paths via `OUTPUT_DIR` env. AI clients (Claude, etc.) get path drift when Storage Manager and env disagree. |
-| BUG-009 | planned (v0.33.4) | low | `/ocr-images` static mount serves from wrong dir | Silent consumer of BUG-004. `main.py:507` mount points at `OUTPUT_DIR` env path. OCR debug thumbnails on Review page broken when actual OCR output goes elsewhere. |
-
-**Note on BUG-005..009**: today these "appear fine" only because most
-deployments set `OUTPUT_DIR=/mnt/output-repo` in env, which keeps
-`OUTPUT_BASE` and the Storage Manager output path in sync. Drop the
-env var (the v0.25.0+ design intent) and 5 silent failures appear.
-v0.33.4 plan recommends fixing all 6 consumers in one cut via a
-shared `core.storage_paths.get_output_root()` resolver rather than
-shipping 5 follow-up patches.
+(BUG-001 through BUG-009 closed in v0.34.1 — see Shipped section.)
 
 ### Security audit findings (long-running)
 
@@ -85,9 +63,26 @@ shipping 5 follow-up patches.
 
 ## Shipped (history)
 
-(No closed rows yet — this section accumulates as bugs ship. New
-closed entries go at the top of this section with their `shipped-vX.Y.Z`
-status field.)
+### v0.34.1 — Convert page write-guard + folder picker + 5 silent-failure consumers
+
+Plan: [`docs/superpowers/plans/2026-04-28-convert-page-write-guard-fix.md`](superpowers/plans/2026-04-28-convert-page-write-guard-fix.md)
+(executed Option 2: expanded scope — all 6 output-path consumers
+unified behind `core.storage_paths.get_output_root()`).
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-001 | shipped-v0.34.1 | high | Folder picker leaves drives sidebar empty when initial navigation fails | `static/js/folder-picker.js`: hoisted `_loadDrivesSidebar()`; called once at top of `open()` BEFORE navigate. Drives sidebar always populates from a known-good `/host` fetch even when the requested startPath fails. |
+| BUG-002 | shipped-v0.34.1 | high | Folder picker output-mode doesn't remap out-of-allowed initialPath | New `_isBrowsablePath(p)` allow-list helper mirrors `api/routes/browse.py:ALLOWED_BROWSE_ROOTS`. `open()` remaps non-browsable paths to `/mnt/output-repo` (output mode) or `/host` (other modes) with a `console.info` audit hint. |
+| BUG-003 | shipped-v0.34.1 | high | `/api/convert` accepts `output_dir` Form param but ignores it | `api/routes/convert.py`: validate `output_dir` against `is_write_allowed()` (422 with structured error if rejected), thread to `_run_batch_and_cleanup` → `convert_batch(output_dir=...)`. New `convert.output_dir_resolved` / `convert.output_dir_rejected` log events. |
+| BUG-004 | shipped-v0.34.1 | critical | `OUTPUT_BASE = /app/output` violates v0.25.0+ write guard | New `core/storage_paths.py` resolver. `ConversionOrchestrator` re-resolves on every batch (Storage Manager > BULK_OUTPUT_PATH > OUTPUT_DIR > fallback). Fix wins over BUG-005..009 once resolver is the single source of truth. |
+| BUG-005 | shipped-v0.34.1 | high | Download Batch button silently 404s when bulk wrote elsewhere | `api/routes/batch.py:_batch_dir` now calls `get_output_root()` per-request. |
+| BUG-006 | shipped-v0.34.1 | high | History download links silently 404s | `api/routes/history.py` same. |
+| BUG-007 | shipped-v0.34.1 | critical | Lifecycle scanner walks wrong tree → no soft-delete tracking | `core/lifecycle_manager.py:OUTPUT_REPO_ROOT` replaced with `_output_root()` getter that consults the resolver. All 4 `get_trash_path` call sites updated. |
+| BUG-008 | shipped-v0.34.1 | medium | MCP returns wrong paths to AI clients | `mcp_server/tools.py:OUTPUT_DIR` replaced with `_output_dir()` getter; 4 call sites updated. |
+| BUG-009 | shipped-v0.34.1 | low | `/ocr-images` static mount serves from wrong dir | `main.py:507` uses `get_output_root_str()`. Note: StaticFiles binds at app-startup (before lifespan), so Storage Manager runtime changes still require a container restart for `/ocr-images` (documented in gotchas). |
+
+(No closed rows from before v0.34.1 — this section accumulates as
+bugs ship.)
 
 ---
 

@@ -21,6 +21,7 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `core/db/analysis.py` | Analysis queue: enqueue, dedup, claim batch, write results, token summary |
 | `core/db/auth.py` | API key management (create, lookup, revoke, list, touch) |
 | `core/db/prproj_refs.py` | Cross-reference accessors for `prproj_media_refs` — async + sync surfaces (v0.34.0) |
+| `core/storage_paths.py` | Single-source-of-truth output-root resolver (v0.34.1): `get_output_root() / get_output_root_str() / resolve_output_root_or_raise()`. Storage Manager > BULK_OUTPUT_PATH > OUTPUT_DIR > fallback. Closes BUG-001..009. |
 | `core/validation/markitdown_compare.py` | CLI tool for comparing MarkFlow output against Microsoft markitdown (v0.23.0) |
 | `core/health.py` | Startup checks for Tesseract, LibreOffice, Poppler, WeasyPrint, disk, DB |
 | `core/logging_config.py` | structlog JSON logging, rotating file handler |

@@ -61,7 +61,16 @@ ALLOWED_EXTENSIONS = {"." + ext for ext in list_supported_extensions()}
 DEFAULT_MAX_FILE_MB = int(os.getenv("MAX_UPLOAD_MB", "100"))
 DEFAULT_MAX_BATCH_MB = int(os.getenv("MAX_BATCH_MB", "500"))
 
-# Output base directory
+# Output base directory.
+#
+# v0.34.1: this constant is retained ONLY as the legacy fallback / import
+# alias for `api/routes/batch.py` and `api/routes/history.py`. Code that
+# decides where output should land at runtime must call
+# `core.storage_paths.get_output_root()` instead — which consults the
+# Storage Manager (v0.25.0+ source of truth) before falling through to
+# env vars. Resolving at module-load time froze a stale value at
+# import; `get_output_root()` re-resolves on every call so Storage
+# page reconfigurations take effect without a restart.
 OUTPUT_BASE = Path(os.getenv("OUTPUT_DIR", "output"))
 
 # Zip-bomb threshold: reject if uncompressed > 200× compressed.
@@ -618,8 +627,18 @@ def _preview_file_sync(file_path: Path, direction: str) -> PreviewResult:
 class ConversionOrchestrator:
     """Async wrapper around the synchronous conversion pipeline."""
 
-    def __init__(self, output_base: Path = OUTPUT_BASE) -> None:
-        self.output_base = Path(output_base)
+    def __init__(self, output_base: Path | None = None) -> None:
+        # v0.34.1: defer resolution to call time. Passing an explicit
+        # ``output_base`` still works (test seams + back-compat); when
+        # omitted we resolve via Storage Manager on every batch.
+        self._explicit_output_base = Path(output_base) if output_base is not None else None
+        self.output_base = self._explicit_output_base or self._resolve_default_output_base()
+
+    @staticmethod
+    def _resolve_default_output_base() -> Path:
+        """Re-resolve via the shared resolver. Storage Manager wins."""
+        from core.storage_paths import get_output_root
+        return get_output_root()
 
     async def convert_batch(
         self,
@@ -627,6 +646,7 @@ class ConversionOrchestrator:
         direction: str,
         batch_id: str,
         options: dict[str, Any] | None = None,
+        output_dir: Path | str | None = None,
     ) -> list[ConvertResult]:
         """
         Convert a list of files concurrently (up to MAX_CONCURRENT_CONVERSIONS).
@@ -636,6 +656,29 @@ class ConversionOrchestrator:
         opts = options or {}
         t_batch = time.perf_counter()
         total = len(file_paths)
+
+        # v0.34.1: resolve the destination root for THIS batch.
+        # Priority: explicit `output_dir` arg > orchestrator's explicit
+        # construction > Storage Manager > env > fallback. Re-resolved
+        # per-batch so Storage page reconfigs take effect without a
+        # restart (matching the v0.31.6 bulk-pipeline pattern).
+        if output_dir is not None:
+            batch_output_base = Path(output_dir)
+        elif self._explicit_output_base is not None:
+            batch_output_base = self._explicit_output_base
+        else:
+            batch_output_base = self._resolve_default_output_base()
+        # Stash for the per-file convert path
+        self.output_base = batch_output_base
+        log.info(
+            "convert.output_dir_resolved",
+            batch_id=batch_id,
+            requested=str(output_dir) if output_dir else None,
+            resolved=str(batch_output_base),
+            source=("user" if output_dir else
+                    "explicit" if self._explicit_output_base else
+                    "resolver"),
+        )
 
         # Create progress queue for SSE streaming
         _progress_queues[batch_id] = asyncio.Queue(maxsize=200)

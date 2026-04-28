@@ -37,7 +37,20 @@ GRACE_PERIOD_HOURS = 36
 TRASH_RETENTION_DAYS = 60
 TRASH_DIR_NAME = ".trash"
 
-OUTPUT_REPO_ROOT = Path(os.getenv("BULK_OUTPUT_PATH", os.getenv("OUTPUT_DIR", "output")))
+# v0.34.1 BUG-007: replaced module-level frozen constant with a getter
+# that re-resolves on every call. Pre-fix this captured a stale env-var
+# value at import time, so the lifecycle scanner walked the wrong tree
+# whenever Storage Manager's configured output diverged from
+# OUTPUT_DIR / BULK_OUTPUT_PATH — leading to no soft-delete tracking
+# and orphaned files in the actual output dir.
+def _output_root() -> Path:
+    from core.storage_paths import get_output_root
+    return get_output_root()
+
+
+# Backwards-compat alias for any consumer still importing the legacy
+# constant (drop in a future release once nothing imports it).
+OUTPUT_REPO_ROOT = _output_root()
 
 
 def get_trash_path(output_repo_root: Path, md_path: Path) -> Path:
@@ -125,7 +138,7 @@ async def restore_file(bulk_file_id: str, scan_run_id: str) -> None:
     if was_in_trash and file_rec:
         output_path = file_rec.get("output_path")
         if output_path:
-            trash_file = get_trash_path(OUTPUT_REPO_ROOT, Path(output_path))
+            trash_file = get_trash_path(_output_root(), Path(output_path))
             original = Path(output_path)
             if trash_file.exists() and not original.exists():
                 try:
@@ -169,7 +182,7 @@ async def move_to_trash(bulk_file_id: str) -> None:
         output_path = file_rec.get("output_path")
         if output_path:
             original = Path(output_path)
-            trash_dest = get_trash_path(OUTPUT_REPO_ROOT, original)
+            trash_dest = get_trash_path(_output_root(), original)
             if original.exists():
                 try:
                     trash_dest.parent.mkdir(parents=True, exist_ok=True)
@@ -220,7 +233,7 @@ async def purge_file(bulk_file_id: str) -> None:
     if file_rec:
         output_path = file_rec.get("output_path")
         if output_path:
-            trash_file = get_trash_path(OUTPUT_REPO_ROOT, Path(output_path))
+            trash_file = get_trash_path(_output_root(), Path(output_path))
             if trash_file.exists():
                 try:
                     await asyncio.to_thread(trash_file.unlink)
@@ -327,7 +340,7 @@ async def purge_all_trash() -> int:
                 bf_ids.append(bf["id"])
                 output_path = bf.get("output_path")
                 if output_path:
-                    tp = get_trash_path(OUTPUT_REPO_ROOT, Path(output_path))
+                    tp = get_trash_path(_output_root(), Path(output_path))
                     if tp.exists():
                         trash_paths.append(tp)
 

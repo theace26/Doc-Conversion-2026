@@ -24,6 +24,8 @@ from core.converter import (
     DEFAULT_MAX_FILE_MB,
 )
 from core.database import get_preference, set_preference
+from core.storage_manager import is_write_allowed
+from core.storage_paths import get_output_root
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/convert", tags=["convert"])
@@ -50,6 +52,56 @@ async def convert_files(
     """
     if direction not in ("to_md", "from_md"):
         raise HTTPException(status_code=422, detail=f"Invalid direction: {direction}")
+
+    # v0.34.1 Fix C: resolve and validate the destination ahead of upload.
+    # User-supplied `output_dir` is honored if it falls under the v0.25.0
+    # write-guard allow-list; otherwise we 422 with a structured error so
+    # external integrators know exactly why. When omitted, fall back to
+    # the shared resolver (Storage Manager > env > fallback). This closes
+    # BUG-003 (output_dir was silently ignored) and BUG-004 (default
+    # silently violated the write guard).
+    if output_dir:
+        candidate = output_dir.strip()
+        if candidate and not is_write_allowed(candidate):
+            log.info(
+                "convert.output_dir_rejected",
+                requested=candidate,
+                actor=getattr(user, "email", "?"),
+            )
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "output_dir_not_allowed",
+                    "message": (
+                        f"{candidate} is outside the configured output directory. "
+                        f"Pick a folder under the Storage Manager output path "
+                        f"(or under /mnt/output-repo) via the Browse button."
+                    ),
+                    "requested": candidate,
+                },
+            )
+        resolved_output = Path(candidate)
+        output_source = "user"
+    else:
+        resolved_output = get_output_root()
+        if not resolved_output.is_absolute() or str(resolved_output) in ("output", "/app/output"):
+            log.warning(
+                "convert.output_dir_unconfigured",
+                resolved=str(resolved_output),
+            )
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "no_output_configured",
+                    "message": (
+                        "No output directory configured. Visit the Storage page "
+                        "(/storage.html) to set the output path, or set "
+                        "OUTPUT_DIR / BULK_OUTPUT_PATH in .env."
+                    ),
+                    "resolved": str(resolved_output),
+                },
+            )
+        output_source = "resolver"
 
     max_mb = int(await get_preference("max_upload_size_mb") or DEFAULT_MAX_FILE_MB)
 
@@ -109,7 +161,8 @@ async def convert_files(
 
     # Fire-and-forget: run in background so we return batch_id immediately
     asyncio.create_task(
-        _run_batch_and_cleanup(saved_paths, direction, batch_id, tmp_dir, options)
+        _run_batch_and_cleanup(saved_paths, direction, batch_id, tmp_dir, options,
+                               output_dir=resolved_output)
     )
 
     for sp in saved_paths:
@@ -141,8 +194,14 @@ async def _run_batch_and_cleanup(
     batch_id: str,
     tmp_dir: Path,
     options: dict,
+    output_dir: Path | None = None,
 ) -> None:
-    """Background task: run batch conversion, then clean up temp dir."""
+    """Background task: run batch conversion, then clean up temp dir.
+
+    v0.34.1: ``output_dir`` is the validated destination root from the
+    request layer. ``convert_batch`` honors it; if None it falls back
+    to the orchestrator's resolver default.
+    """
     import shutil
 
     try:
@@ -151,6 +210,7 @@ async def _run_batch_and_cleanup(
             direction=direction,
             batch_id=batch_id,
             options=options,
+            output_dir=output_dir,
         )
     except Exception as exc:
         log.error("convert.batch_failed", batch_id=batch_id, error=str(exc))

@@ -77,7 +77,7 @@
       <div class="form-group mt-2">
         <label for="output-dir">Output Directory <span class="text-muted">(optional)</span></label>
         <div style="display:flex;gap:0.5rem;align-items:center">
-          <input type="text" id="output-dir" name="output_dir" placeholder="/app/output" style="flex:1">
+          <input type="text" id="output-dir" name="output_dir" placeholder="(loading from Storage page...)" style="flex:1">
           <button class="btn btn-sm" id="browse-output-btn" title="Browse for output folder" style="white-space:nowrap">Browse</button>
         </div>
         <div id="output-dir-hint" class="text-sm text-muted" style="margin-top:0.25rem"></div>
@@ -141,10 +141,23 @@
     try {
       const data = await API.get('/api/preferences');
       globalPrefs = data.preferences || data;
-      // Session-sticky output dir takes priority, then global pref
+      // v0.34.1: prioritize Storage Manager configured path so the field
+      // never holds the legacy /app/output value (which the v0.25.0
+      // write guard always rejects). Order:
+      //   1. session-sticky (operator just used it)
+      //   2. Storage Manager output (the canonical destination)
+      //   3. global last_save_directory pref
+      //   4. blank — placeholder nudges them to use Browse
       const sessionDir = sessionStorage.getItem('markflow_output_dir');
+      let configured = '';
+      try {
+        const r = await fetch('/api/storage/output', { credentials: 'same-origin' });
+        if (r.ok) configured = (await r.json()).path || '';
+      } catch (_) { /* ignore */ }
       if (sessionDir) {
         document.getElementById('output-dir').value = sessionDir;
+      } else if (configured) {
+        document.getElementById('output-dir').value = configured;
       } else if (globalPrefs.last_save_directory) {
         document.getElementById('output-dir').value = globalPrefs.last_save_directory;
       }
@@ -159,7 +172,11 @@
   function updateOutputHint() {
     const dir = document.getElementById('output-dir').value.trim();
     const hint = document.getElementById('output-dir-hint');
-    hint.textContent = dir ? 'Files will be saved to: ' + dir : 'Default: /app/output';
+    if (dir) {
+      hint.textContent = 'Files will be saved to: ' + dir;
+    } else {
+      hint.textContent = 'Click Browse or pick a folder under /mnt/output-repo (Storage Manager target).';
+    }
   }
   document.getElementById('output-dir').addEventListener('input', function() {
     updateOutputHint();
@@ -326,7 +343,7 @@
   document.getElementById('browse-output-btn').addEventListener('click', () => {
     const picker = new FolderPicker({
       title: 'Select Output Directory',
-      initialPath: document.getElementById('output-dir').value.trim() || '/app/output',
+      initialPath: document.getElementById('output-dir').value.trim() || '/mnt/output-repo',
       mode: 'output',
       onSelect: (path) => {
         document.getElementById('output-dir').value = path;

@@ -4,6 +4,209 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.34.1 — Convert-page write-guard + folder-picker + 5 silent-failure consumers (2026-04-28)
+
+**One-cut bug-fix release closing 9 entangled bugs (BUG-001..009 in
+`docs/bug-log.md`). Tied together by `OUTPUT_BASE` having been
+captured as a module-level constant at import time across 6 consumers,
+each silently drifting from the Storage Manager (v0.25.0+) configured
+path. New `core/storage_paths.py` resolver becomes the single source
+of truth; Convert page picker now always populates its drives sidebar
+even on initial-navigation failure.**
+
+### What was broken
+
+A single click on the Convert page produced two cascading failures:
+
+1. Drop a PDF → `write denied — outside output dir: output/2026...` —
+   the v0.25.0 write guard rejected the destination because
+   `OUTPUT_BASE` defaulted to `/app/output`, outside the write-guard
+   allow-list.
+2. Click Browse on the Output Directory field → modal opened with the
+   title visible but **no drives sidebar, no breadcrumb, no folder
+   list**. The operator was stranded inside a broken modal.
+
+Diagnosis traced these to **9 bugs in 4 root causes**:
+
+- **BUG-001 / BUG-002** (folder picker) — picker only rendered drives
+  on `/api/browse` 200; failed-navigation left sidebar blank. And
+  output-mode only remapped `/host` / empty initialPath to
+  `/mnt/output-repo`, leaving `/app/output` to fail-403 into the
+  empty-sidebar dead end.
+- **BUG-003** (`/api/convert`) — endpoint accepted `output_dir` Form
+  param, stored it as a preference, then never passed it to the
+  orchestrator. User-picked destination silently discarded.
+- **BUG-004** (`OUTPUT_BASE` default) — the visible failure. Plus 5
+  silent-failure consumers downstream:
+  - **BUG-005** Download Batch silently 404s when bulk routed to
+    Storage-Manager-resolved path
+  - **BUG-006** History download links silently 404s (same)
+  - **BUG-007** **Critical**: lifecycle scanner walked the wrong tree
+    when output diverged → no soft-delete tracking → files never
+    entered trash after source removal
+  - **BUG-008** MCP returned wrong paths to AI clients
+  - **BUG-009** `/ocr-images` static mount served from wrong dir
+
+These 5 silent consumers "appeared fine" only because most deployments
+set `OUTPUT_DIR=/mnt/output-repo` in env, which kept `OUTPUT_BASE`
+and the Storage Manager output path coincidentally aligned. Drop the
+env var (the v0.25.0+ design intent) and 5 latent failures appeared.
+
+### Plan executed
+
+`docs/superpowers/plans/2026-04-28-convert-page-write-guard-fix.md`,
+**Option 2 (recommended)**: unify all 6 consumers behind a single
+shared resolver, ship the visible Convert fix + the 5 silent-consumer
+fixes in one coherent release rather than v0.34.1 + v0.34.2 + ...
+patches drifting across the codebase.
+
+The plan referenced `v0.33.4`; with v0.34.0 having shipped the same
+day this slots in as v0.34.1.
+
+### What changed
+
+**1. New `core/storage_paths.py`** — single source of truth resolver.
+Public surface:
+
+- `get_output_root() -> Path` — resolves Storage Manager > BULK_OUTPUT_PATH
+  > OUTPUT_DIR > fallback `output/`. Pure function, no caching, cheap.
+  Re-resolves on every call so Storage Manager runtime reconfigs take
+  effect without a process restart for runtime consumers.
+- `get_output_root_str() -> str` — string form for FastAPI
+  StaticFiles mount paths.
+- `resolve_output_root_or_raise(*, label)` — like `get_output_root` but
+  refuses the legacy `output/` fallback. Use in code paths that should
+  never silently fall through.
+
+**2. `core/converter.py`** — Bug D fix:
+
+- `OUTPUT_BASE` retained as legacy alias / fallback only.
+- `ConversionOrchestrator.__init__()` defers default resolution to call
+  time. Passing an explicit `output_base` still works (test seam +
+  back-compat); when omitted, resolved per-batch via the new helper.
+- `convert_batch()` accepts a new optional `output_dir` parameter.
+  Priority: explicit arg > orchestrator's explicit construction >
+  resolver. Stored on `self.output_base` for the per-file convert
+  thread.
+- New log event `convert.output_dir_resolved` per batch. Fields:
+  `requested`, `resolved`, `source` (`user` / `explicit` / `resolver`).
+
+**3. `api/routes/convert.py`** — Bug C fix:
+
+- Validate `output_dir` Form param against `is_write_allowed()` early
+  (before file uploads land). Reject with HTTP 422 + structured
+  error: `{"error": "output_dir_not_allowed", "message": ...,
+  "requested": ...}`.
+- When `output_dir` is empty, resolve via `get_output_root()` and
+  reject with HTTP 422 `{"error": "no_output_configured", ...}` if
+  the resolver falls through to the legacy default.
+- Validated path threads through `_run_batch_and_cleanup` to
+  `convert_batch(output_dir=...)`.
+- New log event `convert.output_dir_rejected` for audit.
+
+**4. `api/routes/batch.py`** + **`api/routes/history.py`** — Bug 5/6
+fix. Both `_batch_dir(batch_id)` / `batch_dir = OUTPUT_BASE / ...`
+sites now call `get_output_root() / batch_id` per-request. Imports
+of `OUTPUT_BASE` removed.
+
+**5. `core/lifecycle_manager.py`** — Bug 7 fix. Module-level
+`OUTPUT_REPO_ROOT` replaced with `_output_root()` getter. All 4
+`get_trash_path(...)` call sites updated. Backwards-compat alias
+retained for legacy importers.
+
+**6. `mcp_server/tools.py`** — Bug 8 fix. Same pattern: `OUTPUT_DIR`
+constant replaced with `_output_dir()` getter; 4 call sites updated.
+
+**7. `main.py:507`** — Bug 9 partial fix. `/ocr-images` mount uses
+`get_output_root_str()` at app-startup time. Note: `StaticFiles`
+binds at module-load before lifespan startup, so a Storage Manager
+**runtime** reconfig still requires a container restart for
+`/ocr-images` to follow. Documented in gotchas.
+
+**8. `static/js/folder-picker.js`** — Bug A + B fix:
+
+- New `_loadDrivesSidebar()` method fetches `/api/browse?path=/host`
+  separately and always renders the drives sidebar BEFORE attempting
+  to navigate to the requested startPath. Failed startPath leaves the
+  sidebar populated so the operator can navigate elsewhere instead
+  of being stranded.
+- New `_isBrowsablePath(p)` helper mirrors `ALLOWED_BROWSE_ROOTS` from
+  `api/routes/browse.py`. `open()` checks the requested initialPath
+  against the allow-list and remaps non-browsable values to
+  `/mnt/output-repo` (output mode) or `/host` (others) with a
+  `console.info` audit log entry.
+
+**9. `static/index.html`** — Convert page Output Directory now seeds
+from `/api/storage/output` (Storage Manager configured path) before
+falling back to the `last_save_directory` preference. Empty default
+shows a placeholder pointing the operator at the Browse button + the
+allowed root. Picker `initialPath` no longer falls back to the
+legacy `/app/output`.
+
+### Tests
+
+`tests/test_convert_output_dir.py` — 7 new tests:
+
+- 4 resolver-layer tests for the priority chain
+  (Storage Manager > BULK_OUTPUT_PATH > OUTPUT_DIR > fallback) +
+  `resolve_or_raise` rejecting the legacy fallback.
+- `test_convert_rejects_out_of_allowed_output_dir` — POST
+  `/etc/passwd` → HTTP 422 with `error=output_dir_not_allowed`.
+- `test_convert_uses_storage_manager_default_when_unset` — POST with
+  no `output_dir` + Storage Manager configured → 200 batch_id back.
+- `test_convert_rejects_when_no_output_configured` — POST with
+  nothing configured anywhere → HTTP 422 with
+  `error=no_output_configured`.
+
+### Files
+
+- `core/version.py` — bump to 0.34.1
+- `core/storage_paths.py` — NEW (~120 LOC)
+- `core/converter.py` — `convert_batch(output_dir=...)`,
+  `_resolve_default_output_base()`, per-batch resolution
+- `api/routes/convert.py` — validate + propagate `output_dir`
+- `api/routes/batch.py` — use resolver in `_batch_dir`
+- `api/routes/history.py` — use resolver in download path
+- `core/lifecycle_manager.py` — `_output_root()` getter, 4 call sites
+  updated
+- `mcp_server/tools.py` — `_output_dir()` getter, 3 call sites updated
+- `main.py` — `/ocr-images` uses `get_output_root_str()`
+- `static/js/folder-picker.js` — `_loadDrivesSidebar`,
+  `_isBrowsablePath`, `open()` rewrite
+- `static/index.html` — Convert page seeds output dir from Storage
+  Manager + better placeholder + better picker initialPath
+- `tests/test_convert_output_dir.py` — NEW (7 tests)
+- `docs/bug-log.md` — BUG-001..009 moved to Shipped
+- `docs/version-history.md`, `docs/key-files.md`,
+  `docs/help/whats-new.md`, `docs/gotchas.md`, `CLAUDE.md`
+
+No DB migration. No new dependencies. No new endpoints.
+
+### Operator-visible change
+
+- Convert page → drop a PDF → conversion succeeds (instead of
+  rejected by write guard).
+- Convert page → click Browse → picker opens with drives sidebar
+  visible AND output-repo content in the main pane.
+- Output Directory field shows the Storage Manager configured path
+  by default instead of the legacy `/app/output`.
+- Download Batch / History download / Lifecycle scanner / MCP all
+  now agree on where output lives. Drop the env var override and
+  nothing silently breaks.
+
+### Backwards compatibility
+
+- Deployments with `OUTPUT_DIR=/mnt/output-repo` (or another allowed
+  root) in env continue to work — resolver falls back to env when
+  Storage Manager isn't configured.
+- API consumers calling `/api/convert` with a previously-accepted-but-
+  now-rejected `output_dir` (e.g. `/etc/passwd` for some reason) start
+  getting 422s. Documented as a deliberate non-breaking-but-behavior-
+  changing fix — the previous behavior silently wrote somewhere the
+  user didn't pick, which is worse.
+
+---
+
 ## v0.34.0 — `.prproj` deep handler (parser + cross-reference + UI) (2026-04-28)
 
 **Premiere Pro project files (`.prproj`) now go through a dedicated

@@ -26,8 +26,8 @@ from api.models import (
     OCRStatsBlock,
     StatsResponse,
 )
-from core.converter import OUTPUT_BASE
 from core.database import db_fetch_all, db_fetch_one, get_preference
+from core.storage_paths import get_output_root
 
 router = APIRouter(prefix="/api/history", tags=["history"])
 
@@ -266,7 +266,8 @@ async def redownload(
             detail={"error": "output_expired", "message": "No output file was produced for this conversion."},
         )
 
-    batch_dir = OUTPUT_BASE / batch_id
+    # v0.34.1 BUG-006: re-resolve via shared resolver on every call.
+    batch_dir = get_output_root() / batch_id
     output_path = batch_dir / output_filename
 
     if not output_path.exists():

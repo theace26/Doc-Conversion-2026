@@ -502,9 +502,18 @@ log.info("markflow.all_routes_registered")
 # ── Static files ──────────────────────────────────────────────────────────────
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# OCR debug / flag crop images — served from the output directory
+# OCR debug / flag crop images — served from the output directory.
+#
+# v0.34.1 BUG-009: route through the shared Storage Paths resolver so
+# this mount points at the same place the converter writes. Note: this
+# StaticFiles mount captures the path at app-startup time (before
+# lifespan startup → before load_config_from_db → before Storage
+# Manager populates). So it'll resolve to the env value here and
+# changing the Storage Manager output path at runtime requires a
+# container restart for /ocr-images to follow. Documented in gotchas.
 import os as _os
-_output_dir = _os.getenv("OUTPUT_DIR", "output")
+from core.storage_paths import get_output_root_str as _get_output_root_str
+_output_dir = _get_output_root_str()
 _os.makedirs(_output_dir, exist_ok=True)
 app.mount("/ocr-images", StaticFiles(directory=_output_dir), name="ocr-images")
 
