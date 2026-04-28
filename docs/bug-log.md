@@ -51,7 +51,7 @@ not narrative.
 
 ## Open / Planned
 
-(BUG-001 through BUG-011 closed in v0.34.1 / v0.34.2 / v0.34.3 — see Shipped section.)
+(BUG-001 through BUG-012 closed in v0.34.1 / v0.34.2 / v0.34.3 / v0.34.4 — see Shipped section.)
 
 ### Security audit findings (long-running)
 
@@ -62,6 +62,21 @@ not narrative.
 ---
 
 ## Shipped (history)
+
+### v0.34.4 — Orphan reaper extended to `auto_conversion_runs`
+
+Companion fix to v0.34.3. Discovered while verifying the BUG-011 fix:
+the auto-converter was refusing to start new runs because the startup
+orphan-cleanup function handled `bulk_jobs` and `scan_runs` but missed
+`auto_conversion_runs` entirely. **38 stale `status='running'` rows
+had accumulated since 2026-04-07** — every failed-pre-flight from
+BUG-011 left an unkillable orphan, and the auto-converter's
+"don't start if one is already running" gate then refused all
+subsequent cycles. Compound deadlock.
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-012 | shipped-v0.34.4 | critical | Stale `auto_conversion_runs.status='running'` rows wedge the auto-converter forever | `core/db/schema.py:cleanup_orphaned_jobs()` handled `bulk_jobs` and `scan_runs` at startup but had no UPDATE for `auto_conversion_runs`. Any failure path that didn't write `completed_at` (failed pre-flight, container restart mid-run) left a permanent orphan. Auto-converter's "active run already exists" gate then silently skipped every subsequent cycle. Fix: third UPDATE in `cleanup_orphaned_jobs()` that marks `status='running' AND completed_at IS NULL` rows as `status='failed'`. Defensive table-existence check for older / partial-schema fixtures. Two new tests in `tests/test_bugfix_patch.py:TestOrphanCleanup`. See `docs/version-history.md` v0.34.4 entry for the compound-deadlock narrative + lessons (any table with status+completed_at gating downstream work MUST have startup orphan reaping). |
 
 ### v0.34.3 — Auto-conversion unblocked: disk-space pre-check multiplier
 

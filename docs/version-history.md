@@ -4,6 +4,84 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.34.4 — Orphan reaper extended to `auto_conversion_runs` (2026-04-28)
+
+**Companion fix to v0.34.3. Discovered while verifying the BUG-011 fix:
+the auto-converter was refusing to start new runs because the startup
+orphan-cleanup function handled `bulk_jobs` and `scan_runs` but missed
+`auto_conversion_runs` entirely. 38 stale `status='running'` rows had
+accumulated since 2026-04-07. Closes BUG-012.**
+
+### How the bug compounded with BUG-011
+
+The auto-converter's gate is correct on its own: "don't start a new
+run if one is already active." But combined with the v0.23.6 M2
+disk-space pre-check that always failed on shares larger than 1/3 of
+free output space, it created a slow-motion deadlock:
+
+1. Scheduled scan completes, finds files
+2. Auto-converter creates `auto_conversion_runs` row, `status='running'`
+3. Auto-converter creates `bulk_jobs` row to process the files
+4. `_precheck_disk_space()` rejects with `× 3 buffer needed` error
+5. `bulk_jobs.status='failed'` written, but `auto_conversion_runs.completed_at`
+   stays NULL — there was no code path to close it on pre-flight failure
+6. Next scheduled scan sees `auto_conversion_runs` row still `status='running'`,
+   bails with "run already in progress"
+7. Repeat steps 1-6 every 45 minutes for 3 weeks
+
+By the time we investigated, 38 stale rows had accumulated. The v0.34.3
+fix to the multiplier was correct, but **untestable in production**
+until the orphan reaper was extended.
+
+### What changed
+
+- **`core/db/schema.py:cleanup_orphaned_jobs()`** — added a third UPDATE:
+  ```sql
+  UPDATE auto_conversion_runs SET status='failed', completed_at=?
+  WHERE status='running' AND completed_at IS NULL
+  ```
+  Wrapped in a defensive table-existence check so partial-schema test
+  fixtures (and older DBs) don't error out.
+- **Log payload** — `startup.orphan_cleanup` event now includes
+  `failed_auto_runs` count alongside `cancelled_jobs` and `interrupted_scans`.
+- **`tests/test_bugfix_patch.py:TestOrphanCleanup`** — added two tests:
+  one for the orphan-reaping path, one regression check that
+  already-completed rows aren't touched. Both self-skip when the test DB
+  lacks the table (some conftest fixtures only create a minimal schema).
+
+No new endpoints. No DB migration. No API contract changes. No env vars.
+
+### Operator-visible change
+
+- After this release ships, **restart the container once**. The startup
+  orphan reaper handles any accumulated stale `auto_conversion_runs`
+  rows automatically. No manual SQL needed.
+- Subsequent auto-conversion cycles start cleanly even if a prior run
+  failed pre-flight or got killed mid-flight.
+- Combined with v0.34.3's disk-space fix, the K-drive auto-conversion
+  path is end-to-end functional.
+
+### Lessons that generalize (added to gotchas.md)
+
+1. **Any table with a `status` field + a `completed_at` field that
+   gates downstream behavior MUST have a startup orphan reaper.** This
+   includes `bulk_jobs`, `scan_runs`, `auto_conversion_runs`, and any
+   future similar work-tracking table. Adding a new such table without
+   extending `cleanup_orphaned_jobs()` is a class-of-bug-waiting-to-happen.
+2. **"Run already in progress" gates compound silently.** When a gating
+   check sees stale state, it doesn't fail loudly — it just skips the
+   work. The compounded effect of "every cycle stalls" can persist for
+   weeks before anyone notices, especially if the success path is also
+   logged at `info` level.
+3. **Failure paths must close their state.** When the bulk_job
+   pre-flight failed in v0.23.6 onward, the code path that wrote
+   `bulk_jobs.status='failed'` should have also written
+   `auto_conversion_runs.completed_at` to close the parent run. The
+   orphan reaper is a backstop, not an excuse to skip explicit failure
+   handling.
+
+---
+
 ## v0.34.3 — Auto-conversion unblocked: disk-space pre-check multiplier (2026-04-28)
 
 **Closes BUG-011 in `docs/bug-log.md`. Auto-conversion was silently

@@ -247,6 +247,106 @@ class TestOrphanCleanup:
             await conn.execute("DELETE FROM bulk_jobs WHERE id='test_complete_1'")
             await conn.commit()
 
+    # v0.34.4 (BUG-012): orphan reaper extended to auto_conversion_runs.
+    # Tests skip themselves when the test DB doesn't have the table —
+    # the conftest fixture initializes a minimal schema. Production DB
+    # always has it (created by the schema.py migration path).
+    @staticmethod
+    async def _has_auto_runs_table():
+        import aiosqlite
+        from core.database import DB_PATH
+        async with aiosqlite.connect(DB_PATH) as conn:
+            async with conn.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='table' AND name='auto_conversion_runs'"
+            ) as cur:
+                return await cur.fetchone() is not None
+
+    @pytest.mark.asyncio
+    async def test_cleanup_reaps_orphaned_auto_conversion_runs(self):
+        """Stuck auto_conversion_runs (status='running', completed_at=NULL)
+        must be marked failed at startup, otherwise the auto-converter
+        refuses to start new runs forever."""
+        if not await self._has_auto_runs_table():
+            pytest.skip("test DB lacks auto_conversion_runs table")
+        import aiosqlite
+        from core.database import DB_PATH, cleanup_orphaned_jobs
+
+        async with aiosqlite.connect(DB_PATH) as conn:
+            await conn.execute("PRAGMA busy_timeout=10000")
+            await conn.execute(
+                """INSERT INTO auto_conversion_runs
+                   (scan_run_id, mode, was_override, files_discovered,
+                    files_queued, batch_size_chosen, workers_chosen,
+                    cpu_at_decision, memory_at_decision, reason,
+                    bulk_job_id, started_at, status)
+                   VALUES (?, 'immediate', 0, 100, 0, 50, 4, 5.0, 30.0,
+                           'test fixture', ?, datetime('now'), 'running')""",
+                ('test_scan_orphan_1', 'test_bulkjob_orphan_1')
+            )
+            await conn.commit()
+
+        await cleanup_orphaned_jobs()
+
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.execute(
+                """SELECT status, completed_at FROM auto_conversion_runs
+                   WHERE scan_run_id = 'test_scan_orphan_1'"""
+            )
+            row = await cursor.fetchone()
+            assert row is not None, "test fixture row went missing"
+            assert row[0] == "failed", (
+                f"orphaned auto_conversion_runs row should be failed, got {row[0]}"
+            )
+            assert row[1] is not None, (
+                "completed_at must be set when reaping orphans"
+            )
+
+            await conn.execute(
+                "DELETE FROM auto_conversion_runs WHERE scan_run_id = 'test_scan_orphan_1'"
+            )
+            await conn.commit()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_does_not_touch_completed_auto_conversion_runs(self):
+        """Already-completed auto_conversion_runs must not be re-marked."""
+        if not await self._has_auto_runs_table():
+            pytest.skip("test DB lacks auto_conversion_runs table")
+        import aiosqlite
+        from core.database import DB_PATH, cleanup_orphaned_jobs
+
+        async with aiosqlite.connect(DB_PATH) as conn:
+            await conn.execute("PRAGMA busy_timeout=10000")
+            await conn.execute(
+                """INSERT INTO auto_conversion_runs
+                   (scan_run_id, mode, was_override, files_discovered,
+                    files_queued, batch_size_chosen, workers_chosen,
+                    cpu_at_decision, memory_at_decision, reason,
+                    bulk_job_id, started_at, completed_at, status)
+                   VALUES (?, 'immediate', 0, 100, 100, 50, 4, 5.0, 30.0,
+                           'test fixture', ?, datetime('now'),
+                           datetime('now'), 'completed')""",
+                ('test_scan_complete_2', 'test_bulkjob_complete_2')
+            )
+            await conn.commit()
+
+        await cleanup_orphaned_jobs()
+
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.execute(
+                """SELECT status FROM auto_conversion_runs
+                   WHERE scan_run_id = 'test_scan_complete_2'"""
+            )
+            row = await cursor.fetchone()
+            assert row[0] == "completed", (
+                f"already-completed run should not be touched, got {row[0]}"
+            )
+
+            await conn.execute(
+                "DELETE FROM auto_conversion_runs WHERE scan_run_id = 'test_scan_complete_2'"
+            )
+            await conn.commit()
+
 
 class TestStopBannerCSS:
     """Fix 9: Stop banner CSS specificity fix."""

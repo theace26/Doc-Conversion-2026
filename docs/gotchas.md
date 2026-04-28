@@ -462,6 +462,30 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 ## Bulk & Lifecycle
 
+- **Any work-tracking table with `status` + `completed_at` columns that
+  gates downstream behavior MUST have a startup orphan reaper (v0.34.4,
+  BUG-012)**: `core/db/schema.py:cleanup_orphaned_jobs()` originally
+  handled `bulk_jobs` and `scan_runs` at startup. When `auto_conversion_runs`
+  was added (the table that tracks each auto-conversion cycle for
+  observability + gating), the reaper was NOT extended. Result: any
+  failure path that didn't explicitly write `completed_at` (failed
+  pre-flight, container restart mid-run, abandoned task, exception in
+  the success-handler) left a permanent `status='running'` orphan.
+  The auto-converter's "is a run already active?" gate then silently
+  skipped every subsequent cycle. Compounded with BUG-011's failing
+  pre-flight, this wedged auto-conversion for **3 weeks** and
+  accumulated 38 stale rows before anyone noticed. Fix: extend
+  `cleanup_orphaned_jobs()` to UPDATE the new table. **General rule:
+  any new table with this shape (status/completed_at gating downstream
+  work) needs the matching reaper UPDATE — adding the table without
+  it is a class-of-bug-waiting-to-happen.** Bonus rule: failure paths
+  should write `completed_at` themselves; the orphan reaper is a
+  backstop, not a substitute for explicit failure handling. Bonus²:
+  "is a run already in progress?" gates compound silently — they
+  don't fail loudly; they skip. Build an alert for "auto-converter
+  hasn't completed a successful run in N hours" before you ship the
+  next gating check of this shape.
+
 - **Pre-flight disk-space multipliers must reflect the actual conversion
   output ratio, not assumed-worst-case (v0.34.3, BUG-011)**: `core/bulk_worker.py`
   pre-checks free output space as `sum(input_sizes) * DISK_SPACE_MULTIPLIER`

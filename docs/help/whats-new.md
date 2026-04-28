@@ -6,6 +6,49 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.34.4 — Auto-converter no longer wedges itself
+
+Companion patch to v0.34.3. Discovered while verifying that fix: the
+auto-converter wasn't actually starting any new runs even after the
+disk-space check was repaired. Investigation showed a separate
+long-running issue: any time a conversion run failed (or the container
+was restarted mid-run), an internal "this run is in progress" record
+was left behind permanently. The auto-converter's "don't start two
+runs at once" guard then quietly skipped every subsequent cycle.
+
+We found 38 of these stale records going back to April 7. Once they
+accumulate, the only way out was either manual database cleanup or
+shipping this fix. v0.34.4 ships the fix.
+
+### What's fixed
+
+- **The startup cleanup that recovers from "the container was killed
+  mid-job" now also handles auto-conversion runs.** Any time MarkFlow
+  starts up, stale records are reaped automatically.
+- Combined with v0.34.3, the path is now end-to-end clear: scans find
+  files, auto-conversion creates a job, the disk-space check passes
+  with the new sane multiplier, and workers actually convert.
+
+### What you should do
+
+- **Restart the MarkFlow container once after this release lands.** The
+  startup cleanup runs automatically on every boot — no manual cleanup
+  needed.
+- Watch the Activity / Pipeline page over the next few cycles. The
+  "indexed" counter should start climbing as the 92k-pending backlog
+  drains.
+
+### Why this took so long to catch
+
+The compound bug between "disk-space check rejects every job" and
+"failed jobs don't release their auto-converter slot" was completely
+silent — no banner, no badge, no notification. Both were logged at
+"info" level. Building an operator-facing alert when the auto-converter
+hasn't successfully completed a run in N hours is on the upcoming UX
+overhaul list.
+
+---
+
 ## v0.34.3 — Auto-conversion unblocked on large shares
 
 If you have a source share larger than roughly one-third of your output

@@ -66,37 +66,41 @@ live", `key-files.md`. For "is this bug already known", `bug-log.md`.
 
 ---
 
-## Current Version — v0.34.3
+## Current Version — v0.34.4
 
-**Auto-conversion was silently failing every job on shares larger than
-~1/3 of free output space. The pre-flight disk-space check used a
-hardcoded 3× input-size buffer; in practice doc-to-markdown output
-runs well under 50% of input. Closes BUG-011.**
+**Companion fix to v0.34.3. The startup orphan-job reaper missed
+`auto_conversion_runs` rows entirely. 38 stale `status='running'`
+entries had accumulated since 2026-04-07 — the auto-converter gates
+"don't start a new run if one is already active," so a single failed
+pre-flight (or container restart mid-run) silently wedged the entire
+auto-conversion pipeline. Closes BUG-012.**
 
-The check sums pending input-file sizes, multiplies, and demands that
-much free space on the output volume before any worker starts. With
-the legacy multiplier of 3, a 250 GB K-drive demanded 750 GB free —
-which no operator has — so every auto-triggered bulk job died at
-pre-flight with `bulk_jobs.status='failed'` and 0 files converted.
-Symptom on the user's side: 92,257 files in `bulk_files.status='pending'`
-and a stale Meilisearch count from a prior DB lifetime.
+Discovered while verifying the BUG-011 fix: the new pre-check should
+have been firing on every auto-conversion attempt but wasn't, because
+the auto-converter was refusing to start any new runs. Investigation
+showed the orphan reaper at `core/db/schema.py:cleanup_orphaned_jobs()`
+handled `bulk_jobs` and `scan_runs` but had no UPDATE for
+`auto_conversion_runs`. Every time a bulk_job died (legitimately or
+via container exit) before its driving auto_conversion_run wrote its
+`completed_at`, that run stayed `status='running'` forever.
 
 ### Highlights
 
-- **`core/bulk_worker.py:21`** — `_DISK_SPACE_REQUIRED_MULTIPLIER = 3` replaced with a `_get_disk_space_multiplier()` helper that reads `DISK_SPACE_MULTIPLIER` env var (default **0.5**) per call. No import-time snapshot — runtime config changes take effect without a restart.
-- **`.env.example`** documents the new env var with tuning guidance.
-- **`tests/test_disk_space_multiplier.py`** — 10 tests covering default, override, edge cases (zero / negative / non-numeric / empty / whitespace), and per-call read semantics.
-- **Pre-flight error message** now ends with "tune via DISK_SPACE_MULTIPLIER env var" so the next operator who hits a real space crunch knows the lever exists.
+- **`core/db/schema.py:cleanup_orphaned_jobs()`** — added a third UPDATE that marks `auto_conversion_runs` rows with `status='running'` AND `completed_at IS NULL` as `status='failed'` with a fresh `completed_at`. Defensive: checks for the table's existence first (older / minimal-test schemas may lack it).
+- **Log payload** now includes `failed_auto_runs` count alongside `cancelled_jobs` and `interrupted_scans`.
+- **`tests/test_bugfix_patch.py:TestOrphanCleanup`** — two new tests: orphan reaping happens, completed runs aren't touched. Self-skip when the test DB doesn't have the table.
 
-No DB migration. No new endpoints. No API contract changes. Backward-
-compatible default keeps the check active (just at a sensible ratio).
+No new endpoints. No API contract changes. No env vars. Pure server-side fix that runs once on every startup.
 
 ### Operator-visible change
 
-- Auto-conversion runs on the K-drive (or any large share) start producing converted files instead of failing pre-flight.
-- The 92k `pending` rows in `bulk_files` will drain on the next auto-conversion cycle (or a manual "Run scan now" from Activity).
-- The Meilisearch index count will climb from the stale ghost number toward the real total as conversion completes.
-- If you need to tighten or loosen the check for a specific workload, set `DISK_SPACE_MULTIPLIER` in `.env`.
+- After this release ships, restart the container once to drain any accumulated stale `auto_conversion_runs`. The startup reaper handles them automatically; no manual SQL needed.
+- Subsequent auto-conversion cycles will start cleanly even if a prior run failed pre-flight or got killed mid-flight.
+- Combined with v0.34.3's disk-space fix, the K-drive auto-conversion path is now end-to-end functional.
+
+### Why this took 3 weeks to surface
+
+The auto-converter's "don't start a new run if one is already active" gate is correct behavior on its own. Combined with the v0.23.6 M2 disk-space pre-check that always failed on large shares, it created a slow-motion deadlock: the FIRST failed pre-flight orphaned its auto_conversion_run, and from then on the auto-converter saw "active run already exists" and quietly skipped every subsequent cycle. The whole thing is logged at `info` level — no operator-facing alert. That telemetry gap is on the upcoming UX-overhaul Notifications work.
 
 Full per-version detail (v0.34.2 and every prior release back to v0.13.x)
 lives in [`docs/version-history.md`](docs/version-history.md). **Do not

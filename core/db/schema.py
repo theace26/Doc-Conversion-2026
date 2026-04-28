@@ -971,7 +971,23 @@ async def init_db() -> None:
 
 
 async def cleanup_orphaned_jobs() -> None:
-    """Clean up jobs stuck in active states from a previous container run."""
+    """Clean up jobs stuck in active states from a previous container run.
+
+    Three tables can be left in mid-flight states when the container exits
+    abruptly (crash, kill, restart):
+
+    - ``bulk_jobs`` — `scanning` / `running` / `pending` rows whose worker
+      is no longer running. Marked `cancelled`.
+    - ``scan_runs`` — `running` rows whose scanner died mid-walk. Marked
+      `interrupted`.
+    - ``auto_conversion_runs`` — `running` rows whose driving bulk_job
+      either died with the container OR failed pre-flight before
+      `completed_at` was written. **Pre-v0.34.4 these were never reaped**,
+      causing the auto-converter to refuse new runs forever (it gates on
+      "is there an active run already?"). Bug discovered during BUG-011
+      investigation: 38 stale rows had accumulated since 2026-04-07. Marked
+      `failed`. Spec: BUG-012, fixed in v0.34.4.
+    """
     async with get_db() as conn:
         cursor = await conn.execute(
             """UPDATE bulk_jobs SET status='cancelled', completed_at=?,
@@ -988,11 +1004,34 @@ async def cleanup_orphaned_jobs() -> None:
         )
         interrupted_scans = cursor.rowcount
 
+        # v0.34.4 (BUG-012): also reap auto_conversion_runs. Without this,
+        # a single failed pre-flight or container restart leaves a row
+        # stuck in `status='running'` forever and the auto-converter
+        # refuses to start new runs. Defensive — older DB schemas (or
+        # minimal test fixtures) may not have this table; skip silently
+        # in that case.
+        async with conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name='auto_conversion_runs'"
+        ) as table_cur:
+            has_auto_runs_table = await table_cur.fetchone() is not None
+
+        if has_auto_runs_table:
+            cursor = await conn.execute(
+                """UPDATE auto_conversion_runs SET status='failed', completed_at=?
+                   WHERE status='running' AND completed_at IS NULL""",
+                (now_iso(),)
+            )
+            failed_auto_runs = cursor.rowcount
+        else:
+            failed_auto_runs = 0
+
         await conn.commit()
 
-    if cancelled_jobs or interrupted_scans:
+    if cancelled_jobs or interrupted_scans or failed_auto_runs:
         log.warning("startup.orphan_cleanup",
                      cancelled_jobs=cancelled_jobs,
-                     interrupted_scans=interrupted_scans)
+                     interrupted_scans=interrupted_scans,
+                     failed_auto_runs=failed_auto_runs)
     else:
         log.info("startup.orphan_cleanup", msg="No orphaned jobs found")
