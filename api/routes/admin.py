@@ -669,9 +669,16 @@ def _stat_file(path: Path) -> tuple[int, int]:
 
 def _compute_disk_usage() -> dict:
     """Compute disk usage for all MarkFlow directories. Runs in a thread."""
+    # v0.34.2 BUG-010: was reading BULK_OUTPUT_PATH and OUTPUT_DIR env
+    # vars directly, bypassing the Storage Manager. Operators who
+    # reconfigured the output path via the Storage page saw stale paths
+    # (and stale byte counts) on the admin Disk Usage panel. Both rows
+    # now resolve through the canonical resolver — same place v0.34.1
+    # routed the runtime conversion paths through.
+    from core.storage_paths import get_output_root
     breakdown = []
 
-    output_repo = Path(os.environ.get("BULK_OUTPUT_PATH", "/mnt/output-repo"))
+    output_repo = get_output_root()
     trash_path = output_repo / ".trash"
 
     # Trash first (so we can exclude it from output-repo)
@@ -697,7 +704,11 @@ def _compute_disk_usage() -> dict:
     })
 
     # Conversion output
-    conv_output = Path(os.environ.get("OUTPUT_DIR", "output"))
+    # Post-v0.34.1 the resolver returns one configured root for both
+    # bulk and single-file conversion; this row reports the same path
+    # as Output Repository above, but is retained for operator clarity
+    # (the labels still describe distinct workflows in the UI).
+    conv_output = get_output_root()
     conv_bytes, conv_count = _walk_dir(conv_output)
     breakdown.append({
         "label": "Conversion Output",

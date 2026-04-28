@@ -66,37 +66,36 @@ live", `key-files.md`. For "is this bug already known", `bug-log.md`.
 
 ---
 
-## Current Version — v0.34.1
+## Current Version — v0.34.2
 
-**Convert-page write-guard + folder-picker fix + 5 silent-failure consumers
-— single-cut bug-fix release closing 9 entangled bugs (BUG-001..009).**
+**Audit follow-up to v0.34.1: five OUTPUT_BASE consumers that escaped
+the original blast-radius sweep. Closes BUG-010.**
 
-The unifying root cause: `OUTPUT_BASE` was captured as a module-level
-constant at import time across 6 consumers, each silently drifting from
-the Storage Manager (v0.25.0+) configured path. New
-`core/storage_paths.py` resolver becomes the single source of truth; the
-Convert page picker now always populates its drives sidebar even on
-initial-navigation failure.
+v0.34.1's audit grep anchored on `OUTPUT_BASE` and missed five sites
+that read `BULK_OUTPUT_PATH` / `OUTPUT_DIR` directly or imported
+`lifecycle_manager.OUTPUT_REPO_ROOT` (itself a frozen-at-import
+snapshot of the resolver result, kept "for legacy compatibility").
 
 ### Highlights
 
-- **New `core/storage_paths.py`** — `get_output_root()` consults Storage Manager > BULK_OUTPUT_PATH > OUTPUT_DIR > fallback `output/`. Re-resolves on every call, so runtime reconfigs take effect without a restart.
-- **Convert page chain validates `output_dir` against `is_write_allowed()` early** (HTTP 422 with structured payload on rejection), threads it through to `convert_batch()`.
-- **5 downstream consumers unified** behind the resolver: `api/routes/batch.py`, `api/routes/history.py`, `core/lifecycle_manager.py` (the dangerous one — was walking the wrong tree), `mcp_server/tools.py`, `main.py:507` `/ocr-images` mount (caveat: mount binds at app startup; runtime reconfig still needs restart).
-- **Folder picker** now always loads drives sidebar BEFORE attempting startPath; non-browsable initialPaths remap to `/mnt/output-repo` (output mode) or `/host` (other modes).
-- **Convert page Output Directory** seeds from `/api/storage/output` before falling back to last-save preference.
-- **`tests/test_convert_output_dir.py`** — 7 new tests covering resolver priority chain + 422 paths.
+- **`core/lifecycle_manager.py:53` — `OUTPUT_REPO_ROOT` alias dropped.** Its only importer was migrated in this same release; keeping the alias re-introduced the frozen-snapshot footgun v0.34.1 set out to eliminate.
+- **`core/db_maintenance.py`** dangling-trash health check resolves per-call.
+- **`api/routes/admin.py`** Disk Usage breakdown resolves per-request.
+- **`core/metrics_collector.py`** 6h disk-snapshot resolves per-snapshot — stops poisoning the metrics time-series under a divergent Storage Manager config.
+- **`core/lifecycle_scanner.py`** synthetic + auto-pipeline `create_bulk_job()` records resolved path.
+- Confirmed `core/converter.py:74 OUTPUT_BASE` is unused (zero importers across repo) — left in place to keep diff scoped to audit finding; future release can delete.
+- Confirmed `main.py:233` first-run env seed is intentional bootstrap, not a silent-failure consumer.
 
-No DB migration. No new dependencies. No new endpoints.
+No DB migration. No new dependencies. No new endpoints. No API contract changes.
 
 ### Operator-visible change
 
-- Drop a PDF on Convert page → conversion completes (was: write-guard rejection).
-- Click Browse on Convert page → drives sidebar visible + output-repo contents in main pane (was: empty modal).
-- Output Directory field defaults to Storage Manager configured path (was: legacy `/app/output` placeholder).
-- Download Batch / History download / Lifecycle scanner / MCP all now agree on where output lives.
+- Admin Disk Usage panel shows correct paths/sizes after a Storage Manager reconfiguration with no restart needed.
+- Disk-metrics time-series corrects on the next 6h snapshot after reconfiguration.
+- Health summary `dangling_trash` count agrees with the actual `.trash/` tree on the configured root.
+- New `bulk_jobs` rows (synthetic + auto-pipeline) record the path the worker actually wrote to.
 
-Full per-version detail (v0.34.1 and every prior release back to v0.13.x)
+Full per-version detail (v0.34.2 and every prior release back to v0.13.x)
 lives in [`docs/version-history.md`](docs/version-history.md). **Do not
 duplicate that changelog here.** On each release, the outgoing Current
 Version block above moves into `version-history.md` and is replaced with

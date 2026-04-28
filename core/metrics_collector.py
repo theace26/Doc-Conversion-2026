@@ -214,7 +214,14 @@ def _stat_file(path: Path) -> int:
 
 def _collect_disk_snapshot_impl() -> dict:
     """Walk MarkFlow directories and measure sizes. Runs in thread."""
-    output_repo = Path(os.environ.get("BULK_OUTPUT_PATH", "/mnt/output-repo"))
+    # v0.34.2 BUG-010: was reading BULK_OUTPUT_PATH and OUTPUT_DIR env
+    # vars directly, so every 6h disk snapshot persisted byte counts
+    # for the wrong directory whenever Storage Manager's configured
+    # output diverged from the env defaults. The metrics time-series
+    # was silently drifting; resolve through the canonical resolver
+    # so reconfigurations take effect on the very next snapshot.
+    from core.storage_paths import get_output_root
+    output_repo = get_output_root()
     trash_path = output_repo / ".trash"
 
     # Trash (separate from output-repo to avoid double-counting)
@@ -223,8 +230,9 @@ def _collect_disk_snapshot_impl() -> dict:
     # Output repo excluding .trash
     repo_bytes, repo_files = _walk_dir(output_repo, exclude_parts={".trash"})
 
-    # Conversion output
-    conv_output = Path(os.environ.get("OUTPUT_DIR", "output"))
+    # Conversion output (same root post-v0.34.1; see api/routes/admin.py
+    # comment — kept as a separate row for operator clarity).
+    conv_output = get_output_root()
     conv_bytes, conv_files = _walk_dir(conv_output)
 
     # Database (db + wal + shm)

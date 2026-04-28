@@ -6,6 +6,57 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.34.2 — Disk Usage / health summary path consistency
+
+Quick follow-up to v0.34.1. Five more places in MarkFlow were still
+reading the old environment-variable defaults instead of your Storage
+Manager configured output path. None of them broke conversion, but
+they reported wrong information to you in subtle ways.
+
+### What's fixed
+
+1. **Admin Disk Usage panel shows the right path** — after you change
+   the output directory on the Storage page, the Disk Usage breakdown
+   now reflects the new location on the very next refresh, with no
+   container restart needed.
+2. **Disk-usage time-series stops drifting** — the 6-hour disk
+   snapshot job persists byte counts for the actually-configured
+   output directory, so dashboards / historical charts stop showing
+   ghost data for the old path.
+3. **Health summary `dangling trash` count is accurate** — the
+   nightly maintenance check was previously walking a stale path,
+   producing wrong counts. Now agrees with reality.
+4. **New auto-pipeline + lifecycle job records show the right
+   output path** — `bulk_jobs` rows you inspect after the fact
+   record where the worker actually wrote, not where the legacy
+   env var pointed.
+
+### Why this matters
+
+Nothing on the operator-facing path was broken — conversion, batch
+download, history, and trash all already worked correctly after
+v0.34.1. v0.34.2 is purely about the **observability surfaces** —
+admin panels, metrics, health checks, and forensic job records —
+agreeing with where files are actually being written. If you're
+running with the default env (which keeps everything coincidentally
+aligned) you'll see no behavior change. If you've reconfigured the
+output via the Storage page, the admin / metrics surfaces will start
+showing the truth on the next refresh.
+
+### What you should know
+
+- No setup changes required — the resolver was already there, this
+  release just routes the last few stragglers through it.
+- No DB migration. No restart needed for the runtime fixes
+  (admin panel, health check, lifecycle scanner). The 6-hour
+  metrics job picks up the change on its next scheduled run.
+- Disk-usage metrics rows persisted between v0.34.1 and v0.34.2
+  under a divergent Storage Manager config will continue to point
+  at the old path — they're historical records, not retroactively
+  rewritten. New rows are correct.
+
+---
+
 ## v0.34.1 — Convert-page write-guard + folder-picker fix
 
 Single bug-fix release closing 9 entangled bugs (BUG-001..009 in the

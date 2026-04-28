@@ -43,14 +43,15 @@ TRASH_DIR_NAME = ".trash"
 # whenever Storage Manager's configured output diverged from
 # OUTPUT_DIR / BULK_OUTPUT_PATH — leading to no soft-delete tracking
 # and orphaned files in the actual output dir.
+#
+# v0.34.2 BUG-010: dropped the legacy `OUTPUT_REPO_ROOT` module-level
+# alias (which itself froze `_output_root()`'s value at import time and
+# poisoned `core/db_maintenance.py`'s dangling-trash health check). All
+# remaining consumers now call `core.storage_paths.get_output_root()`
+# directly — no in-module alias to re-introduce the frozen-snapshot bug.
 def _output_root() -> Path:
     from core.storage_paths import get_output_root
     return get_output_root()
-
-
-# Backwards-compat alias for any consumer still importing the legacy
-# constant (drop in a future release once nothing imports it).
-OUTPUT_REPO_ROOT = _output_root()
 
 
 def get_trash_path(output_repo_root: Path, md_path: Path) -> Path:

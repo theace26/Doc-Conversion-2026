@@ -326,10 +326,16 @@ async def run_lifecycle_scan(
         if jobs:
             job_id = jobs[0]["id"]
         else:
-            # No bulk jobs exist yet — create a synthetic lifecycle job so FK is satisfied
+            # No bulk jobs exist yet — create a synthetic lifecycle job so FK is satisfied.
+            # v0.34.2 BUG-010: resolve through the canonical resolver so the
+            # synthetic job's output_path agrees with where the bulk pipeline
+            # actually writes. Pre-fix this captured stale env defaults and
+            # baked the wrong path into the bulk_jobs row, leaving forensics
+            # ambiguous when operators later inspected job history.
+            from core.storage_paths import get_output_root
             job_id = await create_bulk_job(
                 source_path=str(valid_roots[0]),
-                output_path=os.getenv("BULK_OUTPUT_PATH", "/mnt/output-repo"),
+                output_path=str(get_output_root()),
             )
             log.info("lifecycle_scan.created_synthetic_job", job_id=job_id)
 
@@ -1148,7 +1154,11 @@ async def _execute_auto_conversion(
                      active_ids=[j["job_id"] for j in active if j["status"] in ("scanning", "running", "paused")])
             return
 
-        output_path = os.getenv("BULK_OUTPUT_PATH", "/mnt/output-repo")
+        # v0.34.2 BUG-010: was os.getenv("BULK_OUTPUT_PATH", ...) — pipeline
+        # auto-conversion job rows now record the same path the bulk worker
+        # will actually write to, even after Storage Manager reconfiguration.
+        from core.storage_paths import get_output_root
+        output_path = str(get_output_root())
 
         # Apply pipeline_max_files_per_run cap if set
         pipeline_cap = int(await get_preference("pipeline_max_files_per_run") or "0")

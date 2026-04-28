@@ -163,16 +163,22 @@ async def run_stale_data_check() -> dict:
         checks["stale_meilisearch"] = {"count": 0, "severity": "ok", "note": f"Meilisearch check skipped: {exc}"}
 
     # 4. Dangling trash entries
+    # v0.34.2 BUG-010: was importing the frozen `OUTPUT_REPO_ROOT` alias
+    # from lifecycle_manager. The alias snapshotted at import time, so any
+    # Storage Manager reconfiguration after process start produced wrong
+    # dangling-trash counts. Resolve per-call via the canonical resolver.
     try:
-        from core.lifecycle_manager import get_trash_path, OUTPUT_REPO_ROOT
+        from core.lifecycle_manager import get_trash_path
+        from core.storage_paths import get_output_root
         from pathlib import Path
         rows = await db_fetch_all(
             "SELECT id, output_path FROM source_files WHERE lifecycle_status='in_trash'"
         )
         dangling = 0
+        output_root = get_output_root()
         for r in rows:
             if r.get("output_path"):
-                trash_path = get_trash_path(OUTPUT_REPO_ROOT, Path(r["output_path"]))
+                trash_path = get_trash_path(output_root, Path(r["output_path"]))
                 if not trash_path.exists():
                     dangling += 1
         checks["dangling_trash"] = {"count": dangling, "severity": "warning" if dangling else "ok"}

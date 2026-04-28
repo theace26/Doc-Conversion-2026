@@ -4,6 +4,108 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.34.2 — Audit follow-up: 5 OUTPUT_BASE consumers missed by v0.34.1 (2026-04-28)
+
+**Hotfix closing BUG-010 in `docs/bug-log.md`. Post-merge audit of
+v0.34.1 found five silent-failure sites that the original blast-radius
+sweep missed, all carrying the same root cause v0.34.1 set out to
+eliminate: stale env-var reads or import-time-frozen aliases for the
+output base directory.**
+
+### What was missed
+
+v0.34.1 unified six consumers behind `core/storage_paths.get_output_root()`,
+but the audit grep used `OUTPUT_BASE` as the search anchor. Five further
+sites read `BULK_OUTPUT_PATH` / `OUTPUT_DIR` directly (or imported the
+new `OUTPUT_REPO_ROOT` module-level alias, which itself snapshotted the
+resolver result at import time):
+
+- **`core/lifecycle_manager.py:53`** — the `OUTPUT_REPO_ROOT = _output_root()`
+  alias kept "for legacy importers". The alias is itself a frozen
+  snapshot, so any importer would still see a stale path even though
+  the underlying `_output_root()` getter re-resolves correctly.
+- **`core/db_maintenance.py:167,175`** — `dangling_trash` health check
+  imported the frozen alias. Operators saw wrong dangling-trash counts
+  in the health summary after Storage Manager reconfiguration.
+- **`api/routes/admin.py:674,700`** — admin Disk Usage breakdown read
+  `BULK_OUTPUT_PATH` and `OUTPUT_DIR` env vars directly. Both rows
+  reported against the wrong directory when env defaults diverged from
+  the Storage-Manager-configured root.
+- **`core/metrics_collector.py:217,227`** — same pattern in the 6h
+  disk-snapshot job that persists rows to `disk_metrics`. Every
+  snapshot since v0.34.1 (under a divergent Storage Manager config)
+  recorded byte counts for the wrong directory — silently poisoning
+  the time-series.
+- **`core/lifecycle_scanner.py:332,1151`** — synthetic-lifecycle and
+  pipeline-auto-conversion `create_bulk_job(...)` calls baked
+  `os.getenv("BULK_OUTPUT_PATH", "/mnt/output-repo")` into the
+  `bulk_jobs.output_path` column. Job rows recorded a path the bulk
+  worker (which uses the resolver) might not actually have written to,
+  leaving forensics ambiguous.
+
+### What changed
+
+All five sites now route through `core.storage_paths.get_output_root()`.
+The `OUTPUT_REPO_ROOT` legacy alias on `lifecycle_manager.py:53` is
+**dropped entirely** — its only importer (`db_maintenance.py`) was
+migrated in this same release, and keeping the alias around just
+re-introduces the frozen-snapshot footgun the v0.34.1 design set out
+to eliminate.
+
+Admin / metrics_collector now compute "Output Repository" and
+"Conversion Output" against the same resolved path. Both labels are
+retained for operator-facing clarity, but post-v0.34.1 they describe
+the same directory under any modern Storage Manager configuration.
+
+### Operator-visible change
+
+- Admin Disk Usage panel shows correct paths and byte counts after a
+  Storage Manager reconfiguration without a container restart.
+- Disk-metrics time-series stops drifting on the very next 6h snapshot.
+- Health summary's `dangling_trash` count agrees with the actual
+  `.trash/` tree on the configured output root.
+- New synthetic / auto-pipeline `bulk_jobs` rows record an
+  `output_path` that matches where the worker actually writes.
+
+### Why this didn't ship as part of v0.34.1
+
+The v0.34.1 audit grep anchored on `OUTPUT_BASE` (the original frozen
+constant in `core/converter.py`). Sites that read `BULK_OUTPUT_PATH`
+or `OUTPUT_DIR` directly without going through `OUTPUT_BASE` slipped
+past. v0.34.2's audit broadened the grep to all variants of those env
+names plus any `*_REPO_ROOT` alias. No further sites surfaced after
+the broadened sweep.
+
+### What did NOT change
+
+- `core/converter.py:74` — still defines `OUTPUT_BASE = Path(...)` as a
+  retained module-level constant. Confirmed unused via grep across the
+  whole repo (zero importers post-v0.34.1). Left as dead code rather
+  than removed in this hotfix to keep the diff scoped to the audit
+  finding; a future cleanup release can drop it.
+- `main.py:233` — first-run-only seed of the `locations` DB table from
+  `BULK_OUTPUT_PATH` / `BULK_SOURCE_PATH` env vars. This is intentional
+  bootstrap behavior — operators set the env on first deploy, the
+  values land in the DB once, and Storage Manager owns them thereafter.
+  Not a silent-failure consumer.
+
+No DB migration. No new dependencies. No new endpoints. No API
+contract changes.
+
+### Files touched
+
+- `core/lifecycle_manager.py` — drop `OUTPUT_REPO_ROOT` alias
+- `core/db_maintenance.py` — `dangling_trash` check uses resolver
+- `api/routes/admin.py` — `_compute_disk_usage()` uses resolver
+- `core/metrics_collector.py` — `_collect_disk_snapshot_impl()` uses resolver
+- `core/lifecycle_scanner.py` — both `create_bulk_job()` call sites use resolver
+- `docs/bug-log.md` — BUG-010 row, planned → shipped-v0.34.2
+- `docs/version-history.md` — this entry
+- `docs/help/whats-new.md` — operator-visible note
+- `CLAUDE.md` — Current Version block updated
+
+---
+
 ## v0.34.1 — Convert-page write-guard + folder-picker + 5 silent-failure consumers (2026-04-28)
 
 **One-cut bug-fix release closing 9 entangled bugs (BUG-001..009 in

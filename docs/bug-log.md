@@ -51,7 +51,7 @@ not narrative.
 
 ## Open / Planned
 
-(BUG-001 through BUG-009 closed in v0.34.1 — see Shipped section.)
+(BUG-001 through BUG-010 closed in v0.34.1 / v0.34.2 — see Shipped section.)
 
 ### Security audit findings (long-running)
 
@@ -62,6 +62,17 @@ not narrative.
 ---
 
 ## Shipped (history)
+
+### v0.34.2 — Audit follow-up: 5 missed OUTPUT_BASE consumers
+
+Hotfix following v0.34.1's blast-radius sweep. v0.34.1's audit grep
+anchored on `OUTPUT_BASE` and missed five sites that read
+`BULK_OUTPUT_PATH` / `OUTPUT_DIR` directly or imported the frozen
+`OUTPUT_REPO_ROOT` alias.
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-010 | shipped-v0.34.2 | high | Five OUTPUT_BASE consumers missed by v0.34.1 still read stale env / frozen alias | (1) `core/lifecycle_manager.py:53` — dropped frozen `OUTPUT_REPO_ROOT` alias entirely (only importer migrated in same release); (2) `core/db_maintenance.py:167,175` — dangling-trash health check now uses `get_output_root()` per-call; (3) `api/routes/admin.py:674,700` — disk-usage admin breakdown via resolver; (4) `core/metrics_collector.py:217,227` — 6h disk-snapshot via resolver, stops poisoning time-series; (5) `core/lifecycle_scanner.py:332,1151` — synthetic + auto-pipeline `create_bulk_job()` records resolved path. See `docs/version-history.md` v0.34.2 entry for full narrative. |
 
 ### v0.34.1 — Convert page write-guard + folder picker + 5 silent-failure consumers
 
