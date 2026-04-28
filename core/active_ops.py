@@ -218,3 +218,87 @@ async def register_op(
              op_id=op.op_id, op_type=op_type,
              started_by=started_by)
     return op.op_id
+
+
+# ── Write-through debouncer (spec §10) ─────────────────────────────────
+_WRITE_THROTTLE_S = 1.5
+_last_persist_at: dict[str, float] = {}
+
+
+async def _persist_op_update(op: ActiveOperation) -> None:
+    """UPDATE the active_operations row from current ActiveOperation
+    state. Single source of truth for DB writes during update_op /
+    finish_op / cancel_op."""
+    row = op.to_db_row()
+    set_clauses = ", ".join(f"{k}=?" for k in row.keys() if k != "op_id")
+    sql = f"UPDATE active_operations SET {set_clauses} WHERE op_id=?"
+    params = tuple(v for k, v in row.items() if k != "op_id") + (op.op_id,)
+
+    async def _do_update() -> None:
+        await db_execute(sql, params)
+
+    try:
+        await db_write_with_retry(_do_update)
+    except Exception as exc:
+        log.warning("active_ops.persist_failed",
+                    op_id=op.op_id, op_type=op.op_type, error=str(exc))
+
+
+async def get_op(op_id: str) -> ActiveOperation | None:
+    """Lock-guarded lookup of an op by ID. Returns None if not found."""
+    async with _lock:
+        return _ops.get(op_id)
+
+
+async def update_op(
+    op_id: str,
+    *,
+    total: int | None = None,
+    done: int | None = None,
+    errors: int | None = None,
+) -> None:
+    """Update progress fields for op_id. No-op + WARN log on
+    already-finished rows (spec F1)."""
+    snapshot: ActiveOperation | None = None
+    should_persist = False
+    async with _lock:
+        op = _ops.get(op_id)
+        if op is None:
+            log.warning("active_ops.update_unknown_op", op_id=op_id)
+            return
+        if op.finished_at_epoch is not None:
+            log.warning("active_ops.update_after_finish", op_id=op_id)
+            return
+
+        prior_errors = op.errors
+        if total is not None:
+            op.total = int(total)
+        if done is not None:
+            op.done = int(done)
+        if errors is not None:
+            op.errors = int(errors)
+        op.last_progress_at_epoch = time.time()
+
+        # Flush triggers (spec §10):
+        #   1. Time-based: 1.5s since last flush
+        #   2. First-error: errors went from 0 → >0
+        first_error = (prior_errors == 0 and op.errors > 0)
+        last = _last_persist_at.get(op_id, 0)
+        time_based = (time.time() - last) >= _WRITE_THROTTLE_S
+        should_persist = first_error or time_based
+
+        if should_persist:
+            _last_persist_at[op_id] = time.time()
+            # Snapshot a copy so we can persist outside the lock.
+            # `__dict__` shallow-copies the field references; rebuild
+            # `extra` as a fresh dict so a worker mutating op.extra
+            # between here and the awaited write can't poison the
+            # serialized JSON.
+            snapshot = ActiveOperation(**op.__dict__)
+            snapshot.extra = dict(op.extra)
+
+    if should_persist and snapshot is not None:
+        # Call via module attribute lookup so test monkey-patching of
+        # _persist_op_update is observed.
+        from core import active_ops as _self
+        await _self._persist_op_update(snapshot)

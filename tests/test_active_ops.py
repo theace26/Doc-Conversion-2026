@@ -173,3 +173,94 @@ async def test_register_op_cancellable_without_hook_raises():
             origin_url="/", started_by="x@x",
             cancellable=True,
         )
+
+
+@pytest.mark.asyncio
+async def test_update_op_modifies_in_memory_immediately(client):
+    """update_op reflects in-memory state synchronously — no waiting
+    for the DB debouncer."""
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="x@x",
+    )
+
+    await active_ops.update_op(op_id, total=100, done=10)
+
+    # In-memory check (synchronous via lock)
+    op = await active_ops.get_op(op_id)
+    assert op is not None
+    assert op.total == 100
+    assert op.done == 10
+
+
+@pytest.mark.asyncio
+async def test_update_op_debounces_db_writes(client):
+    """100 update_op calls within 1.5s produce ≤ 2 DB writes
+    (1 throttled + the final flush on subsequent update)."""
+    from core import active_ops
+    from core.active_ops import ActiveOperation
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="x@x",
+    )
+
+    write_count = 0
+    real_persist = active_ops._persist_op_update
+
+    async def counting_persist(op: ActiveOperation) -> None:
+        nonlocal write_count
+        write_count += 1
+        await real_persist(op)
+
+    active_ops._persist_op_update = counting_persist
+    try:
+        for i in range(100):
+            await active_ops.update_op(op_id, done=i)
+        # Wait briefly for any in-flight debounced write
+        await asyncio.sleep(0.1)
+    finally:
+        active_ops._persist_op_update = real_persist
+
+    # First write happens (no prior throttle), subsequent throttled.
+    # Allow up to 2 writes (initial + one throttled boundary cross).
+    assert write_count <= 2, f"expected ≤2 DB writes, got {write_count}"
+
+
+@pytest.mark.asyncio
+async def test_update_op_first_error_forces_immediate_flush(client):
+    """Going from errors=0 to errors>0 flushes synchronously (operator
+    alerting is non-negotiable)."""
+    from core import active_ops
+    from core.active_ops import ActiveOperation
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="x@x",
+    )
+
+    write_count = 0
+    real_persist = active_ops._persist_op_update
+
+    async def counting_persist(op: ActiveOperation) -> None:
+        nonlocal write_count
+        write_count += 1
+        await real_persist(op)
+
+    active_ops._persist_op_update = counting_persist
+    try:
+        # 5 done-only updates (debounced)
+        for i in range(5):
+            await active_ops.update_op(op_id, done=i)
+        write_count_before_error = write_count
+
+        # First error — immediate flush
+        await active_ops.update_op(op_id, done=5, errors=1)
+    finally:
+        active_ops._persist_op_update = real_persist
+
+    assert write_count > write_count_before_error, (
+        "first-error update did not force a flush"
+    )
