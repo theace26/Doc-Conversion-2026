@@ -455,7 +455,439 @@ own in-memory cache (an autouse fixture that calls
 
 ## §B — Auth + HTTP endpoint + AsyncClient patterns (Phase 2 prep)
 
-*To be filled by Task 0.2.*
+### §B.1 — `require_role` signature and `UserRole` enum
+
+**Location:** `core/auth.py:171-188` (`require_role`), `core/auth.py:34-46`
+(`UserRole` + hierarchy), `core/auth.py:51-56` (`AuthenticatedUser`),
+`core/auth.py:129-166` (`get_current_user`).
+
+#### §B.1.1 — `UserRole` enum (4 values, ordered)
+
+```python
+class UserRole(str, Enum):
+    SEARCH_USER = "search_user"
+    OPERATOR    = "operator"
+    MANAGER     = "manager"
+    ADMIN       = "admin"
+
+_HIERARCHY = [UserRole.SEARCH_USER, UserRole.OPERATOR, UserRole.MANAGER, UserRole.ADMIN]
+
+def role_satisfies(role: UserRole, required: UserRole) -> bool:
+    return _HIERARCHY.index(role) >= _HIERARCHY.index(required)
+```
+
+`UserRole` extends `str`, so `UserRole.ADMIN.value == "admin"` and JWT
+payloads write the lowercase string. Order in `_HIERARCHY` is
+`SEARCH_USER < OPERATOR < MANAGER < ADMIN`.
+
+#### §B.1.2 — `AuthenticatedUser` shape
+
+```python
+@dataclass
+class AuthenticatedUser:
+    sub: str                       # JWT 'sub' claim or api-key id
+    email: str                     # JWT 'email' claim or "service@markflow"
+    role: UserRole
+    is_service_account: bool = False
+```
+
+Endpoint code typically uses `user.sub` (audit logging) and `user.role`
+(rare — `require_role` already filtered). `email` is read for audit logs
+and the operator activity ledger.
+
+#### §B.1.3 — `require_role(minimum)` exact signature
+
+```python
+def require_role(minimum: UserRole):
+    """Returns a FastAPI dependency that enforces a minimum role."""
+    async def _check(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
+        if not role_satisfies(user.role, minimum):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Insufficient role. Requires '{minimum.value}' or higher.",
+            )
+        return user
+    return _check
+```
+
+**Important details:**
+
+- `require_role` itself is **sync** (a factory). It returns an **async**
+  inner `_check` that acts as the dependency.
+- Call site **must** wrap it in `Depends(...)`:
+  `Depends(require_role(UserRole.OPERATOR))`. Forgetting `Depends`
+  silently makes the function a positional argument and breaks routing.
+- `_check` re-uses `get_current_user` as a sub-dependency, which:
+  - Honors `DEV_BYPASS_AUTH=true` → returns admin user (the test path).
+  - Otherwise checks `X-API-Key` header → service account (SEARCH_USER).
+  - Otherwise checks `Authorization: Bearer <token>` → JWT user.
+  - Otherwise raises 401.
+- 401 (no auth) and 403 (insufficient role) are produced inside the
+  dependency chain — endpoint code never has to raise either manually.
+- The resolved `AuthenticatedUser` is stashed on `request.state.user`
+  for the request-context middleware (v0.22.13).
+
+#### §B.1.4 — Recommended role for active-ops endpoints
+
+The plan calls `GET /api/admin/active-operations` "the Status page".
+Mirror existing precedent:
+
+| Endpoint | Existing role | Reasoning |
+|---|---|---|
+| `GET /api/active-jobs` (admin.py) | (no guard — DEV_BYPASS) | Read-only, status-board surface |
+| `GET /api/pipeline/status` | `OPERATOR` | Status read |
+| `POST /api/pipeline/pause` | `MANAGER` | Mutation |
+| `POST /api/pipeline/run-now` | `MANAGER` | Mutation |
+| `POST /api/admin/api-keys` | `ADMIN` | Privileged mutation |
+
+Use **`OPERATOR`** for `GET /api/admin/active-operations` (read) and
+**`MANAGER`** for `POST /api/admin/cancel-operation` (mutation that
+aborts a running job — same role as `pause_pipeline` and `run_now`).
+
+---
+
+### §B.2 — Model route file (`api/routes/admin.py`) — patterns to copy
+
+The active-ops endpoints will live inside the existing `admin_routes`
+router (mounted at `main.py:404`, see §A.5). `api/routes/admin.py` is a
+better template than `pipeline.py` for these specific endpoints because
+(a) the active-ops routes go under the same `/api/admin` prefix, and
+(b) `admin.py` shows both the role-guard pattern and the `pydantic.BaseModel`
+input-validation pattern in a tighter form.
+
+#### §B.2.1 — Module-top boilerplate (copy verbatim, swap names)
+
+`api/routes/admin.py:1-50`:
+
+```python
+"""
+<Module docstring>: brief description, then a list of endpoints, one per line:
+
+GET    /api/admin/something    — purpose
+POST   /api/admin/something    — purpose
+"""
+
+import asyncio
+import json
+import os
+# ... stdlib first ...
+
+import psutil  # third-party
+import structlog
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+
+from core.version import __version__
+from core.auth import AuthenticatedUser, UserRole, require_role
+from core.database import (
+    db_fetch_all,
+    db_fetch_one,
+    set_preference,
+)
+# ... other core/* imports ...
+
+log = structlog.get_logger(__name__)
+router = APIRouter(prefix="/api/admin", tags=["admin"])
+```
+
+**Conventions:**
+
+- Module docstring lists every endpoint as `METHOD path — purpose`. The
+  route file is the spec — keep this in sync when adding endpoints.
+- `structlog.get_logger(__name__)` at module top, never
+  `logging.getLogger()` (top-of-CLAUDE.md gotcha).
+- Router prefix + `tags=[…]` set once at the top; endpoints attach via
+  `@router.<verb>("/relative-path")`.
+- Imports order: stdlib → third-party → `core.*` → other local. Inside
+  `core.*`, group by module, parenthesize multi-line.
+
+#### §B.2.2 — Endpoint decorator + signature pattern
+
+GET (no body, role-guarded) — `admin.py:97-103`:
+
+```python
+@router.get("/api-keys")
+async def get_api_keys(
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
+    """List all API keys (never returns raw key values)."""
+    keys = await list_api_keys()
+    return keys
+```
+
+POST (Pydantic body, role-guarded, mutation log) — `admin.py:65-92`:
+
+```python
+class ApiKeyCreateRequest(BaseModel):
+    label: str = Field(..., min_length=1, max_length=120)
+
+
+@router.post("/api-keys")
+async def generate_api_key(
+    body: ApiKeyCreateRequest,
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
+    """Generate a new API key. The raw key is returned ONCE — store it immediately."""
+    salt = os.getenv("API_KEY_SALT", "")
+    if not salt:
+        raise HTTPException(
+            status_code=500,
+            detail="API_KEY_SALT is not configured. Cannot generate keys.",
+        )
+    # ...work...
+    log.info("admin.api_key_created", key_id=key_id, label=body.label, by=user.sub)
+    return {
+        "key_id": key_id,
+        "label": body.label,
+        "raw_key": raw_key,
+        "warning": "Store this key now. It cannot be retrieved again.",
+    }
+```
+
+DELETE with path param + 404 pattern — `admin.py:108-119`:
+
+```python
+@router.delete("/api-keys/{key_id}")
+async def delete_api_key(
+    key_id: str,
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
+    """Revoke an API key (soft delete — sets is_active=false)."""
+    revoked = await revoke_api_key(key_id)
+    if not revoked:
+        raise HTTPException(status_code=404, detail="API key not found.")
+
+    log.info("admin.api_key_revoked", key_id=key_id, by=user.sub)
+    return {"key_id": key_id, "status": "revoked"}
+```
+
+422 for input validation past Pydantic's reach (`admin.py:182-187`):
+
+```python
+if idx < 0 or idx >= cpu_count:
+    raise HTTPException(
+        status_code=422,
+        detail=f"Core index {idx} out of range. Available: 0-{cpu_count - 1}",
+    )
+```
+
+**Conventions:**
+
+- **Return shape:** plain `dict` (or `list[dict]`). No `response_model=`
+  in `admin.py`. A handful of routes elsewhere use `response_model=` with
+  Pydantic response classes (`api/routes/history.py`, `convert.py`,
+  `review.py`) — that's optional. For the active-ops endpoints,
+  follow `admin.py` and return plain dicts/lists.
+- **Error raising:** `HTTPException(status_code=…, detail="…")`.
+  Standard codes used in `admin.py`: 404 (not found), 422 (validation),
+  500 (config missing). 401/403 come from `require_role`, never from
+  endpoint code.
+- **Audit logging on mutation:** `log.info("<scope>.<event>",
+  key_id=…, by=user.sub)`. The `by=user.sub` field is the standard
+  attribution for who triggered the change.
+- **Path params** are typed (`key_id: str`); the role dependency comes
+  AFTER positional params and Pydantic body, BEFORE return-type
+  annotations (FastAPI cares about argument *kinds*, not order, but the
+  consistent order in the codebase is `path_params, body, user=Depends(...)`).
+
+#### §B.2.3 — `Response` injection for headers — NOT used in `api/routes/`
+
+`grep -n "from fastapi import.*Response" api/routes/*.py` returns ZERO
+matches. The codebase doesn't use `response: Response` injection to set
+custom headers. SSE / streaming routes use `StreamingResponse` /
+`FileResponse` returned from the function body; they don't inject a
+`Response` parameter for header mutation. Don't introduce that pattern
+for active-ops — return plain dicts and let FastAPI handle headers.
+
+The spec's mention of "`Response` injection for headers" was speculative;
+**it's not a project pattern.** Drop that bullet from any Phase 2 task
+that copies §B.2.
+
+#### §B.2.4 — Per-endpoint structlog conventions
+
+- One module-level `log = structlog.get_logger(__name__)`.
+- Event names use dot-separated `<scope>.<event>` (e.g.
+  `admin.api_key_created`, `pipeline.run_now_triggered`).
+- Per-event call: `log.info(event_name, **kv_pairs)`.
+- For the active-ops endpoints, use scope `admin` (the route prefix):
+  - `log.info("admin.active_ops_listed", count=len(rows), by=user.sub)`
+    on the GET (debug-only, optional)
+  - `log.info("admin.active_op_cancelled", op_id=op_id, by=user.sub)`
+    on the POST cancel (recommended — mutation audit)
+
+---
+
+### §B.3 — AsyncClient + auth fixture pattern (test layer)
+
+#### §B.3.1 — Confirmation: no shared `authed_*` fixtures (re-verifying §A finding)
+
+The §A recon (Task 0.1) established that `tests/conftest.py` does NOT
+define `authed_operator` / `authed_manager` / `authed_admin` fixtures
+and that the suite relies on `DEV_BYPASS_AUTH=true`. This holds for the
+endpoint tests beyond `test_auth.py`:
+
+- `tests/test_active_jobs.py:18-29` (5 tests, all use bare `client`).
+- `tests/test_admin.py:10-53` (4+ tests for the same `admin_routes`
+  router the active-ops endpoints will mount in — all use bare `client`).
+- `tests/test_pipeline_stats.py:7-20` is an outlier — it uses
+  `fastapi.testclient.TestClient` with a self-built `FastAPI()` app and
+  patches around the dependency surface. Not a model for endpoint tests
+  (routes-only unit test, doesn't exercise `require_role`).
+
+**Active-ops endpoint tests must use the bare `client` fixture from
+`tests/conftest.py:38-57`.** That client is created with
+`DEV_BYPASS_AUTH=true` already set in the test process env, so the
+admin role is auto-granted; `require_role(OPERATOR)` and
+`require_role(MANAGER)` both pass.
+
+#### §B.3.2 — How `client` is constructed (verbatim from conftest.py)
+
+`tests/conftest.py:14-23` (env setup, runs at import time):
+
+```python
+import os
+import tempfile
+from pathlib import Path
+
+from httpx import ASGITransport, AsyncClient
+
+_TEST_DB = Path(tempfile.mktemp(suffix="_markflow_test.db"))
+os.environ["DB_PATH"] = str(_TEST_DB)
+os.environ["DEV_BYPASS_AUTH"] = "true"
+```
+
+`tests/conftest.py:38-57`:
+
+```python
+@pytest_asyncio.fixture(scope="session")
+async def client():
+    """Async HTTP client pointed at the FastAPI app with a session-scoped temp DB."""
+    from core.database import init_db
+    from main import app
+
+    # Ensure schema is created before any test uses the DB
+    await init_db()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+
+    _TEST_DB.unlink(missing_ok=True)
+```
+
+**Key gotchas (already proven by §A):**
+
+- `AsyncClient(transport=ASGITransport(app=app), base_url="http://test")`
+  — modern httpx form, NOT the legacy `AsyncClient(app=app, ...)`.
+- `init_db()` is called explicitly because `ASGITransport` does not
+  guarantee FastAPI lifespan startup. **Implication for active-ops
+  tests:** if a test depends on `hydrate_on_startup()` having run, it
+  must call it manually (mirror the `init_db()` pattern). Migration v29
+  runs as part of `init_db()`, so the `active_operations` table will
+  exist on first request — but the in-memory cache will be empty.
+
+#### §B.3.3 — Endpoint test pattern (copy-paste)
+
+Verbatim from `tests/test_active_jobs.py:18-29`:
+
+```python
+import pytest
+
+from core.stop_controller import reset_stop
+
+
+@pytest.fixture(autouse=True)
+def _reset_stop():
+    """Ensure stop state is clean."""
+    reset_stop()
+    yield
+    reset_stop()
+
+
+@pytest.mark.asyncio
+async def test_get_active_jobs_shape(client):
+    """GET /api/admin/active-jobs returns correct shape."""
+    resp = await client.get("/api/admin/active-jobs")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "running_count" in data
+    assert "stop_requested" in data
+    assert isinstance(data["bulk_jobs"], list)
+```
+
+**Active-ops adaptation** (write to `tests/test_active_ops_endpoint.py`
+or similar):
+
+```python
+import pytest
+
+from core import active_ops  # Phase 1 module
+
+
+@pytest.fixture(autouse=True)
+def _reset_active_ops():
+    """Reset in-memory active-ops cache between tests."""
+    active_ops._reset_for_tests()  # Phase 1 Task 2 ships this hook
+    yield
+    active_ops._reset_for_tests()
+
+
+@pytest.mark.asyncio
+async def test_list_active_ops_empty(client):
+    """GET /api/admin/active-operations returns empty list when none registered."""
+    resp = await client.get("/api/admin/active-operations")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data == {"operations": []}  # exact shape per spec
+
+
+@pytest.mark.asyncio
+async def test_list_active_ops_after_register(client):
+    """Registering an op makes it visible via GET."""
+    op_id = await active_ops.register_op(op_type="bulk_scan", label="manual scan")
+    resp = await client.get("/api/admin/active-operations")
+    rows = resp.json()["operations"]
+    assert any(r["id"] == op_id for r in rows)
+```
+
+Phase 2 tasks (11-13) should NOT introduce a new `authed_operator`
+fixture — they reuse the `client` fixture. If Task 12 needs to verify
+that a `SEARCH_USER` cannot cancel an op, the call site copies the
+inline pattern from `tests/test_auth.py:18-43`:
+
+```python
+# In the test file — NOT in conftest.py:
+import time
+TEST_JWT_SECRET = "test-secret-do-not-use"
+
+def _create_jwt(role: str, sub: str = "test-user", email: str = "test@local46.org",
+                expired: bool = False, secret: str = TEST_JWT_SECRET) -> str:
+    from jose import jwt
+    now = int(time.time())
+    return jwt.encode({
+        "sub": sub, "email": email, "role": role,
+        "iat": now, "exp": now + 3600,
+    }, secret, algorithm="HS256")
+
+def _auth_headers(role: str, **kwargs) -> dict:
+    return {"Authorization": f"Bearer {_create_jwt(role, **kwargs)}"}
+```
+
+…paired with the `auth_client` fixture from `tests/test_auth.py:54-95`
+which flips `DEV_BYPASS_AUTH=false`, sets `UNIONCORE_JWT_SECRET`, and
+restores both on teardown. Copy that fixture **inline** to the new test
+file rather than promoting it to `conftest.py` — that's project
+precedent and keeps `conftest.py` from ballooning (echoed in §A.6.2).
+
+#### §B.3.4 — Test-process env (already set; do not redeclare)
+
+`DEV_BYPASS_AUTH=true` is set at conftest.py import time. Active-ops
+tests do NOT need to set it themselves. If a test needs to flip it
+off (role-rejection test), use the `auth_client` fixture pattern above
+which saves+restores the env. Forgetting the restore corrupts later
+tests in the session.
+
+---
 
 ## §C — pipeline.py + scan_coordinator.py (Phase 3 prep, Tasks 14–15)
 
