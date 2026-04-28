@@ -813,6 +813,41 @@ _MIGRATIONS: list[tuple[int, str, list[str]]] = [
         "CREATE INDEX IF NOT EXISTS idx_prproj_refs_project_id  ON prproj_media_refs(project_id)",
         "CREATE INDEX IF NOT EXISTS idx_prproj_refs_project_path ON prproj_media_refs(project_path)",
     ]),
+    # v29 — Active Operations Registry (v0.35.0). Spec:
+    # docs/superpowers/specs/2026-04-28-active-operations-registry-design.md
+    (29, "Active operations registry table", [
+        """
+        CREATE TABLE IF NOT EXISTS active_operations (
+            op_id TEXT PRIMARY KEY,
+            op_type TEXT NOT NULL,
+            label TEXT NOT NULL,
+            icon TEXT NOT NULL,
+            origin_url TEXT NOT NULL,
+            started_by TEXT NOT NULL,
+            started_at_epoch REAL NOT NULL,
+            last_progress_at_epoch REAL NOT NULL,
+            finished_at_epoch REAL,
+            total INTEGER NOT NULL DEFAULT 0,
+            done INTEGER NOT NULL DEFAULT 0,
+            errors INTEGER NOT NULL DEFAULT 0,
+            error_msg TEXT,
+            cancelled INTEGER NOT NULL DEFAULT 0,
+            cancellable INTEGER NOT NULL DEFAULT 0,
+            cancel_url TEXT,
+            extra_json TEXT NOT NULL DEFAULT '{}'
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_active_ops_running
+            ON active_operations (finished_at_epoch)
+            WHERE finished_at_epoch IS NULL
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_active_ops_finished_at
+            ON active_operations (finished_at_epoch DESC)
+            WHERE finished_at_epoch IS NOT NULL
+        """,
+    ]),
 ]
 
 
