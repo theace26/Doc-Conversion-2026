@@ -85,3 +85,14 @@ async def test_items_per_page_bounds(db):
         await set_user_pref(db, "alice@local46.org", "items_per_page_cards", 0)
     with pytest.raises(ValueError):
         await set_user_pref(db, "alice@local46.org", "items_per_page_cards", 99999)
+
+
+async def test_default_list_values_not_shared(db):
+    """get_user_prefs must return independent list copies, not references to
+    DEFAULT_USER_PREFS. Mutating the returned dict must not corrupt defaults."""
+    prefs_a = await get_user_prefs(db, "user_a@local46.org")
+    prefs_b = await get_user_prefs(db, "user_b@local46.org")
+    prefs_a["pinned_folders"].append("corrupted")
+    # user_b should be unaffected; DEFAULT_USER_PREFS should be unaffected
+    assert prefs_b["pinned_folders"] == []
+    assert DEFAULT_USER_PREFS["pinned_folders"] == []

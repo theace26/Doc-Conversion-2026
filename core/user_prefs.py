@@ -14,6 +14,7 @@ The two stores serve different concerns:
 Spec: docs/superpowers/specs/2026-04-28-ux-overhaul-search-as-home-design.md §10
 """
 from __future__ import annotations
+import copy
 import json
 from pathlib import Path
 import aiosqlite
@@ -106,7 +107,7 @@ async def get_user_prefs(db_path: Path | str, user_id: str) -> dict:
         ) as cur:
             row = await cur.fetchone()
     stored = json.loads(row[0]) if row else {}
-    merged = dict(DEFAULT_USER_PREFS)
+    merged = copy.deepcopy(DEFAULT_USER_PREFS)
     merged.update({k: v for k, v in stored.items() if k in USER_PREF_KEYS})
     return merged
 
