@@ -1006,3 +1006,33 @@
   overflow-x: auto;
   scroll-behavior: smooth;
 }
+
+/* === topic cloud === */
+.mf-topic-cloud {
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  font-family: var(--mf-font-sans);
+}
+.mf-topic-cloud__pill {
+  background: var(--mf-surface);
+  border: 1px solid var(--mf-border);
+  border-radius: var(--mf-radius-pill);
+  padding: 0.45rem 0.95rem;
+  font-size: 0.84rem;
+  color: var(--mf-color-text-soft);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  text-decoration: none;
+  transition: border-color var(--mf-transition-fast), color var(--mf-transition-fast);
+}
+.mf-topic-cloud__pill:hover {
+  border-color: var(--mf-color-accent-border);
+  color: var(--mf-color-accent);
+}
+.mf-topic-cloud__count {
+  color: var(--mf-color-text-faint);
+  font-size: 0.76rem;
+}
