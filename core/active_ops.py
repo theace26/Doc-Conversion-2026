@@ -244,6 +244,16 @@ async def _persist_op_update(op: ActiveOperation) -> None:
                     op_id=op.op_id, op_type=op.op_type, error=str(exc))
 
 
+def _snapshot(op: ActiveOperation) -> ActiveOperation:
+    """Defensive copy: shallow-copies fields (most are immutable scalars),
+    deep-copies the only mutable field (`extra` dict) so caller mutations
+    don't poison registry state. Used by every read path and every persist
+    snapshot — single source of truth for the copy idiom."""
+    copy = ActiveOperation(**op.__dict__)
+    copy.extra = dict(op.extra)
+    return copy
+
+
 async def get_op(op_id: str) -> ActiveOperation | None:
     """Read in-memory snapshot of op_id. Synchronous-style read; takes
     the lock briefly to avoid mid-mutation reads. Returns a defensive
@@ -252,10 +262,7 @@ async def get_op(op_id: str) -> ActiveOperation | None:
         op = _ops.get(op_id)
         if op is None:
             return None
-        # Defensive copy — caller mutations don't poison registry state
-        copy = ActiveOperation(**op.__dict__)
-        copy.extra = dict(op.extra)
-        return copy
+        return _snapshot(op)
 
 
 async def update_op(
@@ -297,13 +304,8 @@ async def update_op(
 
         if should_persist:
             _last_persist_at[op_id] = time.time()
-            # Snapshot a copy so we can persist outside the lock.
-            # `__dict__` shallow-copies the field references; rebuild
-            # `extra` as a fresh dict so a worker mutating op.extra
-            # between here and the awaited write can't poison the
-            # serialized JSON.
-            snapshot = ActiveOperation(**op.__dict__)
-            snapshot.extra = dict(op.extra)
+            # Snapshot so we can persist outside the lock.
+            snapshot = _snapshot(op)
 
     if should_persist and snapshot is not None:
         # Call via module attribute lookup so test monkey-patching of
@@ -332,8 +334,7 @@ async def finish_op(
         op.last_progress_at_epoch = op.finished_at_epoch
         if error_msg is not None:
             op.error_msg = error_msg
-        snapshot = ActiveOperation(**op.__dict__)
-        snapshot.extra = dict(op.extra)
+        snapshot = _snapshot(op)
         # Throttle entry is dead — no more update_op allowed (F1).
         _last_persist_at.pop(op_id, None)
 
@@ -382,8 +383,7 @@ async def cancel_op(op_id: str) -> bool:
             log.info("active_ops.cancel_already_finished", op_id=op_id)
             return False
         op.cancelled = True
-        snapshot = ActiveOperation(**op.__dict__)
-        snapshot.extra = dict(op.extra)
+        snapshot = _snapshot(op)
 
     # Invoke hook outside lock (hook may itself call back into registry).
     hook = _cancel_hooks.get(snapshot.op_type)
@@ -428,13 +428,9 @@ async def list_ops(include_finished: bool = True) -> list[ActiveOperation]:
         result: list[ActiveOperation] = []
         for op in _ops.values():
             if op.finished_at_epoch is None:
-                copy = ActiveOperation(**op.__dict__)
-                copy.extra = dict(op.extra)
-                result.append(copy)
+                result.append(_snapshot(op))
             elif include_finished and op.finished_at_epoch >= cutoff:
-                copy = ActiveOperation(**op.__dict__)
-                copy.extra = dict(op.extra)
-                result.append(copy)
+                result.append(_snapshot(op))
         # Stable order: running first (oldest first), then finished
         # (most recent first)
         result.sort(key=lambda o: (

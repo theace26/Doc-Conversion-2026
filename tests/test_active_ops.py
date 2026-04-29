@@ -492,3 +492,29 @@ async def test_list_ops_excludes_finished_older_than_30s(client):
     ops = await active_ops.list_ops()
     op_ids = {o.op_id for o in ops}
     assert op_id not in op_ids
+
+
+@pytest.mark.asyncio
+async def test_list_ops_orders_running_before_finished(client):
+    """Spec §5: stable order — running ops first, finished ops after."""
+    from core import active_ops
+
+    op_a = await active_ops.register_op(
+        op_type="pipeline.run_now", label="A", icon="⚙",
+        origin_url="/", started_by="x@x",
+    )
+    op_b = await active_ops.register_op(
+        op_type="pipeline.run_now", label="B", icon="⚙",
+        origin_url="/", started_by="x@x",
+    )
+    await active_ops.finish_op(op_b)   # finished
+    op_c = await active_ops.register_op(
+        op_type="pipeline.run_now", label="C", icon="⚙",
+        origin_url="/", started_by="x@x",
+    )
+
+    ops = await active_ops.list_ops()
+    op_ids = [o.op_id for o in ops]
+    # Both running ops appear before the finished one
+    assert op_ids.index(op_a) < op_ids.index(op_b)
+    assert op_ids.index(op_c) < op_ids.index(op_b)
