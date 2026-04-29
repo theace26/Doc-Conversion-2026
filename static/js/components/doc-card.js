@@ -108,7 +108,14 @@
     row.setAttribute('data-doc-id', doc.id || '');
     row.setAttribute('data-doc-format', fmt);
 
+    // Multi-select checkbox (first column, visible on hover or when selected).
+    var cb = el('span', 'mf-doc-list-row__checkbox');
+    cb.setAttribute('aria-hidden', 'true');
+    cb.setAttribute('data-mf-checkbox', '1');
+    row.appendChild(cb);
+
     var icon = el('span', 'mf-doc-list-row__fmt mf-doc-list-row__fmt--' + fmt);
+    icon.style.background = 'var(--mf-fmt-' + fmt + ')';
     icon.textContent = fmt.toUpperCase().slice(0, 3);
     row.appendChild(icon);
 
@@ -132,6 +139,20 @@
     fav.setAttribute('aria-hidden', 'true');
     fav.textContent = doc.favorite ? '♥' : '♡';
     row.appendChild(fav);
+
+    row.addEventListener('contextmenu', function (ev) {
+      ev.preventDefault();
+      var detail = { doc: doc, x: ev.clientX, y: ev.clientY };
+      row.dispatchEvent(new CustomEvent('mf:doc-contextmenu', { detail: detail, bubbles: true }));
+    });
+
+    row.addEventListener('click', function (ev) {
+      var t = ev.target;
+      if (t && t.getAttribute && t.getAttribute('data-mf-checkbox') === '1') {
+        ev.stopPropagation();
+        if (typeof MFCardSelection !== 'undefined') MFCardSelection.toggle(doc.id);
+      }
+    });
 
     return row;
   }

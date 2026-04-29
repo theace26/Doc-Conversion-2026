@@ -139,11 +139,11 @@
   );
 
   function rearmHovers() {
-    var cards = document.querySelectorAll('#mf-folder-demo .mf-doc-card');
-    cards.forEach(function (card) {
-      var docId = card.getAttribute('data-doc-id');
+    var els = document.querySelectorAll('#mf-folder-demo .mf-doc-card, #mf-folder-demo .mf-doc-list-row');
+    els.forEach(function (el) {
+      var docId = el.getAttribute('data-doc-id');
       var doc = MFSampleDocs.find(function (d) { return d.id === docId; });
-      if (doc) hp.armOn(card, doc);
+      if (doc) hp.armOn(el, doc);
     });
   }
   rearmHovers();
