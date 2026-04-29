@@ -26,6 +26,7 @@ from core.version import __version__
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
+from core.feature_flags import is_new_ux_enabled
 from fastapi.staticfiles import StaticFiles
 
 from core.database import init_db
@@ -558,8 +559,11 @@ async def health_check():
 
 # ── Root — redirect to search page ────────────────────────────────────────────
 @app.get("/", include_in_schema=False)
-async def root():
-    return RedirectResponse(url="/search.html")
+async def root_index():
+    """Serve the home page. New UX rendered when ENABLE_NEW_UX=true."""
+    if is_new_ux_enabled():
+        return FileResponse("static/index-new.html")
+    return FileResponse("static/index.html")
 
 
 # ── Catch-all for SPA-style page navigation ───────────────────────────────────
