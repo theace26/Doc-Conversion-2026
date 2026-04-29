@@ -346,3 +346,68 @@ async def finish_op(
              op_id=op_id, op_type=snapshot.op_type,
              error_msg=error_msg,
              duration_s=round(snapshot.finished_at_epoch - snapshot.started_at_epoch, 2))
+
+
+def is_cancelled(op_id: str) -> bool:
+    """Synchronous read of the cancelled flag. Workers call this from
+    hot loops — no await, no DB round-trip. Returns False if op_id
+    unknown.
+
+    NOTE: deliberately NOT async — the lock isn't taken here. The
+    cancelled bool is a write-once flag; readers seeing a stale False
+    miss one tick at most before observing True. Intentional tradeoff."""
+    op = _ops.get(op_id)
+    return bool(op and op.cancelled)
+
+
+async def cancel_op(op_id: str) -> bool:
+    """Operator-triggered cancel. Sets cancelled=True, invokes the
+    op_type's cancel hook, persists state. Returns True if hook fired,
+    False if op already finished or unknown.
+
+    If the hook raises, op is marked finished with error_msg set
+    (spec F10 — over-finalize on hook failure).
+
+    Note: lock is released BEFORE awaiting the hook. Hooks may call
+    back into the registry; holding the lock would deadlock. The
+    resulting race window with a concurrent update_op is benign — once
+    the worker observes is_cancelled() and calls finish_op, terminal
+    state is reached and F1 protects against further mutation."""
+    async with _lock:
+        op = _ops.get(op_id)
+        if op is None:
+            log.warning("active_ops.cancel_unknown_op", op_id=op_id)
+            return False
+        if op.finished_at_epoch is not None:
+            log.info("active_ops.cancel_already_finished", op_id=op_id)
+            return False
+        op.cancelled = True
+        snapshot = ActiveOperation(**op.__dict__)
+        snapshot.extra = dict(op.extra)
+
+    # Invoke hook outside lock (hook may itself call back into registry).
+    hook = _cancel_hooks.get(snapshot.op_type)
+    if hook is None:
+        log.error("active_ops.cancel_no_hook",
+                  op_id=op_id, op_type=snapshot.op_type)
+        # Still over-finalize: a cancellable op with no hook is a bug,
+        # but we mustn't leave the op hanging.
+        await finish_op(op_id, error_msg="No cancel hook registered (bug)")
+        return False
+
+    # Use module-attr lookup so test monkey-patching of _persist_op_update
+    # is observed (consistent with update_op + finish_op).
+    from core import active_ops as _self
+    try:
+        await hook(op_id)
+        await _self._persist_op_update(snapshot)
+        log.info("active_ops.cancelled", op_id=op_id, op_type=snapshot.op_type)
+        return True
+    except Exception as exc:
+        log.error("active_ops.cancel_hook_failed",
+                  op_id=op_id, op_type=snapshot.op_type, error=str(exc))
+        await finish_op(
+            op_id,
+            error_msg=f"Cancel cleanup failed: {type(exc).__name__}: {exc}",
+        )
+        return False

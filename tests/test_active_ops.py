@@ -361,3 +361,81 @@ async def test_finish_op_twice_is_noop(client):
     assert op.error_msg == "first"   # second call did NOT overwrite
     assert op.finished_at_epoch == finished_at_1   # timestamp unchanged
     assert write_count == 0   # no second DB write
+
+
+@pytest.mark.asyncio
+async def test_cancel_op_invokes_registered_hook(client):
+    from core import active_ops
+
+    hook_called_with: list[str] = []
+
+    async def my_hook(op_id: str) -> None:
+        hook_called_with.append(op_id)
+
+    active_ops.register_cancel_hook("pipeline.run_now", my_hook)
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="x@x",
+        cancellable=True,
+    )
+
+    cancelled = await active_ops.cancel_op(op_id)
+    assert cancelled is True
+    assert hook_called_with == [op_id]
+
+    # cancelled flag is set in-memory
+    assert active_ops.is_cancelled(op_id) is True
+
+    op = await active_ops.get_op(op_id)
+    assert op.cancelled is True
+
+
+@pytest.mark.asyncio
+async def test_cancel_op_on_finished_returns_false(client):
+    from core import active_ops
+
+    async def hook(op_id: str) -> None: ...
+    active_ops.register_cancel_hook("pipeline.run_now", hook)
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="x@x",
+        cancellable=True,
+    )
+    await active_ops.finish_op(op_id)
+
+    result = await active_ops.cancel_op(op_id)
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_cancel_hook_raises_marks_op_failed_and_finished(client):
+    """Spec F10 — over-finalize on hook failure."""
+    from core import active_ops
+
+    async def bad_hook(op_id: str) -> None:
+        raise RuntimeError("native cancel failed")
+
+    active_ops.register_cancel_hook("pipeline.run_now", bad_hook)
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="x@x",
+        cancellable=True,
+    )
+
+    await active_ops.cancel_op(op_id)
+
+    op = await active_ops.get_op(op_id)
+    assert op.finished_at_epoch is not None
+    assert op.error_msg is not None
+    assert "native cancel failed" in op.error_msg
+
+
+def test_is_cancelled_synchronous():
+    """is_cancelled MUST be synchronous so workers can call it from
+    hot loops without awaiting."""
+    from core import active_ops
+    import inspect
+    assert not inspect.iscoroutinefunction(active_ops.is_cancelled)
