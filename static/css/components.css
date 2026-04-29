@@ -1,0 +1,143 @@
+/* Shared component styles. Builds on design-tokens.css.
+   Spec: §2 visual system; §4 cards; §6 avatar menu chrome; §7 settings detail. */
+
+@import url('./design-tokens.css');
+
+/* === pill buttons === */
+.mf-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mf-space-2);
+  padding: 0.55rem 1.15rem;
+  border-radius: var(--mf-radius-pill);
+  font-weight: 600;
+  font-size: 0.86rem;
+  font-family: var(--mf-font-sans);
+  border: none;
+  cursor: pointer;
+  transition: opacity var(--mf-transition-fast);
+}
+.mf-pill--primary { background: var(--mf-color-accent); color: #ffffff; }
+.mf-pill--primary:hover { opacity: 0.92; }
+.mf-pill--outline {
+  background: var(--mf-surface);
+  color: var(--mf-color-accent);
+  border: 1.5px solid var(--mf-color-accent);
+}
+.mf-pill--ghost {
+  background: transparent;
+  color: var(--mf-color-accent);
+  padding: 0.5rem 0.7rem;
+}
+.mf-pill--sm { padding: 0.4rem 0.85rem; font-size: 0.78rem; }
+.mf-pill--danger {
+  background: var(--mf-surface);
+  color: var(--mf-color-error);
+  border: 1.5px solid #ffd0d0;
+}
+
+/* === toggles === */
+.mf-toggle {
+  width: 36px;
+  height: 20px;
+  border-radius: var(--mf-radius-pill);
+  position: relative;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background var(--mf-transition-fast);
+  border: none;
+  padding: 0;
+}
+.mf-toggle--on  { background: var(--mf-color-accent); }
+.mf-toggle--off { background: #e0e0e0; }
+.mf-toggle__knob {
+  width: 16px;
+  height: 16px;
+  background: #ffffff;
+  border-radius: 50%;
+  position: absolute;
+  top: 2px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  transition: left var(--mf-transition-fast), right var(--mf-transition-fast);
+}
+.mf-toggle--on  .mf-toggle__knob { right: 2px; }
+.mf-toggle--off .mf-toggle__knob { left: 2px; }
+
+/* === segmented control === */
+.mf-seg {
+  display: inline-flex;
+  background: #f3f3f3;
+  border-radius: var(--mf-radius-pill);
+  padding: 0.22rem;
+  font-size: 0.84rem;
+}
+.mf-seg__opt {
+  padding: 0.4rem 0.95rem;
+  border-radius: var(--mf-radius-pill);
+  cursor: pointer;
+  color: #666666;
+  font-weight: 500;
+  background: transparent;
+  border: none;
+  font-family: var(--mf-font-sans);
+}
+.mf-seg__opt--on {
+  background: var(--mf-surface);
+  color: var(--mf-color-text);
+  box-shadow: var(--mf-shadow-press);
+}
+
+/* === card surfaces === */
+.mf-card {
+  background: var(--mf-surface);
+  border: 1px solid var(--mf-border);
+  border-radius: var(--mf-radius-card-lg);
+  box-shadow: var(--mf-shadow-card);
+  font-family: var(--mf-font-sans);
+}
+
+/* === status pulse === */
+.mf-pulse {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mf-space-2);
+  background: var(--mf-color-success-bg);
+  color: var(--mf-color-success);
+  padding: 0.32rem 0.85rem;
+  border-radius: var(--mf-radius-pill);
+  font-size: var(--mf-text-xs);
+  font-weight: 600;
+}
+.mf-pulse__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mf-color-success);
+  box-shadow: 0 0 0 4px rgba(14, 124, 90, 0.18);
+}
+
+/* === role pill === */
+.mf-role-pill {
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 0.12rem 0.45rem;
+  border-radius: var(--mf-radius-pill);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.mf-role-pill--member   { background: #e8f5ff; color: #1864ab; }
+.mf-role-pill--operator { background: var(--mf-color-warn-bg); color: var(--mf-color-warn); }
+.mf-role-pill--admin    { background: var(--mf-color-warn-bg); color: var(--mf-color-warn); }
+
+/* === version chip (dev only — hidden in prod by design-tokens.css selector) === */
+.mf-ver-chip {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--mf-color-warn);
+  background: var(--mf-color-warn-bg);
+  padding: 0.18rem 0.5rem;
+  border-radius: var(--mf-radius-pill);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-family: var(--mf-font-mono);
+}
