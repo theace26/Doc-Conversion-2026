@@ -721,3 +721,53 @@
   box-shadow: 0 0 0 3px var(--mf-color-accent-ring-on),
               var(--mf-shadow-thumb);
 }
+
+/* === bulk action bar === */
+.mf-bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--mf-color-accent);
+  color: var(--mf-surface);
+  padding: 0.7rem 1rem;
+  border-radius: var(--mf-radius-input);
+  margin-bottom: 1rem;
+  font-size: 0.88rem;
+  font-family: var(--mf-font-sans);
+}
+.mf-bulk-bar__left {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+.mf-bulk-bar__check {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: var(--mf-surface-glass);
+  color: var(--mf-color-accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.78rem;
+}
+.mf-bulk-bar__right { display: flex; gap: 0.45rem; flex-wrap: wrap; }
+.mf-bulk-bar__btn {
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.3);
+  color: var(--mf-surface);
+  padding: 0.4rem 0.85rem;
+  border-radius: 7px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+}
+.mf-bulk-bar__btn:hover { background: rgba(255,255,255,0.25); }
+.mf-bulk-bar__btn--solid {
+  background: var(--mf-surface);
+  color: var(--mf-color-accent);
+  border-color: var(--mf-surface);
+  font-weight: 600;
+}
