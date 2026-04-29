@@ -59,6 +59,7 @@
         format: fmt.input.value.trim() || null,
         when: when.input.value.trim() || null,
       };
+      MFTelemetry && MFTelemetry.emit && MFTelemetry.emit('ui.search_submitted', payload);
       try { onSubmit(payload); } catch (e) { console.error(e); }
     });
 

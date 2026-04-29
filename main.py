@@ -15,7 +15,7 @@ Routes mounted:
   /api/preferences  — User preferences endpoints
   /api/debug        — Debug dashboard
   /static           — Static HTML/CSS/JS files
-  /                 — Redirects to /search.html
+  /                 — Serves home page (new UX when ENABLE_NEW_UX=true)
 """
 
 import os
@@ -557,7 +557,7 @@ async def health_check():
     return await run_health_check()
 
 
-# ── Root — redirect to search page ────────────────────────────────────────────
+# ── Root ──────────────────────────────────────────────────────────────────────
 @app.get("/", include_in_schema=False)
 async def root_index():
     """Serve the home page. New UX rendered when ENABLE_NEW_UX=true."""

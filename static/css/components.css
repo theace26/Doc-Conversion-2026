@@ -894,13 +894,13 @@
   background: var(--mf-surface);
   border: 1px solid var(--mf-border);
   border-radius: var(--mf-radius-pill);
-  box-shadow: 0 4px 14px -6px rgba(0,0,0,0.08);
+  box-shadow: var(--mf-shadow-bar);
   padding: 0.4rem;
   font-family: var(--mf-font-sans);
   transition: box-shadow var(--mf-transition-med);
 }
 .mf-sb:hover {
-  box-shadow: 0 8px 28px -10px rgba(0,0,0,0.12);
+  box-shadow: var(--mf-shadow-bar-hover);
 }
 .mf-sb__seg {
   padding: 0.55rem 1.2rem;

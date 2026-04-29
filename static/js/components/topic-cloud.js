@@ -5,7 +5,7 @@
  *   var node = MFTopicCloud.build([
  *     { name: 'Contracts', count: 428 },
  *     ...
- *   ], onClick);
+ *   ], onClick);   // onClick receives the full topic object { name, count }
  *
  * Returns a DOM node ready to drop into MFBrowseRow content slot.
  *

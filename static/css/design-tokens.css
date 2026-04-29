@@ -22,6 +22,7 @@
   --mf-color-text-faint:       #888888;
   --mf-color-text-fainter:     #aaaaaa;
 
+  --mf-bg-page:                #f7f7f9;  /* page-level background */
   --mf-surface:                #ffffff;
   --mf-surface-soft:           #fafafa;
   --mf-surface-paper:          #fefefb;  /* document-card body bg */
@@ -78,6 +79,8 @@
   --mf-shadow-popover:  0 16px 36px -8px rgba(0,0,0,0.2);
   --mf-shadow-thumb:    0 1px 0 rgba(0,0,0,0.04), 0 8px 16px -10px rgba(0,0,0,0.1);
   --mf-shadow-press:    0 1px 3px rgba(0,0,0,0.08);
+  --mf-shadow-bar:      0 4px 14px -6px rgba(0,0,0,0.08);    /* search bar resting */
+  --mf-shadow-bar-hover: 0 8px 28px -10px rgba(0,0,0,0.12); /* search bar hover */
 
   /* === Spacing — 4px scale === */
   --mf-space-1:  0.25rem;

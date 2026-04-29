@@ -76,6 +76,9 @@
     rightBtn.addEventListener('click', function () { body.scrollBy({ left: 400, behavior: 'smooth' }); });
 
     slot.appendChild(row);
+    return {
+      unmount: function () { while (slot.firstChild) slot.removeChild(slot.firstChild); },
+    };
   }
 
   global.MFBrowseRow = { mount: mount };

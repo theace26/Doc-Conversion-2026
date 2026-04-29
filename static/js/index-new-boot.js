@@ -71,7 +71,7 @@
   // Hydrate prefs, then render
   MFPrefs.load().then(function () {
     mountChrome();
-    MFSearchHome.mount(homeRoot, {
+    var homeHandle = MFSearchHome.mount(homeRoot, {
       systemStatus: 'All systems running · 12,847 indexed',
     });
     // Re-arm hover-preview after each render
