@@ -113,4 +113,41 @@
 
   // Initial grid render (runs after MFPrefs.load() resolves in the existing code).
   renderCardGrid();
+
+  // === Folder browse demo (Plan 2B integration) ===
+  var hp = MFHoverPreview.create({
+    onAction: function (action, doc) { console.log('hover-action:', action, doc.id); },
+  });
+  var cm = MFContextMenu.create({
+    onAction: function (action, doc) { console.log('ctx-action:', action, doc.id); },
+  });
+
+  // Listen for the contextmenu custom event from any card.
+  document.addEventListener('mf:doc-contextmenu', function (ev) {
+    cm.openAt(ev.detail.x, ev.detail.y, ev.detail.doc);
+  });
+
+  // Arm hover preview on every card after the folder browse renders.
+  // We re-arm on density changes since cards are re-created.
+  var folderUnmount = MFFolderBrowse.mount(
+    document.getElementById('mf-folder-demo'),
+    {
+      path: '/local-46/contracts',
+      stats: { count: 428, addedToday: 3, lastScanned: '4 min ago' },
+      docs: MFSampleDocs.slice(0, 12),
+    }
+  );
+
+  function rearmHovers() {
+    var cards = document.querySelectorAll('#mf-folder-demo .mf-doc-card');
+    cards.forEach(function (card) {
+      var docId = card.getAttribute('data-doc-id');
+      var doc = MFSampleDocs.find(function (d) { return d.id === docId; });
+      if (doc) hp.armOn(card, doc);
+    });
+  }
+  rearmHovers();
+  MFPrefs.subscribe('density', function () {
+    requestAnimationFrame(rearmHovers);
+  });
 })();
