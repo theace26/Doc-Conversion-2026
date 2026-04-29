@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>MarkFlow chrome dev — Plan 1B static</title>
+  <title>MarkFlow chrome dev — Plan 1C stateful</title>
   <link rel="stylesheet" href="/static/css/design-tokens.css">
   <link rel="stylesheet" href="/static/css/components.css">
   <style>
@@ -48,7 +48,7 @@
   <div id="mf-top-nav"></div>
 
   <div class="dev-banner">
-    <h1>Plan 1B — static chrome dev page</h1>
+    <h1>Plan 1C — stateful chrome dev page</h1>
     <p>Manual verification target for the four static chrome components: top-nav, version-chip, avatar, layout-icon. Click <code>member</code> / <code>operator</code> / <code>admin</code> to re-render the nav and confirm role-gated link visibility (Activity should be hidden for member).</p>
 
     <div class="role-switcher">
@@ -60,10 +60,15 @@
     <p>Click avatar &rarr; console logs <code>avatar clicked</code>. Click layout-icon &rarr; console logs <code>layout-icon clicked</code>. Plan 1C connects these to actual popovers.</p>
   </div>
 
+  <script src="/static/js/preferences.js"></script>
+  <script src="/static/js/telemetry.js"></script>
+  <script src="/static/js/keybinds.js"></script>
   <script src="/static/js/components/top-nav.js"></script>
   <script src="/static/js/components/version-chip.js"></script>
   <script src="/static/js/components/avatar.js"></script>
+  <script src="/static/js/components/avatar-menu.js"></script>
   <script src="/static/js/components/layout-icon.js"></script>
+  <script src="/static/js/components/layout-popover.js"></script>
   <script src="/static/dev-chrome.js"></script>
 </body>
 </html>
