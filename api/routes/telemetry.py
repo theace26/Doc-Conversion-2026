@@ -31,6 +31,6 @@ async def emit(payload: TelemetryEvent, request: Request) -> Response:
     log.info(
         payload.event,
         ua=request.headers.get("user-agent", "")[:200],
-        **payload.props,
+        props=payload.props,
     )
     return Response(status_code=204)
