@@ -687,3 +687,37 @@
 }
 .mf-ctx__exp-chev { font-size: 0.62rem; transition: transform 0.15s; }
 .mf-ctx__exp--open .mf-ctx__exp-chev { transform: rotate(180deg); }
+
+/* === multi-select checkbox on doc-card === */
+.mf-doc-card__checkbox {
+  position: absolute;
+  top: 0.45rem;
+  left: 0.45rem;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: rgba(255,255,255,0.92);
+  border: 1.5px solid rgba(255,255,255,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity var(--mf-transition-fast);
+  z-index: 3;
+  cursor: pointer;
+}
+.mf-doc-card:hover .mf-doc-card__checkbox { opacity: 1; }
+.mf-doc-card--selected .mf-doc-card__checkbox {
+  opacity: 1;
+  background: var(--mf-color-accent);
+  border-color: var(--mf-color-accent);
+  color: var(--mf-surface);
+}
+.mf-doc-card--selected .mf-doc-card__checkbox::before {
+  content: "\2713";
+  font-size: 0.8rem;
+}
+.mf-doc-card--selected .mf-doc-card__thumb {
+  box-shadow: 0 0 0 3px var(--mf-color-accent-ring-on),
+              var(--mf-shadow-thumb);
+}

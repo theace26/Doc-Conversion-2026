@@ -53,6 +53,12 @@
     fav.textContent = doc.favorite ? '♥' : '♡';
     thumb.appendChild(fav);
 
+    // Multi-select checkbox slot (visible on hover or when selected).
+    var cb = el('span', 'mf-doc-card__checkbox');
+    cb.setAttribute('aria-hidden', 'true');
+    cb.setAttribute('data-mf-checkbox', '1');
+    thumb.appendChild(cb);
+
     // Snippet body — serif text. Title shown as bold first line.
     var snippet = el('div', 'mf-doc-card__snippet');
     var h = el('div', 'mf-doc-card__snippet-h');
@@ -73,6 +79,23 @@
     thumb.appendChild(meta);
 
     card.appendChild(thumb);
+
+    card.addEventListener('contextmenu', function (ev) {
+      ev.preventDefault();
+      var detail = { doc: doc, x: ev.clientX, y: ev.clientY };
+      card.dispatchEvent(new CustomEvent('mf:doc-contextmenu', { detail: detail, bubbles: true }));
+    });
+
+    // Click-on-checkbox toggles selection (clicking elsewhere on the card
+    // is reserved for "open" — left-click default).
+    card.addEventListener('click', function (ev) {
+      var t = ev.target;
+      if (t && t.getAttribute && t.getAttribute('data-mf-checkbox') === '1') {
+        ev.stopPropagation();
+        if (typeof MFCardSelection !== 'undefined') MFCardSelection.toggle(doc.id);
+      }
+    });
+
     return card;
   }
 

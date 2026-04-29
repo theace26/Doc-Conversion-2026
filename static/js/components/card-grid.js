@@ -13,8 +13,19 @@
 
   var DENSITIES = { cards: 1, compact: 1, list: 1 };
 
+  var unsub = null;
+
   function clear(node) {
     while (node.firstChild) node.removeChild(node.firstChild);
+  }
+
+  function applySelection(slot, selectedSet) {
+    var cards = slot.querySelectorAll('.mf-doc-card');
+    cards.forEach(function (card) {
+      var id = card.getAttribute('data-doc-id');
+      if (id && selectedSet.has(id)) card.classList.add('mf-doc-card--selected');
+      else card.classList.remove('mf-doc-card--selected');
+    });
   }
 
   function mount(slot, docs, density) {
@@ -39,6 +50,15 @@
       for (var j = 0; j < docs.length; j++) {
         slot.appendChild(MFDocCard.create(docs[j]));
       }
+    }
+
+    // Re-apply current selection after re-render.
+    if (typeof MFCardSelection !== 'undefined') {
+      applySelection(slot, new Set(MFCardSelection.list()));
+      if (unsub) unsub();
+      unsub = MFCardSelection.subscribe(function (selectedSet) {
+        applySelection(slot, selectedSet);
+      });
     }
   }
 
