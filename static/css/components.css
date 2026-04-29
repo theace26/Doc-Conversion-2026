@@ -179,3 +179,25 @@
   text-transform: uppercase;
   font-family: var(--mf-font-mono);
 }
+
+/* === avatar circle === */
+.mf-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: linear-gradient(
+    135deg,
+    var(--mf-color-accent) 0%,
+    var(--mf-color-accent-soft) 100%
+  );
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  transition: box-shadow var(--mf-transition-fast);
+}
+.mf-avatar:hover {
+  box-shadow: 0 0 0 3px rgba(91, 61, 245, 0.18);
+}
+.mf-avatar[aria-expanded="true"] {
+  box-shadow: 0 0 0 3px rgba(91, 61, 245, 0.35);
+}
