@@ -8,7 +8,7 @@ Never imports route-level code. No circular imports.
 import hashlib
 import os
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, IntEnum
 from typing import Callable
 
 import structlog
@@ -186,3 +186,32 @@ def require_role(minimum: UserRole):
         return user
 
     return _check
+
+
+# ── JWT role claim extraction (parallel to UserRole; do not merge) ──────────
+
+class Role(IntEnum):
+    """Role hierarchy. Defined upstream in UnionCore; MarkFlow consumes via JWT.
+
+    Spec: docs/superpowers/specs/2026-04-28-ux-overhaul-search-as-home-design.md §11
+    """
+    MEMBER = 0
+    OPERATOR = 1
+    ADMIN = 2
+
+
+_ROLE_BY_NAME = {
+    "member": Role.MEMBER,
+    "operator": Role.OPERATOR,
+    "admin": Role.ADMIN,
+}
+
+
+def extract_role(claims: dict) -> Role:
+    """Return the Role from a JWT claims dict.
+
+    Defensive: missing or unknown role -> MEMBER (least privilege).
+    Case-insensitive on the role string.
+    """
+    raw = (claims.get("role") or "").strip().lower()
+    return _ROLE_BY_NAME.get(raw, Role.MEMBER)
