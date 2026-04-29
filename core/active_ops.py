@@ -21,7 +21,7 @@ from typing import Any, Awaitable, Callable
 
 import structlog
 
-from core.database import db_fetch_all
+from core.database import db_fetch_all, db_fetch_one
 from core.db.connection import db_execute, db_write_with_retry
 
 log = structlog.get_logger(__name__)
@@ -420,6 +420,7 @@ _HYDRATE_CAP = 20
 # +1s past _GRACE_S so older-than-cap rows are JUST outside the grace
 # window — minimizes the visible "ghost time" gap on the show-all UI.
 _GRACE_PRE_FINALIZE_S = _GRACE_S + 1   # 31s
+_PURGE_RETENTION_S = 7 * 24 * 3600   # 7 days (spec §10)
 
 
 async def list_ops(include_finished: bool = True) -> list[ActiveOperation]:
@@ -521,3 +522,40 @@ async def hydrate_on_startup() -> None:
         surfaced_in_grace=min(_HYDRATE_CAP, len(rows)),
     )
     _hydration_complete.set()
+
+
+# ── Daily auto-purge (spec §10, P6) ────────────────────────────────────
+async def purge_old_active_ops() -> int:
+    """Delete finished_at_epoch < (now - 7d). Predicate excludes
+    running rows (spec P6 — predicate-gated cleanup). Returns count
+    of rows deleted."""
+    cutoff = time.time() - _PURGE_RETENTION_S
+    deleted_holder = [0]
+
+    async def _do() -> None:
+        # COUNT before DELETE so we can return rowcount; SQLite's
+        # cursor.rowcount semantics through aiosqlite are inconsistent.
+        count_row = await db_fetch_one(
+            "SELECT COUNT(*) AS cnt FROM active_operations "
+            "WHERE finished_at_epoch IS NOT NULL "
+            "AND finished_at_epoch < ?",
+            (cutoff,),
+        )
+        deleted_holder[0] = (count_row or {}).get("cnt", 0)
+        await db_execute(
+            "DELETE FROM active_operations "
+            "WHERE finished_at_epoch IS NOT NULL "
+            "AND finished_at_epoch < ?",
+            (cutoff,),
+        )
+
+    try:
+        await db_write_with_retry(_do)
+    except Exception as exc:
+        log.error("active_ops.purge_failed", error=str(exc))
+        return 0
+
+    log.info("active_ops.purged",
+             count=deleted_holder[0],
+             cutoff_epoch=cutoff)
+    return deleted_holder[0]

@@ -13,6 +13,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 import structlog
 
+from core.active_ops import purge_old_active_ops
 from core.database import get_preference, set_preference
 from core.metrics_collector import record_activity_event
 
@@ -902,8 +903,26 @@ def start_scheduler() -> None:
         misfire_grace_time=300,
     )
 
+    # v0.35.0: Active Operations Registry — daily auto-purge of finished
+    # rows older than 7 days (spec §10). Slot 03:50 is 10 min after the
+    # 03:30 llm_costs check and 10 min before 04:00 trash purge —
+    # avoids contention with both (spec P7). Deliberately does NOT yield
+    # to bulk jobs (cf. CLAUDE.md "Top Gotchas") because the DELETE is
+    # on a small bounded table (~1000 rows max by design); yielding
+    # would risk deferring cleanup indefinitely if a bulk job overlaps.
+    scheduler.add_job(
+        purge_old_active_ops,
+        trigger=CronTrigger(hour=3, minute=50),
+        id="purge_old_active_ops",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=300,
+    )
+
     scheduler.start()
-    log.info("scheduler.started", jobs=19)
+    # Self-counting so add_job calls don't need to bump a literal here.
+    log.info("scheduler.started", jobs=len(scheduler.get_jobs()))
 
 
 def get_pipeline_status() -> dict:

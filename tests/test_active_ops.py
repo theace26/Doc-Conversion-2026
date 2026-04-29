@@ -681,3 +681,49 @@ async def test_hydrate_makes_surfaced_rows_visible_via_list_ops(client):
         assert op.error_msg is not None
         assert "restart" in op.error_msg.lower()
         assert op.finished_at_epoch is not None
+
+
+@pytest.mark.asyncio
+async def test_purge_deletes_rows_older_than_7d_excludes_running(client):
+    from core import active_ops
+    from core.db.connection import db_execute, db_write_with_retry
+
+    now = time.time()
+    eight_days_ago = now - (8 * 24 * 3600)
+    six_days_ago = now - (6 * 24 * 3600)
+
+    # Wipe leftover purge-* rows from prior runs
+    async def _do_cleanup():
+        await db_execute(
+            "DELETE FROM active_operations WHERE op_id LIKE 'purge-%'"
+        )
+    await db_write_with_retry(_do_cleanup)
+
+    # Seed: 1 old finished, 1 recent finished, 1 running
+    rows = [
+        ("purge-old", eight_days_ago, eight_days_ago),
+        ("purge-recent", now, six_days_ago),
+        ("purge-running", None, now),
+    ]
+    for op_id, finished, started in rows:
+        async def _do_seed(o=op_id, f=finished, s=started):
+            await db_execute(
+                "INSERT INTO active_operations "
+                "(op_id, op_type, label, icon, origin_url, started_by, "
+                "started_at_epoch, last_progress_at_epoch, "
+                "finished_at_epoch) "
+                "VALUES (?, 'pipeline.run_now', 'X', '⚙', '/', 'x@x', "
+                "?, ?, ?)",
+                (o, s, s, f),
+            )
+        await db_write_with_retry(_do_seed)
+
+    deleted = await active_ops.purge_old_active_ops()
+    assert deleted == 1   # only purge-old qualifies
+
+    remaining = await db_fetch_all(
+        "SELECT op_id FROM active_operations "
+        "WHERE op_id LIKE 'purge-%'"
+    )
+    op_ids = {r["op_id"] for r in remaining}
+    assert op_ids == {"purge-recent", "purge-running"}
