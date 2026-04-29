@@ -131,12 +131,12 @@
     // Public close (immediate) — used by action buttons and disarm.
     function close() { closeNow(); }
 
-    function show(card, doc) {
+    function show(card, doc, cx, cy) {
       closeNow();
       var pop = build(doc, onAction, close);
       pop.style.position = 'absolute';
       document.body.appendChild(pop);
-      anchor(pop, card);
+      anchor(pop, cx, cy);
       card.setAttribute('data-mf-hover-active', 'true');
       current = { card: card, popover: pop, doc: doc };
       // Keep popover open while mouse is over it.
@@ -147,46 +147,46 @@
       );
     }
 
-    function anchor(pop, card) {
-      var r = card.getBoundingClientRect();
+    function anchor(pop, cx, cy) {
       var width = 340;
-      var spaceRight = document.documentElement.clientWidth - r.right;
-      var spaceTop = r.top;
-      // Default: anchor to card's right side, vertically aligned to its top
+      var offset = 18;
+      var vw = document.documentElement.clientWidth;
+      var vh = document.documentElement.clientHeight;
       pop.style.width = width + 'px';
-      if (spaceRight > width + 16) {
-        pop.style.left = (window.scrollX + r.right + 12) + 'px';
-        pop.style.top = (window.scrollY + r.top - 12) + 'px';
-      } else if (spaceTop > 280) {
-        // Anchor above
-        pop.style.left = (window.scrollX + r.left) + 'px';
-        pop.style.top = (window.scrollY + r.top - 280) + 'px';
-      } else {
-        // Anchor below
-        pop.style.left = (window.scrollX + r.left) + 'px';
-        pop.style.top = (window.scrollY + r.bottom + 12) + 'px';
-      }
+      // Prefer right of cursor; flip left if not enough space.
+      var left = cx + offset;
+      if (left + width > vw - 8) left = cx - width - offset;
+      left = Math.max(8, left);
+      // Align top near cursor; push up if near bottom.
+      var top = cy - 16;
+      if (top + 360 > vh - 8) top = Math.max(8, vh - 368);
+      pop.style.left = (window.scrollX + left) + 'px';
+      pop.style.top = (window.scrollY + top) + 'px';
     }
 
     function armOn(card, doc) {
-      function onEnter() {
+      var cursorX = 0, cursorY = 0;
+      function onMove(ev) { cursorX = ev.clientX; cursorY = ev.clientY; }
+      function onEnter(ev) {
+        cursorX = ev.clientX; cursorY = ev.clientY;
         cancelClose();
         if (openTimer) clearTimeout(openTimer);
-        openTimer = setTimeout(function () { show(card, doc); }, DELAY_MS);
+        openTimer = setTimeout(function () { show(card, doc, cursorX, cursorY); }, DELAY_MS);
       }
       function onLeave() {
         if (openTimer) { clearTimeout(openTimer); openTimer = null; }
         if (current && current.card === card) scheduleClose();
       }
+      card.addEventListener('mousemove', onMove);
       card.addEventListener('mouseenter', onEnter);
       card.addEventListener('mouseleave', onLeave);
-      // Store for disarm
-      card._mfHoverHandlers = { onEnter: onEnter, onLeave: onLeave };
+      card._mfHoverHandlers = { onEnter: onEnter, onLeave: onLeave, onMove: onMove };
     }
 
     function disarm(card) {
       var h = card._mfHoverHandlers;
       if (!h) return;
+      card.removeEventListener('mousemove', h.onMove);
       card.removeEventListener('mouseenter', h.onEnter);
       card.removeEventListener('mouseleave', h.onLeave);
       delete card._mfHoverHandlers;
