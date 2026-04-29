@@ -14,7 +14,8 @@
 (function (global) {
   'use strict';
 
-  var DELAY_MS = 400;
+  var DELAY_MS = 600;
+  var CLOSE_DELAY_MS = 300;
 
   function el(tag, cls) {
     var n = document.createElement(tag);
@@ -103,10 +104,21 @@
   function create(opts) {
     var onAction = (opts && opts.onAction) || function () {};
     var current = null;       // { card, popover, doc }
-    var timer = null;
+    var openTimer = null;
+    var closeTimer = null;
 
-    function close() {
-      if (timer) { clearTimeout(timer); timer = null; }
+    function cancelClose() {
+      if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
+    }
+
+    function scheduleClose() {
+      cancelClose();
+      closeTimer = setTimeout(closeNow, CLOSE_DELAY_MS);
+    }
+
+    function closeNow() {
+      cancelClose();
+      if (openTimer) { clearTimeout(openTimer); openTimer = null; }
       if (current && current.popover && current.popover.parentNode) {
         current.popover.parentNode.removeChild(current.popover);
       }
@@ -116,14 +128,20 @@
       current = null;
     }
 
+    // Public close (immediate) — used by action buttons and disarm.
+    function close() { closeNow(); }
+
     function show(card, doc) {
-      close();
+      closeNow();
       var pop = build(doc, onAction, close);
       pop.style.position = 'absolute';
       document.body.appendChild(pop);
       anchor(pop, card);
       card.setAttribute('data-mf-hover-active', 'true');
       current = { card: card, popover: pop, doc: doc };
+      // Keep popover open while mouse is over it.
+      pop.addEventListener('mouseenter', cancelClose);
+      pop.addEventListener('mouseleave', scheduleClose);
       MFTelemetry && MFTelemetry.emit && MFTelemetry.emit(
         'ui.hover_preview_shown', { doc_id: doc.id || '' }
       );
@@ -152,12 +170,13 @@
 
     function armOn(card, doc) {
       function onEnter() {
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(function () { show(card, doc); }, DELAY_MS);
+        cancelClose();
+        if (openTimer) clearTimeout(openTimer);
+        openTimer = setTimeout(function () { show(card, doc); }, DELAY_MS);
       }
       function onLeave() {
-        if (timer) { clearTimeout(timer); timer = null; }
-        if (current && current.card === card) close();
+        if (openTimer) { clearTimeout(openTimer); openTimer = null; }
+        if (current && current.card === card) scheduleClose();
       }
       card.addEventListener('mouseenter', onEnter);
       card.addEventListener('mouseleave', onLeave);
