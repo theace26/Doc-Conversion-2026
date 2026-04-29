@@ -34,3 +34,15 @@ def test_role_hierarchy_comparison():
     assert Role.OPERATOR >= Role.MEMBER
     assert Role.ADMIN >= Role.MEMBER
     assert not (Role.MEMBER >= Role.ADMIN)
+
+
+def test_role_non_string_defaults_to_member():
+    """Defensive: non-string role claims (int, list, dict) -> member, not crash.
+
+    Some JWT issuers encode role as an integer or array; the function must fail
+    closed, never raise.
+    """
+    assert extract_role({"sub": "x", "role": 2}) == Role.MEMBER
+    assert extract_role({"sub": "x", "role": ["admin"]}) == Role.MEMBER
+    assert extract_role({"sub": "x", "role": {"name": "admin"}}) == Role.MEMBER
+    assert extract_role({"sub": "x", "role": None}) == Role.MEMBER

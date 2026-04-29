@@ -213,5 +213,7 @@ def extract_role(claims: dict) -> Role:
     Defensive: missing or unknown role -> MEMBER (least privilege).
     Case-insensitive on the role string.
     """
-    raw = (claims.get("role") or "").strip().lower()
-    return _ROLE_BY_NAME.get(raw, Role.MEMBER)
+    raw = claims.get("role")
+    if not isinstance(raw, str):
+        return Role.MEMBER
+    return _ROLE_BY_NAME.get(raw.strip().lower(), Role.MEMBER)
