@@ -439,3 +439,56 @@ def test_is_cancelled_synchronous():
     from core import active_ops
     import inspect
     assert not inspect.iscoroutinefunction(active_ops.is_cancelled)
+
+
+@pytest.mark.asyncio
+async def test_list_ops_returns_running_plus_recently_finished(client):
+    from core import active_ops
+
+    op_run = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="x@x",
+    )
+
+    op_done = await active_ops.register_op(
+        op_type="pipeline.run_now", label="Y", icon="⚙",
+        origin_url="/", started_by="x@x",
+    )
+    await active_ops.finish_op(op_done)   # finished now → in 30s window
+
+    ops = await active_ops.list_ops()
+    op_ids = {o.op_id for o in ops}
+    assert op_run in op_ids
+    assert op_done in op_ids
+
+
+@pytest.mark.asyncio
+async def test_list_ops_excludes_finished_older_than_30s(client):
+    """Manually back-date a finished_at_epoch to 31s ago and expect it
+    to be excluded from list_ops()."""
+    from core import active_ops
+    from core.db.connection import db_execute, db_write_with_retry
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="Z", icon="⚙",
+        origin_url="/", started_by="x@x",
+    )
+    await active_ops.finish_op(op_id)
+
+    # Back-date in DB
+    old_finish = time.time() - 31
+
+    async def _do_backdate() -> None:
+        await db_execute(
+            "UPDATE active_operations SET finished_at_epoch=? WHERE op_id=?",
+            (old_finish, op_id),
+        )
+
+    await db_write_with_retry(_do_backdate)
+    # And in in-memory state
+    async with active_ops._lock:
+        active_ops._ops[op_id].finished_at_epoch = old_finish
+
+    ops = await active_ops.list_ops()
+    op_ids = {o.op_id for o in ops}
+    assert op_id not in op_ids

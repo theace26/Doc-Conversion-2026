@@ -411,3 +411,35 @@ async def cancel_op(op_id: str) -> bool:
             error_msg=f"Cancel cleanup failed: {type(exc).__name__}: {exc}",
         )
         return False
+
+
+# ── Listing (spec §10) ─────────────────────────────────────────────────
+_GRACE_S = 30.0
+
+
+async def list_ops(include_finished: bool = True) -> list[ActiveOperation]:
+    """Returns running ops + ops finished within last 30s grace window.
+    Older finished ops are filtered out for UI hygiene (still in DB
+    until daily auto-purge — see spec §10).
+
+    Returns defensive copies so callers cannot mutate registry state."""
+    cutoff = time.time() - _GRACE_S
+    async with _lock:
+        result: list[ActiveOperation] = []
+        for op in _ops.values():
+            if op.finished_at_epoch is None:
+                copy = ActiveOperation(**op.__dict__)
+                copy.extra = dict(op.extra)
+                result.append(copy)
+            elif include_finished and op.finished_at_epoch >= cutoff:
+                copy = ActiveOperation(**op.__dict__)
+                copy.extra = dict(op.extra)
+                result.append(copy)
+        # Stable order: running first (oldest first), then finished
+        # (most recent first)
+        result.sort(key=lambda o: (
+            o.finished_at_epoch is not None,
+            o.started_at_epoch if o.finished_at_epoch is None
+            else -o.finished_at_epoch,
+        ))
+    return result
