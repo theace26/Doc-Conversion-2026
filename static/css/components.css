@@ -201,3 +201,35 @@
 .mf-avatar[aria-expanded="true"] {
   box-shadow: 0 0 0 3px rgba(91, 61, 245, 0.35);
 }
+
+/* === layout-icon button === */
+.mf-layout-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--mf-color-text-muted);
+  padding: 0;
+  transition: background var(--mf-transition-fast),
+              border-color var(--mf-transition-fast),
+              color var(--mf-transition-fast);
+}
+.mf-layout-icon:hover {
+  background: var(--mf-surface-soft);
+  border-color: var(--mf-border);
+  color: var(--mf-color-accent);
+}
+.mf-layout-icon[aria-expanded="true"] {
+  background: var(--mf-color-accent-tint-2);
+  border-color: var(--mf-color-accent-border);
+  color: var(--mf-color-accent);
+}
+.mf-layout-icon svg {
+  width: 18px;
+  height: 18px;
+}
