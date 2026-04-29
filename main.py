@@ -501,6 +501,10 @@ app.include_router(prproj_routes.router)
 from api.routes import user_prefs as user_prefs_routes
 app.include_router(user_prefs_routes.router)
 
+# UX overhaul §13: UI telemetry sink (unauthenticated, ui.* events only)
+from api.routes import telemetry as telemetry_routes
+app.include_router(telemetry_routes.router)
+
 # /pipeline -> /activity 301 alias (one-release deprecation window).
 # Spec §1: route renamed during UX overhaul. Remove after Plan 4 ships
 # and confirm no internal links / bookmarks still hit /pipeline.
