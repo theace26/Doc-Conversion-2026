@@ -497,6 +497,23 @@ app.include_router(preview_routes.router)
 from api.routes import prproj as prproj_routes
 app.include_router(prproj_routes.router)
 
+# /pipeline -> /activity 301 alias (one-release deprecation window).
+# Spec §1: route renamed during UX overhaul. Remove after Plan 4 ships
+# and confirm no internal links / bookmarks still hit /pipeline.
+@app.get("/pipeline", include_in_schema=False)
+@app.get("/pipeline/{rest:path}", include_in_schema=False)
+async def _pipeline_alias(rest: str = ""):
+    target = "/activity" + (("/" + rest) if rest else "")
+    return RedirectResponse(target, status_code=301)
+
+
+# Placeholder /activity handler — Plan 4 replaces this with the real
+# Activity dashboard. Redirects to home so the target exists.
+@app.get("/activity", include_in_schema=False)
+async def _activity_placeholder():
+    return RedirectResponse("/", status_code=302)
+
+
 log.info("markflow.all_routes_registered")
 
 # ── Static files ──────────────────────────────────────────────────────────────
