@@ -150,4 +150,10 @@
   MFPrefs.subscribe('density', function () {
     requestAnimationFrame(rearmHovers);
   });
+
+  // === Search-home demo ===
+  var shSlot = document.getElementById('mf-search-home-demo');
+  MFSearchHome.mount(shSlot, {
+    systemStatus: 'All systems running · 12,847 indexed (sample)',
+  });
 })();
