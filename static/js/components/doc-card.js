@@ -41,6 +41,7 @@
 
     // Gradient band with format label.
     var band = el('div', 'mf-doc-card__band mf-doc-card__band--' + fmt);
+    band.style.background = 'var(--mf-fmt-' + fmt + ')';
     var label = el('span', 'mf-doc-card__band-label');
     label.textContent = fmt.toUpperCase();
     band.appendChild(label);
@@ -61,6 +62,15 @@
       snippet.appendChild(document.createTextNode(doc.snippet));
     }
     thumb.appendChild(snippet);
+
+    var meta = el('div', 'mf-doc-card__meta');
+    var sizeSpan = el('span', 'mf-doc-card__meta-size');
+    sizeSpan.textContent = formatSize(doc.size);
+    var stampSpan = el('span', 'mf-doc-card__meta-stamp');
+    stampSpan.textContent = formatStamp(doc.modified);
+    meta.appendChild(sizeSpan);
+    meta.appendChild(stampSpan);
+    thumb.appendChild(meta);
 
     card.appendChild(thumb);
     return card;
@@ -130,6 +140,7 @@
     create: create,
     createListRow: createListRow,
     formatSize: formatSize,
-    formatStamp: formatStamp
+    formatStamp: formatStamp,
+    safeFormat: safeFormat
   };
 })(window);

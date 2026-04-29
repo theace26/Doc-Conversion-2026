@@ -380,7 +380,7 @@
   overflow: hidden;
   position: relative;
   background: var(--mf-surface-paper);
-  border: 1px solid #e8e6df;
+  border: 1px solid var(--mf-border-warm);
   box-shadow: var(--mf-shadow-thumb);
   display: flex;
   flex-direction: column;
@@ -399,12 +399,12 @@
 .mf-doc-card__band-label {
   position: absolute;
   left: 0.55rem; bottom: 0.4rem;
-  color: #fff;
+  color: var(--mf-surface);
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.18);
+  text-shadow: var(--mf-shadow-text);
 }
 
 .mf-doc-card__fav {
@@ -412,7 +412,7 @@
   top: 0.45rem; right: 0.45rem;
   width: 24px; height: 24px;
   border-radius: 50%;
-  background: rgba(255,255,255,0.92);
+  background: var(--mf-surface-glass);
   color: var(--mf-color-text-muted);
   display: flex; align-items: center; justify-content: center;
   font-size: 0.78rem;
@@ -421,7 +421,7 @@
 .mf-doc-card__snippet {
   padding: 0.6rem 0.7rem 0.5rem;
   font-size: 0.65rem;
-  color: #2a2a2a;
+  color: var(--mf-color-text-soft);
   line-height: 1.45;
   font-family: var(--mf-font-serif);
   flex: 1;
@@ -433,7 +433,7 @@
   position: absolute;
   left: 0; right: 0; bottom: 0;
   height: 30%;
-  background: linear-gradient(180deg, rgba(254,254,251,0) 0%, rgba(254,254,251,1) 92%);
+  background: var(--mf-gradient-paper-fade);
   pointer-events: none;
 }
 .mf-doc-card__snippet-h {
@@ -444,6 +444,15 @@
   font-family: var(--mf-font-sans);
 }
 
+.mf-doc-card__meta {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.25rem 0.5rem 0.35rem;
+  font-size: var(--mf-text-micro);
+  color: var(--mf-color-text-faint);
+  font-family: var(--mf-font-sans);
+}
+
 /* === document list-row (list density) === */
 .mf-doc-list-row {
   display: grid;
@@ -451,7 +460,7 @@
   gap: 0.85rem;
   align-items: center;
   padding: 0.5rem;
-  border-bottom: 1px solid #f4f4f4;
+  border-bottom: 1px solid var(--mf-border-soft);
   font-size: 0.84rem;
   cursor: pointer;
   font-family: var(--mf-font-sans);
@@ -467,7 +476,7 @@
   font-size: 0.55rem;
   font-weight: 800;
   letter-spacing: 0.04em;
-  color: #fff;
+  color: var(--mf-surface);
 }
 .mf-doc-list-row__fmt--pdf  { background: var(--mf-fmt-pdf); }
 .mf-doc-list-row__fmt--docx { background: var(--mf-fmt-docx); }

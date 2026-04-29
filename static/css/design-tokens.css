@@ -97,6 +97,12 @@
   /* === Animation === */
   --mf-transition-fast: 0.15s;
   --mf-transition-med:  0.2s;
+
+  /* === Card surfaces === */
+  --mf-border-warm:         #e8e6df;                                                       /* warm thumbnail border */
+  --mf-surface-glass:       rgba(255, 255, 255, 0.92);                                     /* semi-transparent overlay */
+  --mf-gradient-paper-fade: linear-gradient(180deg, rgba(254,254,251,0) 0%, rgba(254,254,251,1) 92%); /* snippet fade */
+  --mf-shadow-text:         0 1px 2px rgba(0, 0, 0, 0.18);                                /* text on gradient band */
 }
 
 /* Production: hide the dev version chip (Plan 1B will style .mf-ver-chip). */
