@@ -537,3 +537,81 @@
   display: block;
   border-top: 1px solid var(--mf-border-soft);
 }
+
+/* === hover preview popover === */
+.mf-hover-preview {
+  position: absolute;
+  background: var(--mf-surface);
+  border: 1px solid var(--mf-border);
+  border-radius: var(--mf-radius-card);
+  box-shadow: 0 12px 40px -8px rgba(0,0,0,0.22);
+  padding: 1rem 1rem 0.85rem;
+  z-index: 25;
+  font-family: var(--mf-font-sans);
+  pointer-events: auto;
+}
+.mf-hover-preview__title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--mf-color-text);
+  margin: 0 0 0.25rem;
+  line-height: 1.25;
+}
+.mf-hover-preview__path {
+  font-size: 0.74rem;
+  color: var(--mf-color-accent);
+  font-family: var(--mf-font-mono);
+  margin-bottom: 0.7rem;
+  word-break: break-all;
+}
+.mf-hover-preview__grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3rem 0.7rem;
+  font-size: 0.78rem;
+  margin-bottom: 0.85rem;
+}
+.mf-hover-preview__k { color: var(--mf-color-text-faint); }
+.mf-hover-preview__v {
+  color: var(--mf-color-text);
+  font-weight: 500;
+}
+.mf-hover-preview__summary {
+  font-size: 0.78rem;
+  color: var(--mf-color-text-soft);
+  line-height: 1.45;
+  padding: 0.7rem 0.8rem;
+  background: var(--mf-surface-soft);
+  border-radius: var(--mf-radius-thumb);
+  margin-bottom: 0.85rem;
+  border-left: 2px solid var(--mf-color-accent);
+}
+.mf-hover-preview__summary-lab {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--mf-color-accent);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 0.25rem;
+}
+.mf-hover-preview__actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.mf-hover-preview__btn {
+  background: var(--mf-surface);
+  border: 1px solid var(--mf-border);
+  border-radius: var(--mf-radius-thumb);
+  padding: 0.4rem 0.75rem;
+  font-size: 0.78rem;
+  color: var(--mf-color-text-soft);
+  cursor: pointer;
+  font-weight: 500;
+  font-family: inherit;
+}
+.mf-hover-preview__btn--primary {
+  background: var(--mf-color-accent);
+  border-color: var(--mf-color-accent);
+  color: var(--mf-surface);
+}
