@@ -25,30 +25,17 @@ from fastapi.testclient import TestClient  # noqa: E402
 from main import app  # noqa: E402
 
 
-# Ensure the mf_user_prefs table exists in the test DB before tests run.
-import asyncio  # noqa: E402
-import aiosqlite  # noqa: E402
-
-
-def _init_db():
-    async def _run():
-        async with aiosqlite.connect(str(_TEST_DB)) as conn:
-            await conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS mf_user_prefs (
-                    user_id    TEXT PRIMARY KEY,
-                    value      TEXT NOT NULL DEFAULT '{}',
-                    schema_ver INTEGER NOT NULL DEFAULT 1,
-                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-                )
-                """
-            )
-            await conn.commit()
-
-    asyncio.run(_run())
-
-
-_init_db()
+# Initialize the test DB schema synchronously before any test runs.
+# The app lifespan doesn't run in TestClient by default, so we apply
+# _SCHEMA_SQL manually. This is safe to repeat (IF NOT EXISTS).
+import sqlite3 as _sqlite3  # noqa: E402
+from core.db.schema import _SCHEMA_SQL  # noqa: E402
+from core.db.connection import DB_PATH as _DB_PATH  # noqa: E402
+_conn = _sqlite3.connect(str(_DB_PATH))
+_conn.executescript(_SCHEMA_SQL)
+_conn.commit()
+_conn.close()
+del _conn
 
 
 @pytest.fixture
