@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/user-prefs", tags=["user-prefs"])
 
 
 @router.get("")
-async def read_user_prefs(user: AuthenticatedUser = Depends(get_current_user)):
+async def read_user_prefs(user: AuthenticatedUser = Depends(get_current_user)) -> dict:
     db = get_db_path()
     return await get_user_prefs(db, user.sub)
 
@@ -23,7 +23,7 @@ async def read_user_prefs(user: AuthenticatedUser = Depends(get_current_user)):
 async def write_user_prefs(
     payload: dict[str, Any],
     user: AuthenticatedUser = Depends(get_current_user),
-):
+) -> dict:
     db = get_db_path()
     try:
         await set_user_prefs(db, user.sub, payload)
