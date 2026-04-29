@@ -161,6 +161,10 @@ No temporary instrumentation currently active.
 - **Output paths** — always go through `core/storage_paths.get_output_root()` (v0.34.1). Never capture as a module-level constant.
 - **Scan priority:** Bulk > Run Now > Lifecycle. Enforced by `core/scan_coordinator.py`.
 - **Folder drop** — Convert page accepts whole folders via drag-and-drop.
+- **Per-user preferences are portable** — `core/user_prefs.py` stores per-user prefs (layout, density, etc.) in the `mf_user_prefs` table keyed by UnionCore subject claim. **Distinct from** the existing `core/db/preferences.py` + `user_preferences` table (system-level singletons; do not conflate). Client mirror in `localStorage` via `static/js/preferences.js` (Plan 1B) with debounced server sync to `/api/user-prefs`. Spec: `docs/superpowers/specs/2026-04-28-ux-overhaul-search-as-home-design.md` §10.
+- **Role hierarchy from JWT** — `core.auth.Role` IntEnum (MEMBER=0 < OPERATOR=1 < ADMIN=2). Use `extract_role(claims)` and `role >= Role.OPERATOR` for visibility gates. Spec §11.
+- **`ENABLE_NEW_UX` feature flag** — gates new UX rendering across Plans 1B and beyond. Default off in prod until phase 4 ships. Read via `core.feature_flags.is_new_ux_enabled()`.
+- **Design tokens are CSS variables** — `static/css/design-tokens.css` is the single source of truth for colors, type, spacing, shadows. Never hardcode hex outside that file. Component CSS in `static/css/components.css` consumes tokens via `var(--mf-*)`.
 
 All phases 0–11 are **Done**. Phase 1 historical spec: [`docs/phase-1-instructions.md`](docs/phase-1-instructions.md).
 
@@ -182,6 +186,10 @@ All phases 0–11 are **Done**. Phase 1 historical spec: [`docs/phase-1-instruct
 | `core/auth.py` | JWT validation, role hierarchy, API key verification |
 | `Dockerfile.base` / `Dockerfile` | Base (system deps) + app (pip + code) |
 | `docker-compose.yml` | Ports: 8000 app, 8001 MCP, 7700 Meilisearch |
+| `core/user_prefs.py` | Server-side **per-user** preferences (portable, JSON value, schema versioned). Distinct from `core/db/preferences.py` (system singletons). |
+| `core/feature_flags.py` | Feature flag accessors (e.g. `is_new_ux_enabled()`) |
+| `static/css/design-tokens.css` | Visual system as CSS variables — single source of truth |
+| `static/css/components.css` | Shared component classes (pills, toggles, segmented, pulse, role pill, version chip) |
 
 ---
 
