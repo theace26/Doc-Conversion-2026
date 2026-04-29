@@ -21,6 +21,7 @@ from typing import Any, Awaitable, Callable
 
 import structlog
 
+from core.database import db_fetch_all
 from core.db.connection import db_execute, db_write_with_retry
 
 log = structlog.get_logger(__name__)
@@ -415,6 +416,10 @@ async def cancel_op(op_id: str) -> bool:
 
 # ── Listing (spec §10) ─────────────────────────────────────────────────
 _GRACE_S = 30.0
+_HYDRATE_CAP = 20
+# +1s past _GRACE_S so older-than-cap rows are JUST outside the grace
+# window — minimizes the visible "ghost time" gap on the show-all UI.
+_GRACE_PRE_FINALIZE_S = _GRACE_S + 1   # 31s
 
 
 async def list_ops(include_finished: bool = True) -> list[ActiveOperation]:
@@ -439,3 +444,80 @@ async def list_ops(include_finished: bool = True) -> list[ActiveOperation]:
             else -o.finished_at_epoch,
         ))
     return result
+
+
+# ── Startup hydration (spec §10, F5/F6) ────────────────────────────────
+async def hydrate_on_startup() -> None:
+    """Run from FastAPI lifespan BEFORE scheduler / routers come up.
+
+    Any row with finished_at_epoch IS NULL was running when the previous
+    process died. Mark up to 20 most-recent as terminated-by-restart
+    visible in the 30s grace window. Older ones get
+    finished_at_epoch=now()-31s so they show only via "show all" expand.
+
+    On any failure, set _hydration_complete anyway and log critical
+    (spec F6 — graceful degradation, never block startup)."""
+    try:
+        rows = await db_fetch_all(
+            "SELECT op_id FROM active_operations "
+            "WHERE finished_at_epoch IS NULL "
+            "ORDER BY started_at_epoch DESC"
+        )
+    except Exception as exc:
+        log.critical("active_ops.hydrate_query_failed", error=str(exc))
+        _hydration_complete.set()
+        return
+
+    if not rows:
+        log.info("active_ops.hydrate_complete", terminated_count=0)
+        _hydration_complete.set()
+        return
+
+    now = time.time()
+    msg = "Container restarted; operation state lost"
+    for i, row in enumerate(rows):
+        # Top 20: visible in 30s grace window
+        finished_at = now if i < _HYDRATE_CAP else (now - _GRACE_PRE_FINALIZE_S)
+
+        async def _do_finalize(r=row, fa=finished_at):
+            await db_execute(
+                "UPDATE active_operations SET "
+                "finished_at_epoch=?, error_msg=? "
+                "WHERE op_id=?",
+                (fa, msg, r["op_id"]),
+            )
+
+        try:
+            await db_write_with_retry(_do_finalize)
+        except Exception as exc:
+            log.error("active_ops.hydrate_update_failed",
+                      op_id=row["op_id"], error=str(exc))
+
+    # Load the surfaced (top _HYDRATE_CAP) rows into _ops so list_ops()
+    # finds them within the 30s grace window. Without this, the spec's
+    # "operator sees terminated-by-restart in grace window" promise is
+    # unobservable: list_ops() reads only from _ops, not from DB. The
+    # rows beyond _HYDRATE_CAP got back-dated finished_at_epoch outside
+    # the grace window, so they're intentionally NOT loaded here — they
+    # only appear via a future "show all" UI expand.
+    surfaced_op_ids = [r["op_id"] for r in rows[:_HYDRATE_CAP]]
+    if surfaced_op_ids:
+        try:
+            placeholders = ",".join("?" * len(surfaced_op_ids))
+            full_rows = await db_fetch_all(
+                f"SELECT * FROM active_operations WHERE op_id IN ({placeholders})",
+                tuple(surfaced_op_ids),
+            )
+            async with _lock:
+                for full_row in full_rows:
+                    op = ActiveOperation.from_db_row(full_row)
+                    _ops[op.op_id] = op
+        except Exception as exc:
+            log.error("active_ops.hydrate_load_failed", error=str(exc))
+
+    log.warning(
+        "active_ops.terminated_by_restart",
+        total=len(rows),
+        surfaced_in_grace=min(_HYDRATE_CAP, len(rows)),
+    )
+    _hydration_complete.set()

@@ -518,3 +518,166 @@ async def test_list_ops_orders_running_before_finished(client):
     # Both running ops appear before the finished one
     assert op_ids.index(op_a) < op_ids.index(op_b)
     assert op_ids.index(op_c) < op_ids.index(op_b)
+
+
+@pytest.mark.asyncio
+async def test_hydrate_marks_running_rows_as_terminated_by_restart(client):
+    """Pre-seed 5 rows with finished_at_epoch=NULL; hydrate must
+    flag them as terminated-by-restart."""
+    from core import active_ops
+    from core.db.connection import db_execute, db_write_with_retry
+
+    # Reset state: clear any prior in-memory ops, clear hydration event
+    async with active_ops._lock:
+        active_ops._ops.clear()
+    active_ops._hydration_complete.clear()
+
+    # Seed 5 running rows directly
+    now = time.time()
+    for i in range(5):
+        async def _do_seed(i=i, now=now):
+            await db_execute(
+                "INSERT INTO active_operations "
+                "(op_id, op_type, label, icon, origin_url, started_by, "
+                "started_at_epoch, last_progress_at_epoch) "
+                "VALUES (?, 'pipeline.run_now', 'X', '⚙', '/', 'x@x', ?, ?)",
+                (f"hydrate-test-{i}", now - i, now - i),
+            )
+        await db_write_with_retry(_do_seed)
+
+    # Run hydration
+    await active_ops.hydrate_on_startup()
+    assert active_ops._hydration_complete.is_set()
+
+    # All 5 rows now have finished_at_epoch set
+    rows = await db_fetch_all(
+        "SELECT op_id, finished_at_epoch, error_msg "
+        "FROM active_operations WHERE op_id LIKE 'hydrate-test-%'"
+    )
+    assert len(rows) == 5
+    for r in rows:
+        assert r["finished_at_epoch"] is not None
+        assert "restart" in (r["error_msg"] or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_hydrate_caps_visible_at_20(client):
+    """If 25 rows were running, the top 20 (most-recent) get a
+    finished_at_epoch within the 30s grace window; older 5 get
+    finished_at_epoch=now-31s so they fall outside."""
+    from core import active_ops
+    from core.db.connection import db_execute, db_write_with_retry
+
+    async with active_ops._lock:
+        active_ops._ops.clear()
+    active_ops._hydration_complete.clear()
+
+    # Clean any leftover hydrate-cap-* rows from prior test runs
+    async def _do_cleanup():
+        await db_execute(
+            "DELETE FROM active_operations WHERE op_id LIKE 'hydrate-cap-%'"
+        )
+    await db_write_with_retry(_do_cleanup)
+
+    now = time.time()
+    for i in range(25):
+        async def _do_seed(i=i, now=now):
+            await db_execute(
+                "INSERT INTO active_operations "
+                "(op_id, op_type, label, icon, origin_url, started_by, "
+                "started_at_epoch, last_progress_at_epoch) "
+                "VALUES (?, 'pipeline.run_now', 'X', '⚙', '/', 'x@x', ?, ?)",
+                (f"hydrate-cap-{i:02d}", now - i, now - i),
+            )
+        await db_write_with_retry(_do_seed)
+
+    await active_ops.hydrate_on_startup()
+
+    rows = await db_fetch_all(
+        "SELECT op_id, finished_at_epoch FROM active_operations "
+        "WHERE op_id LIKE 'hydrate-cap-%' ORDER BY started_at_epoch DESC"
+    )
+    assert len(rows) == 25
+    # Compare against current time (not the pre-seed `now`): seeding
+    # 25 rows through the single-writer queue can take seconds, so
+    # `now` may be 5-10s stale by the time we reach the assertions.
+    check_at = time.time()
+    # Top 20 (most-recent — i=0..19) within grace window
+    for r in rows[:20]:
+        assert (check_at - r["finished_at_epoch"]) < 30
+    # Bottom 5 (i=20..24) outside grace window
+    for r in rows[20:]:
+        assert (check_at - r["finished_at_epoch"]) > 30
+
+
+@pytest.mark.asyncio
+async def test_hydrate_failure_does_not_crash(client):
+    """Spec F6 — hydration failure logs critical and sets event anyway,
+    so workers can still register (degraded mode)."""
+    from core import active_ops
+    from unittest.mock import patch
+
+    async with active_ops._lock:
+        active_ops._ops.clear()
+    active_ops._hydration_complete.clear()
+
+    with patch("core.active_ops.db_fetch_all",
+               side_effect=RuntimeError("db gone")):
+        await active_ops.hydrate_on_startup()
+
+    # Event still set (degraded mode)
+    assert active_ops._hydration_complete.is_set()
+
+
+@pytest.mark.asyncio
+async def test_hydrate_makes_surfaced_rows_visible_via_list_ops(client):
+    """Spec §10/§13: terminated-by-restart rows must appear in list_ops()
+    within the 30s grace window — i.e. hydrate must populate _ops, not
+    just write to DB. Caught a critical bug where the original Task 8
+    only wrote to DB, leaving _ops empty so list_ops returned [] after
+    a restart and the operator never saw the restart-terminated rows."""
+    from core import active_ops
+    from core.db.connection import db_execute, db_write_with_retry
+
+    # Reset state
+    async with active_ops._lock:
+        active_ops._ops.clear()
+    active_ops._hydration_complete.clear()
+
+    # Wipe any leftover test rows
+    async def _do_cleanup():
+        await db_execute(
+            "DELETE FROM active_operations WHERE op_id LIKE 'hydrate-vis-%'"
+        )
+    await db_write_with_retry(_do_cleanup)
+
+    # Seed 3 running rows
+    now = time.time()
+    for i in range(3):
+        async def _do_seed(i=i, now=now):
+            await db_execute(
+                "INSERT INTO active_operations "
+                "(op_id, op_type, label, icon, origin_url, started_by, "
+                "started_at_epoch, last_progress_at_epoch) "
+                "VALUES (?, 'pipeline.run_now', ?, '⚙', '/', 'x@x', ?, ?)",
+                (f"hydrate-vis-{i}", f"label-{i}", now - i, now - i),
+            )
+        await db_write_with_retry(_do_seed)
+
+    await active_ops.hydrate_on_startup()
+
+    # The 3 surfaced rows MUST appear in list_ops()
+    ops = await active_ops.list_ops()
+    op_ids = {o.op_id for o in ops}
+    for i in range(3):
+        assert f"hydrate-vis-{i}" in op_ids, (
+            f"hydrate-vis-{i} missing from list_ops — "
+            "hydrate did not populate _ops, breaks 30s grace window UI"
+        )
+
+    # And each surfaced row carries the restart marker
+    surfaced = [o for o in ops if o.op_id.startswith("hydrate-vis-")]
+    for op in surfaced:
+        assert op.error_msg is not None
+        assert "restart" in op.error_msg.lower()
+        assert op.finished_at_epoch is not None
