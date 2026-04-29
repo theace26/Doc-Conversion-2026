@@ -84,7 +84,11 @@
   function formatLine(doc) {
     var parts = [];
     if (doc.format) parts.push(String(doc.format).toUpperCase());
-    if (typeof doc.size === 'number') parts.push(MFDocCard.formatSize(doc.size));
+    if (typeof doc.size === 'number') {
+      parts.push((typeof MFDocCard !== 'undefined' && MFDocCard.formatSize)
+        ? MFDocCard.formatSize(doc.size)
+        : doc.size + ' B');
+    }
     return parts.length ? parts.join(' · ') : '-';
   }
   function formatStamp(iso) {

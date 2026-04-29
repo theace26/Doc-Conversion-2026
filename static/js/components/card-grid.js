@@ -13,8 +13,6 @@
 
   var DENSITIES = { cards: 1, compact: 1, list: 1 };
 
-  var unsub = null;
-
   function clear(node) {
     while (node.firstChild) node.removeChild(node.firstChild);
   }
@@ -53,10 +51,12 @@
     }
 
     // Re-apply current selection after re-render.
+    // unsub is stored on the slot element so multiple simultaneous grids
+    // do not stomp each other's subscriptions.
     if (typeof MFCardSelection !== 'undefined') {
       applySelection(slot, new Set(MFCardSelection.list()));
-      if (unsub) unsub();
-      unsub = MFCardSelection.subscribe(function (selectedSet) {
+      if (slot._mfGridUnsub) slot._mfGridUnsub();
+      slot._mfGridUnsub = MFCardSelection.subscribe(function (selectedSet) {
         applySelection(slot, selectedSet);
       });
     }

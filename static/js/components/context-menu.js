@@ -124,10 +124,16 @@
 
       // Advanced section — depends on prefs
       var inlineDefault = MFPrefs && MFPrefs.get && MFPrefs.get('advanced_actions_inline');
-      var showInline = inlineDefault === true || advExpanded;
       root.appendChild(buildSep(true));
-      if (showInline) {
+      if (inlineDefault === true) {
+        // Pref says always show inline — label, no expander toggle.
         root.appendChild(buildSectionLabel('Advanced · Markdown & AI integrations'));
+        ADVANCED_ITEMS.forEach(function (item) {
+          root.appendChild(buildItem(item, { adv: true }));
+        });
+      } else if (advExpanded) {
+        // User expanded — show open expander (click to collapse) + items.
+        root.appendChild(buildAdvExpander(true));
         ADVANCED_ITEMS.forEach(function (item) {
           root.appendChild(buildItem(item, { adv: true }));
         });
@@ -157,7 +163,7 @@
       close();
     });
 
-    var onOutside = null, onEsc = null;
+    var onOutside = null, onEsc = null, listenerRafId = null;
 
     function openAt(x, y, doc) {
       current = { doc: doc, x: x, y: y };
@@ -180,10 +186,10 @@
         root.style.top = (window.scrollY + Math.max(8, y - r.height)) + 'px';
       }
 
-      requestAnimationFrame(function () {
-        onOutside = function (ev) {
-          if (!root.contains(ev.target)) close();
-        };
+      if (listenerRafId) cancelAnimationFrame(listenerRafId);
+      listenerRafId = requestAnimationFrame(function () {
+        listenerRafId = null;
+        onOutside = function (ev) { if (!root.contains(ev.target)) close(); };
         onEsc = function (ev) { if (ev.key === 'Escape') close(); };
         document.addEventListener('click', onOutside);
         document.addEventListener('keydown', onEsc);
@@ -191,10 +197,11 @@
     }
 
     function close() {
+      if (listenerRafId) { cancelAnimationFrame(listenerRafId); listenerRafId = null; }
       root.style.display = 'none';
       if (root.parentNode) root.parentNode.removeChild(root);
-      document.removeEventListener('click', onOutside);
-      document.removeEventListener('keydown', onEsc);
+      if (onOutside) { document.removeEventListener('click', onOutside); onOutside = null; }
+      if (onEsc) { document.removeEventListener('keydown', onEsc); onEsc = null; }
       current = null;
     }
 

@@ -100,7 +100,7 @@
 
     // Mount density toggle into header slot
     var densitySlot = slot.querySelector('[data-mf-slot="density-toggle"]');
-    MFDensityToggle.mount(densitySlot);
+    if (typeof MFDensityToggle !== 'undefined') MFDensityToggle.mount(densitySlot);
 
     // Mount bulk bar (auto-hides when empty)
     var bb = MFBulkBar.create({
