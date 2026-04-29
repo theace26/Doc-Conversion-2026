@@ -496,6 +496,18 @@ CREATE TABLE IF NOT EXISTS prproj_media_refs (
 CREATE INDEX IF NOT EXISTS idx_prproj_refs_media_path  ON prproj_media_refs(media_path);
 CREATE INDEX IF NOT EXISTS idx_prproj_refs_project_id  ON prproj_media_refs(project_id);
 CREATE INDEX IF NOT EXISTS idx_prproj_refs_project_path ON prproj_media_refs(project_path);
+
+-- Per-user preferences (portable, keyed by UnionCore `sub` claim).
+-- Distinct from `user_preferences` above (which is system-level singletons).
+-- Spec: docs/superpowers/specs/2026-04-28-ux-overhaul-search-as-home-design.md §10
+CREATE TABLE IF NOT EXISTS mf_user_prefs (
+    user_id     TEXT PRIMARY KEY,
+    value       TEXT NOT NULL,
+    schema_ver  INTEGER NOT NULL DEFAULT 1,
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_mf_user_prefs_updated_at ON mf_user_prefs(updated_at);
 """
 
 # ── Versioned schema migrations ──────────────────────────────────────────────
