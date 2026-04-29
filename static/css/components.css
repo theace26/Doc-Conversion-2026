@@ -196,10 +196,10 @@
   transition: box-shadow var(--mf-transition-fast);
 }
 .mf-avatar:hover {
-  box-shadow: 0 0 0 3px rgba(91, 61, 245, 0.18);
+  box-shadow: 0 0 0 3px var(--mf-color-accent-ring);
 }
 .mf-avatar[aria-expanded="true"] {
-  box-shadow: 0 0 0 3px rgba(91, 61, 245, 0.35);
+  box-shadow: 0 0 0 3px var(--mf-color-accent-ring-on);
 }
 
 /* === layout-icon button === */

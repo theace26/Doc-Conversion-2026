@@ -12,6 +12,8 @@
   --mf-color-accent-tint:      #f3f0ff;  /* hover backgrounds, soft chips */
   --mf-color-accent-tint-2:    #f5f3ff;  /* extra-soft surfaces */
   --mf-color-accent-border:    #d8ceff;  /* selected/recommended outlines */
+  --mf-color-accent-ring:      rgba(91, 61, 245, 0.18);  /* focus ring — hover */
+  --mf-color-accent-ring-on:   rgba(91, 61, 245, 0.35);  /* focus ring — open/active */
 
   /* === Color — neutrals === */
   --mf-color-text:             #0a0a0a;
