@@ -95,4 +95,22 @@
 
   // Hydrate prefs, then initial render.
   MFPrefs.load().then(function () { render('admin'); });
+
+  // === Card grid demo ===
+  function renderCardGrid() {
+    var slot = document.getElementById('mf-card-grid');
+    if (!slot) return;
+    var density = MFPrefs.get('density') || 'cards';
+    MFCardGrid.mount(slot, MFSampleDocs, density);
+  }
+
+  // Mount density toggle once.
+  var densitySlot = document.getElementById('mf-density-toggle');
+  if (densitySlot) MFDensityToggle.mount(densitySlot);
+
+  // Re-render grid when density changes.
+  MFPrefs.subscribe('density', renderCardGrid);
+
+  // Initial grid render (runs after MFPrefs.load() resolves in the existing code).
+  renderCardGrid();
 })();
