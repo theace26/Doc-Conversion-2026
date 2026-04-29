@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>MarkFlow chrome dev — Plan 1B static</title>
+  <link rel="stylesheet" href="/static/css/design-tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, "SF Pro Display", Inter, system-ui, sans-serif;
+      background: #f7f7f9;
+    }
+    .dev-banner {
+      padding: 1.5rem 2rem;
+      max-width: 880px;
+      margin: 0 auto;
+      color: #5a5a5a;
+    }
+    .dev-banner h1 { color: #0a0a0a; margin: 0 0 0.4rem; font-size: 1.4rem; }
+    .dev-banner code {
+      background: #f3f0ff; color: #5b3df5;
+      padding: 0.06rem 0.4rem; border-radius: 4px;
+      font-family: ui-monospace, "SF Mono", monospace;
+    }
+    .role-switcher {
+      margin: 1rem 0;
+      display: flex;
+      gap: 0.5rem;
+    }
+    .role-switcher button {
+      padding: 0.4rem 0.85rem;
+      border-radius: 999px;
+      border: 1px solid #d8ceff;
+      background: #fff;
+      color: #5b3df5;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .role-switcher button.on {
+      background: #5b3df5;
+      color: #fff;
+      border-color: #5b3df5;
+    }
+  </style>
+</head>
+<body>
+  <div id="mf-top-nav"></div>
+
+  <div class="dev-banner">
+    <h1>Plan 1B — static chrome dev page</h1>
+    <p>Manual verification target for the four static chrome components: top-nav, version-chip, avatar, layout-icon. Click <code>member</code> / <code>operator</code> / <code>admin</code> to re-render the nav and confirm role-gated link visibility (Activity should be hidden for member).</p>
+
+    <div class="role-switcher">
+      <button data-role="member">member</button>
+      <button data-role="operator">operator</button>
+      <button data-role="admin" class="on">admin</button>
+    </div>
+
+    <p>Click avatar &rarr; console logs <code>avatar clicked</code>. Click layout-icon &rarr; console logs <code>layout-icon clicked</code>. Plan 1C connects these to actual popovers.</p>
+  </div>
+
+  <script src="/static/js/components/top-nav.js"></script>
+  <script src="/static/js/components/version-chip.js"></script>
+  <script src="/static/js/components/avatar.js"></script>
+  <script src="/static/js/components/layout-icon.js"></script>
+  <script src="/static/dev-chrome.js"></script>
+</body>
+</html>
