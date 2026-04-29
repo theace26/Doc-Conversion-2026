@@ -27,3 +27,17 @@ def test_new_ux_truthy_values(monkeypatch, val):
 def test_new_ux_falsy_values(monkeypatch, val):
     monkeypatch.setenv("ENABLE_NEW_UX", val)
     assert is_new_ux_enabled() is False
+
+
+def test_flag_reads_env_at_each_call(monkeypatch):
+    """Pins the no-caching contract: mid-session toggle works in both
+    directions (spec §13: 'mid-session toggle works in both directions').
+
+    A future @lru_cache or module-level read would silently break this.
+    """
+    monkeypatch.setenv("ENABLE_NEW_UX", "true")
+    assert is_new_ux_enabled() is True
+    monkeypatch.setenv("ENABLE_NEW_UX", "false")
+    assert is_new_ux_enabled() is False
+    monkeypatch.setenv("ENABLE_NEW_UX", "true")
+    assert is_new_ux_enabled() is True
