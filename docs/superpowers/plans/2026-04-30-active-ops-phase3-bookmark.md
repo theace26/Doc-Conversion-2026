@@ -1,23 +1,23 @@
 ---
-name: Active-ops Phase 3 bookmark — paused after Task 20
-description: feat/active-ops-registry @ ac95043 (v0.35.0); Tasks 14-20 shipped today (7/9 of Phase 3); 3 tasks remain (21 db.backup, 22 db.restore, 23 bulk.job). Dev container has stale base, pytest passes via docker cp pattern. To resume say "continue task 21".
+name: Active-ops Phase 3 bookmark — paused after Task 21
+description: feat/active-ops-registry @ 8a2788c (v0.35.0); Tasks 14-21 shipped (8/9 of Phase 3); 2 tasks remain (22 db.restore, 23 bulk.job). Dev container has stale base, pytest passes via docker cp pattern. To resume say "continue task 22".
 type: project
 originSessionId: dc09b8a6-926f-413f-9abc-6a2002d0fc24
 ---
-User asked for a bookmark while moving locations. Resume by saying
-"continue task 21" or similar.
+User is transferring to workstation; bookmarking again.  Resume by
+saying "continue task 22".
 
 ## Where things stand on `feat/active-ops-registry`
 
-- HEAD: `ac95043` — `feat(active_ops): retrofit analysis.rebuild + cancel hook (Task 20)`
-- All today's commits pushed to `origin/feat/active-ops-registry`
-- 7/7 integration tests pass alone and together (13.69s)
+- HEAD: `8a2788c` — `feat(active_ops): retrofit db.backup (Task 21)`
+- All commits pushed to `origin/feat/active-ops-registry`
+- 8/8 integration tests pass alone and together (13.71s)
 - Working tree: clean except for the pre-existing
   `docs/MarkFlow_Program_Summary_v2.docx` modification (not mine, not
   to be committed) and untracked junk (`.claude/settings.json`,
   `hashcat-queue/worker.log`, `docs/spreadsheet/~$phase_model_plan.xlsx`)
 
-## Today's commits in chronological order
+## Phase 3 commits in chronological order
 
 1. `8aaa9ff` — Task 15 retrofit pipeline.convert_selected
 2. `d8ea8fe` — Task 16 retrofit pipeline.scan
@@ -27,8 +27,10 @@ User asked for a bookmark while moving locations. Resume by saying
 6. `95ecb47` — Task 19 retrofit search.rebuild_index
 7. `79e20c7` — docs: role-based UI gating punch-list
 8. `ac95043` — Task 20 retrofit analysis.rebuild + cancel hook
+9. `a9f1def` — docs: Phase 3 session bookmark (now superseded by this one)
+10. `8a2788c` — Task 21 retrofit db.backup
 
-## Phase 3 progress: 7/9 done
+## Phase 3 progress: 8/9 done
 
 | Task | Op type | Status |
 |---|---|---|
@@ -39,8 +41,8 @@ User asked for a bookmark while moving locations. Resume by saying
 | 18 | trash.restore_all | ✅ shipped |
 | 19 | search.rebuild_index | ✅ shipped |
 | 20 | analysis.rebuild | ✅ shipped |
-| **21** | **db.backup** | **⏳ next** |
-| 22 | db.restore | ⏳ |
+| 21 | db.backup | ✅ shipped |
+| **22** | **db.restore** | **⏳ next — same shape as 21, reuse `authed_admin_real` fixture from conftest, signature differs (multipart upload OR backup_path form)** |
 | 23 | bulk.job (BulkJob thin mirror) | ⏳ |
 
 After Phase 3: Phase 4 frontend (Tasks 24-34, 11 tasks) + Phase 5 cleanup
@@ -87,13 +89,18 @@ examples:
   the host's running Docker (was paused for battery once today; user
   is suspending Docker again now while moving).
 - The running container's `markflow` image was last rebuilt today
-  before Task 15 ran.  All Tasks 15-20 production code is in the host
+  before Task 15 ran.  All Tasks 15-21 production code is in the host
   filesystem, copied into the container via `docker cp` per-iteration.
 - For the production `/api/health` UI, the running uvicorn is still
   several commits behind (it boots with the v0.34.9 code from the
   rebuild).  When the user wants the production stack to actually run
   the new code, do `docker-compose build markflow markflow-mcp &&
   docker-compose up -d`.
+- **On the workstation pickup**: the user is transferring; the
+  workstation needs to pull (`git pull origin feat/active-ops-registry`)
+  to get to `8a2788c`.  Then Task 22 can start from a fresh repo state
+  (no `docker cp` hack history to reconcile — fresh build picks up
+  everything).
 
 ## Outstanding non-Phase-3 work (deferred)
 
@@ -113,19 +120,30 @@ examples:
   application across pages.
 
 ## Why this bookmark
-User has to move locations.  Today's session was a marathon: 6 task
-commits + 2 docs commits in one day on the same branch, all pushed to
-origin.  Resume by saying "continue task 21" — Task 21 is db.backup,
-which targets `api/routes/db_backup.py:POST /api/db/backup` and the
-backup helper in `core/db_backup.py`.
+User is transferring to workstation at desk.  Resume by saying
+"continue task 22".  Task 22 is db.restore at
+`api/routes/db_health.py:150` (NOT a separate `db_backup.py` — the
+plan called for that location but the actual code is all in
+`db_health.py`).  Same shape as Task 21 (synchronous, cancellable=False,
+no cancel hook needed) — just different request signature (multipart
+upload OR backup_path form field, exactly one of the two).
 
-## How to apply when resuming
-1. Verify state: `git log -1` should show `ac95043`, `git status`
-   should be clean except for the .docx + untracked junk.
-2. Verify stack health: `docker-compose ps` + curl
-   `localhost:8000/api/health`.
-3. Read Task 21 from
+## How to apply when resuming on workstation
+1. **First: `git fetch && git pull origin feat/active-ops-registry`**
+   — get the workstation's repo to `8a2788c`.
+2. Verify state: `git log -1` should show `8a2788c` (Task 21).
+3. Verify stack health: `docker-compose ps` + curl
+   `localhost:8000/api/health`.  If the workstation hasn't rebuilt the
+   markflow image since v0.34.9, the running container is missing
+   tasks 15-21 production code.  Either:
+   - Rebuild the app layer once before starting Task 22:
+     `docker-compose build markflow markflow-mcp && docker-compose up -d`
+   - Or continue the docker cp pattern (faster per-iteration but the
+     production UI doesn't reflect new behaviour).
+4. Read Task 22 from
    `docs/superpowers/plans/2026-04-28-active-operations-registry.md`
-   (around line 3576).
-4. Apply the established patterns from this file's "Patterns
-   established" section — the recipe is settled.
+   (around line 3652).  Apply the corrections from
+   `docs/superpowers/plans/2026-04-30-active-ops-plan-drift.md` and
+   the patterns from this file.
+5. The `authed_admin_real` fixture (added in Task 21) is already in
+   conftest.py.  Re-use it directly.
