@@ -4,6 +4,165 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.34.7 — Auto-conversion unwedged: write guard fallback + Excel chartsheet skip (BUG-014, BUG-015) (2026-04-30)
+
+**Two conversion-blocking bugs found during a post-v0.34.6 log audit.
+Symptom: every auto-conversion cycle since at least 2026-04-29 16:33
+hit `error_rate=1.0` and aborted at the 20-error threshold within the
+first 20 file attempts. The scheduling layer (v0.34.3 + v0.34.4) was
+healthy; the actual conversions were not. After this release the
+indexed counter should start climbing for the first time in days.**
+
+### BUG-014 — `is_write_allowed()` denies every path when Storage Manager pref is unset
+
+**Symptom (operator-facing).** `bulk_files.error_msg` accumulating
+rows like `write denied — outside output dir: /mnt/output-repo/Reports`
+on paths clearly inside the configured `BULK_OUTPUT_PATH=/mnt/output-repo`.
+Every file convert in the bulk pipeline rejected at the v0.25.0 write
+guard, despite the converter resolving correct output paths.
+
+**Diagnosis.** Live introspection of the running container:
+
+```python
+from core.storage_manager import _cached_output_path, is_write_allowed
+print(_cached_output_path)               # → None
+print(is_write_allowed('/mnt/output-repo/Reports'))   # → False
+print(is_write_allowed('/mnt/output-repo'))           # → False
+print(is_write_allowed('/mnt/output-repo/foo'))       # → False
+```
+
+Meanwhile `core.storage_paths.get_output_root()` correctly returned
+`/mnt/output-repo`. The two write-guard cache systems were not
+synchronised: `get_output_root()` (v0.34.1) reads through the
+priority chain `Storage Manager > BULK_OUTPUT_PATH > OUTPUT_DIR`,
+falling back to env vars when the DB pref is unset.
+`is_write_allowed()` (v0.25.0) consulted only the
+`storage_manager._cached_output_path` sentinel populated from the
+`storage_output_path` DB preference. On this VM that preference had
+never been set (operator never visited the Storage page) — the cache
+stayed `None` and the early-return at `core/storage_manager.py:150`
+fired for every call.
+
+**Fix.** Route `is_write_allowed()` through
+`core.storage_paths.resolve_output_root_or_raise()`, which uses the
+same priority chain as the runtime path resolver and refuses to
+silently fall back to the legacy `output/` default:
+
+```python
+def is_write_allowed(target_path: str) -> bool:
+    if not target_path:
+        return False
+    try:
+        from core.storage_paths import resolve_output_root_or_raise
+        base_path = resolve_output_root_or_raise(label="is_write_allowed")
+    except RuntimeError:
+        return False
+    try:
+        target_real = os.path.realpath(target_path)
+    except OSError:
+        return False
+    base = str(base_path).rstrip(os.sep)
+    return target_real == base or target_real.startswith(base + os.sep)
+```
+
+The v0.25.0 "absent configuration → deny everything" intent is
+preserved (the resolver raises when no source is configured, and the
+guard treats that as deny rather than as "allow `/app/output`").
+
+**Test fragility caught and fixed.**
+`tests/test_storage_manager.py:test_write_denied_when_no_output_configured`
+asserted "no Storage Manager pref → guard denies everything". After
+the fix, that's only true if `BULK_OUTPUT_PATH` and `OUTPUT_DIR` are
+also clear — environments where a dev shell exports either would have
+silently passed for the wrong reason. Added explicit
+`monkeypatch.delenv` calls so the test exercises the absent-config
+branch deterministically.
+
+**Why this stayed hidden.** The Storage Manager / cached-pref design
+predates the v0.34.1 single-source-of-truth resolver. v0.34.1 unified
+six other consumers behind `get_output_root()` but didn't migrate the
+write guard, because the guard's failure mode (silent denial) didn't
+look like a path-resolution bug — it looked like a write-permission
+bug. The error message `write denied — outside output dir:
+<path-that-is-clearly-inside-output-dir>` was the giveaway, but it
+took a log audit to surface.
+
+**Lesson.** When a "single source of truth" refactor consolidates N
+callers, security-critical guards are NOT optional members of N. A
+guard whose source of truth differs from the runtime resolver is a
+bug in the making — they will diverge under any operational scenario
+that affects one cache and not the other (DB reset, fresh deploy,
+env var change without DB update). Audit gating writes that they
+share the resolver, the same way path-resolution callers were
+audited in v0.34.1.
+
+### BUG-015 — Excel handler crashes on Chartsheets
+
+**Symptom.** `'Chartsheet' object has no attribute 'merged_cells'` in
+`bulk_files.error_msg` for 11 distinct `.xlsx` files. Conversions
+fail outright; no Markdown produced.
+
+**Diagnosis.** `openpyxl.load_workbook()` returns `Chartsheet`
+instances for sheets that contain only an embedded chart (no cell
+grid). They expose `.title` but not the `Worksheet` interface —
+specifically, no `.merged_cells`, `.iter_rows`, `.max_row`,
+`.max_column`. `formats/xlsx_handler.py` iterated `wb.sheetnames`
+and called `_build_merged_cells_map(ws)` (which accesses
+`ws.merged_cells.ranges`) without distinguishing sheet types. The
+AttributeError propagated out of the handler.
+
+**Fix.** Duck-typed guard at the top of both sheet loops (the
+`ingest()` main loop and the `_extract_styles_impl()` styles loop):
+
+```python
+if not hasattr(ws_data, "merged_cells"):
+    log.info(
+        "xlsx_chartsheet_skipped",
+        filename=file_path.name,
+        sheet=sheet_name,
+        sheet_type=type(ws_data).__name__,
+    )
+    continue
+```
+
+Chartsheets carry no Markdown-extractable content; silently skipping
+them is the correct semantic. The log event surfaces the omission so
+operators can audit what was skipped if a `.xlsx` produces less
+output than expected.
+
+**Why duck-typing instead of `isinstance(ws, Chartsheet)`.** openpyxl
+has shuffled `Chartsheet` between `openpyxl.workbook.workbook` and
+`openpyxl.chartsheet` across recent versions; `hasattr` survives
+those moves and any future sheet types we haven't anticipated.
+
+### Net effect
+
+Both fixes together remove the two systemic conversion failures that
+dominated the auto-converter's first-20-attempts window. The 20-error
+abort threshold was a real safeguard, not a bug — but it was tripping
+on these two bugs every cycle, so it never had a chance to see a
+successful conversion. With BUG-014 and BUG-015 fixed, the threshold
+should now only fire on genuine sources of error (corrupt PDFs, etc.),
+which exist in the long tail but should be a much smaller fraction of
+attempts.
+
+### Files touched
+
+- `core/version.py` — `0.34.6` → `0.34.7`.
+- `core/storage_manager.py:is_write_allowed` — route through
+  `resolve_output_root_or_raise()`.
+- `formats/xlsx_handler.py` — Chartsheet guard in `ingest()` main
+  loop and `_extract_styles_impl()` styles loop.
+- `tests/test_storage_manager.py:test_write_denied_when_no_output_configured`
+  — env-var hygiene via `monkeypatch.delenv`.
+- `docs/bug-log.md` — BUG-014 + BUG-015 in Shipped; header
+  bug-range citation updated.
+- `docs/version-history.md` — this entry.
+- `docs/help/whats-new.md` — operator note.
+- `CLAUDE.md` — Current Version block bumped to v0.34.7.
+
+---
+
 ## v0.34.6 — Resources page Disk card double-count fix (BUG-013) + version-constant catch-up (2026-04-30)
 
 **Two-part release. Code fix for a metric that quietly overstated

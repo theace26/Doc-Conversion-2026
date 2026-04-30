@@ -6,6 +6,78 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.34.7 — Auto-conversion is unblocked (the actually-converting kind)
+
+The previous three releases each fixed a layer of the
+auto-conversion pipeline:
+
+- **v0.34.3** stopped the disk-space pre-check from rejecting every
+  job (BUG-011).
+- **v0.34.4** stopped the auto-converter slot from staying stuck
+  forever after a failed run (BUG-012).
+- **v0.34.5** verified those two were holding under live load.
+
+But none of that translated into actually-converted files. A
+post-v0.34.6 log audit found two bugs that were silently failing
+**every** worker attempt within the first 20 files of every cycle,
+which then tripped the bulk worker's "abort if first 20 attempts all
+fail" safeguard. Net effect: the scheduler was firing, jobs were
+starting, workers were pulling files — and zero files were actually
+being converted.
+
+### What was broken
+
+1. **The write guard was denying every write.** The internal
+   "is this path inside the configured output directory?" check
+   compared against a Storage-Manager-only cache that had never been
+   populated on this VM. Whenever the cache was empty, the answer
+   was always "no" — including for paths that were clearly inside
+   `BULK_OUTPUT_PATH`. Hundreds of `write denied — outside output
+   dir: /mnt/output-repo/...` rows were piling up in the bulk-files
+   table even though those paths were demonstrably inside
+   `/mnt/output-repo`.
+2. **Excel files containing chart-only sheets crashed the handler.**
+   `openpyxl` exposes those sheets as a different object type
+   (`Chartsheet` instead of `Worksheet`) which doesn't have the
+   methods the handler was calling. 11 files hit this in production.
+
+### What changed
+
+- The write guard now resolves the output directory through the
+  same priority chain as the rest of the pipeline (Storage Manager
+  configured value > `BULK_OUTPUT_PATH` env > `OUTPUT_DIR` env).
+  No more all-deny mode just because the Storage page was never
+  visited.
+- The Excel handler skips Chartsheets cleanly with a log line
+  (`xlsx_chartsheet_skipped`) so you can see which sheets were
+  omitted. Chartsheets contain only an embedded chart, so there's
+  no Markdown content to lose.
+
+### What you should see going forward
+
+- The Activity / Pipeline page's **indexed** counter should start
+  climbing as the auto-converter actually succeeds for the first
+  time in days. Expected throughput at the observed scan rate is
+  ~250 files/min once it's actively converting.
+- `bulk_files` rows with status `failed` and `error_msg` starting
+  with `write denied` should stop accumulating. (Existing rows from
+  before this release still reflect the bug.)
+- The 20-error abort threshold was a real safeguard, not the bug —
+  it was tripping because the two bugs above were turning every
+  attempt into an error. Genuine sources of error (corrupt PDFs,
+  LibreOffice flakes) still exist in the long tail, but should now
+  be a small fraction of attempts rather than 100% of them.
+
+### What you should do
+
+- **Restart the MarkFlow container once after this release lands**
+  (deploy normally — `docker-compose up -d` after build). The next
+  scheduled auto-conversion cycle will fire with both fixes in
+  effect. If you want to verify immediately, hit "Run Now" on the
+  Bulk Jobs page.
+
+---
+
 ## v0.34.6 — Disk card no longer double-counts the output share
 
 The Resources page **Disk** card was at risk of overstating

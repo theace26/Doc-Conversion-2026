@@ -143,17 +143,45 @@ def is_write_allowed(target_path: str) -> bool:
     """True iff target resolves inside the configured output directory.
 
     SECURITY: This is the SOLE application-level restriction on the broad
-    /host/rw Docker mount (v0.25.0). Must be called before every file write
-    in converter.py, bulk_worker.py, and any new write path. Coverage is
-    enforced by tests/test_write_guard_coverage.py — keep it green.
+    /host/rw Docker mount (v0.25.0). Must be called before every file
+    write in converter.py, bulk_worker.py, and any new write path.
+    Coverage is enforced by tests/test_write_guard_coverage.py -- keep
+    it green.
+
+    v0.34.7 BUG-014: previously consulted only the
+    ``_cached_output_path`` sentinel populated from the
+    ``storage_output_path`` DB preference. Whenever that pref was unset
+    (fresh deploy, post-reset, or any container running before an
+    operator visited the Storage page), the cache stayed ``None`` and
+    this function returned ``False`` for every path -- silently denying
+    every conversion in the bulk pipeline even though
+    ``BULK_OUTPUT_PATH`` env was correctly set and the converter was
+    writing inside it. The on-disk symptom was hundreds of
+    ``write denied -- outside output dir: /mnt/output-repo/...`` errors
+    in ``bulk_files.error_msg`` against paths that were demonstrably
+    inside the configured root.
+
+    The guard now resolves through
+    :func:`core.storage_paths.resolve_output_root_or_raise`, which uses
+    the same priority chain as v0.34.1's runtime path resolution
+    (Storage Manager > BULK_OUTPUT_PATH > OUTPUT_DIR) and refuses to
+    silently fall back to the legacy ``output/`` default. If the
+    resolver raises, the guard returns ``False`` -- preserving the
+    v0.25.0 intent that absent configuration means "deny everything",
+    not "allow /app/output".
     """
-    if not _cached_output_path or not target_path:
+    if not target_path:
+        return False
+    try:
+        from core.storage_paths import resolve_output_root_or_raise
+        base_path = resolve_output_root_or_raise(label="is_write_allowed")
+    except RuntimeError:
         return False
     try:
         target_real = os.path.realpath(target_path)
     except OSError:
         return False
-    base = _cached_output_path.rstrip(os.sep)
+    base = str(base_path).rstrip(os.sep)
     return target_real == base or target_real.startswith(base + os.sep)
 
 

@@ -51,7 +51,7 @@ not narrative.
 
 ## Open / Planned
 
-(BUG-001 through BUG-013 closed in v0.34.1 / v0.34.2 / v0.34.3 / v0.34.4 / v0.34.6 — see Shipped section.)
+(BUG-001 through BUG-015 closed in v0.34.1 / v0.34.2 / v0.34.3 / v0.34.4 / v0.34.6 / v0.34.7 — see Shipped section.)
 
 ### Security audit findings (long-running)
 
@@ -62,6 +62,22 @@ not narrative.
 ---
 
 ## Shipped (history)
+
+### v0.34.7 — Auto-conversion unwedged: write guard + Excel chartsheet
+
+Two distinct conversion-blocking bugs found via post-v0.34.6 log
+audit. Both had been silently failing every auto-converted file
+since at least 2026-04-29 16:33, tripping the bulk-worker 20-error
+abort threshold inside the first 20 attempts of every cycle (so
+zero successful conversions across at least 5 consecutive auto-runs).
+Combined effect: the auto-converter looked unblocked at the
+scheduling layer (v0.34.3 + v0.34.4 fixes held), but no files were
+actually being converted.
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-014 | shipped-v0.34.7 | critical | `is_write_allowed()` returns False for every path when the Storage Manager DB pref is unset, blocking the entire bulk pipeline | `core/storage_manager.py:142` consulted only the `_cached_output_path` sentinel populated from the `storage_output_path` DB preference. On any deploy where an operator hadn't visited the Storage page (or where the DB had been reset since the last visit), the cache stayed `None`, the early-return at line 150 fired, and every write was denied — including writes that were demonstrably inside `BULK_OUTPUT_PATH`. The bulk_files table accumulated dozens of `write denied — outside output dir: /mnt/output-repo/...` rows against paths clearly under `/mnt/output-repo`. Fix: route the guard through `core.storage_paths.resolve_output_root_or_raise()`, which uses the v0.34.1 priority chain (Storage Manager > BULK_OUTPUT_PATH > OUTPUT_DIR) and refuses the legacy `output/` fallback. The v0.25.0 "absent configuration → deny everything" intent is preserved (the resolver raises if no source is configured, and the guard treats that as deny). Hardened `tests/test_storage_manager.py:test_write_denied_when_no_output_configured` to clear BULK_OUTPUT_PATH/OUTPUT_DIR via monkeypatch so the "absent configuration" branch is actually exercised even when a dev shell exports those vars. See `docs/version-history.md` v0.34.7 entry for the full diagnosis. |
+| BUG-015 | shipped-v0.34.7 | high | `formats/xlsx_handler.py` crashes with `AttributeError: 'Chartsheet' object has no attribute 'merged_cells'` on .xlsx files containing chart-only sheets | openpyxl returns `Chartsheet` objects for sheets that hold only an embedded chart (no cell grid). Both the ingest loop and `_extract_styles_impl` call `ws.merged_cells.ranges` unconditionally, which AttributeErrors on chartsheets. The error propagates out of the handler and fails the whole file. 11 distinct `.xlsx` files in production hit this. Fix: duck-type guard `hasattr(ws_data, "merged_cells")` at the top of both loops; skip Chartsheets after logging `xlsx_chartsheet_skipped` for operator visibility. Chartsheets carry no Markdown-extractable content; skipping is the correct semantic. |
 
 ### v0.34.6 — Resources page disk card double-count
 

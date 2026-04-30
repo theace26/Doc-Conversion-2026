@@ -67,49 +67,60 @@ live", `key-files.md`. For "is this bug already known", `bug-log.md`.
 
 ---
 
-## Current Version — v0.34.6
+## Current Version — v0.34.7
 
-**Two-part release. (1) BUG-013: the Resources page Disk card and the
-admin Disk Usage panel were summing the "Conversion Output" row on
-top of "Output Repository" + "Trash" — but post-v0.34.1 all three
-walk the same NAS root, so the total was a double-count waiting to
-trigger. Latent on this VM (the latest snapshot's conv-walk happened
-to return 0). (2) Catch-up bump for `core/version.py` which had
-shipped at `0.34.1` through every release from v0.34.2 → v0.34.5,
-and a new step 1 in the per-release documentation discipline so the
-constant cannot fall behind silently again.**
+**Auto-conversion is now actually converting files for the first time
+since the v0.34.x sequence began. v0.34.3+v0.34.4 unblocked the
+*scheduling* layer; v0.34.5 verified the scheduling held; v0.34.6
+fixed a misleading disk metric. But every worker attempt was still
+failing for two reasons that only surfaced under a post-v0.34.6 log
+audit. Both shipped here.**
 
-### What changed
+- **BUG-014 (critical): write guard was denying every write.**
+  `core/storage_manager.is_write_allowed()` consulted only the
+  Storage-Manager-populated `_cached_output_path` sentinel. On
+  this VM that pref had never been set (no operator visit to the
+  Storage page) so the cache stayed `None` and every call returned
+  `False` — including against paths clearly inside
+  `BULK_OUTPUT_PATH=/mnt/output-repo`. The bulk_files table had
+  accumulated dozens of `write denied — outside output dir:
+  /mnt/output-repo/...` rows on paths that were clearly under
+  `/mnt/output-repo`. Fix: route the guard through the v0.34.1
+  `core.storage_paths.resolve_output_root_or_raise()` priority chain
+  (Storage Manager > BULK_OUTPUT_PATH > OUTPUT_DIR), preserving the
+  v0.25.0 "absent configuration → deny" intent (resolver raises;
+  guard treats as deny).
+- **BUG-015 (high): Excel handler crashed on Chartsheets.** openpyxl
+  returns `Chartsheet` objects for sheets containing only an
+  embedded chart. Both `formats/xlsx_handler.py:ingest()` and
+  `_extract_styles_impl()` accessed `.merged_cells` unconditionally,
+  AttributeError-ing on those sheets. 11 files affected. Fix: duck-
+  typed `hasattr(ws, "merged_cells")` guard; chartsheets are skipped
+  with a `xlsx_chartsheet_skipped` log line.
 
-- `core/metrics_collector.py:252` — `total_bytes` no longer adds
-  `conv_bytes`. `disk_metrics.conversion_output_bytes` is still
-  populated for operator-facing breakdown rows, but the time-series
-  total stops including a path it already counted via
-  `repo_bytes + trash_bytes`.
-- `api/routes/admin.py:_compute_disk_usage` — the redundant
-  Conversion Output row is tagged `redundant_in_total: True` and
-  the sum skips such rows. The breakdown row is retained because
-  operators still mentally model bulk vs single-file conversion as
-  separate workflows even now that the resolver returns one root.
-- `core/version.py` — `0.34.5` → `0.34.6`.
+Together these two were responsible for the auto-converter tripping
+its 20-error abort threshold in the first 20 attempts of every cycle
+since at least 2026-04-29 16:33 — `error_rate=1.0` despite the
+scheduling layer being healthy. Zero files converted across at least
+5 consecutive auto-runs. With both fixed the abort threshold should
+now only fire on genuine errors (corrupt PDFs, LibreOffice flakes),
+which exist in the long tail but should be a small minority of
+attempts.
 
 ### What operators should see
 
-- **Resources Disk card.** No change on this VM right now (the
-  pre-fix total was already correct here because the conv-walk
-  returned 0 in the most recent snapshot). On future snapshots, or
-  on any other deploy where the conv-walk completes cleanly, the
-  card will land on the genuine MarkFlow footprint instead of ~2×
-  it.
-- **Disk time-series chart.** A step-down on the day v0.34.6
-  deployed is possible and benign — historical rows still reflect
-  the old (sometimes-inflated) totals.
-- **`/api/version` and `/api/health`.** Now report `0.34.6` instead
-  of the stale `0.34.1` they were stuck on through v0.34.5.
+- The Activity / Pipeline page's **indexed** counter starts climbing
+  for the first time in days as the auto-converter actually
+  succeeds. Expected throughput at observed scan rates is
+  ~250 files/min when actively working.
+- `bulk_files` rows with status `failed` and `error_msg` starting
+  `write denied — outside output dir:` stop accumulating. Existing
+  pre-v0.34.7 rows still reflect the bug; that's expected.
+- `/api/version` and `/api/health` report `0.34.7`.
 
 ### Loose ends still tracked from prior releases
 
-Carried forward from v0.34.5; not re-implemented here:
+Carried forward; not re-implemented here:
 
 1. **No operator-facing alert** when auto-conversion fails N cycles
    in a row. UX overhaul §13 (Notifications) covers the trigger-rule
@@ -120,8 +131,17 @@ Carried forward from v0.34.5; not re-implemented here:
    pre-flight failure handler should write
    `auto_conversion_runs.completed_at` directly rather than relying
    on the startup orphan reaper as a backstop.
+4. **LibreOffice headless flakes** on `.xls` files (`exited 0 but
+   produced no output file`). Likely parallel-worker contention on
+   `~/.config/libreoffice` profile dir. Tracked for a future
+   hardening pass; not blocking now that the dominant failures
+   above are fixed.
+5. **Log spam:** `bulk_worker_error_rate_abort` fires once per
+   worker per pull *after* abort is signaled, producing thousands
+   of duplicate lines for one job. A "log once per abort" guard
+   would be cheap; not blocking.
 
-Full per-version detail (v0.34.5 and every prior release back to v0.13.x)
+Full per-version detail (v0.34.6 and every prior release back to v0.13.x)
 lives in [`docs/version-history.md`](docs/version-history.md). **Do not
 duplicate that changelog here.** On each release, the outgoing Current
 Version block above moves into `version-history.md` and is replaced with
