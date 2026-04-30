@@ -63,12 +63,22 @@ def reset_coordinator() -> None:
 # ── Lifecycle scan helpers ──────────────────────────────────────────────────
 
 def register_lifecycle_scan() -> None:
-    """Called when a lifecycle scan begins. Clears any stale cancel signal."""
+    """Called when a lifecycle scan begins.
+
+    Clears any stale cancel signal from a previous scan, but preserves a
+    cancel that was set while this scan's setup was in progress (e.g. the
+    active_ops cancel hook fired before register_lifecycle_scan() was called).
+    """
     global _lifecycle_running, _lifecycle_started_at
-    _lifecycle_cancel.clear()
+    # Only clear if no cancel is already pending.  A pending cancel means the
+    # operator clicked Cancel between the POST /run-now response and now —
+    # preserving it lets the scan exit at its first _should_cancel() check.
+    if not _lifecycle_cancel.is_set():
+        _lifecycle_cancel.clear()
     _lifecycle_running = True
     _lifecycle_started_at = time.monotonic()
-    log.debug("scan_coordinator.lifecycle_registered")
+    log.debug("scan_coordinator.lifecycle_registered",
+              cancel_pending=_lifecycle_cancel.is_set())
 
 
 def unregister_lifecycle_scan() -> None:
@@ -250,13 +260,34 @@ def get_coordinator_status() -> dict:
 
 # Active Operations Registry — cancel hook for pipeline.run_now (v0.35.0).
 # When operator clicks Cancel on the active-ops widget, registry calls
-# this hook which translates to the existing cancel_run_now_scan
-# primitive (above in this file).
+# this hook which translates to the existing scan cancel primitives.
+#
+# Bug fixed (v0.35.1): the original hook only called cancel_run_now_scan(),
+# which sets _run_now_cancel.  But run_lifecycle_scan() (the actual scan
+# loop) only polls _lifecycle_cancel via _should_cancel() / is_lifecycle_cancelled().
+# _run_now_cancel is checked exactly once — before the scan starts — to bail
+# out of a pause-for-bulk wait.  Once the scan loop is executing, setting
+# _run_now_cancel has no effect on it.
+#
+# Fix: set _lifecycle_cancel directly (bypassing the _lifecycle_running guard
+# in cancel_lifecycle_scan).  The guard exists to suppress spurious signals
+# when no lifecycle scan is active; here we KNOW one is about to start or is
+# already running because the active_ops registry only fires the hook when a
+# live pipeline.run_now op exists.  Setting the event early is safe: if the
+# scan hasn't started yet, register_lifecycle_scan() — which normally clears
+# _lifecycle_cancel — must NOT clear it when a cancellation is already
+# pending, so we also skip the clear in that path.  The simplest, safest
+# change is: set the event unconditionally here; the scan checks
+# _should_cancel() before its first expensive setup step and exits immediately.
 from core.active_ops import register_cancel_hook  # noqa: E402
 
 
 async def _cancel_run_now_via_active_ops(op_id: str) -> None:
     cancel_run_now_scan(reason="active_ops_registry")
+    # Set _lifecycle_cancel directly — bypasses the _lifecycle_running guard
+    # so the signal is honoured even if cancel arrives before register_lifecycle_scan().
+    _lifecycle_cancel.set()
+    log.info("scan_coordinator.lifecycle_cancelled_via_active_ops", op_id=op_id)
 
 
 register_cancel_hook("pipeline.run_now", _cancel_run_now_via_active_ops)

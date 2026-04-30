@@ -184,6 +184,13 @@ async def run_lifecycle_scan(
     """Run a full lifecycle scan. Returns scan_run_id."""
     scan_run_id = uuid.uuid4().hex
 
+    # Early cancel check: if the active_ops cancel hook fired before we
+    # reached setup (e.g. operator clicked Cancel immediately after POST
+    # /run-now), bail out without touching the DB at all.
+    if _should_cancel():
+        log.info("lifecycle_scan.cancelled_before_start", scan_run_id=scan_run_id)
+        return scan_run_id
+
     # Resolve source paths — collect all configured source locations
     source_roots: list[Path] = []
     if source_path:
@@ -255,15 +262,37 @@ async def run_lifecycle_scan(
     _scan_state["current_file"] = None
     _scan_state["eta_seconds"] = None
 
-    # Pre-count files across all source roots for progress estimate
-    try:
-        count_tasks = [asyncio.to_thread(_count_files_sync, r) for r in valid_roots]
-        counts = await asyncio.wait_for(asyncio.gather(*count_tasks), timeout=30.0)
-        total_estimate = sum(counts)
-        _scan_state["total"] = total_estimate
-    except (asyncio.TimeoutError, Exception):
-        _scan_state["total"] = 0
+    # Pre-count files across all source roots for progress estimate.
+    # Skip if cancel is already pending — the count can block for seconds on
+    # large NAS shares and there's no point starting it when we're about to exit.
+    # Pass _lifecycle_cancel as stop_event so the count thread exits early when
+    # cancelled, preventing it from blocking event-loop shutdown.
+    # Use a short 5s timeout (estimate only — progress display degrades to
+    # "unknown total" on very large trees anyway).
+    if not _should_cancel():
+        from core.scan_coordinator import _lifecycle_cancel as _lc_event
+        try:
+            count_tasks = [asyncio.to_thread(_count_files_sync, r, _lc_event) for r in valid_roots]
+            counts = await asyncio.wait_for(asyncio.gather(*count_tasks), timeout=5.0)
+            total_estimate = sum(counts)
+            _scan_state["total"] = total_estimate
+        except (asyncio.TimeoutError, Exception):
+            _scan_state["total"] = 0
     _started_at_dt = datetime.now(timezone.utc)
+
+    # Bail out before heavy setup if cancel arrived while counting (or before).
+    if _should_cancel():
+        log.info("lifecycle_scan.cancelled_before_walk", scan_run_id=scan_run_id)
+        final_status = "cancelled"
+        await update_scan_run(scan_run_id, {
+            "status": final_status,
+            "finished_at": now_iso(),
+            "files_scanned": 0,
+        })
+        _scan_state["running"] = False
+        _scan_state["current_file"] = None
+        unregister_lifecycle_scan()
+        return scan_run_id
 
     # ── Load exclusion paths (prefix-match) and skip patterns (substring) ──
     from core.database import get_exclusion_paths, get_preference as _get_pref
@@ -1117,8 +1146,13 @@ async def _flush_counters_to_db(scan_run_id: str, counters: dict) -> None:
         log.debug("lifecycle_scan.counter_flush_failed", scan_run_id=scan_run_id)
 
 
-def _count_files_sync(source_root: Path) -> int:
-    """Count all files in source tree (synchronous, for use in a thread)."""
+def _count_files_sync(source_root: Path, stop_event=None) -> int:
+    """Count all files in source tree (synchronous, for use in a thread).
+
+    stop_event: optional asyncio.Event (or anything with .is_set()).  When
+    set, the walk aborts early so the thread doesn't outlive its consumer
+    and block event-loop shutdown.
+    """
     def _count_walk_error(err: OSError) -> None:
         if isinstance(err, PermissionError):
             log.warning("lifecycle_count_permission_denied", path=str(err.filename or ""),
@@ -1126,6 +1160,8 @@ def _count_files_sync(source_root: Path) -> int:
 
     count = 0
     for _, dirnames, filenames in os.walk(source_root, onerror=_count_walk_error):
+        if stop_event is not None and stop_event.is_set():
+            break
         dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "_markflow"]
         count += len(filenames)
     return count
