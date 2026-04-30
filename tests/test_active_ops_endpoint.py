@@ -18,9 +18,11 @@ def _reset_active_ops():
     from core import active_ops
     active_ops._ops.clear()
     active_ops._last_persist_at.clear()
+    active_ops._cancel_hooks.clear()
     yield
     active_ops._ops.clear()
     active_ops._last_persist_at.clear()
+    active_ops._cancel_hooks.clear()
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────

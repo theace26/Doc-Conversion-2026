@@ -5,6 +5,7 @@ Provides: async test client, temporary directory fixtures, SQLite DB fixtures,
 and runs generate_fixtures.py to ensure test files exist before any test runs.
 """
 
+import contextvars as _cv
 import os
 import tempfile
 from pathlib import Path
@@ -12,6 +13,10 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+
+_test_user_role: "_cv.ContextVar[object | None]" = _cv.ContextVar(
+    "_test_user_role", default=None
+)
 
 # ── Set env vars before any app module is imported ───────────────────────────
 # aiosqlite :memory: creates a new DB per connection and won't persist across
@@ -338,12 +343,6 @@ async def _set_hydration_event():
 # sets the ContextVar before each request via an httpx event hook. This ensures
 # role isolation even when both clients are live concurrently.
 
-import contextvars as _cv
-_test_user_role: "_cv.ContextVar[object | None]" = _cv.ContextVar(
-    "_test_user_role", default=None
-)
-
-
 def _make_role_scoped_client(app, role):
     """Build an AsyncClient that injects `role` into every request via ContextVar."""
     from core.auth import AuthenticatedUser, UserRole, get_current_user
@@ -388,15 +387,12 @@ async def authed_operator(client):
     ``active_operations`` table) before this fixture yields. Without this
     dependency, running endpoint tests in isolation skips migrations and
     DB-touching tests fail with ``no such table``."""
-    from core.auth import UserRole, get_current_user
+    from core.auth import UserRole
     from main import app
 
     ac = _make_role_scoped_client(app, UserRole.OPERATOR)
-    try:
-        async with ac:
-            yield ac
-    finally:
-        app.dependency_overrides.pop(get_current_user, None)
+    async with ac:
+        yield ac
 
 
 @pytest_asyncio.fixture
@@ -412,12 +408,24 @@ async def authed_manager(client):
     ``active_operations`` table) before this fixture yields. Without this
     dependency, running endpoint tests in isolation skips migrations and
     DB-touching tests fail with ``no such table``."""
-    from core.auth import UserRole, get_current_user
+    from core.auth import UserRole
     from main import app
 
     ac = _make_role_scoped_client(app, UserRole.MANAGER)
-    try:
-        async with ac:
-            yield ac
-    finally:
-        app.dependency_overrides.pop(get_current_user, None)
+    async with ac:
+        yield ac
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _reset_role_overrides():
+    """Clean up role-scoped dependency overrides + ContextVar after each test.
+
+    Centralizes cleanup that authed_operator/manager fixtures used to do
+    in their finally blocks. With two role fixtures coexisting, fixture-
+    local pop() races against the still-live partner; this autouse
+    fixture runs once per test, guaranteeing a clean slate."""
+    yield
+    from main import app
+    from core.auth import get_current_user
+    app.dependency_overrides.pop(get_current_user, None)
+    _test_user_role.set(None)
