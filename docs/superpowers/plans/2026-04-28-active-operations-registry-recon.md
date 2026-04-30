@@ -54,7 +54,7 @@ async def db_write_with_retry(fn, retries=3, base_delay=0.5):
 
 #### §A.1.2 — Representative call sites
 
-**Site 1 — bulk_worker.py:1009** (callable form, multi-line lambda):
+**Site 1 — bulk_worker.py:1082** (callable form, multi-line lambda):
 
 ```python
 await db_write_with_retry(lambda: update_bulk_file(
@@ -2077,7 +2077,7 @@ redundant. Skip.
 | 270 | `def _osd_confidence(...)` | Tesseract orientation confidence |
 | **309** | **`class BulkJob`** | **Main worker class — see §E.4** |
 | 1283 | `def get_gap_fill_queue(gap_fill_id)` | SSE queue for gap-fill |
-| **1287** | **`class BulkOcrGapFillJob`** | **Sibling job class — see §E.4 sub-section** |
+| **1360** | **`class BulkOcrGapFillJob`** | **Sibling job class — see §E.4 sub-section** |
 | 1479 | `def _emit_gap_fill_event(...)` | SSE helper |
 | 1490 | `async def get_all_active_jobs() -> list[dict]` | Serializer for /api/admin/active-jobs |
 
@@ -2093,9 +2093,9 @@ redundant. Skip.
 | 942 | `async def _process_convertible(self, file_dict, worker_id=0)` | Convert one file via `_convert_file_sync` |
 | 1143 | `async def _index_adobe_l2(self, file_dict)` | Level-2 Adobe metadata indexing |
 | 1193 | `async def _process_adobe(self, file_dict, worker_id=0)` | Standalone Adobe-only path |
-| **1246** | **`async def pause(self)`** | Clears `_pause_event`, updates DB `paused`, emits SSE |
-| **1261** | **`async def resume(self)`** | Sets `_pause_event`, updates DB `running`, emits SSE |
-| **1268** | **`async def cancel(self, reason: str = "Cancelled by user")`** | **Instance method, NOT a classmethod. Sets `_cancel_event` + `_pause_event`, updates DB `cancelled`** |
+| **1319** | **`async def pause(self)`** | Clears `_pause_event`, updates DB `paused`, emits SSE |
+| **1334** | **`async def resume(self)`** | Sets `_pause_event`, updates DB `running`, emits SSE |
+| **1341** | **`async def cancel(self, reason: str = "Cancelled by user")`** | **Instance method, NOT a classmethod. Sets `_cancel_event` + `_pause_event`, updates DB `cancelled`** |
 
 ### §E.4 — BulkJob tick-mirror insertion points (Task 23)
 
@@ -2110,7 +2110,7 @@ redundant. Skip.
 | `self._review_queue_count` | files routed to manual review | line 353 | **line 922** (`_check_confidence_prescan`) |
 | `self._total_pending` | total files queued (set after scan) | line 350 (init=0); line 526 (`= len(pending_files)`) | n/a (set once) |
 | `self._scanning` | True until scan phase ends | line 351 (init=True); line 494 (`= False`) | n/a (boolean flip once) |
-| `self._files_completed` | total finished (any outcome) — used for `max_files` cap | line 354 (init=0) | line 866 (in `_worker.finally`) — increments on EVERY file regardless of outcome |
+| `self._files_completed` | total finished (any outcome) — used for `max_files` cap | line 354 (init=0) | line 939 (in `_worker.finally`) — increments on EVERY file regardless of outcome |
 | `self._scan_scanned`, `self._scan_total`, `self._scan_current_file` | scan-phase progress (v0.32.9) | lines 362-364 | line 401-405 (scan_progress callback) |
 
 **Important:** the spec assumed `self.total / self.processed / self.failed`.
@@ -2147,10 +2147,10 @@ Reality is `self._total_pending` (private) / outcome-split into
    ```
 
 3. **Per-file completion ticks** — the **single best site** is the
-   `finally:` block in `_worker` at line 830-866, just after
-   `self._files_completed += 1` (line 866):
+   `finally:` block in `_worker` at line 903-939, just after
+   `self._files_completed += 1` (line 939):
    ```python
-   self._files_completed += 1                            # existing line 866
+   self._files_completed += 1                            # existing line 939
    # NEW: update_op(self.job_id,
    #                processed=self._converted + self._skipped + self._failed,
    #                failed=self._failed)
@@ -2161,7 +2161,7 @@ Reality is `self._total_pending` (private) / outcome-split into
    of the 6 individual increment sites would be 6× as much edit surface
    for the same effective tick rate.
 
-4. **Pause / resume** — instance methods at line 1246 / 1261:
+4. **Pause / resume** — instance methods at line 1319 / 1334:
    - Spec §17 P3 says "treat paused as still-running" in registry. The
      BulkJob's `pause()` updates DB `bulk_jobs.status='paused'` (line 1249)
      but the **registry op_status stays `running`** during pause. This
@@ -2178,7 +2178,7 @@ Reality is `self._total_pending` (private) / outcome-split into
    - **Fatal exception** (line 586-594): outer `except Exception`. **ADD** `finish_op(self.job_id, status='failed', error_msg=str(exc))` before `_emit_bulk_event(... 'done' ...)`.
    - **OR**, simpler: put a single `finish_op` in the **`finally:` block at line 595-598** that derives the status from `self._cancel_event` / sentinel. This avoids 3 separate edits but loses the disk-space-specific error_msg. Recommend: hit all 3 explicitly for clean error_msg semantics.
 
-**Quoted insertion-site context — `_worker.finally` block (lines 830-877):**
+**Quoted insertion-site context — `_worker.finally` block (lines 903-950):**
 
 ```python
             finally:
@@ -2228,7 +2228,7 @@ read this is risky because `finish_op` after an explicit `finish_op`
 could double-flush. Spec Task 5 says `finish_op` is idempotent on
 `(op_id, terminal_status)` — verify in Task 5 before using this fallback.
 
-### §E.4a — `BulkOcrGapFillJob` (sibling class, lines 1287-1476)
+### §E.4a — `BulkOcrGapFillJob` (sibling class, lines 1360-1549)
 
 The spec did NOT enumerate this. It is a parallel async job class with
 the same shape (`_queue`, `_cancel_event`, `_processed`, `_failed`,
@@ -2264,18 +2264,18 @@ once the BulkJob retrofit is settled, then duplicate the pattern.
 | 693 | `self._cancel_event.set()` (worker, error-rate abort) |
 | 698 | `if self._cancel_event.is_set():` (worker, top of loop) |
 | 705 | `if self._cancel_event.is_set():` (worker, post-pause re-check) |
-| **874** | `self._cancel_event.set()` (worker, max_files cap reached) |
-| 880 | `async def _check_confidence_prescan(...)` |
-| 1246 | `async def pause(self)` |
-| 1261 | `async def resume(self)` |
-| **1268** | **`async def cancel(self, reason: str = "Cancelled by user") -> None:`** |
-| 1271 | `self._cancel_event.set()` (cancel method body) |
-| 1306 | `self._cancel_event = asyncio.Event()` (BulkOcrGapFillJob.__init__) |
-| 1390 | `if self._cancel_event.is_set():` (gap-fill worker) |
-| 1475 | `async def cancel(self)` (BulkOcrGapFillJob) |
-| 1495 | `if job._cancel_event.is_set():` (get_all_active_jobs) |
+| **947** | `self._cancel_event.set()` (worker, max_files cap reached) |
+| 953 | `async def _check_confidence_prescan(...)` |
+| 1319 | `async def pause(self)` |
+| 1334 | `async def resume(self)` |
+| **1341** | **`async def cancel(self, reason: str = "Cancelled by user") -> None:`** |
+| 1344 | `self._cancel_event.set()` (cancel method body) |
+| 1379 | `self._cancel_event = asyncio.Event()` (BulkOcrGapFillJob.__init__) |
+| 1463 | `if self._cancel_event.is_set():` (gap-fill worker) |
+| 1548 | `async def cancel(self)` (BulkOcrGapFillJob) |
+| 1568 | `if job._cancel_event.is_set():` (get_all_active_jobs) |
 
-**Cancel API (verbatim, lines 1268-1274):**
+**Cancel API (verbatim, lines 1341-1347):**
 
 ```python
     async def cancel(self, reason: str = "Cancelled by user") -> None:
@@ -2824,7 +2824,7 @@ the affected plan task number(s) and the corrected instruction.
 > `_DISK_SPACE_REQUIRED_MULTIPLIER = 3` constant with a
 > `_get_disk_space_multiplier()` helper, ~+5 to +10 lines net). All §E
 > line numbers in `core/bulk_worker.py` (specifically: `BulkJob` class
-> line, `_worker.finally:866`, `cancel():1268`, terminal-branch lines
+> line, `_worker.finally:939`, `cancel():1341`, terminal-branch lines
 > 478/551/586, counter sites 763/819/921/1031/1130/1234/1179/1209) are
 > shifted by that delta and must be re-verified before Phase 3 Task 23
 > (BulkJob retrofit) executes. Phase 1 (Tasks 1-10) is unaffected — it
@@ -2872,7 +2872,7 @@ the affected plan task number(s) and the corrected instruction.
 - **`BulkJob.cancel()` is an instance method, NOT a classmethod.** Spec
   Task 23 pseudo-code assumed `BulkJob.cancel(job_id)` (classmethod
   taking the job_id). Reality: `async def cancel(self, reason: str = "Cancelled by user") -> None`
-  at `core/bulk_worker.py:1268`. The lookup happens externally via
+  at `core/bulk_worker.py:1341`. The lookup happens externally via
   `get_active_job(job_id) -> BulkJob | None` at line 131. Task 23's
   cancel-hook closure must do the lookup itself:
   ```python
@@ -2903,8 +2903,8 @@ the affected plan task number(s) and the corrected instruction.
     is an intentional outcome, not an error)
 
 - **Single best tick-mirror site in BulkJob**: the `finally:` block in
-  `_worker` at `core/bulk_worker.py:830-866`, immediately after
-  `self._files_completed += 1` on line 866. This block runs after
+  `_worker` at `core/bulk_worker.py:903-939`, immediately after
+  `self._files_completed += 1` on line 939. This block runs after
   EVERY file regardless of outcome (success / failure / skip /
   db-lock-requeue). Adding mirrors at each of the 6 individual
   `self._converted += 1` / `self._failed += 1` / etc. sites would be
@@ -2937,7 +2937,7 @@ the affected plan task number(s) and the corrected instruction.
   must thread these explicitly into `finish_op(error_msg=...)`.
 
 - **`BulkOcrGapFillJob` is a sibling registry candidate** (not in spec).
-  At `core/bulk_worker.py:1287-1476` — same shape as `BulkJob` but with
+  At `core/bulk_worker.py:1360-1549` — same shape as `BulkJob` but with
   the **non-underscored** counter names (`self._processed`, `self._failed`,
   `self._total`) the spec originally assumed. Tracked in a separate
   `_active_gap_fills` dict at line 1280. Out of scope for Task 23 v1
