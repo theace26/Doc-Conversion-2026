@@ -3742,7 +3742,7 @@ git commit -m "feat(active_ops): retrofit db.restore"
 - Modify: `core/bulk_worker.py` (BulkJob class — `run()` register, `_worker` finally tick, `run()` 3 terminal branches)
 - Modify: `tests/test_active_ops_integration.py`
 
-- [ ] **Step 1: Append integration test.**
+- [x] **Step 1: Append integration test.**
 
 ```python
 @pytest.mark.asyncio
@@ -3763,7 +3763,7 @@ async def test_bulk_job_registers_thin_mirror(authed_manager,
     assert op.cancellable is True
 ```
 
-- [ ] **Step 2: Register cancel hook in `core/bulk_worker.py`.**
+- [x] **Step 2: Register cancel hook in `core/bulk_worker.py`.**
 
 The cancel hook closure looks up the live BulkJob via `get_active_job(op_id)` from `_active_jobs` at line 131 — does NOT capture `self`. Reason: by the time the hook fires, the original BulkJob instance may have been GC'd if `run()` already finished. The closure must rely on the live registry of active jobs.
 
@@ -3788,7 +3788,7 @@ async def _bulk_cancel_hook(
 _register_cancel_hook("bulk.job", _bulk_cancel_hook)
 ```
 
-- [ ] **Step 3: Wire `register_op` into `BulkJob.run()` (line 383, after `register_job(self)`).**
+- [x] **Step 3: Wire `register_op` into `BulkJob.run()` (line 383, after `register_job(self)`).**
 
 The registry op_id IS the BulkJob job_id (1:1 mapping); no need to store a separate `_active_op_id` attribute.
 
@@ -3808,7 +3808,7 @@ The registry op_id IS the BulkJob job_id (1:1 mapping); no need to store a separ
     )
 ```
 
-- [ ] **Step 4: Single tick site at `_worker` `finally:` (line 866).**
+- [x] **Step 4: Single tick site at `_worker` `finally:` (line 866).**
 
 Add ONE `update_op` mirror immediately after `self._files_completed += 1` at line 866. This block runs after every file regardless of outcome (success / failure / skip / db-lock-requeue). The five individual outcome counter sites are NOT mirrored separately — registry debounce collapses them anyway.
 
@@ -3826,7 +3826,7 @@ Add ONE `update_op` mirror immediately after `self._files_completed += 1` at lin
 
 Note (recon §E.4): `done` matches the existing `completed` calc in `get_all_active_jobs` line 1507 (converted + skipped + failed). `_skipped` is an intentional outcome and does NOT count as an error.
 
-- [ ] **Step 5: Three terminal `finish_op` branches in `BulkJob.run()`.**
+- [x] **Step 5: Three terminal `finish_op` branches in `BulkJob.run()`.**
 
 Use explicit calls at each terminal branch (line 478-491 disk-space, line 551-572 normal completion, line 586-594 fatal exception). Use `getattr(self, '_cancel_reason', 'Cancelled by user')` for the cancelled path (the actual attribute is `self._cancel_reason`, set in `cancel()` at line 1270 and in worker's error-rate-abort path at line 692 — there is NO `self.terminal_error` attribute).
 
@@ -3849,18 +3849,18 @@ Use explicit calls at each terminal branch (line 478-491 disk-space, line 551-57
 
 Optional: add a defensive `finish_op` in the `finally:` block at line 595-598 as a safety net — but only if Task 5 confirms `finish_op` is idempotent on `(op_id, terminal_status)`.
 
-- [ ] **Step 6: Do NOT add `update_op` in `pause()` / `resume()`.**
+- [x] **Step 6: Do NOT add `update_op` in `pause()` / `resume()`.**
 
 DB `bulk_jobs.status` cycles `paused`↔`running` but registry `op_status` stays `running` throughout. Workers block on `_pause_event.wait()` so no progress happens during pause anyway — the next post-resume per-file tick re-confirms liveness.
 
-- [ ] **Step 4: Run; confirm pass.**
+- [x] **Step 4: Run; confirm pass.**
 
 ```bash
 docker-compose restart markflow
 docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_bulk_job_registers_thin_mirror -v
 ```
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add core/bulk_worker.py tests/test_active_ops_integration.py

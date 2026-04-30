@@ -400,3 +400,58 @@ async def test_db_restore_registers_op(authed_admin_real):
     assert op["icon"] != ""
     # Synchronous handler — finished_at_epoch should be populated.
     assert op["finished_at_epoch"] is not None
+
+
+@pytest.mark.asyncio
+async def test_bulk_job_registers_thin_mirror(authed_manager_real, tmp_path):
+    """POST /api/bulk/jobs with an empty source directory registers a
+    bulk.job op in /api/active-ops with cancellable=True.
+
+    The empty source directory causes the bulk scan to find zero convertible
+    files; the job completes almost immediately.  list_ops()'s 30s grace
+    window keeps the finished op visible to this poll.
+
+    Uses authed_manager_real because BulkJob.run() is dispatched via
+    asyncio.create_task — under ASGITransport that task runs in the test
+    loop and can stall pytest teardown if the job doesn't finish promptly.
+
+    op["extra"]["job_id"] identifies the originating BulkJob for the cancel
+    hook (register_op always generates a fresh UUID as op_id; it does NOT
+    equal the job_id).
+    """
+    source_dir = tmp_path / "bulk_source"
+    source_dir.mkdir()
+    output_dir = tmp_path / "bulk_output"
+    output_dir.mkdir()
+
+    resp = await authed_manager_real.post(
+        "/api/bulk/jobs",
+        json={
+            "source_path": str(source_dir),
+            "output_path": str(output_dir),
+            "worker_count": 1,
+        },
+    )
+    if resp.status_code == 409:
+        pytest.skip("Another bulk job is already running — skipping thin-mirror test")
+    assert resp.status_code == 200, f"POST /api/bulk/jobs -> {resp.status_code}: {resp.text}"
+    job_id = resp.json()["job_id"]
+
+    # Wait for BulkJob.run() to register_op and (since the source is
+    # empty) complete the full scan + worker phase.
+    await asyncio.sleep(2.0)
+
+    ops_resp = await authed_manager_real.get("/api/active-ops")
+    assert ops_resp.status_code == 200
+    ops = ops_resp.json()["ops"]
+    bulk_ops = [o for o in ops if o["op_type"] == "bulk.job"]
+    assert len(bulk_ops) >= 1, (
+        f"Expected bulk.job op, got types: "
+        f"{sorted({o['op_type'] for o in ops})}"
+    )
+    op = bulk_ops[0]
+    assert op["origin_url"] == f"/bulk.html?job_id={job_id}"
+    assert op["cancellable"] is True
+    assert op["icon"] != ""
+    # extra["job_id"] is how the cancel hook finds the live BulkJob instance
+    assert op.get("extra", {}).get("job_id") == job_id

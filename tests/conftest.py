@@ -347,6 +347,7 @@ async def _set_hydration_event():
     active_ops._cancel_hooks.setdefault("trash.empty", _stub_cancel)
     active_ops._cancel_hooks.setdefault("trash.restore_all", _stub_cancel)
     active_ops._cancel_hooks.setdefault("analysis.rebuild", _stub_cancel)
+    active_ops._cancel_hooks.setdefault("bulk.job", _stub_cancel)
 
     yield
     # Don't clear — once set, leave set for the rest of the suite

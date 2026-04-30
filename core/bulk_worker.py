@@ -403,6 +403,7 @@ class BulkJob:
         }
         self.current_files: list[dict] = []   # [{worker_id, filename}]
         self.dir_stats: dict[str, dict] = {}  # top_dir -> {converted, failed, pending}
+        self._active_op_id: str | None = None  # active-ops registry op_id (Task 23)
 
     async def run(self) -> None:
         """Full job lifecycle."""
@@ -412,6 +413,22 @@ class BulkJob:
         register_job(self)
         register_task(self.job_id, asyncio.current_task())
         _bulk_progress_queues[self.job_id] = asyncio.Queue(maxsize=500)
+
+        # Active-ops registry (Task 23, v0.35.0): thin mirror so the status
+        # bar and Status hub can surface bulk-job progress alongside other
+        # long-running ops.  op_id is a fresh UUID (register_op always
+        # generates one); job_id is stashed in extra so the cancel hook can
+        # look up the live BulkJob instance.
+        from core import active_ops as _active_ops
+        self._active_op_id = await _active_ops.register_op(
+            op_type="bulk.job",
+            label="Bulk job",
+            icon="⚙",  # ⚙
+            origin_url=f"/bulk.html?job_id={self.job_id}",
+            started_by="bulk_runner",
+            cancellable=True,
+            extra={"job_id": self.job_id},
+        )
 
         # Signal coordinator — cancels lifecycle scan, pauses run-now
         notify_bulk_started(job_id=self.job_id)
@@ -517,6 +534,11 @@ class BulkJob:
                     "detail": disk_err,
                 })
                 _emit_bulk_event(self.job_id, "done", {})
+                if self._active_op_id is not None:
+                    try:
+                        await _active_ops.finish_op(self._active_op_id, error_msg=disk_err)
+                    except Exception:
+                        pass
                 return
 
             # Update job totals
@@ -590,6 +612,13 @@ class BulkJob:
                 extra_fields["cancellation_reason"] = cancel_reason
             await update_bulk_job_status(self.job_id, final_status, **extra_fields)
 
+            if self._active_op_id is not None:
+                try:
+                    _op_err = cancel_reason if self._cancel_event.is_set() else None
+                    await _active_ops.finish_op(self._active_op_id, error_msg=_op_err)
+                except Exception:
+                    pass
+
             _emit_bulk_event(self.job_id, "job_complete", {
                 "job_id": self.job_id,
                 "converted": self._converted,
@@ -620,6 +649,14 @@ class BulkJob:
                 cancellation_reason=f"Fatal error: {str(exc)[:200]}",
                 completed_at=datetime.now(timezone.utc).isoformat(),
             )
+            if self._active_op_id is not None:
+                try:
+                    await _active_ops.finish_op(
+                        self._active_op_id,
+                        error_msg=f"{type(exc).__name__}: {exc}",
+                    )
+                except Exception:
+                    pass
             _emit_bulk_event(self.job_id, "done", {})
         finally:
             notify_bulk_completed(job_id=self.job_id)
@@ -937,6 +974,22 @@ class BulkJob:
 
                 # Check max_files limit (auto-conversion batch cap)
                 self._files_completed += 1
+
+                # Active-ops registry tick (Task 23, v0.35.0): mirror
+                # counters after every file.  Skip during scan phase
+                # (_total_pending is 0 / unreliable until scanning=False).
+                if self._active_op_id is not None and not self._scanning:
+                    try:
+                        from core import active_ops as _active_ops_tick
+                        await _active_ops_tick.update_op(
+                            self._active_op_id,
+                            total=self._total_pending,
+                            done=self._converted + self._skipped + self._failed,
+                            errors=self._failed,
+                        )
+                    except Exception:
+                        pass  # non-critical; don't abort the bulk worker
+
                 if self.max_files and self._files_completed >= self.max_files:
                     log.info(
                         "bulk_worker_max_files_reached",
@@ -1345,6 +1398,30 @@ class BulkJob:
         self._pause_event.set()  # unblock any paused workers so they can drain
         await update_bulk_job_status(self.job_id, "cancelled")
         log.info("bulk_job_cancelled", job_id=self.job_id, reason=reason)
+
+
+# ── Active-ops registry — bulk.job cancel hook (Task 23, v0.35.0) ────────────
+# Registered at module import so register_op(cancellable=True) never raises.
+# Looks up the live BulkJob via job_id stored in the op's extra dict — does NOT
+# capture a BulkJob instance in the closure (the job may have been GC'd by the
+# time a cancel fires for a long-completed op).
+from core.active_ops import register_cancel_hook as _register_bulk_cancel_hook
+
+
+async def _bulk_job_cancel_hook(op_id: str) -> None:
+    from core import active_ops as _aops
+    op = await _aops.get_op(op_id)
+    if op is None:
+        return
+    job_id = op.extra.get("job_id")
+    if not job_id:
+        return
+    job = get_active_job(job_id)
+    if job is not None:
+        await job.cancel(reason="Cancelled via active-ops registry")
+
+
+_register_bulk_cancel_hook("bulk.job", _bulk_job_cancel_hook)
 
 
 # ── Gap-Fill SSE queues ────────────────────────────────────────────────────
