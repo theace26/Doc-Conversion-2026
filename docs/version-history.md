@@ -4,6 +4,179 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.34.8 — Whisper asyncio-lock per-loop + macOS resource-fork skip (BUG-016, BUG-017) (2026-04-30)
+
+**Empirical follow-up to v0.34.7. The first run-now after v0.34.7
+triggered a fresh bulk_job that produced 0 successful conversions in
+~5 min of convert phase, with 31 consecutive failures and a frozen
+heartbeat. Diagnosis traced to a module-level `asyncio.Lock()` that
+binds to a single event loop while the media handlers create a fresh
+loop per file (BUG-016). A side issue produced a constant trickle of
+"corrupt PDF" errors against macOS resource-fork sidecars (BUG-017).
+Both fixed here.**
+
+### BUG-016 — Whisper `asyncio.Lock` is bound to a different event loop
+
+**Symptom (operator-facing).** After v0.34.7 deploy, the next run-now
+created bulk_job `6c6f3c11`. Scan completed normally; convert phase
+started and immediately produced a burst of 31 failures in ~30s,
+all with the same error message:
+
+```
+local Whisper failed or is unavailable, and no cloud provider that
+supports audio is configured
+```
+
+The bulk_jobs.last_heartbeat froze at 03:25:38 — the moment the
+30th-or-so failure was recorded — and stayed frozen for the rest of
+the watch window. `bulk_jobs.converted=0`. The job did not abort
+(see BUG-018 for that secondary mystery).
+
+**Diagnosis.** The persisted `markflow.log` showed every media file's
+Whisper call returning the same RuntimeError:
+
+```
+'<asyncio.locks.Lock object at 0x742da8fdeb40 [locked, waiters:1]>
+ is bound to a different event loop'
+```
+
+Architectural read of `core/whisper_transcriber.py` revealed:
+
+1. Line 43: `_asyncio_lock = asyncio.Lock()` — created at
+   module-import time.
+2. Line 162: `async with _asyncio_lock:` inside `transcribe()`.
+3. `formats/media_handler.py:208,211` and
+   `formats/audio_handler.py:148,151` call
+   `asyncio.run(_convert())` inside a thread pool — so every media
+   file conversion spawns a fresh thread with a fresh event loop.
+
+Python's `asyncio.Lock` constructor records no loop affinity at
+creation time, but the FIRST acquire binds the lock to the calling
+loop. Every subsequent acquire from a different loop raises the
+"is bound to a different event loop" RuntimeError. Result: the
+first media file in the bulk job acquired and (eventually) released
+the lock, but its loop was now CLOSED. Every subsequent media file
+got a brand-new loop from `asyncio.run`, tried to acquire the same
+module-level lock, and failed instantly. Eight workers each hit the
+issue on their first media file in parallel — hence the 8-or-so
+quick failures, then a slow drift up to 31 as more media files
+came down the queue.
+
+The frozen heartbeat at 03:25:38 was the lock-holding worker still
+running its CPU transcription on the first file (~5–10 min on a
+540-second audio at "base" model on CPU); the other workers had
+all finished failing.
+
+**Fix.** Replace the module-level lock with a per-loop lookup:
+
+```python
+_asyncio_lock_dict_guard = threading.Lock()
+_asyncio_locks_by_loop_id: dict[int, asyncio.Lock] = {}
+
+def _get_asyncio_lock() -> asyncio.Lock:
+    loop = asyncio.get_running_loop()
+    key = id(loop)
+    with _asyncio_lock_dict_guard:
+        lock = _asyncio_locks_by_loop_id.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _asyncio_locks_by_loop_id[key] = lock
+        return lock
+```
+
+Then in `transcribe()`:
+
+```python
+async with _get_asyncio_lock():
+    ...
+```
+
+Each per-file event loop now gets its own asyncio.Lock instance.
+Cross-loop GPU/CPU serialization is still provided by the unchanged
+`_thread_lock` (`threading.Lock`), so the original "at most one
+Whisper inference at a time" guarantee is preserved. The dict
+accumulates one tiny entry per closed loop; for an 8-worker pool
+processing many media files this is bounded by max-concurrent
+transcriptions and isn't a concern.
+
+**Why duck-typed dict instead of weakref.** `asyncio.Lock` instances
+aren't weak-referenceable (slot-based), and event-loop closure
+isn't a directly-detectable signal we could hook for cleanup. The
+dict-of-`id(loop)` approach is the cheapest correct solution; the
+alternative (recreating the lock every call) defeats the lock's
+purpose for in-loop coroutine serialization.
+
+**Lesson — module-level asyncio primitives are a trap.** Any
+`asyncio.Lock`, `asyncio.Event`, `asyncio.Condition`,
+`asyncio.Queue`, etc., constructed at import time will silently
+bind to whichever event loop first uses it. Mixed-loop code paths
+(e.g. `asyncio.run` inside a thread pool, common when bridging sync
+→ async) will then fail with "bound to a different event loop". The
+safe pattern is to construct the primitive inside the running
+coroutine, OR to look it up per-loop the way this fix does. Worth
+auditing the rest of the codebase for similar patterns.
+
+### BUG-017 — macOS resource-fork sidecars treated as their parent format
+
+**Symptom.** `bulk_files.error_msg` accumulated rows like:
+
+```
+Cannot open PDF: No /Root object! - Is this really a PDF?
+   source: .../municipal archives/._7123.pdf
+```
+
+**Diagnosis.** macOS writes a sidecar file named `._<original>`
+whenever a file is copied to a non-HFS+ volume — including SMB/CIFS
+mounts (the K-drive source share). The bytes are AppleDouble-framed
+metadata, NOT the format their extension claims. `._7123.pdf` is
+not a PDF; running `pikepdf` against it raises "No /Root object".
+The bulk scanner's `is_junk_filename` predicate already filtered
+the directory variant `.appledouble` and `_JUNK_BASENAMES_LOWER`,
+but missed the per-file sibling.
+
+**Fix.** Add `"._"` to `_JUNK_BASENAME_PREFIXES_LOWER` in
+`core/bulk_scanner.py`. Files with that prefix never reach a
+handler.
+
+### BUG-018 noted as open
+
+`bulk_worker.error_rate_abort` did not fire on the v0.34.7 stuck run
+despite 31 consecutive failures. The check is at
+`core/bulk_worker.py:713` and the underlying logic in
+`core/storage_probe.py:ErrorRateMonitor.should_abort` triggers on
+`consecutive_errors >= 20`. The cancellation_reason stayed `None`
+on `bulk_job 6c6f3c11`. Two leading hypotheses:
+
+1. The `_cancel_reason` set in the worker instance lost the race
+   to a heartbeat-freeze — the DB write that would have propagated
+   it to `bulk_jobs.cancellation_reason` never executed.
+2. `_error_monitor.record_error` was called for the lock-bound-loop
+   exception path, but a different exception path (e.g. via
+   `db_lock_requeue`) reset `_consecutive_errors` so the threshold
+   never crossed the 20 mark.
+
+Logged in `bug-log.md` as open. Not blocking now that BUG-016 is
+fixed — errors will be a small minority of attempts and the
+safeguard won't need to fire. Revisit when the next "everything is
+failing" scenario surfaces (or proactively if the lesson above
+turns up other module-level asyncio primitives).
+
+### Files touched
+
+- `core/version.py` — `0.34.7` → `0.34.8`.
+- `core/whisper_transcriber.py` — module-level `_asyncio_lock`
+  replaced with per-loop dict + `_get_asyncio_lock()` getter; one
+  call site updated.
+- `core/bulk_scanner.py:_JUNK_BASENAME_PREFIXES_LOWER` — added
+  `"._"` macOS resource-fork prefix.
+- `docs/bug-log.md` — BUG-016 + BUG-017 in Shipped, BUG-018 in
+  Active. Header bug-range citation updated.
+- `docs/version-history.md` — this entry.
+- `docs/help/whats-new.md` — operator note.
+- `CLAUDE.md` — Current Version block bumped to v0.34.8.
+
+---
+
 ## v0.34.7 — Auto-conversion unwedged: write guard fallback + Excel chartsheet skip (BUG-014, BUG-015) (2026-04-30)
 
 **Two conversion-blocking bugs found during a post-v0.34.6 log audit.

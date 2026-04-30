@@ -67,56 +67,47 @@ live", `key-files.md`. For "is this bug already known", `bug-log.md`.
 
 ---
 
-## Current Version — v0.34.7
+## Current Version — v0.34.8
 
-**Auto-conversion is now actually converting files for the first time
-since the v0.34.x sequence began. v0.34.3+v0.34.4 unblocked the
-*scheduling* layer; v0.34.5 verified the scheduling held; v0.34.6
-fixed a misleading disk metric. But every worker attempt was still
-failing for two reasons that only surfaced under a post-v0.34.6 log
-audit. Both shipped here.**
+**Empirical follow-up to v0.34.7. The first post-v0.34.7 run-now
+exposed two more conversion blockers that BUG-014 / BUG-015 had been
+masking: every audio/video file was failing the moment Whisper was
+called, and the macOS resource-fork sidecars on the SMB source share
+were piling up "corrupt PDF" errors against files that aren't PDFs
+at all.**
 
-- **BUG-014 (critical): write guard was denying every write.**
-  `core/storage_manager.is_write_allowed()` consulted only the
-  Storage-Manager-populated `_cached_output_path` sentinel. On
-  this VM that pref had never been set (no operator visit to the
-  Storage page) so the cache stayed `None` and every call returned
-  `False` — including against paths clearly inside
-  `BULK_OUTPUT_PATH=/mnt/output-repo`. The bulk_files table had
-  accumulated dozens of `write denied — outside output dir:
-  /mnt/output-repo/...` rows on paths that were clearly under
-  `/mnt/output-repo`. Fix: route the guard through the v0.34.1
-  `core.storage_paths.resolve_output_root_or_raise()` priority chain
-  (Storage Manager > BULK_OUTPUT_PATH > OUTPUT_DIR), preserving the
-  v0.25.0 "absent configuration → deny" intent (resolver raises;
-  guard treats as deny).
-- **BUG-015 (high): Excel handler crashed on Chartsheets.** openpyxl
-  returns `Chartsheet` objects for sheets containing only an
-  embedded chart. Both `formats/xlsx_handler.py:ingest()` and
-  `_extract_styles_impl()` accessed `.merged_cells` unconditionally,
-  AttributeError-ing on those sheets. 11 files affected. Fix: duck-
-  typed `hasattr(ws, "merged_cells")` guard; chartsheets are skipped
-  with a `xlsx_chartsheet_skipped` log line.
-
-Together these two were responsible for the auto-converter tripping
-its 20-error abort threshold in the first 20 attempts of every cycle
-since at least 2026-04-29 16:33 — `error_rate=1.0` despite the
-scheduling layer being healthy. Zero files converted across at least
-5 consecutive auto-runs. With both fixed the abort threshold should
-now only fire on genuine errors (corrupt PDFs, LibreOffice flakes),
-which exist in the long tail but should be a small minority of
-attempts.
+- **BUG-016 (critical): Whisper `asyncio.Lock` is bound to a
+  different event loop.** `core/whisper_transcriber.py:43`
+  constructed an `asyncio.Lock` at module-import time. The format
+  handlers (`media_handler`, `audio_handler`) call
+  `asyncio.run(_convert())` inside a thread pool — one fresh event
+  loop per media file. The module-level lock bound to the first
+  loop and rejected every subsequent file with `is bound to a
+  different event loop`. Result: 31 consecutive failures and a
+  frozen worker heartbeat in the v0.34.7 verification run. Fix:
+  per-loop lock dict keyed by `id(running_loop)`, lazy-created
+  inside `_get_asyncio_lock()`. Cross-loop CPU/GPU serialization is
+  still provided by the unchanged `_thread_lock`.
+- **BUG-017 (low): macOS `._*` resource-fork files attempted as
+  PDFs.** macOS writes a sidecar file named `._<original>` whenever
+  it copies a file to a non-HFS+ volume (every SMB share, including
+  this VM's source mount). Bytes are AppleDouble metadata, not the
+  format the extension claims. `_JUNK_BASENAME_PREFIXES_LOWER` in
+  `core/bulk_scanner.py` already skipped the `.appledouble`
+  directory but missed the per-file siblings. Fix: add `"._"` to
+  the prefix list. Junk-filename check runs at scanner level so
+  these never reach a handler.
 
 ### What operators should see
 
-- The Activity / Pipeline page's **indexed** counter starts climbing
-  for the first time in days as the auto-converter actually
-  succeeds. Expected throughput at observed scan rates is
-  ~250 files/min when actively working.
-- `bulk_files` rows with status `failed` and `error_msg` starting
-  `write denied — outside output dir:` stop accumulating. Existing
-  pre-v0.34.7 rows still reflect the bug; that's expected.
-- `/api/version` and `/api/health` report `0.34.7`.
+- Audio/video files actually getting transcribed instead of
+  failing instantly. Throughput per file depends on duration —
+  "base" Whisper on CPU runs ~0.5–1× realtime, so a 10-min video
+  takes 10–20 min of CPU.
+- `bulk_files.error_msg` rows containing
+  `Cannot open PDF: No /Root object!` against paths starting with
+  `._` stop accumulating.
+- `/api/version` and `/api/health` report `0.34.8`.
 
 ### Loose ends still tracked from prior releases
 
@@ -140,6 +131,30 @@ Carried forward; not re-implemented here:
    worker per pull *after* abort is signaled, producing thousands
    of duplicate lines for one job. A "log once per abort" guard
    would be cheap; not blocking.
+6. **No audio-capable cloud provider configured.** Local Whisper
+   on CPU works for everyday volume but is slow for hours-long
+   archives. Add an OpenAI or Gemini API key on the Settings → AI
+   Providers page if offload is needed; Anthropic does not
+   currently support audio.
+7. **BUG-018 (open):** `bulk_worker.error_rate_abort` did not fire
+   on the v0.34.7 stuck run despite 31 consecutive failures and
+   `error_rate=1.0`. The check exists at
+   `core/bulk_worker.py:713` and the underlying logic in
+   `core/storage_probe.py:ErrorRateMonitor.should_abort` triggers
+   on `consecutive_errors >= 20`. Tracked in `bug-log.md`. Not
+   blocking now that BUG-016 is fixed (errors will be a minority
+   of attempts and the safeguard won't need to fire); revisit
+   when the next "everything is failing" scenario surfaces.
+
+### Audit hint from this release
+
+When you find a `RuntimeError: ... is bound to a different event
+loop`, the first place to look is module-level constructions of
+asyncio primitives (`asyncio.Lock`, `asyncio.Event`,
+`asyncio.Condition`, `asyncio.Queue`, `asyncio.Semaphore`).
+`asyncio.run()` inside a thread pool is the most common trigger.
+Worth a one-time grep across the codebase if other "Whisper-style"
+mixed-loop integrations exist.
 
 Full per-version detail (v0.34.6 and every prior release back to v0.13.x)
 lives in [`docs/version-history.md`](docs/version-history.md). **Do not

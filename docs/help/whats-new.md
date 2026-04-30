@@ -6,6 +6,88 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.34.8 — Whisper transcription works again (and the actually actually converting kind)
+
+The first run-now after v0.34.7 deployed surfaced two more
+conversion blockers that the v0.34.6 / v0.34.7 fixes had been
+masking:
+
+1. **Whisper crashed every audio/video file** with a cryptic
+   "asyncio Lock is bound to a different event loop" error,
+   freezing the bulk-worker pool and producing 0 conversions across
+   ~5 min of convert phase.
+2. **macOS resource-fork sidecar files** (the `._FILENAME.pdf` files
+   that pile up on SMB shares whenever a Mac copies a file in)
+   were leaking into the conversion pipeline and failing every
+   PDF handler call with "Cannot open PDF: No /Root object!" —
+   producing a constant trickle of false positives.
+
+Both fixed.
+
+### What was broken
+
+- **Whisper concurrency model.** The transcription module created
+  a single shared lock at import time. The format handlers run
+  each media file's conversion inside its own short-lived event
+  loop (a thread-pool pattern that bridges sync handler code to
+  async transcription). Python's asyncio.Lock binds to the first
+  event loop that touches it — every subsequent loop hit the
+  "different event loop" error. Net effect: only the very first
+  media file per process could even attempt Whisper; everything
+  after that failed instantly.
+- **Resource-fork sidecars.** macOS writes one of these
+  (`._FILENAME.ext`) any time you copy a file to a non-Mac volume.
+  The bytes are metadata, not the file format the extension
+  claims. The scanner already skipped the `.appledouble` directory
+  but missed the per-file sibling, so they were entering the
+  conversion pipeline and triggering "Cannot open PDF" on every
+  one.
+
+### What changed
+
+- The Whisper module now uses one lock per event loop instead of
+  one shared one, cached lazily. Cross-loop CPU serialization is
+  still in place via the underlying thread lock, so the "only one
+  Whisper inference at a time" guarantee is unchanged — only the
+  binding bug is fixed.
+- The bulk scanner's junk-filename filter now skips files starting
+  with `._`. They're caught at scan time and never enter the
+  conversion pipeline.
+
+### What you should see going forward
+
+- Audio/video files actually getting transcribed instead of
+  failing instantly. Throughput per file depends on duration and
+  CPU — the "base" Whisper model on this CPU-only VM runs at
+  roughly 0.5–1× realtime, so a 10-minute video takes 10–20
+  minutes of CPU.
+- The `Cannot open PDF: No /Root object!` rate against `._*` files
+  drops to zero as those files stop reaching the PDF handler.
+- The Activity / Pipeline page's indexed counter should finally
+  start climbing on its own as the auto-converter actually
+  succeeds.
+
+### What's still pending
+
+- **Cloud audio fallback.** The current setup has no audio-capable
+  cloud provider configured (only Anthropic, which doesn't support
+  audio). If you want offload for large media batches or faster
+  throughput, add an OpenAI or Gemini API key in Settings → AI
+  Providers. Local Whisper on CPU works fine for everyday volume
+  but is slow for many-hour archives.
+- **The 20-error abort safeguard didn't fire** on the broken run
+  — logged as BUG-018 in the bug-log for follow-up. Not blocking
+  now that BUG-016 is fixed; the safeguard simply won't need to
+  fire when conversions are actually working.
+
+### What you should do
+
+- **Restart the MarkFlow container once after this release lands.**
+  Deploy normally (`docker-compose up -d` after build). The next
+  scheduled run-now will pick up both fixes.
+
+---
+
 ## v0.34.7 — Auto-conversion is unblocked (the actually-converting kind)
 
 The previous three releases each fixed a layer of the

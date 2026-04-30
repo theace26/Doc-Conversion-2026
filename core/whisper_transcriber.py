@@ -40,7 +40,41 @@ log = structlog.get_logger(__name__)
 #     before touching the model. Net effect: at most one real Whisper
 #     inference runs at any moment, even under repeated timeouts.
 _thread_lock = threading.Lock()
-_asyncio_lock = asyncio.Lock()
+
+# v0.34.8 BUG-016: do NOT create the asyncio.Lock at module-import time.
+# An asyncio.Lock created outside a running loop binds to whichever loop
+# first acquires it; subsequent acquires from a different loop raise
+# "is bound to a different event loop". The MarkFlow media/audio handlers
+# call ``asyncio.run(_convert())`` inside a thread pool (one fresh loop
+# per file), so a module-level lock would bind to the FIRST file's loop
+# and reject every subsequent media file in the bulk job. Symptom: the
+# very second media file failed instantly while the first was still
+# running on the CPU, every subsequent media file failed instantly, the
+# bulk worker recorded 100% error rate but the workers stalled on the
+# orphan thread, and the abort safeguard couldn't engage cleanly.
+#
+# Solution: cache one asyncio.Lock per ``id(running_loop)``, guarded by
+# a threading.Lock for the dict mutation. Closed-loop entries are not
+# actively GC'd, but each entry is tiny and bounded by max-concurrent
+# media transcriptions across the bulk worker's lifetime.
+_asyncio_lock_dict_guard = threading.Lock()
+_asyncio_locks_by_loop_id: dict[int, asyncio.Lock] = {}
+
+
+def _get_asyncio_lock() -> asyncio.Lock:
+    """Return an :class:`asyncio.Lock` bound to the currently running loop.
+
+    Lazy-created per loop so the lock survives the
+    asyncio.run-per-media-file pattern used by the format handlers.
+    """
+    loop = asyncio.get_running_loop()
+    key = id(loop)
+    with _asyncio_lock_dict_guard:
+        lock = _asyncio_locks_by_loop_id.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _asyncio_locks_by_loop_id[key] = lock
+        return lock
 
 # True while any worker thread is actively inside ``model.transcribe``.
 # Exposed for diagnostics — a timed-out caller can check this to know
@@ -159,7 +193,7 @@ class WhisperTranscriber:
                 finally:
                     _orphan_thread_active = False
 
-        async with _asyncio_lock:
+        async with _get_asyncio_lock():
             try:
                 raw = await asyncio.to_thread(_run)
             except asyncio.CancelledError:

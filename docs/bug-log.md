@@ -51,7 +51,13 @@ not narrative.
 
 ## Open / Planned
 
-(BUG-001 through BUG-015 closed in v0.34.1 / v0.34.2 / v0.34.3 / v0.34.4 / v0.34.6 / v0.34.7 — see Shipped section.)
+(BUG-001 through BUG-017 closed in v0.34.1 / v0.34.2 / v0.34.3 / v0.34.4 / v0.34.6 / v0.34.7 / v0.34.8 — see Shipped section. BUG-018 still open.)
+
+### Active
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-018 | open | medium | Bulk-worker `error_rate_abort` safeguard didn't fire on the v0.34.7 stalled run despite 31 consecutive failures and `error_rate=1.0` | `core/bulk_worker.py:713` checks `self._error_monitor.should_abort()` at the top of each `_worker()` iteration; `core/storage_probe.py:ErrorRateMonitor.should_abort` triggers on `consecutive_errors >= 20`. In the v0.34.7 run that hit BUG-016, `bulk_jobs.failed` reached 31 and `bulk_jobs.cancellation_reason` stayed `None`. Hypothesis: `_cancel_reason` is set on the worker instance but the DB write that propagates it to `bulk_jobs.cancellation_reason` happened to lose the race, OR `record_error` accounting diverged from the per-file `failed` counter under the asyncio-lock failure mode. Not blocking now that BUG-016 is fixed (errors will be a minority of attempts and the safeguard won't need to fire); revisit when the next "everything is failing" scenario surfaces.
 
 ### Security audit findings (long-running)
 
@@ -62,6 +68,21 @@ not narrative.
 ---
 
 ## Shipped (history)
+
+### v0.34.8 — Whisper asyncio-lock per-loop + macOS resource-fork skip
+
+Post-v0.34.7 verification surfaced two more conversion blockers in
+the bulk worker. With BUG-014 (write guard) and BUG-015 (Chartsheet)
+fixed, every media file (`.mp4`/`.mov`/`.mp3`) failed instantly with
+`<asyncio.locks.Lock ...> is bound to a different event loop`,
+freezing the worker pool's heartbeat and producing 31 consecutive
+failures with zero successful conversions before the watcher
+diagnosed it.
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-016 | shipped-v0.34.8 | critical | `core/whisper_transcriber.py` module-level `asyncio.Lock()` strands every Whisper call after the first (single-loop bind) | The format handlers (`formats/media_handler.py:208/211`, `formats/audio_handler.py:148/151`) call `asyncio.run(_convert())` inside a thread-pool worker so each media-file conversion runs on its own short-lived event loop. The module-level `_asyncio_lock = asyncio.Lock()` at `core/whisper_transcriber.py:43` bound to the FIRST such loop and rejected every subsequent file with `is bound to a different event loop`. Symptom: workers reported 8× immediate Whisper failures inside the first 30s of conversion phase (one per worker thread that hit a media file), the bulk_worker recorded the failures into `bulk_files.error_msg`, and the heartbeat froze the moment the lock-holder was stuck on the slow CPU transcribe call. Fix: replace the module-level lock with `_get_asyncio_lock()` — a per-loop dict keyed by `id(running_loop)` and guarded by a `threading.Lock`. Each format-handler thread still serializes Whisper inference via the existing `_thread_lock` (threading.Lock), so cross-loop GPU/CPU correctness is preserved; the asyncio.Lock just serializes coroutines within each loop. See `docs/version-history.md` v0.34.8 entry for the diagnosis chain. |
+| BUG-017 | shipped-v0.34.8 | low | macOS resource-fork sidecar files (`._FILENAME.pdf`) leaked into the conversion pipeline and failed every PDF handler call with `Cannot open PDF: No /Root object!` | macOS writes a resource-fork sidecar named `._<original>` whenever the user copies a file to a non-HFS+ volume (SMB/CIFS share = the live VM's source mount). The bytes are AppleDouble-framed metadata, NOT the file format their extension claims. `core/bulk_scanner.py:_JUNK_BASENAME_PREFIXES_LOWER` already covered the `.appledouble` directory but missed the per-file `._` sibling. Fix: add `"._"` to the prefix list. Junk-filename check runs at scanner level so they never reach a handler. |
 
 ### v0.34.7 — Auto-conversion unwedged: write guard + Excel chartsheet
 
