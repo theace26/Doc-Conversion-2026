@@ -2194,7 +2194,7 @@ Three tasks: GET endpoint, POST cancel endpoint, router registration.
 - Create: `api/routes/active_ops.py`
 - Create: `tests/test_active_ops_endpoint.py`
 
-- [ ] **Step 1: Write failing tests.**
+- [x] **Step 1: Write failing tests.**
 
 Create `tests/test_active_ops_endpoint.py`:
 
@@ -2287,14 +2287,14 @@ async def test_get_active_ops_no_cache_header(authed_operator):
 
 If `authed_operator` fixture doesn't exist, look at any existing `tests/test_*_endpoint.py` to copy the pattern. Likely it builds an `AsyncClient` with a test JWT or with `DEV_BYPASS_AUTH=true`.
 
-- [ ] **Step 2: Run; confirm failure.**
+- [x] **Step 2: Run; confirm failure.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops_endpoint.py -v
 ```
 Expected: FAIL — endpoints don't exist.
 
-- [ ] **Step 3: Implement the GET endpoint.**
+- [x] **Step 3: Implement the GET endpoint.**
 
 Create `api/routes/active_ops.py`:
 
@@ -2334,7 +2334,7 @@ async def list_active_ops(
     return {"ops": [op.to_api_dict() for op in ops]}
 ```
 
-- [ ] **Step 4: Register the router in `main.py`.**
+- [x] **Step 4: Register the router in `main.py`.**
 
 In `main.py`, find existing `app.include_router(...)` calls and add:
 
@@ -2345,7 +2345,7 @@ app.include_router(active_ops_routes.router)
 
 (Do this near the other router registrations to keep them grouped.)
 
-- [ ] **Step 5: Restart and run tests.**
+- [x] **Step 5: Restart and run tests.**
 
 ```bash
 docker-compose restart markflow
@@ -2353,7 +2353,7 @@ docker-compose exec markflow pytest tests/test_active_ops_endpoint.py -k "get_ac
 ```
 Expected: PASS.
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ```bash
 git add api/routes/active_ops.py main.py tests/test_active_ops_endpoint.py
@@ -2368,7 +2368,7 @@ git commit -m "feat(active_ops): GET /api/active-ops endpoint"
 - Modify: `api/routes/active_ops.py`
 - Modify: `tests/test_active_ops_endpoint.py`
 
-- [ ] **Step 1: Write failing tests.**
+- [x] **Step 1: Write failing tests.**
 
 Append to `tests/test_active_ops_endpoint.py`:
 
@@ -2443,13 +2443,13 @@ async def test_cancel_400_on_uncancellable(authed_manager):
         await active_ops.finish_op(op_id)
 ```
 
-- [ ] **Step 2: Run; confirm failure.**
+- [x] **Step 2: Run; confirm failure.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops_endpoint.py -k "cancel" -v
 ```
 
-- [ ] **Step 3: Implement the cancel endpoint.**
+- [x] **Step 3: Implement the cancel endpoint.**
 
 Append to `api/routes/active_ops.py`:
 
@@ -2491,14 +2491,14 @@ async def cancel_active_op(
     }
 ```
 
-- [ ] **Step 4: Run; confirm pass.**
+- [x] **Step 4: Run; confirm pass.**
 
 ```bash
 docker-compose restart markflow
 docker-compose exec markflow pytest tests/test_active_ops_endpoint.py -v
 ```
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add api/routes/active_ops.py tests/test_active_ops_endpoint.py
@@ -2511,7 +2511,7 @@ git commit -m "feat(active_ops): POST /api/active-ops/{id}/cancel"
 
 **Files:** none (manual verification)
 
-- [ ] **Step 1: Trigger a real op via the registry shell.**
+- [x] **Step 1: Trigger a real op via the registry shell.**
 
 ```bash
 docker-compose exec markflow python -c "
@@ -2542,14 +2542,14 @@ docker-compose exec markflow curl -s http://localhost:8000/api/active-ops | pyth
 ```
 Expected: JSON with `ops` array containing the smoke op.
 
-- [ ] **Step 2: Confirm cache-control header.**
+- [x] **Step 2: Confirm cache-control header.**
 
 ```bash
 docker-compose exec markflow curl -sI http://localhost:8000/api/active-ops | grep -i cache-control
 ```
 Expected: `Cache-Control: no-cache, no-store, must-revalidate`.
 
-- [ ] **Step 3: No commit needed (manual check).**
+- [x] **Step 3: No commit needed (manual check).**
 
 **End of Phase 2.** HTTP surface ready. Next: workers register through Phase 3.
 
