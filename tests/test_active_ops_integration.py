@@ -99,3 +99,40 @@ async def test_convert_selected_registers_op(
     assert op["origin_url"] == "/history.html"
     assert op["cancellable"] is True
     assert op["icon"] != ""
+
+
+@pytest.mark.asyncio
+async def test_pipeline_scan_registers_op(authed_manager_real):
+    """Triggering /api/pipeline/run-now results in BOTH a pipeline.run_now
+    op AND a pipeline.scan op being registered in /api/active-ops.
+    pipeline.run_now is the orchestration shell; pipeline.scan is the
+    actual scanner work, registered from inside
+    core.lifecycle_scanner.run_lifecycle_scan.
+
+    Uses HTTP only — same cross-loop safety as
+    test_pipeline_run_now_registers_op.
+
+    On dev machines without configured source paths, the scan exits
+    very quickly (returns at the no-source-path / no-valid-roots paths
+    of run_lifecycle_scan), but list_ops()'s 30s grace window means
+    the op is still visible to this test either way.
+    """
+    resp = await authed_manager_real.post("/api/pipeline/run-now")
+    assert resp.status_code == 200
+
+    # Wait long enough for run_now's BackgroundTask to invoke
+    # run_lifecycle_scan, which is where pipeline.scan registers.
+    await asyncio.sleep(2.0)
+
+    ops_resp = await authed_manager_real.get("/api/active-ops")
+    assert ops_resp.status_code == 200
+    ops = ops_resp.json()["ops"]
+    op_types = {o["op_type"] for o in ops}
+    assert "pipeline.scan" in op_types, (
+        f"Expected pipeline.scan op, got types: {sorted(op_types)} (ops: {ops})"
+    )
+
+    scan_op = next(o for o in ops if o["op_type"] == "pipeline.scan")
+    assert scan_op["origin_url"] == "/status.html"
+    assert scan_op["cancellable"] is True
+    assert scan_op["icon"] != ""

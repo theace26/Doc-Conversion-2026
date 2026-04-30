@@ -291,3 +291,19 @@ async def _cancel_run_now_via_active_ops(op_id: str) -> None:
 
 
 register_cancel_hook("pipeline.run_now", _cancel_run_now_via_active_ops)
+
+
+# pipeline.scan (Task 16) — the lifecycle scanner registers its own op_id
+# in core/lifecycle_scanner.py:run_lifecycle_scan().  Cancel routing here
+# bridges the registry's cancel_op() to _lifecycle_cancel.  We ALSO set the
+# event directly (same pattern as run_now) so cancels arriving in the gap
+# between register_op() and register_lifecycle_scan() — which is small but
+# real (path resolution, root validation, pre-walk) — are not silently
+# dropped by cancel_lifecycle_scan()'s `if _lifecycle_running:` guard.
+async def _cancel_scan_via_active_ops(op_id: str) -> None:
+    cancel_lifecycle_scan(reason="active_ops_registry")
+    _lifecycle_cancel.set()
+    log.info("scan_coordinator.scan_cancelled_via_active_ops", op_id=op_id)
+
+
+register_cancel_hook("pipeline.scan", _cancel_scan_via_active_ops)

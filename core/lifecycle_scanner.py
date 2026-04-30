@@ -181,9 +181,60 @@ async def run_lifecycle_scan(
     source_path: str | None = None,
     job_id: str | None = None,
 ) -> str:
-    """Run a full lifecycle scan. Returns scan_run_id."""
-    scan_run_id = uuid.uuid4().hex
+    """Run a full lifecycle scan. Returns scan_run_id.
 
+    Active-ops registry (v0.35.0) wrapper: registers a ``pipeline.scan``
+    op around the inner body (``_run_lifecycle_scan_body``) so the
+    operation is visible in ``/api/active-ops``, the operator cancel
+    button works (bridge in ``core/scan_coordinator.py``), and a
+    shutdown that propagates ``asyncio.CancelledError`` cannot leak a
+    'running' row for ``hydrate_on_startup`` to reconcile.
+    """
+    from core import active_ops
+
+    scan_run_id = uuid.uuid4().hex
+    op_id = await active_ops.register_op(
+        op_type="pipeline.scan",
+        label="Pipeline scan" + (" (manual)" if job_id else ""),
+        icon="\U0001F50D",  # 🔍
+        origin_url="/status.html",
+        started_by="scheduler" if not job_id else "operator",
+        cancellable=True,
+        extra={"trigger": "manual" if job_id else "scheduled",
+               "scan_run_id": scan_run_id},
+    )
+
+    error_msg: str | None = None
+    try:
+        return await _run_lifecycle_scan_body(
+            scan_run_id, source_path, job_id, op_id,
+        )
+    except asyncio.CancelledError:
+        error_msg = "Cancelled by shutdown"
+        raise
+    except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        if error_msg is None and active_ops.is_cancelled(op_id):
+            error_msg = "Cancelled by operator"
+        await active_ops.finish_op(op_id, error_msg=error_msg)
+
+
+async def _run_lifecycle_scan_body(
+    scan_run_id: str,
+    source_path: str | None = None,
+    job_id: str | None = None,
+    op_id: str | None = None,
+) -> str:
+    """Body of ``run_lifecycle_scan`` — extracted so the public function
+    above can wrap register_op / finish_op without indenting the entire
+    ~400-line scan body.
+
+    ``op_id`` is threaded through to ``_flush_counters_to_db`` so
+    per-flush progress mirrors to the active-ops registry without
+    requiring a module-level global.
+    """
     # Early cancel check: if the active_ops cancel hook fired before we
     # reached setup (e.g. operator clicked Cancel immediately after POST
     # /run-now), bail out without touching the DB at all.
@@ -278,6 +329,14 @@ async def run_lifecycle_scan(
             _scan_state["total"] = total_estimate
         except (asyncio.TimeoutError, Exception):
             _scan_state["total"] = 0
+    # Mirror the pre-walk total to the active-ops registry once we have
+    # it.  Pass ``None`` rather than 0 so the UI shows indeterminate
+    # progress on the timeout path (the registry treats 0 as "0 of 0",
+    # which would render as 100% complete).
+    if op_id is not None:
+        from core import active_ops as _active_ops
+        _est = _scan_state.get("total") or None
+        await _active_ops.update_op(op_id, total=_est)
     _started_at_dt = datetime.now(timezone.utc)
 
     # Bail out before heavy setup if cancel arrived while counting (or before).
@@ -415,6 +474,7 @@ async def run_lifecycle_scan(
                     incremental_mode=incremental_mode,
                     skip_patterns=skip_patterns,
                     skip_extensions=skip_extensions,
+                    op_id=op_id,
                 )
             else:
                 await _serial_lifecycle_walk(
@@ -426,6 +486,7 @@ async def run_lifecycle_scan(
                     incremental_mode=incremental_mode,
                     skip_patterns=skip_patterns,
                     skip_extensions=skip_extensions,
+                    op_id=op_id,
                 )
         except Exception as exc:
             # Log error for this root but continue to next root
@@ -710,6 +771,7 @@ async def _serial_lifecycle_walk(
     incremental_mode: bool = False,
     skip_patterns: list[str] | None = None,
     skip_extensions: set[str] | None = None,
+    op_id: str | None = None,
 ) -> None:
     """Serial walk for local SSD/HDD sources with error-rate abort."""
     error_monitor = ErrorRateMonitor()
@@ -792,7 +854,7 @@ async def _serial_lifecycle_walk(
             # Periodically flush counters to DB (crash resilience)
             if counters["files_scanned"] - last_flush_count >= 500:
                 last_flush_count = counters["files_scanned"]
-                await _flush_counters_to_db(scan_run_id, counters)
+                await _flush_counters_to_db(scan_run_id, counters, op_id=op_id)
 
             if error_monitor.should_abort():
                 break
@@ -814,6 +876,7 @@ async def _parallel_lifecycle_walk(
     incremental_mode: bool = False,
     skip_patterns: list[str] | None = None,
     skip_extensions: set[str] | None = None,
+    op_id: str | None = None,
 ) -> None:
     """Parallel walk with feedback-loop throttling for NAS/SMB sources."""
     import time as _time
@@ -1015,7 +1078,7 @@ async def _parallel_lifecycle_walk(
         if counters["files_scanned"] - last_throttle_check >= 500:
             throttler.check_and_adjust()
             last_throttle_check = counters["files_scanned"]
-            await _flush_counters_to_db(scan_run_id, counters)
+            await _flush_counters_to_db(scan_run_id, counters, op_id=op_id)
 
     # Check for walker exceptions
     for i, fut in enumerate(futures):
@@ -1125,12 +1188,22 @@ def _update_scan_progress(
         _scan_state["eta_seconds"] = None
 
 
-async def _flush_counters_to_db(scan_run_id: str, counters: dict) -> None:
+async def _flush_counters_to_db(
+    scan_run_id: str,
+    counters: dict,
+    op_id: str | None = None,
+) -> None:
     """Persist current scan counters to DB for crash resilience.
 
     Called every ~500 files so that if the container dies mid-scan,
     cleanup_orphaned_jobs() leaves a row with meaningful counter data
     instead of all-zeros.
+
+    When ``op_id`` is provided (Task 16, v0.35.0), also mirrors the
+    progress to the active-ops registry via ``update_op``.  The
+    registry's 1.5s write-through debounce coalesces these into at most
+    one DB write per ~1.5s no matter how often this is called, so it's
+    safe to keep the existing ~500-file cadence.
     """
     try:
         await update_scan_run(scan_run_id, {
@@ -1144,6 +1217,18 @@ async def _flush_counters_to_db(scan_run_id: str, counters: dict) -> None:
         })
     except Exception:
         log.debug("lifecycle_scan.counter_flush_failed", scan_run_id=scan_run_id)
+
+    if op_id is not None:
+        try:
+            from core import active_ops as _active_ops
+            await _active_ops.update_op(
+                op_id,
+                done=counters["files_scanned"],
+                errors=counters["errors"],
+            )
+        except Exception:
+            log.debug("lifecycle_scan.active_ops_mirror_failed",
+                      scan_run_id=scan_run_id, op_id=op_id)
 
 
 def _count_files_sync(source_root: Path, stop_event=None) -> int:
