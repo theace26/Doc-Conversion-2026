@@ -4,33 +4,6 @@ Auto-loaded by Claude Code at session start. Detailed references live in `docs/`
 
 ---
 
-## 📌 Session handoff — 2026-04-30 (delete this section once Phase 3 ships)
-
-**Active branch:** `feat/active-ops-registry` (26 commits ahead of `main`, all pushed). Switch to it before doing anything: `git checkout feat/active-ops-registry`.
-
-**Where Phase 3 left off:**
-
-- ✅ **Phase 0** (recon §A–§G) and **Phase 1** (registry + DB foundation, Tasks 1–10) shipped. `core/active_ops.py` + 70/70 unit tests.
-- ✅ **Phase 2** HTTP API (Tasks 11–13). `GET /api/active-ops` + `POST /api/active-ops/{id}/cancel` live, OPERATOR/MANAGER role-gated, `Cache-Control: no-cache`.
-- ✅ **Phase 3 Task 14** — `pipeline.run_now` retrofit + cancel hook. Two related commits:
-  - `4dc1d61` test infra: real-uvicorn-in-thread fixture (`tests/conftest.py` `real_server` + `authed_*_real`). Required because FastAPI BackgroundTasks under ASGITransport stalls pytest teardown.
-  - `9f3f6b4` cancel-bridge fix. **Latent bug we caught:** the cancel hook set `_run_now_cancel` but `run_lifecycle_scan` polled `_lifecycle_cancel` — two flags, no bridge. Operators clicking Cancel had no effect once the scan was running. Fix wires the hook to `_lifecycle_cancel.set()` directly.
-- ⏸ **Phase 3 Tasks 15–23** pending. Each retrofit follows Task 14's pattern (register at start, mirror progress, finish in `try/finally`, register cancel hook). **Watch for the same two-flag bug pattern in each one** — the cancel hook must route to whatever flag the worker actually polls. Run the **foresight skill** before each commit; it's exactly the bug shape it catches.
-
-**Plan + spreadsheet:**
-- Plan: `docs/superpowers/plans/2026-04-28-active-operations-registry.md` (Phase 0/1/2 checkboxes ticked; Phase 3 unticked).
-- Recon: `docs/superpowers/plans/2026-04-28-active-operations-registry-recon.md` (refreshed for v0.34.9 BUG-018 +73 line shift in `bulk_worker.py`).
-- Model + effort routing: `docs/spreadsheet/phase_model_plan.xlsx`. Phase 3 = Opus implementer / Sonnet reviewer per task. Each plan has the metadata embedded in a `## Model + effort` section.
-
-**Test pattern for new Phase 3 tasks:**
-- Use `authed_operator_real` / `authed_manager_real` fixtures (live HTTP via uvicorn-in-thread) for any test that exercises `BackgroundTasks`. Use the in-process `authed_operator` / `authed_manager` for endpoint-only tests.
-- Verify cancel signal end-to-end against the real worker — don't no-op-mock the underlying primitive (that's how the cancel-bridge bug got hidden in Task 14's first attempt).
-
-**Known unrelated work pending:**
-- UX overhaul Plans 1A–3 implementation lives only on the user's *work workstation* (the one you may now be on) — not yet pushed to GitHub. Stage 1 diagnostic was drafted but never run on the workstation. If `git status` / `git log origin/main..HEAD` show committed-but-unpushed work in the markflow repo, that's it.
-
----
-
 ## Project
 
 **Doc-Conversion-2026** (internal name: MarkFlow) — Python/FastAPI web app
@@ -96,89 +69,29 @@ live", `key-files.md`. For "is this bug already known", `bug-log.md`.
 
 ---
 
-## Current Version — v0.34.9
+## Current Version — v0.35.0
 
-**Closes BUG-018 — the "the abort safeguard didn't fire on the v0.34.7
-stuck run" mystery. Turns out the safeguard *was* firing in memory;
-the DB persistence was just gated on `asyncio.gather(*workers)`
-returning, which a single stuck worker can prevent indefinitely.
-Move the persistence to the abort site itself.**
+**Active Operations Registry.** Single source of truth for every long-running file-related op. Workers register at start, update on tick, finish at end. One unified frontend surface (sticky banner, inline per-page widget, Status hub) consumes one polling endpoint. Replaces ad-hoc per-subsystem progress dicts.
 
-- **BUG-018 (medium):** `core/bulk_worker.py:713` correctly fires
-  the abort decision when `should_abort()` returns True
-  (`consecutive_errors >= 20`), but only sets `_cancel_reason` in
-  memory + sets `_cancel_event`. The DB write that materialises
-  `bulk_jobs.cancellation_reason` lives at line 591, AFTER
-  `await asyncio.gather(*workers)`. If any worker is blocked
-  inside `_process_convertible` (long Whisper, frozen CIFS read,
-  etc.), `gather` never returns and the cancellation is invisible
-  to the UI / startup reaper / operators. Fix: persist the abort
-  to the DB at the abort site itself via `update_bulk_job_status()`,
-  guarded by a one-shot `_abort_persisted` flag so the per-worker
-  re-observation collapses to a single action per job (also
-  eliminates the `bulk_worker_error_rate_abort` log/event spam
-  that previously fired once per worker per pull after abort was
-  signaled).
+### What operators see
 
-### What operators should see
+- Force Transcribe, pipeline scans, trash ops, DB maintenance — all show a live progress widget on the origin page and in the Status hub.
+- Click any Status hub card to jump to the origin page; the widget pulses amber to confirm which op was clicked.
+- Cancel button on every cancellable op. DB backup/restore intentionally uncancellable.
+- After restart: ops in flight show as "terminated by restart" on Status hub for 30 s.
+- `/api/version` reports `0.35.0`.
 
-- When the bulk worker's "too many errors, abort" safeguard fires,
-  `bulk_jobs.cancellation_reason` and `bulk_jobs.status='cancelled'`
-  appear within the same heartbeat tick — not "after every worker
-  drains the queue" (which a stuck worker can prevent).
-- `markflow.log` growth from aborted jobs drops dramatically —
-  from "once per worker per pull after abort" to "once per
-  aborted job".
-- `/api/version` reports `0.34.9`.
+### Loose ends tracked forward
 
-### Loose ends still tracked from prior releases
-
-Carried forward; not re-implemented here:
-
-1. **No operator-facing alert** when auto-conversion fails N cycles
-   in a row. UX overhaul §13 (Notifications) covers the trigger-rule
-   infrastructure.
-2. **No "scanned vs indexed delta" surface** — Plan 4 (UX IA shift)
-   will surface this on the Activity dashboard.
-3. **Failure-path explicit `completed_at` writes** — the bulk_job
-   pre-flight failure handler should write
-   `auto_conversion_runs.completed_at` directly rather than relying
-   on the startup orphan reaper as a backstop.
-4. **LibreOffice headless flakes** on `.xls` files (`exited 0 but
-   produced no output file`). Likely parallel-worker contention on
-   `~/.config/libreoffice` profile dir. Tracked for a future
-   hardening pass; not blocking now that the dominant failures
-   above are fixed.
-5. **No audio-capable cloud provider configured.** Local Whisper
-   on CPU works for everyday volume but is slow for hours-long
-   archives. Add an OpenAI or Gemini API key on the Settings → AI
-   Providers page if offload is needed; Anthropic does not
-   currently support audio.
-6. **Worker heartbeat freezes during multi-minute Whisper
-   transcriptions.** Workers correctly hold the threading.Lock
-   through CPU inference, but the heartbeat updater inside the
-   worker loop doesn't tick during the blocking call. Operators
-   see a job that looks "stuck" while it's actually working.
-   Likely fixed by either a per-file deadline or a separate
-   heartbeat coroutine. Not blocking; cosmetic.
-
-### Audit hints from this release sequence
-
-- **BUG-016 lesson:** module-level asyncio primitives (`asyncio.Lock`,
-  `Event`, `Condition`, `Queue`, `Semaphore`) silently bind to
-  whichever loop first uses them. Mixed-loop code paths
-  (`asyncio.run` inside a thread pool) will then fail with
-  `is bound to a different event loop`. Worth a one-time grep for
-  other module-level constructions of these types if a similar
-  symptom resurfaces.
-- **BUG-018 lesson:** for state transitions that matter to
-  operators (status flips, cancellations, abort decisions), persist
-  at the *decision site*, not at the *closeout site*. Other
-  `_cancel_event.set()` sites in `core/bulk_worker.py`
-  (lines 905, 1301-1302, 1507, 1526) likely have the same coupling
-  to the post-gather write — out of scope for this release but
-  worth a similar audit if a bug like BUG-018 resurfaces in any
-  of those paths.
+1. **BUG-019** — remove deprecated `/api/trash/empty/status` and `/api/trash/restore-all/status` facades (v0.36.x).
+2. **BUG-020** — apply P1 (no-op-on-terminal) hardening to `BulkJob.tick()` and `lifecycle_scanner` `_scan_state` mutations (v0.36.x).
+3. **BUG-021** — periodic drift detection job comparing `bulk_jobs.processed` vs `active_operations.done` (v0.36.x).
+4. **BUG-022** — boot-time scheduler time-slot collision self-check (v0.36.x).
+5. **BUG-023** — audit deprecated public surfaces, apply v0.35.0 deprecation convention (v0.36.x).
+6. **No operator-facing alert** when auto-conversion fails N cycles in a row. UX overhaul §13 covers this.
+7. **Failure-path explicit `completed_at` writes** — bulk_job pre-flight failure handler should write `auto_conversion_runs.completed_at` directly.
+8. **LibreOffice headless flakes** on `.xls` (parallel-worker contention on `~/.config/libreoffice`). Tracked for hardening.
+9. **Worker heartbeat freezes** during long Whisper transcriptions. Cosmetic; not blocking.
 
 Full per-version detail (v0.34.6 and every prior release back to v0.13.x)
 lives in [`docs/version-history.md`](docs/version-history.md). **Do not

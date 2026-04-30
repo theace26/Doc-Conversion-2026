@@ -65,6 +65,18 @@ they don't get rolled into the registry commit but are not lost.
 | BUG-013 | open | low | `tests/test_phase9/test_scheduler.py` imports renamed `_is_business_hours` symbol | `core/scheduler.py` renamed `_is_business_hours` (sync) to `_is_business_hours_async` (async, reads DB preferences for the window). The two test bodies (`test_business_hours_weekday_10am`, `test_business_hours_sunday_3am`) call it as if synchronous and the file is broken at import time. Fix is to either delete the two test bodies or rewrite them as async tests that mock the preference reads. Out of scope for active-ops registry plan; pick up as a separate ticket. Discovered in active-ops recon §A.4 (line 2694-2702). |
 | BUG-014 | open | medium | `pipeline-card.js` POSTs to non-existent `/api/pipeline/rebuild-index` endpoint | `static/js/pipeline-card.js:285` POSTs to `/api/pipeline/rebuild-index`, but no such handler exists on the backend. The actual search-rebuild endpoint is `POST /api/search/index/rebuild` at `api/routes/search.py:703`. Pre-existing bug, orthogonal to active-ops registry. Fix is to update the frontend URL in `pipeline-card.js` (and possibly verify there are no other consumers of the bogus URL). Discovered in active-ops recon §D.5 (line 2781-2786). |
 
+### v0.36.x planned (active-ops registry follow-ups)
+
+Planned during the Active Operations Registry (v0.35.0) implementation. Originally reserved as BUG-015..019, but v0.34.7–v0.34.9 releases consumed those numbers; renumbered to BUG-019..023.
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-019 | planned | low | Remove deprecated `/api/trash/empty/status` and `/api/trash/restore-all/status` after the v0.35.0 facade window. Endpoints currently return registry-derived data with `Deprecation: true` + `Sunset` headers. | spec §14, §17 P9 |
+| BUG-020 | planned | low | Apply P1 (no-op-on-terminal) hardening to `BulkJob.tick()` and `lifecycle_scanner` `_scan_state` mutations. Currently partial. | spec §17 P1 |
+| BUG-021 | planned | low | Periodic drift detection job (scheduler 03:55) that compares `bulk_jobs.processed` vs `active_operations.done` and `scan_runs` vs `active_operations` for the same `op_id`; logs `active_ops.drift_detected` on mismatch. | spec §17 P3 |
+| BUG-022 | planned | low | Boot-time self-check that walks the scheduler job table and logs `scheduler.time_slot_collision` if two jobs are within 5 min of each other (and neither yields to the other). | spec §17 P7 |
+| BUG-023 | planned | low | Audit deprecated public surfaces in the codebase and apply the v0.35.0 deprecation convention (`console.warn` for JS; `Deprecation` + `Sunset` headers for HTTP). | spec §17 P9 |
+
 ### Security audit findings (long-running)
 
 | ID | Status | Sev | Summary | Details |
