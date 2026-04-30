@@ -144,10 +144,17 @@ elif [[ "$GPU_VENDOR" != "none" ]]; then
 fi
 
 # -- Build compose args ------------------------------------------
+# NOTE: passing -f explicitly disables docker compose's default
+# auto-load of docker-compose.override.yml. Hosts without GPU
+# passthrough rely on that override to strip the NVIDIA reservation
+# from docker-compose.yml, so include it explicitly when present.
 COMPOSE_ARGS=("-f" "$REPO_DIR/docker-compose.yml")
 
 if $USE_NVIDIA_OVERLAY; then
     COMPOSE_ARGS+=("-f" "$REPO_DIR/docker-compose.gpu.yml")
+elif [[ -f "$REPO_DIR/docker-compose.override.yml" ]]; then
+    COMPOSE_ARGS+=("-f" "$REPO_DIR/docker-compose.override.yml")
+    echo "  [compose] Including local docker-compose.override.yml"
 fi
 
 # -- 1. Pull latest code ----------------------------------------
