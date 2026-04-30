@@ -264,3 +264,55 @@ async def test_search_rebuild_index_registers_op(authed_manager_real):
     assert op["origin_url"] == "/settings.html"
     assert op["cancellable"] is False
     assert op["icon"] != ""
+
+
+@pytest.mark.asyncio
+async def test_analysis_rebuild_registers_op(
+    authed_operator_real, sample_analysis_queue_row,
+):
+    """POST /api/analysis/queue/reanalyze-bulk with dry_run=False
+    registers an analysis.rebuild op visible in /api/active-ops with
+    cancellable=True.
+
+    The handler is synchronous — by the time the response returns, the
+    op has already been finalised.  list_ops()'s 30s grace window keeps
+    finished ops visible to this poll.
+
+    Uses authed_operator_real for parity with the other integration
+    tests (the handler is fully synchronous so authed_operator would
+    also work here, but real is the safer default).
+
+    The fixture seeds one analysis_queue row with a unique provider_id
+    so the bulk filter has at least one match (otherwise the endpoint
+    short-circuits with matched=0 and never registers an op).
+    """
+    provider_id, _row_id, _source_path = sample_analysis_queue_row
+
+    resp = await authed_operator_real.post(
+        "/api/analysis/queue/reanalyze-bulk",
+        json={
+            "provider_id": provider_id,
+            "status": "completed",
+            "dry_run": False,
+        },
+    )
+    assert resp.status_code == 200, (
+        f"reanalyze-bulk -> {resp.status_code}: {resp.text}"
+    )
+    body = resp.json()
+    assert body["matched"] >= 1, f"Expected at least 1 matched row, got: {body}"
+
+    await asyncio.sleep(0.3)
+
+    ops_resp = await authed_operator_real.get("/api/active-ops")
+    assert ops_resp.status_code == 200
+    ops = ops_resp.json()["ops"]
+    matching = [o for o in ops if o["op_type"] == "analysis.rebuild"]
+    assert len(matching) >= 1, (
+        f"Expected analysis.rebuild op, got types: "
+        f"{sorted({o['op_type'] for o in ops})}"
+    )
+    op = matching[0]
+    assert op["origin_url"] == "/batch-management.html"
+    assert op["cancellable"] is True
+    assert op["icon"] != ""
