@@ -1,7 +1,11 @@
-"""
-APScheduler setup — registers lifecycle scan, trash expiry, and DB maintenance jobs.
+"""Scheduler job registry.
 
-Called from main.py lifespan.
+When adding a new job, FIRST update docs/scheduler-time-slots.md
+to claim a time slot and document conflict checks (spec §17 P7).
+
+The `log.info("scheduler.started", jobs=...)` literal is
+self-counting via `len(scheduler.get_jobs())` as of v0.35.0 — no
+manual count to maintain.
 """
 
 import asyncio
