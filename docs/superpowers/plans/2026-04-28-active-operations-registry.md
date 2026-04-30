@@ -2579,7 +2579,7 @@ A new test file `tests/test_active_ops_integration.py` collects the end-to-end v
 - Modify: `core/scan_coordinator.py` (register cancel hook calling `cancel_run_now_scan`)
 - Create: `tests/test_active_ops_integration.py`
 
-- [ ] **Step 1: Write the integration test.**
+- [x] **Step 1: Write the integration test.**
 
 Create `tests/test_active_ops_integration.py`:
 
@@ -2616,14 +2616,14 @@ async def test_pipeline_run_now_registers_op(authed_manager):
     await active_ops.cancel_op(op.op_id)
 ```
 
-- [ ] **Step 2: Run; confirm failure.**
+- [x] **Step 2: Run; confirm failure.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_pipeline_run_now_registers_op -v
 ```
 Expected: FAIL — no pipeline.run_now op registered.
 
-- [ ] **Step 3: Register the cancel hook in `core/scan_coordinator.py`.**
+- [x] **Step 3: Register the cancel hook in `core/scan_coordinator.py`.**
 
 At the bottom of `core/scan_coordinator.py`, add. The actual cancel primitive exposed by scan_coordinator is `cancel_run_now_scan(reason: str = "")` at line 118 — NOT a non-existent `notify_run_now_cancelled()`:
 
@@ -2642,7 +2642,7 @@ async def _cancel_run_now_via_active_ops(op_id: str) -> None:
 register_cancel_hook("pipeline.run_now", _cancel_run_now_via_active_ops)
 ```
 
-- [ ] **Step 4: Wire `register_op` / `finish_op` into `_run` in `api/routes/pipeline.py`.**
+- [x] **Step 4: Wire `register_op` / `finish_op` into `_run` in `api/routes/pipeline.py`.**
 
 Replace the existing `_run` inner function in `run_pipeline_now()` (around line 203). Current shape:
 
@@ -2705,7 +2705,7 @@ Replace with:
 
 (`None` means "frontend computes the URL from op_id"; non-None would mean "use this exact URL". For all our op_types in v1, frontend computes from op_id.)
 
-- [ ] **Step 5: Add per-tick progress updates.**
+- [x] **Step 5: Add per-tick progress updates.**
 
 `run_lifecycle_scan` already updates the `scan_runs` row as it goes. To bridge that into active_ops without changing the scanner internals, add a lightweight progress poller in `_run`. Insert before `await run_lifecycle_scan(force=True)`:
 
@@ -2747,14 +2747,14 @@ Replace with:
 
 CRUD helpers (`get_latest_scan_run`, `create_scan_run`, `update_scan_run`, `get_scan_run`) live in `core/db/lifecycle.py:316-345` — there is no `core/db/scan_runs.py`. While `total_files_counted` may be NULL until the pre-walk counter finishes, the `or 0` fallback handles that case for `update_op` (where `total=0` falls back to indeterminate UI).
 
-- [ ] **Step 6: Run integration test; confirm pass.**
+- [x] **Step 6: Run integration test; confirm pass.**
 
 ```bash
 docker-compose restart markflow
 docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_pipeline_run_now_registers_op -v
 ```
 
-- [ ] **Step 7: Commit.**
+- [x] **Step 7: Commit.**
 
 ```bash
 git add api/routes/pipeline.py core/scan_coordinator.py tests/test_active_ops_integration.py
@@ -2769,7 +2769,7 @@ git commit -m "feat(active_ops): retrofit pipeline.run_now + cancel hook"
 - Modify: `api/routes/pipeline.py` (`_convert_one_pending_file`, `_run_convert_selected_batch`, `convert_selected_files`)
 - Modify: `tests/test_active_ops_integration.py`
 
-- [ ] **Step 1: Append integration test.**
+- [x] **Step 1: Append integration test.**
 
 ```python
 @pytest.mark.asyncio
@@ -2810,7 +2810,7 @@ async def sample_pending_file_id():
     ))
 ```
 
-- [ ] **Step 2: Register cancel hook for `pipeline.convert_selected`.**
+- [x] **Step 2: Register cancel hook for `pipeline.convert_selected`.**
 
 At the bottom of `api/routes/pipeline.py`:
 
@@ -2830,7 +2830,7 @@ _register_cancel_hook("pipeline.convert_selected",
                       _cancel_convert_selected_via_active_ops)
 ```
 
-- [ ] **Step 3: Wire register/update/finish into `_run_convert_selected_batch`.**
+- [x] **Step 3: Wire register/update/finish into `_run_convert_selected_batch`.**
 
 Replace the body of `_run_convert_selected_batch`:
 
@@ -2895,14 +2895,14 @@ async def _run_convert_selected_batch(files: list[dict], user_email: str) -> Non
     )
 ```
 
-- [ ] **Step 4: Run integration test; confirm pass.**
+- [x] **Step 4: Run integration test; confirm pass.**
 
 ```bash
 docker-compose restart markflow
 docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_convert_selected_registers_op -v
 ```
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add api/routes/pipeline.py tests/test_active_ops_integration.py tests/conftest.py
@@ -2925,7 +2925,7 @@ git commit -m "feat(active_ops): retrofit pipeline.convert_selected + cancel"
 - Modify: `core/scan_coordinator.py` (cancel hook bridge)
 - Modify: `tests/test_active_ops_integration.py`
 
-- [ ] **Step 1: Append integration test.**
+- [x] **Step 1: Append integration test.**
 
 ```python
 @pytest.mark.asyncio
@@ -2954,7 +2954,7 @@ async def test_pipeline_scan_registers_op_when_running(authed_manager):
             await active_ops.cancel_op(op.op_id)
 ```
 
-- [ ] **Step 2: Register cancel hook in `core/scan_coordinator.py`.**
+- [x] **Step 2: Register cancel hook in `core/scan_coordinator.py`.**
 
 Match Task 14's bridge pattern. The lifecycle scanner already has `_should_cancel()` at `core/lifecycle_scanner.py:60` that combines `should_stop()` (global) + `is_lifecycle_cancelled()` (scan_coordinator). The bridge wires the registry's `cancel_op()` to the scan_coordinator's existing `cancel_lifecycle_scan(reason)` primitive at line 83 — no monkey-patching, no second cancel mechanism.
 
@@ -2975,7 +2975,7 @@ async def _cancel_scan_via_active_ops(op_id: str) -> None:
 register_cancel_hook("pipeline.scan", _cancel_scan_via_active_ops)
 ```
 
-- [ ] **Step 3: Wrap inner `run_lifecycle_scan` body with register/finish.**
+- [x] **Step 3: Wrap inner `run_lifecycle_scan` body with register/finish.**
 
 Edit the **inner** worker at `core/lifecycle_scanner.py:run_lifecycle_scan(source_path=None, job_id=None)` (NOT the wrapper at `core/scheduler.py:108-114`). The inner is also called directly by `api/routes/scanner.py` so retrofitting only the wrapper would skip the manual-scan path.
 
@@ -3025,7 +3025,7 @@ async def run_lifecycle_scan(source_path=None, job_id=None):
         await active_ops.finish_op(op_id, error_msg=error_msg)
 ```
 
-- [ ] **Step 3a: Tick site — thread `op_id` through `_flush_counters_to_db`.**
+- [x] **Step 3a: Tick site — thread `op_id` through `_flush_counters_to_db`.**
 
 Add `op_id: str | None = None` kwarg to `_flush_counters_to_db` at `core/lifecycle_scanner.py:1099` and to its two callers in the serial walker (line 766) and parallel walker (line 989). Inside `_flush_counters_to_db`, after the existing DB flush, mirror to active_ops:
 
@@ -3043,14 +3043,14 @@ async def _flush_counters_to_db(scan_run_id, ..., op_id=None):
 
 Both walkers call `_flush_counters_to_db` every ~500 files which lines up well with the registry's 1.5s debounce. **Skip** the 25-file `_update_scan_progress` calls at lines 980 and 1067 — they're too fine-grained and would compete with the debounce for no benefit.
 
-- [ ] **Step 4: Run integration test; confirm pass.**
+- [x] **Step 4: Run integration test; confirm pass.**
 
 ```bash
 docker-compose restart markflow
 docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_pipeline_scan_registers_op_when_running -v
 ```
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add core/lifecycle_scanner.py tests/test_active_ops_integration.py
@@ -3070,7 +3070,7 @@ Additionally: there is **NO existing cancel mechanism** for `purge_all_trash`. R
 - Modify: `api/routes/trash.py` (only the deprecated `/empty/status` facade — read from registry)
 - Modify: `tests/test_active_ops_integration.py`
 
-- [ ] **Step 1: Append integration test.**
+- [x] **Step 1: Append integration test.**
 
 ```python
 @pytest.mark.asyncio
@@ -3095,7 +3095,7 @@ async def test_trash_empty_registers_op_replacing_old_dict(authed_manager):
     assert resp_facade.headers.get("Deprecation", "").lower() == "true"
 ```
 
-- [ ] **Step 2: Register cancel hook + retrofit worker in `api/routes/trash.py`.**
+- [x] **Step 2: Register cancel hook + retrofit worker in `api/routes/trash.py`.**
 
 Find the existing `_empty_trash_status` module-level dict and the worker that mutates it (likely an async function called from a background task). Replace.
 
@@ -3172,7 +3172,7 @@ async def purge_all_trash(user_email: str) -> None:
 
 `_list_trash_files()` and `_delete_trash_file()` are placeholders — reuse the real helper names already inside `lifecycle_manager.py:274-476`. The cancel poll at the top of the loop is the only cancel surface; recon §D.1 confirms that's the only signal needed.
 
-- [ ] **Step 3: Convert `/api/trash/empty/status` to a deprecated facade.**
+- [x] **Step 3: Convert `/api/trash/empty/status` to a deprecated facade.**
 
 Replace the existing `GET /api/trash/empty/status` handler:
 
@@ -3204,14 +3204,14 @@ async def empty_trash_status_legacy(
     }
 ```
 
-- [ ] **Step 4: Run integration test; confirm pass.**
+- [x] **Step 4: Run integration test; confirm pass.**
 
 ```bash
 docker-compose restart markflow
 docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_trash_empty_registers_op_replacing_old_dict -v
 ```
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add api/routes/trash.py tests/test_active_ops_integration.py
@@ -3229,7 +3229,7 @@ git commit -m "feat(active_ops): retrofit trash.empty + deprecated facade"
 - Modify: `api/routes/trash.py` (only the deprecated `/restore-all/status` facade)
 - Modify: `tests/test_active_ops_integration.py`
 
-- [ ] **Step 1: Append integration test.**
+- [x] **Step 1: Append integration test.**
 
 ```python
 @pytest.mark.asyncio
@@ -3246,7 +3246,7 @@ async def test_trash_restore_all_registers_op(authed_manager):
     assert resp_facade.headers.get("Deprecation", "").lower() == "true"
 ```
 
-- [ ] **Step 2: Repeat the Task 17 pattern for `restore_all_trash` in `core/lifecycle_manager.py`.**
+- [x] **Step 2: Repeat the Task 17 pattern for `restore_all_trash` in `core/lifecycle_manager.py`.**
 
 In `api/routes/trash.py` at module level, add only the cancel-hook bridge and op_id mirror (the worker itself moves into `lifecycle_manager.py`):
 
@@ -3337,14 +3337,14 @@ async def restore_all_status_legacy(
     }
 ```
 
-- [ ] **Step 3: Run integration test; confirm pass.**
+- [x] **Step 3: Run integration test; confirm pass.**
 
 ```bash
 docker-compose restart markflow
 docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_trash_restore_all_registers_op -v
 ```
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ```bash
 git add api/routes/trash.py tests/test_active_ops_integration.py
@@ -3364,11 +3364,11 @@ Per-document progress IS available at `core/search_indexer.py:419-462` — both 
 - Modify: `core/search_indexer.py` (add `op_id` kwarg + per-doc tick)
 - Modify: `tests/test_active_ops_integration.py`
 
-- [ ] **Step 1: Confirm the rebuild handler location.**
+- [x] **Step 1: Confirm the rebuild handler location.**
 
 The endpoint is `POST /api/search/index/rebuild` at `api/routes/search.py:703-731`. The integration test should target this URL — NOT the non-existent `/api/pipeline/rebuild-index` URL that pipeline-card.js currently POSTs to (separate BUG-014, not in scope here).
 
-- [ ] **Step 2: Append integration test.**
+- [x] **Step 2: Append integration test.**
 
 ```python
 @pytest.mark.asyncio
@@ -3383,7 +3383,7 @@ async def test_search_rebuild_index_registers_op(authed_manager):
     assert rebuild_ops[0].cancellable is False   # uncancellable per spec §9
 ```
 
-- [ ] **Step 3: Raise role + wire register/finish around `rebuild_index` call.**
+- [x] **Step 3: Raise role + wire register/finish around `rebuild_index` call.**
 
 In `api/routes/search.py:703-731`, change the role guard from `require_role(UserRole.SEARCH_USER)` to `require_role(UserRole.MANAGER)` (a full re-index holds the Meilisearch index lock and is operator-class work).
 
@@ -3411,7 +3411,7 @@ Wrap the rebuild call:
         await active_ops.finish_op(op_id, error_msg=error_msg)
 ```
 
-- [ ] **Step 3a: Add `op_id` kwarg + per-doc tick to `SearchIndexer.rebuild_index`.**
+- [x] **Step 3a: Add `op_id` kwarg + per-doc tick to `SearchIndexer.rebuild_index`.**
 
 In `core/search_indexer.py:419-462`, add `op_id: str | None = None` to `rebuild_index(...)`. Both the `for f in files:` loop and the `for entry in adobe_entries:` loop increment `status.documents_indexed` / `status.adobe_indexed` / `status.errors` already; mirror those into the registry:
 
@@ -3444,14 +3444,14 @@ async def rebuild_index(self, op_id: str | None = None):
 
 Note (recon §D.5): vector-side failures at `search_indexer.py:440-456` (`vec.index_document(...)`) are swallowed and do NOT increment `status.errors`. The registry's `errors` count therefore underreports vector-side failures. **Do not "fix" this** — best-effort vector indexing is intentional per CLAUDE.md gotcha.
 
-- [ ] **Step 4: Run; confirm pass.**
+- [x] **Step 4: Run; confirm pass.**
 
 ```bash
 docker-compose restart markflow
 docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_search_rebuild_index_registers_op -v
 ```
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add <files> tests/test_active_ops_integration.py
@@ -3472,11 +3472,11 @@ git commit -m "feat(active_ops): retrofit search.rebuild_index"
 - Modify: `api/routes/analysis.py` (`POST /api/analysis/queue/reanalyze-bulk` only)
 - Modify: `tests/test_active_ops_integration.py`
 
-- [ ] **Step 1: Endpoint location confirmed.**
+- [x] **Step 1: Endpoint location confirmed.**
 
 `POST /api/analysis/queue/reanalyze-bulk` in `api/routes/analysis.py`. The synchronous body around line 522 is the per-row loop where the tick goes.
 
-- [ ] **Step 2: Append integration test.**
+- [x] **Step 2: Append integration test.**
 
 ```python
 @pytest.mark.asyncio
@@ -3502,7 +3502,7 @@ async def test_analysis_rebuild_registers_op(authed_operator):
     assert matching[0].finished_at_epoch is not None   # already done
 ```
 
-- [ ] **Step 3: Register cancel hook + wrap the synchronous handler.**
+- [x] **Step 3: Register cancel hook + wrap the synchronous handler.**
 
 At module top of `api/routes/analysis.py`:
 
@@ -3557,14 +3557,14 @@ async def reanalyze_bulk(
 
 (The actual `analysis_drain` scheduled job at §A.4 row 17 picks up the enqueued rows later. The registry op only covers the synchronous DELETE+enqueue phase, which is what the operator triggers.)
 
-- [ ] **Step 4: Run; confirm pass.**
+- [x] **Step 4: Run; confirm pass.**
 
 ```bash
 docker-compose restart markflow
 docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_analysis_rebuild_registers_op -v
 ```
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add api/routes/analysis.py tests/test_active_ops_integration.py
@@ -3581,7 +3581,7 @@ git commit -m "feat(active_ops): retrofit analysis.rebuild + cancel"
 - Modify: `api/routes/db_health.py:124-200` (the `POST /api/db/backup` handler)
 - Modify: `tests/test_active_ops_integration.py`
 
-- [ ] **Step 1: Append integration test.**
+- [x] **Step 1: Append integration test.**
 
 ```python
 @pytest.mark.asyncio
@@ -3599,7 +3599,7 @@ async def test_db_backup_registers_op(authed_admin):
     assert matching[0].finished_at_epoch is not None
 ```
 
-- [ ] **Step 2: Wire register/finish in the backup handler (synchronous).**
+- [x] **Step 2: Wire register/finish in the backup handler (synchronous).**
 
 In `api/routes/db_health.py:124-200` (the `POST /backup` handler under prefix `/api/db`). Both `register_op` and `finish_op` happen inside the same handler — no background dispatch:
 
@@ -3633,14 +3633,14 @@ async def backup(
 
 Do NOT register a cancel hook for `db.backup` — uncancellable per spec.
 
-- [ ] **Step 3: Run; confirm pass.**
+- [x] **Step 3: Run; confirm pass.**
 
 ```bash
 docker-compose restart markflow
 docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_db_backup_registers_op -v
 ```
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ```bash
 git add <files> tests/test_active_ops_integration.py
@@ -3886,7 +3886,7 @@ Frontend tests stay manual per project convention (CLAUDE.md). Each task ends wi
 **Files:**
 - Create: `static/js/active-ops-poller.js`
 
-- [ ] **Step 1: Create the file.**
+- [x] **Step 1: Create the file.**
 
 ```js
 /**
@@ -3981,7 +3981,7 @@ Frontend tests stay manual per project convention (CLAUDE.md). Each task ends wi
 })();
 ```
 
-- [ ] **Step 2: Smoke test in browser.**
+- [x] **Step 2: Smoke test in browser.**
 
 After loading any page (e.g., `/status.html`) with this script tag added, open DevTools console:
 
@@ -3991,7 +3991,7 @@ ActiveOpsPoller.subscribe(ops => console.log('ops:', ops.length));
 
 Expected: console logs an op count every 2s.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add static/js/active-ops-poller.js
@@ -4005,7 +4005,7 @@ git commit -m "feat(active_ops): shared frontend poller (v0.35.0)"
 **Files:**
 - Create: `static/js/active-op-widget.js`
 
-- [ ] **Step 1: Create the file.**
+- [x] **Step 1: Create the file.**
 
 ```js
 /**
@@ -4233,7 +4233,7 @@ git commit -m "feat(active_ops): shared frontend poller (v0.35.0)"
 })();
 ```
 
-- [ ] **Step 2: Commit.**
+- [x] **Step 2: Commit.**
 
 ```bash
 git add static/js/active-op-widget.js
@@ -4247,7 +4247,7 @@ git commit -m "feat(active_ops): inline active-op-widget.js"
 **Files:**
 - Create: `static/js/active-ops-hub.js`
 
-- [ ] **Step 1: Create the file.**
+- [x] **Step 1: Create the file.**
 
 ```js
 /**
@@ -4418,7 +4418,7 @@ git commit -m "feat(active_ops): inline active-op-widget.js"
 })();
 ```
 
-- [ ] **Step 2: Commit.**
+- [x] **Step 2: Commit.**
 
 ```bash
 git add static/js/active-ops-hub.js
@@ -4432,7 +4432,7 @@ git commit -m "feat(active_ops): Status page hub index module"
 **Files:**
 - Modify: `static/js/live-banner.js`
 
-- [ ] **Step 1: Strip the per-endpoint poll loop; subscribe to the shared poller.**
+- [x] **Step 1: Strip the per-endpoint poll loop; subscribe to the shared poller.**
 
 Replace the body of `live-banner.js` with the version below (preserve the existing license/comment block at top):
 
@@ -4652,11 +4652,11 @@ Replace the body of `live-banner.js` with the version below (preserve the existi
 })();
 ```
 
-- [ ] **Step 2: Smoke test.**
+- [x] **Step 2: Smoke test.**
 
 Restart, load `/trash.html`, trigger Empty Trash → banner shows `🗑 Emptying trash` with progress.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add static/js/live-banner.js
@@ -4670,7 +4670,7 @@ git commit -m "feat(active_ops): retrofit live-banner.js to consume poller (P8 C
 **Files:**
 - Modify: `static/history.html`
 
-- [ ] **Step 1: Add mount anchor + script tags + cache-bust pass.**
+- [x] **Step 1: Add mount anchor + script tags + cache-bust pass.**
 
 In `static/history.html`:
 
@@ -4704,11 +4704,11 @@ In `static/history.html`:
 
 3. Bump every existing `?v=…` query string in the file to `?v=0.35.0`.
 
-- [ ] **Step 2: Smoke test.**
+- [x] **Step 2: Smoke test.**
 
 Trigger Force Transcribe → widget appears above Pending Files with progress.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add static/history.html
@@ -4722,7 +4722,7 @@ git commit -m "feat(active_ops): mount widget on history.html + cache-bust v0.35
 **Files:**
 - Modify: `static/trash.html`
 
-- [ ] **Step 1: Insert mount anchor + scripts.**
+- [x] **Step 1: Insert mount anchor + scripts.**
 
 Above the existing trash file table:
 
@@ -4754,9 +4754,9 @@ Near script tags (cache-bust to `?v=0.35.0`):
 
 Bump every existing `?v=` to `?v=0.35.0` in the file.
 
-- [ ] **Step 2: Smoke test:** trigger Empty Trash → widget appears.
+- [x] **Step 2: Smoke test:** trigger Empty Trash → widget appears.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add static/trash.html
@@ -4772,7 +4772,7 @@ git commit -m "feat(active_ops): mount widget on trash.html + cache-bust v0.35.0
 **Files:**
 - Modify: `static/bulk.html`
 
-- [ ] **Step 1: Insert immediately above the Active Job card (`#active-job-section` at line 327).**
+- [x] **Step 1: Insert immediately above the Active Job card (`#active-job-section` at line 327).**
 
 ```html
 <div id="active-op-widget-mount-nonbulk" style="margin-bottom:0.75rem"></div>
@@ -4802,9 +4802,9 @@ Scripts:
 
 Cache-bust pass: every `?v=` → `?v=0.35.0`.
 
-- [ ] **Step 2: Smoke test:** non-bulk op (Force Transcribe from another tab) shows here while bulk jobs continue in the existing rich Active Jobs view.
+- [x] **Step 2: Smoke test:** non-bulk op (Force Transcribe from another tab) shows here while bulk jobs continue in the existing rich Active Jobs view.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add static/bulk.html
@@ -4820,7 +4820,7 @@ git commit -m "feat(active_ops): mount widget on bulk.html + cache-bust v0.35.0"
 **Files:**
 - Modify: `static/settings.html`
 
-- [ ] **Step 1: Insert anchor in the Database & Search section, wrapped in a card.**
+- [x] **Step 1: Insert anchor in the Database & Search section, wrapped in a card.**
 
 ```html
 <div class="card mb-2">
@@ -4855,9 +4855,9 @@ Scripts:
 
 Cache-bust pass: every `?v=` → `?v=0.35.0`.
 
-- [ ] **Step 2: Smoke test:** trigger DB Backup → widget appears.
+- [x] **Step 2: Smoke test:** trigger DB Backup → widget appears.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add static/settings.html
@@ -4871,7 +4871,7 @@ git commit -m "feat(active_ops): mount widget on settings.html + cache-bust v0.3
 **Files:**
 - Modify: `static/batch-management.html`
 
-- [ ] **Step 1: Insert anchor + scripts** following the pattern from Task 31, with filter:
+- [x] **Step 1: Insert anchor + scripts** following the pattern from Task 31, with filter:
 
 ```js
         filter: function (op) {
@@ -4881,9 +4881,9 @@ git commit -m "feat(active_ops): mount widget on settings.html + cache-bust v0.3
 
 Cache-bust pass: every `?v=` → `?v=0.35.0`.
 
-- [ ] **Step 2: Smoke test:** trigger Bulk Re-analyze → widget appears.
+- [x] **Step 2: Smoke test:** trigger Bulk Re-analyze → widget appears.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add static/batch-management.html
@@ -4897,7 +4897,7 @@ git commit -m "feat(active_ops): mount widget on batch-management.html + cache-b
 **Files:**
 - Modify: `static/status.html`
 
-- [ ] **Step 1: Insert hub mount above the existing pipeline-card-mount.**
+- [x] **Step 1: Insert hub mount above the existing pipeline-card-mount.**
 
 In `static/status.html`, find the existing `<div id="pipeline-card-mount">` and insert ABOVE it:
 
@@ -4925,13 +4925,13 @@ Scripts (add to the script block at the bottom; the page already loads `live-ban
 
 Cache-bust pass: bump every `?v=` (including `live-banner.js` and `pipeline-card.js`) to `?v=0.35.0`.
 
-- [ ] **Step 2: Smoke test:**
+- [x] **Step 2: Smoke test:**
 
 1. Trigger several ops at once (run Empty Trash, then Force Transcribe, then DB Backup).
 2. Visit `/status.html` → all three appear in the index.
 3. Click the Force Transcribe row → navigates to `/history.html?op_id=…` and the in-page widget pulses amber.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add static/status.html
@@ -4948,7 +4948,7 @@ git commit -m "feat(active_ops): mount hub on status.html + cache-bust v0.35.0"
 - Modify: `static/history.html` — ADD `?v=0.35.0` to all 3 script tags + 1 CSS link (currently unversioned).
 - Modify: `static/pipeline-files.html`, `static/preview.html`, and any other page in `static/*.html` whose `?v=…` query strings are < 0.35.0.
 
-- [ ] **Step 1: Inventory.**
+- [x] **Step 1: Inventory.**
 
 ```bash
 # Existing versioned references (bump to 0.35.0):
@@ -4960,13 +4960,13 @@ grep -n '<script src=\|<link.*href=' static/history.html | grep -v '?v='
 
 Expected: 11 references to bump across `pipeline-files.html`, `preview.html`, etc.; PLUS 4 references to ADD on `history.html` (3 `<script src="">` + 1 `<link rel="stylesheet" href="">`).
 
-- [ ] **Step 2: Bump existing references to `?v=0.35.0`, ADD `?v=0.35.0` on history.html.**
+- [x] **Step 2: Bump existing references to `?v=0.35.0`, ADD `?v=0.35.0` on history.html.**
 
 For each file with existing `?v=…`: bump every occurrence. For `history.html`: ADD `?v=0.35.0` to each of the 4 unversioned script/link tags.
 
-- [ ] **Step 3: Smoke test:** load each affected page; DevTools Network tab shows scripts loaded with `?v=0.35.0` (no 304 cache hits on stale). Pay particular attention to history.html — it's the page that previously had no cache-bust at all.
+- [x] **Step 3: Smoke test:** load each affected page; DevTools Network tab shows scripts loaded with `?v=0.35.0` (no 304 cache hits on stale). Pay particular attention to history.html — it's the page that previously had no cache-bust at all.
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ```bash
 git add static/*.html
