@@ -375,13 +375,19 @@ def _make_role_scoped_client(app, role):
 
 
 @pytest_asyncio.fixture
-async def authed_operator():
+async def authed_operator(client):
     """Per-test AsyncClient with exactly OPERATOR role.
 
     Injects UserRole.OPERATOR via a ContextVar-backed dependency override so
     that endpoints guarded by require_role(UserRole.MANAGER) return 403, while
     endpoints guarded by require_role(UserRole.OPERATOR) return 200.
-    Safe to use alongside authed_manager in the same test."""
+    Safe to use alongside authed_manager in the same test.
+
+    Depends on the session-scoped ``client`` fixture only to ensure
+    ``init_db()`` has run (which applies all _MIGRATIONS, including v29's
+    ``active_operations`` table) before this fixture yields. Without this
+    dependency, running endpoint tests in isolation skips migrations and
+    DB-touching tests fail with ``no such table``."""
     from core.auth import UserRole, get_current_user
     from main import app
 
@@ -394,12 +400,18 @@ async def authed_operator():
 
 
 @pytest_asyncio.fixture
-async def authed_manager():
+async def authed_manager(client):
     """Per-test AsyncClient with exactly MANAGER role.
 
     Injects UserRole.MANAGER via a ContextVar-backed dependency override so
     that endpoints guarded by require_role(UserRole.MANAGER) return 200.
-    Safe to use alongside authed_operator in the same test."""
+    Safe to use alongside authed_operator in the same test.
+
+    Depends on the session-scoped ``client`` fixture only to ensure
+    ``init_db()`` has run (which applies all _MIGRATIONS, including v29's
+    ``active_operations`` table) before this fixture yields. Without this
+    dependency, running endpoint tests in isolation skips migrations and
+    DB-touching tests fail with ``no such table``."""
     from core.auth import UserRole, get_current_user
     from main import app
 
