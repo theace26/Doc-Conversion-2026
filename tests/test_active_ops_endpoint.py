@@ -14,8 +14,14 @@ from main import app
 
 @pytest.fixture(autouse=True)
 def _reset_active_ops():
-    """Clear in-memory active-ops state before and after each test."""
+    """Clear in-memory active-ops state before and after each test.
+
+    Snapshots _cancel_hooks (module-import-time hooks registered via
+    register_cancel_hook) and restores them so integration tests that
+    follow don't see a cleared hook dict seeded only with stubs.
+    """
     from core import active_ops
+    hooks_snapshot = dict(active_ops._cancel_hooks)
     active_ops._ops.clear()
     active_ops._last_persist_at.clear()
     active_ops._cancel_hooks.clear()
@@ -23,6 +29,7 @@ def _reset_active_ops():
     active_ops._ops.clear()
     active_ops._last_persist_at.clear()
     active_ops._cancel_hooks.clear()
+    active_ops._cancel_hooks.update(hooks_snapshot)
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
