@@ -201,22 +201,57 @@ async def run_pipeline_now(
     """
 
     async def _run():
+        from core import active_ops
+        op_id = await active_ops.register_op(
+            op_type="pipeline.run_now",
+            label="Force Transcribe / Convert Pending",
+            icon="⚙",
+            origin_url="/history.html",
+            started_by=user.email,
+            cancellable=True,
+            cancel_url=None,
+        )
         register_run_now_scan()
+        error_msg = None
         try:
-            # Signal coordinator — cancels any active lifecycle scan
             notify_run_now_started()
-
-            # If a bulk job is active, wait for it to finish before scanning
             if is_any_bulk_active():
                 log.info("pipeline.run_now_waiting_for_bulk")
                 await wait_if_run_now_paused()
                 if is_run_now_cancelled():
                     log.info("pipeline.run_now_cancelled_while_waiting")
+                    error_msg = "Cancelled while waiting for bulk job"
                     return
+            async def _mirror_progress() -> None:
+                while True:
+                    await asyncio.sleep(2)
+                    if active_ops.is_cancelled(op_id):
+                        return
+                    try:
+                        from core.db.lifecycle import get_latest_scan_run
+                        scan = await get_latest_scan_run()
+                        if scan and scan.get("status") == "running":
+                            await active_ops.update_op(
+                                op_id,
+                                total=scan.get("total_files_counted") or 0,
+                                done=scan.get("files_scanned") or 0,
+                                errors=scan.get("errors") or 0,
+                            )
+                    except Exception:
+                        pass
 
-            await run_lifecycle_scan(force=True)
+            mirror_task = asyncio.create_task(_mirror_progress())
+            try:
+                await run_lifecycle_scan(force=True)
+            finally:
+                mirror_task.cancel()
+        except Exception as exc:
+            error_msg = f"{type(exc).__name__}: {exc}"
+            log.error("pipeline.run_now_failed", error=error_msg)
+            raise
         finally:
             unregister_run_now_scan()
+            await active_ops.finish_op(op_id, error_msg=error_msg)
 
     background_tasks.add_task(_run)
     log.info("pipeline.run_now_triggered")

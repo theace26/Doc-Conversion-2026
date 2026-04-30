@@ -246,3 +246,17 @@ def get_coordinator_status() -> dict:
         "active_bulk_count": _active_bulk_count,
         "stale_timeout_s": STALE_SCAN_TIMEOUT_S,
     }
+
+
+# Active Operations Registry — cancel hook for pipeline.run_now (v0.35.0).
+# When operator clicks Cancel on the active-ops widget, registry calls
+# this hook which translates to the existing cancel_run_now_scan
+# primitive (above in this file).
+from core.active_ops import register_cancel_hook  # noqa: E402
+
+
+async def _cancel_run_now_via_active_ops(op_id: str) -> None:
+    cancel_run_now_scan(reason="active_ops_registry")
+
+
+register_cancel_hook("pipeline.run_now", _cancel_run_now_via_active_ops)
