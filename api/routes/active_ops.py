@@ -29,5 +29,5 @@ async def list_active_ops(
     The 30s window lets the UI keep showing a "Done" state briefly
     after completion, so the operator gets visual confirmation."""
     ops = await active_ops.list_ops()
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Cache-Control"] = "no-cache"
     return {"ops": [op.to_api_dict() for op in ops]}

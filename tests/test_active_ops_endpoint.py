@@ -26,21 +26,14 @@ def _reset_active_ops():
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_get_active_ops_requires_operator_role():
-    """Anonymous request → 401/403 depending on auth setup."""
+async def test_get_active_ops_requires_operator_role(monkeypatch):
+    """Anonymous request → 401 when DEV_BYPASS_AUTH is disabled."""
     import core.auth
-    # Save and disable bypass
-    orig = core.auth.DEV_BYPASS_AUTH
-    core.auth.DEV_BYPASS_AUTH = False
-    try:
-        from core.database import init_db
-        await init_db()
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            resp = await ac.get("/api/active-ops")
-        assert resp.status_code in (401, 403)
-    finally:
-        core.auth.DEV_BYPASS_AUTH = orig
+    monkeypatch.setattr(core.auth, "DEV_BYPASS_AUTH", False)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.get("/api/active-ops")
+    assert resp.status_code == 401
 
 
 @pytest.mark.asyncio
@@ -104,4 +97,4 @@ async def test_get_active_ops_excludes_finished_older_than_30s(authed_operator):
 async def test_get_active_ops_no_cache_header(authed_operator):
     resp = await authed_operator.get("/api/active-ops")
     cc = resp.headers.get("cache-control", "").lower()
-    assert "no-cache" in cc or "no-store" in cc
+    assert "no-cache" in cc
