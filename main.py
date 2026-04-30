@@ -506,6 +506,10 @@ app.include_router(preview_routes.router)
 from api.routes import prproj as prproj_routes
 app.include_router(prproj_routes.router)
 
+# v0.35.0: Active Operations Registry
+from api.routes import active_ops as active_ops_routes
+app.include_router(active_ops_routes.router)
+
 log.info("markflow.all_routes_registered")
 
 # ── Static files ──────────────────────────────────────────────────────────────

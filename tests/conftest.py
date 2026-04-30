@@ -327,3 +327,22 @@ async def _set_hydration_event():
 
     yield
     # Don't clear — once set, leave set for the rest of the suite
+
+
+# ── authed_operator: AsyncClient with operator access (v0.35.0) ──────────────
+
+@pytest_asyncio.fixture
+async def authed_operator():
+    """AsyncClient that satisfies require_role(OPERATOR).
+
+    DEV_BYPASS_AUTH=true is set at conftest module-load time and grants
+    admin (which satisfies every role guard including OPERATOR). This
+    fixture exposes a named handle so Phase 2 endpoint tests can
+    clearly signal intent without modifying the session-scoped `client`."""
+    from core.database import init_db
+    from main import app
+
+    await init_db()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
