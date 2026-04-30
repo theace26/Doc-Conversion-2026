@@ -1,8 +1,9 @@
 """Generate phase_model_plan.xlsx — Claude Code model + effort recommendations
 per phase for the UX Overhaul and Active Operations Registry (System Unifier).
 
-Effort units = Claude Code session-hours, t-shirt sized:
-    XS ≈ <2h    S ≈ 2-4h    M ≈ 4-8h    L ≈ 8-16h    XL ≈ 16-32h
+Effort scale matches Claude Code's low / med / high / max thinking-budget syntax,
+mapped to Claude Code session-hours:
+    low  ≈ <4h     med  ≈ 4-8h     high ≈ 8-16h     max  ≈ 16-32h
 
 Reviewer effort is for one focused review pass against the spec/plan, not for
 back-and-forth iteration. Real cost = sessions × model rate.
@@ -33,8 +34,8 @@ UX_OVERHAUL = [
     (
         "Plan 1A — Foundation Setup",
         "2026-04-28-ux-overhaul-foundation-setup.md",
-        "Sonnet",   "M (4-8h)",
-        "Opus",     "S (2-3h)",
+        "Sonnet",   "med (4-8h)",
+        "Opus",     "low (2-3h)",
         "Foundation work: aiosqlite migration for the user_preferences table, JWT role-claim "
         "parsing, design-token CSS, prefs server module + endpoints. Schema and auth-claim "
         "mistakes are expensive to undo once data lands, so spend once on Opus review even "
@@ -45,8 +46,8 @@ UX_OVERHAUL = [
     (
         "Plan 1B — Static Chrome",
         "2026-04-28-ux-overhaul-static-chrome.md",
-        "Haiku",    "S (2-4h)",
-        "Haiku",    "XS (<1h)",
+        "Haiku",    "low (2-4h)",
+        "Haiku",    "low (<1h)",
         "Four pure-presentational vanilla-JS components (top-nav, version-chip, avatar, "
         "layout-icon), each ≤100 LOC, no state, no async, no server interaction. Pattern is "
         "repetitive and the safe-DOM rules are explicit. Cheapest tier on both sides; the "
@@ -55,8 +56,8 @@ UX_OVERHAUL = [
     (
         "Plan 1C — Stateful Chrome",
         "2026-04-28-ux-overhaul-stateful-chrome.md",
-        "Sonnet",   "M (4-8h)",
-        "Sonnet",   "S (2-3h)",
+        "Sonnet",   "med (4-8h)",
+        "Sonnet",   "low (2-3h)",
         "Prefs client (localStorage cache + 500ms debounced PUT), telemetry helper (fire-and-"
         "forget), avatar/layout popovers with click-outside + Escape. Subtle async + event-"
         "lifecycle but well-bounded. Reviewer needs to follow the popover state machine + "
@@ -65,8 +66,8 @@ UX_OVERHAUL = [
     (
         "Plan 2A — Document Card + Density Modes",
         "2026-04-28-ux-overhaul-document-card.md",
-        "Haiku",    "S (2-4h)",
-        "Sonnet",   "XS (<1h)",
+        "Haiku",    "low (2-4h)",
+        "Sonnet",   "low (<1h)",
         "Presentational card component with three density modes driven by CSS variables and "
         "MFPrefs. Implementation is mechanical given the explicit mockups, but bumping reviewer "
         "to Sonnet because density toggle interacts with the prefs system landed in 1C — worth "
@@ -76,8 +77,8 @@ UX_OVERHAUL = [
     (
         "Plan 2B — Card Interactions",
         "2026-04-28-ux-overhaul-card-interactions.md",
-        "Sonnet",   "L (8-16h)",
-        "Sonnet",   "M (3-5h)",
+        "Sonnet",   "high (8-16h)",
+        "Sonnet",   "med (3-5h)",
         "Hover preview popover, right-click context menu, multi-select observable state, bulk "
         "action bar, folder-browse page wrapping it all. Multiple interaction systems coexisting "
         "without listener leaks is the failure mode. This is the biggest UX-overhaul phase — "
@@ -87,8 +88,8 @@ UX_OVERHAUL = [
     (
         "Plan 3 — Search-as-Home Page",
         "2026-04-28-ux-overhaul-search-as-home.md",
-        "Sonnet",   "M (4-8h)",
-        "Sonnet",   "S (2-3h)",
+        "Sonnet",   "med (4-8h)",
+        "Sonnet",   "low (2-3h)",
         "Feature-flagged replacement of static/index.html with three layout modes (Maximal / "
         "Recent / Minimal). Both flag-on and flag-off paths must work — flag-off keeps legacy "
         "Convert page live, so rollback is cheap. Reviewer's main job is verifying the flag "
@@ -97,8 +98,8 @@ UX_OVERHAUL = [
     (
         "Plan 4 — IA Shift",
         "2026-04-28-ux-overhaul-ia-shift.md",
-        "Sonnet",   "M (4-8h)",
-        "Opus",     "S (2-3h)",
+        "Sonnet",   "med (4-8h)",
+        "Opus",     "low (2-3h)",
         "New /api/me endpoint, real role binding via UnionCore JWT (replaces the hardcoded "
         "role='admin' placeholder), Activity dashboard gated by core.auth.Role. Auth surface — "
         "role-gating bugs are security issues. Opus reviewer once to verify the gate is enforced "
@@ -111,8 +112,8 @@ SYSTEM_UNIFIER = [
     (
         "Phase 0 — Pre-flight reconnaissance (Tasks 0.1–0.7)",
         "2026-04-28-active-operations-registry.md",
-        "Haiku",    "S (2-4h)",
-        "Haiku",    "XS (<1h)",
+        "Haiku",    "low (2-4h)",
+        "Haiku",    "low (<1h)",
         "Read-only discovery: trace existing pipeline.py, scan_coordinator.py, bulk_worker.py, "
         "lifecycle_scanner.py to confirm assumptions about cancel signals and lifecycle hooks. "
         "Output is notes, not code. Cheapest tier on both sides; review is just a sanity-check "
@@ -121,8 +122,8 @@ SYSTEM_UNIFIER = [
     (
         "Phase 1 — Registry + DB foundation (Tasks 1–10)",
         "2026-04-28-active-operations-registry.md",
-        "Opus",     "L (8-16h)",
-        "Opus",     "M (3-5h)",
+        "Opus",     "high (8-16h)",
+        "Opus",     "med (3-5h)",
         "Load-bearing concurrency primitive: new core/active_ops.py (in-memory dict + write-"
         "through to a new active_operations SQLite table), lifespan hooks, scheduler "
         "integration, singleton lifecycle. Every later phase depends on this — race conditions "
@@ -133,8 +134,8 @@ SYSTEM_UNIFIER = [
     (
         "Phase 2 — HTTP API (Tasks 11–13)",
         "2026-04-28-active-operations-registry.md",
-        "Sonnet",   "S (2-4h)",
-        "Sonnet",   "XS (<1h)",
+        "Sonnet",   "low (2-4h)",
+        "Sonnet",   "low (<1h)",
         "Single GET /api/active-ops endpoint feeding three frontend surfaces. Standard FastAPI "
         "pattern with a strict response schema. Review is a quick contract check against Phase "
         "4's three consumers; payload is small and readable in one screen.",
@@ -142,8 +143,8 @@ SYSTEM_UNIFIER = [
     (
         "Phase 3 — Worker retrofits (Tasks 14–23)",
         "2026-04-28-active-operations-registry.md",
-        "Opus",     "XL (16-32h)",
-        "Sonnet",   "L (5-8h)",
+        "Opus",     "max (16-32h)",
+        "Sonnet",   "med (5-8h)",
         "Touches six worker modules (pipeline, scan_coordinator, trash, analysis, lifecycle_"
         "scanner, bulk_worker) to register/update/finish operations and bridge cancel signals "
         "to each subsystem's native mechanism. Largest phase by far. The structural traps — "
@@ -154,8 +155,8 @@ SYSTEM_UNIFIER = [
     (
         "Phase 4 — Frontend (Tasks 24–34)",
         "2026-04-28-active-operations-registry.md",
-        "Sonnet",   "L (8-16h)",
-        "Haiku",    "S (2-3h)",
+        "Sonnet",   "high (8-16h)",
+        "Haiku",    "low (2-3h)",
         "Three presentational surfaces (sticky banner, per-page inline widget, Status hub) all "
         "fed by the /api/active-ops payload from Phase 2. 11 tasks across the three surfaces. "
         "Once that contract is stable the work is mechanical DOM construction + polling. Haiku "
@@ -165,8 +166,8 @@ SYSTEM_UNIFIER = [
     (
         "Phase 5 — Cleanup + documentation (Tasks 35–46)",
         "2026-04-28-active-operations-registry.md",
-        "Sonnet",   "M (4-8h)",
-        "Sonnet",   "S (2-3h)",
+        "Sonnet",   "med (4-8h)",
+        "Sonnet",   "low (2-3h)",
         "Removing dead per-subsystem progress code that the registry now subsumes, plus "
         "CLAUDE.md / version-history.md / whats-new.md updates. 12 tasks. Deletions are "
         "irreversible — judgement about what's truly subsumed vs. what still has unique callers "
@@ -184,11 +185,10 @@ def write_sheet(ws, rows):
         "Opus":   PatternFill("solid", fgColor="FFC7CE"),
     }
     effort_fills = {
-        "XS": PatternFill("solid", fgColor="EAF3FB"),
-        "S":  PatternFill("solid", fgColor="D9EAD3"),
-        "M":  PatternFill("solid", fgColor="FFF2CC"),
-        "L":  PatternFill("solid", fgColor="FCE5CD"),
-        "XL": PatternFill("solid", fgColor="F4CCCC"),
+        "low":  PatternFill("solid", fgColor="D9EAD3"),
+        "med":  PatternFill("solid", fgColor="FFF2CC"),
+        "high": PatternFill("solid", fgColor="FCE5CD"),
+        "max":  PatternFill("solid", fgColor="F4CCCC"),
     }
     wrap = Alignment(wrap_text=True, vertical="top")
     centre = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -232,14 +232,13 @@ def write_legend(ws):
         ("Sonnet", "Most feature work: FastAPI endpoints, vanilla-JS with state, multi-system interactions, judgement-call cleanup.",       "≈ 1/5"),
         ("Opus",   "Concurrency primitives, schema/migration design, auth surface, cancel-propagation across subsystems.",                 "1×"),
         ("", "", ""),
-        ("Effort size", "Approx Claude Code session-hours", ""),
-        ("XS", "<2h — single short pass; cosmetic edits, narrow contract checks.", ""),
-        ("S",  "2-4h — one focused session.",                                       ""),
-        ("M",  "4-8h — half-day to a day; multi-file feature.",                     ""),
-        ("L",  "8-16h — one to two days; multiple interacting components.",         ""),
-        ("XL", "16-32h — multi-day; touches several subsystems (e.g. Phase 3 worker retrofits).", ""),
+        ("Effort", "Claude Code session-hours (label matches Claude's low/med/high/max thinking-budget syntax)", ""),
+        ("low",  "<4h — short pass; small contract checks, scaffold components, recon notes.", ""),
+        ("med",  "4-8h — half-day to a day; multi-file feature, focused review of a critical slice.", ""),
+        ("high", "8-16h — one to two days; multiple interacting components or subsystem-spanning review.", ""),
+        ("max",  "16-32h — multi-day; touches several subsystems (e.g. Active-Ops Phase 3 worker retrofits).", ""),
         ("", "", ""),
-        ("Heuristic", "Default both implementer and reviewer to Sonnet/M. Justify every Opus upgrade (irreversibility, security, concurrency) and every Haiku downgrade (mechanical, well-spec'd, low blast radius). Reviewer effort runs ~25-35% of implementer effort for a single focused pass — bigger if the implementer touched many subsystems.", ""),
+        ("Heuristic", "Default both implementer and reviewer to Sonnet at med. Justify every Opus upgrade (irreversibility, security, concurrency) and every Haiku downgrade (mechanical, well-spec'd, low blast radius). Reviewer effort runs ~25-35% of implementer effort for a single focused pass — bigger if the implementer touched many subsystems.", ""),
     ]
     for r, row in enumerate(rows, start=3):
         for c, val in enumerate(row, start=1):
