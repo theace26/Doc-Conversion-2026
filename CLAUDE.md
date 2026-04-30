@@ -47,15 +47,16 @@ Read on demand — none of these are auto-loaded.
 On every release that fixes a bug or introduces a known one, all of these
 update together — `bug-log.md` is the canonical ledger that ties them:
 
-1. **`docs/bug-log.md`** — move shipped rows to Shipped section (set `status: shipped-vX.Y.Z`). Add new `BUG-NNN` rows for any newly discovered bugs.
-2. **`docs/version-history.md`** — append the per-release narrative entry; cite `BUG-NNN` IDs.
-3. **`docs/help/whats-new.md`** — operator-facing summary for any user-visible bug fix.
-4. **`docs/gotchas.md`** — if the fix exposed a class of bug worth not recreating, add a row in the relevant subsystem section (cite `BUG-NNN`).
-5. **`CLAUDE.md`** — update the Current Version block.
+1. **`core/version.py`** — bump `__version__` to the new release. This is the single source of truth queried by `/api/version` and the `/api/health` payload. Forgetting this step makes every release after the miss appear stale to clients (caught during v0.34.5 deploy: v0.34.2–v0.34.5 all shipped with the constant still reading `0.34.1`).
+2. **`docs/bug-log.md`** — move shipped rows to Shipped section (set `status: shipped-vX.Y.Z`). Add new `BUG-NNN` rows for any newly discovered bugs.
+3. **`docs/version-history.md`** — append the per-release narrative entry; cite `BUG-NNN` IDs.
+4. **`docs/help/whats-new.md`** — operator-facing summary for any user-visible bug fix.
+5. **`docs/gotchas.md`** — if the fix exposed a class of bug worth not recreating, add a row in the relevant subsystem section (cite `BUG-NNN`).
+6. **`CLAUDE.md`** — update the Current Version block.
 
-For a feature-only release, step 1 is skipped but the bug-log is still
-re-checked for items the release might affect (apply the
-`checking-blast-radius` skill before shipping).
+For a feature-only release, step 2 (bug-log Shipped migration) is
+skipped but the bug-log is still re-checked for items the release
+might affect (apply the `checking-blast-radius` skill before shipping).
 
 ### Rule of thumb
 
@@ -66,39 +67,91 @@ live", `key-files.md`. For "is this bug already known", `bug-log.md`.
 
 ---
 
-## Current Version — v0.34.3
+## Current Version — v0.34.9
 
-**Auto-conversion was silently failing every job on shares larger than
-~1/3 of free output space. The pre-flight disk-space check used a
-hardcoded 3× input-size buffer; in practice doc-to-markdown output
-runs well under 50% of input. Closes BUG-011.**
+**Closes BUG-018 — the "the abort safeguard didn't fire on the v0.34.7
+stuck run" mystery. Turns out the safeguard *was* firing in memory;
+the DB persistence was just gated on `asyncio.gather(*workers)`
+returning, which a single stuck worker can prevent indefinitely.
+Move the persistence to the abort site itself.**
 
-The check sums pending input-file sizes, multiplies, and demands that
-much free space on the output volume before any worker starts. With
-the legacy multiplier of 3, a 250 GB K-drive demanded 750 GB free —
-which no operator has — so every auto-triggered bulk job died at
-pre-flight with `bulk_jobs.status='failed'` and 0 files converted.
-Symptom on the user's side: 92,257 files in `bulk_files.status='pending'`
-and a stale Meilisearch count from a prior DB lifetime.
+- **BUG-018 (medium):** `core/bulk_worker.py:713` correctly fires
+  the abort decision when `should_abort()` returns True
+  (`consecutive_errors >= 20`), but only sets `_cancel_reason` in
+  memory + sets `_cancel_event`. The DB write that materialises
+  `bulk_jobs.cancellation_reason` lives at line 591, AFTER
+  `await asyncio.gather(*workers)`. If any worker is blocked
+  inside `_process_convertible` (long Whisper, frozen CIFS read,
+  etc.), `gather` never returns and the cancellation is invisible
+  to the UI / startup reaper / operators. Fix: persist the abort
+  to the DB at the abort site itself via `update_bulk_job_status()`,
+  guarded by a one-shot `_abort_persisted` flag so the per-worker
+  re-observation collapses to a single action per job (also
+  eliminates the `bulk_worker_error_rate_abort` log/event spam
+  that previously fired once per worker per pull after abort was
+  signaled).
 
-### Highlights
+### What operators should see
 
-- **`core/bulk_worker.py:21`** — `_DISK_SPACE_REQUIRED_MULTIPLIER = 3` replaced with a `_get_disk_space_multiplier()` helper that reads `DISK_SPACE_MULTIPLIER` env var (default **0.5**) per call. No import-time snapshot — runtime config changes take effect without a restart.
-- **`.env.example`** documents the new env var with tuning guidance.
-- **`tests/test_disk_space_multiplier.py`** — 10 tests covering default, override, edge cases (zero / negative / non-numeric / empty / whitespace), and per-call read semantics.
-- **Pre-flight error message** now ends with "tune via DISK_SPACE_MULTIPLIER env var" so the next operator who hits a real space crunch knows the lever exists.
+- When the bulk worker's "too many errors, abort" safeguard fires,
+  `bulk_jobs.cancellation_reason` and `bulk_jobs.status='cancelled'`
+  appear within the same heartbeat tick — not "after every worker
+  drains the queue" (which a stuck worker can prevent).
+- `markflow.log` growth from aborted jobs drops dramatically —
+  from "once per worker per pull after abort" to "once per
+  aborted job".
+- `/api/version` reports `0.34.9`.
 
-No DB migration. No new endpoints. No API contract changes. Backward-
-compatible default keeps the check active (just at a sensible ratio).
+### Loose ends still tracked from prior releases
 
-### Operator-visible change
+Carried forward; not re-implemented here:
 
-- Auto-conversion runs on the K-drive (or any large share) start producing converted files instead of failing pre-flight.
-- The 92k `pending` rows in `bulk_files` will drain on the next auto-conversion cycle (or a manual "Run scan now" from Activity).
-- The Meilisearch index count will climb from the stale ghost number toward the real total as conversion completes.
-- If you need to tighten or loosen the check for a specific workload, set `DISK_SPACE_MULTIPLIER` in `.env`.
+1. **No operator-facing alert** when auto-conversion fails N cycles
+   in a row. UX overhaul §13 (Notifications) covers the trigger-rule
+   infrastructure.
+2. **No "scanned vs indexed delta" surface** — Plan 4 (UX IA shift)
+   will surface this on the Activity dashboard.
+3. **Failure-path explicit `completed_at` writes** — the bulk_job
+   pre-flight failure handler should write
+   `auto_conversion_runs.completed_at` directly rather than relying
+   on the startup orphan reaper as a backstop.
+4. **LibreOffice headless flakes** on `.xls` files (`exited 0 but
+   produced no output file`). Likely parallel-worker contention on
+   `~/.config/libreoffice` profile dir. Tracked for a future
+   hardening pass; not blocking now that the dominant failures
+   above are fixed.
+5. **No audio-capable cloud provider configured.** Local Whisper
+   on CPU works for everyday volume but is slow for hours-long
+   archives. Add an OpenAI or Gemini API key on the Settings → AI
+   Providers page if offload is needed; Anthropic does not
+   currently support audio.
+6. **Worker heartbeat freezes during multi-minute Whisper
+   transcriptions.** Workers correctly hold the threading.Lock
+   through CPU inference, but the heartbeat updater inside the
+   worker loop doesn't tick during the blocking call. Operators
+   see a job that looks "stuck" while it's actually working.
+   Likely fixed by either a per-file deadline or a separate
+   heartbeat coroutine. Not blocking; cosmetic.
 
-Full per-version detail (v0.34.2 and every prior release back to v0.13.x)
+### Audit hints from this release sequence
+
+- **BUG-016 lesson:** module-level asyncio primitives (`asyncio.Lock`,
+  `Event`, `Condition`, `Queue`, `Semaphore`) silently bind to
+  whichever loop first uses them. Mixed-loop code paths
+  (`asyncio.run` inside a thread pool) will then fail with
+  `is bound to a different event loop`. Worth a one-time grep for
+  other module-level constructions of these types if a similar
+  symptom resurfaces.
+- **BUG-018 lesson:** for state transitions that matter to
+  operators (status flips, cancellations, abort decisions), persist
+  at the *decision site*, not at the *closeout site*. Other
+  `_cancel_event.set()` sites in `core/bulk_worker.py`
+  (lines 905, 1301-1302, 1507, 1526) likely have the same coupling
+  to the post-gather write — out of scope for this release but
+  worth a similar audit if a bug like BUG-018 resurfaces in any
+  of those paths.
+
+Full per-version detail (v0.34.6 and every prior release back to v0.13.x)
 lives in [`docs/version-history.md`](docs/version-history.md). **Do not
 duplicate that changelog here.** On each release, the outgoing Current
 Version block above moves into `version-history.md` and is replaced with

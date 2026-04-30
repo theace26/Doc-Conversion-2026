@@ -50,6 +50,15 @@ log = structlog.get_logger(__name__)
 _JUNK_BASENAME_PREFIXES_LOWER = (
     "~$",        # MS Office lock files (Word/Excel/PowerPoint/Visio)
     "~wrl",      # Word recovery temp files (e.g. ~WRL1234.tmp)
+    # v0.34.8 BUG-017: macOS resource-fork sidecar files. Created when
+    # macOS writes any file to a non-HFS+ volume; carry the same name
+    # as the parent file with a leading "._". Bytes are AppleDouble-
+    # framed metadata, NOT real content -- a "._foo.pdf" is not a PDF,
+    # so the PDF handler raises "Cannot open PDF: No /Root object!"
+    # against every one of them. Already covered for the dir name
+    # ".appledouble" but the per-file siblings leaked through. Skip
+    # at the scanner so they never hit a handler.
+    "._",
 )
 _JUNK_BASENAMES_LOWER = frozenset({
     "thumbs.db",     # Windows Explorer thumbnail cache

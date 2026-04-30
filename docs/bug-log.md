@@ -51,7 +51,7 @@ not narrative.
 
 ## Open / Planned
 
-(BUG-001 through BUG-011 closed in v0.34.1 / v0.34.2 / v0.34.3 — see Shipped section.)
+(BUG-001 through BUG-018 closed in v0.34.1 / v0.34.2 / v0.34.3 / v0.34.4 / v0.34.6 / v0.34.7 / v0.34.8 / v0.34.9 — see Shipped section.)
 
 ### v0.35.0 follow-ups (drift bugs flagged by active-ops Phase 0 audit)
 
@@ -74,6 +74,86 @@ they don't get rolled into the registry commit but are not lost.
 ---
 
 ## Shipped (history)
+
+### v0.34.9 — Bulk-worker abort persists immediately, even with stuck workers
+
+The post-v0.34.8 verification confirmed BUG-018's true root cause:
+the abort safeguard *was* firing in memory, but the DB write that
+makes the cancellation visible to operators happens only after
+`asyncio.gather(*workers)` returns. A single stuck worker (the
+v0.34.7 case: one stalled Whisper transcription on slow CPU)
+prevents `gather` from returning, so the abort never propagates to
+`bulk_jobs.cancellation_reason` even though the in-memory state is
+correct. Symptom: `bulk_jobs.cancellation_reason=None` despite 31
+consecutive failures with `error_rate=1.0`.
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-018 | shipped-v0.34.9 | medium | Bulk-worker `error_rate_abort` decision was invisible to the DB until ALL workers exited — a single stuck worker stranded the cancellation indefinitely | `core/bulk_worker.py:713` correctly fires when `should_abort()` returns True (sets `_cancel_reason` in-memory, `_cancel_event.set()`, `_pause_event.set()`, then `continue` to drain queue). But the DB persistence of `cancellation_reason` lives at line 591, AFTER `await asyncio.gather(*workers)`. If any worker is blocked inside `_process_convertible` (long-running Whisper transcribe, frozen CIFS read, etc.), gather never returns and the cancellation is invisible. The v0.34.4 startup orphan reaper would eventually clean up on next container restart, but operators reading the live UI saw a job stuck in `running` with no abort signal. Fix: persist `status='cancelled' + cancellation_reason` immediately at the abort site via `update_bulk_job_status()`, guarded by a one-shot `_abort_persisted` flag so the per-worker re-observation doesn't keep re-writing. The post-gather write at line 591 still runs when gather *does* eventually return (idempotent overwrite + adds `completed_at`). Bonus: the per-worker log+event spam after abort fires (`bulk_worker_error_rate_abort` once per worker per pull) is also collapsed to one fire per job by the same one-shot guard. See `docs/version-history.md` v0.34.9 entry for the diagnosis chain. |
+
+### v0.34.8 — Whisper asyncio-lock per-loop + macOS resource-fork skip
+
+Post-v0.34.7 verification surfaced two more conversion blockers in
+the bulk worker. With BUG-014 (write guard) and BUG-015 (Chartsheet)
+fixed, every media file (`.mp4`/`.mov`/`.mp3`) failed instantly with
+`<asyncio.locks.Lock ...> is bound to a different event loop`,
+freezing the worker pool's heartbeat and producing 31 consecutive
+failures with zero successful conversions before the watcher
+diagnosed it.
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-016 | shipped-v0.34.8 | critical | `core/whisper_transcriber.py` module-level `asyncio.Lock()` strands every Whisper call after the first (single-loop bind) | The format handlers (`formats/media_handler.py:208/211`, `formats/audio_handler.py:148/151`) call `asyncio.run(_convert())` inside a thread-pool worker so each media-file conversion runs on its own short-lived event loop. The module-level `_asyncio_lock = asyncio.Lock()` at `core/whisper_transcriber.py:43` bound to the FIRST such loop and rejected every subsequent file with `is bound to a different event loop`. Symptom: workers reported 8× immediate Whisper failures inside the first 30s of conversion phase (one per worker thread that hit a media file), the bulk_worker recorded the failures into `bulk_files.error_msg`, and the heartbeat froze the moment the lock-holder was stuck on the slow CPU transcribe call. Fix: replace the module-level lock with `_get_asyncio_lock()` — a per-loop dict keyed by `id(running_loop)` and guarded by a `threading.Lock`. Each format-handler thread still serializes Whisper inference via the existing `_thread_lock` (threading.Lock), so cross-loop GPU/CPU correctness is preserved; the asyncio.Lock just serializes coroutines within each loop. See `docs/version-history.md` v0.34.8 entry for the diagnosis chain. |
+| BUG-017 | shipped-v0.34.8 | low | macOS resource-fork sidecar files (`._FILENAME.pdf`) leaked into the conversion pipeline and failed every PDF handler call with `Cannot open PDF: No /Root object!` | macOS writes a resource-fork sidecar named `._<original>` whenever the user copies a file to a non-HFS+ volume (SMB/CIFS share = the live VM's source mount). The bytes are AppleDouble-framed metadata, NOT the file format their extension claims. `core/bulk_scanner.py:_JUNK_BASENAME_PREFIXES_LOWER` already covered the `.appledouble` directory but missed the per-file `._` sibling. Fix: add `"._"` to the prefix list. Junk-filename check runs at scanner level so they never reach a handler. |
+
+### v0.34.7 — Auto-conversion unwedged: write guard + Excel chartsheet
+
+Two distinct conversion-blocking bugs found via post-v0.34.6 log
+audit. Both had been silently failing every auto-converted file
+since at least 2026-04-29 16:33, tripping the bulk-worker 20-error
+abort threshold inside the first 20 attempts of every cycle (so
+zero successful conversions across at least 5 consecutive auto-runs).
+Combined effect: the auto-converter looked unblocked at the
+scheduling layer (v0.34.3 + v0.34.4 fixes held), but no files were
+actually being converted.
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-014 | shipped-v0.34.7 | critical | `is_write_allowed()` returns False for every path when the Storage Manager DB pref is unset, blocking the entire bulk pipeline | `core/storage_manager.py:142` consulted only the `_cached_output_path` sentinel populated from the `storage_output_path` DB preference. On any deploy where an operator hadn't visited the Storage page (or where the DB had been reset since the last visit), the cache stayed `None`, the early-return at line 150 fired, and every write was denied — including writes that were demonstrably inside `BULK_OUTPUT_PATH`. The bulk_files table accumulated dozens of `write denied — outside output dir: /mnt/output-repo/...` rows against paths clearly under `/mnt/output-repo`. Fix: route the guard through `core.storage_paths.resolve_output_root_or_raise()`, which uses the v0.34.1 priority chain (Storage Manager > BULK_OUTPUT_PATH > OUTPUT_DIR) and refuses the legacy `output/` fallback. The v0.25.0 "absent configuration → deny everything" intent is preserved (the resolver raises if no source is configured, and the guard treats that as deny). Hardened `tests/test_storage_manager.py:test_write_denied_when_no_output_configured` to clear BULK_OUTPUT_PATH/OUTPUT_DIR via monkeypatch so the "absent configuration" branch is actually exercised even when a dev shell exports those vars. See `docs/version-history.md` v0.34.7 entry for the full diagnosis. |
+| BUG-015 | shipped-v0.34.7 | high | `formats/xlsx_handler.py` crashes with `AttributeError: 'Chartsheet' object has no attribute 'merged_cells'` on .xlsx files containing chart-only sheets | openpyxl returns `Chartsheet` objects for sheets that hold only an embedded chart (no cell grid). Both the ingest loop and `_extract_styles_impl` call `ws.merged_cells.ranges` unconditionally, which AttributeErrors on chartsheets. The error propagates out of the handler and fails the whole file. 11 distinct `.xlsx` files in production hit this. Fix: duck-type guard `hasattr(ws_data, "merged_cells")` at the top of both loops; skip Chartsheets after logging `xlsx_chartsheet_skipped` for operator visibility. Chartsheets carry no Markdown-extractable content; skipping is the correct semantic. |
+
+### v0.34.6 — Resources page disk card double-count
+
+Resources page **Disk** card showed inflated MarkFlow disk usage
+(roughly 2× actual on hosts where the conv-output walk completed).
+Both the time-series snapshot writer (`core/metrics_collector.py`) and
+the admin breakdown endpoint (`api/routes/admin.py`) summed the
+"Conversion Output" component into the total. Post-v0.34.1 that
+component walks the same root as Output Repository + Trash, so the
+sum was over by the entire output-share size whenever the conv walk
+returned non-zero. The bug was masked on the live VM until now
+because the conv walk happened to return 0 in the most recent
+snapshot; with the conv walk succeeding, the card would have jumped
+from ~2 TB to ~4 TB without anything actually changing on disk.
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-013 | shipped-v0.34.6 | medium | Resources page Disk card and admin disk-usage breakdown double-counted the output share post-v0.34.1 | Post-v0.34.1 `core/storage_paths.get_output_root()` returns one root for both bulk and single-file conversion. The "Output Repository" walk (excl `.trash`), the "Trash" walk, and the "Conversion Output" walk together covered the same files twice. `core/metrics_collector.py:_collect_disk_snapshot_impl` summed `repo_bytes + trash_bytes + conv_bytes + db_bytes + logs_bytes + meili_bytes` into `total_bytes` (persisted to `disk_metrics.total_bytes` and shown by `/api/resources/summary` as `disk.current_total_human`). `api/routes/admin.py:_compute_disk_usage` summed `item["bytes"] for item in breakdown` over the same redundant rows. Fix: drop `conv_bytes` from the metrics-collector sum; tag the admin breakdown's Conversion Output row with `redundant_in_total=True` and skip such rows in the sum. The "Conversion Output" row is retained in the admin UI for operator clarity (different workflow label) but no longer contributes to the displayed total. See `docs/version-history.md` v0.34.6 entry for the full narrative. |
+
+### v0.34.4 — Orphan reaper extended to `auto_conversion_runs`
+
+Companion fix to v0.34.3. Discovered while verifying the BUG-011 fix:
+the auto-converter was refusing to start new runs because the startup
+orphan-cleanup function handled `bulk_jobs` and `scan_runs` but missed
+`auto_conversion_runs` entirely. **38 stale `status='running'` rows
+had accumulated since 2026-04-07** — every failed-pre-flight from
+BUG-011 left an unkillable orphan, and the auto-converter's
+"don't start if one is already running" gate then refused all
+subsequent cycles. Compound deadlock.
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-012 | shipped-v0.34.4 | critical | Stale `auto_conversion_runs.status='running'` rows wedge the auto-converter forever | `core/db/schema.py:cleanup_orphaned_jobs()` handled `bulk_jobs` and `scan_runs` at startup but had no UPDATE for `auto_conversion_runs`. Any failure path that didn't write `completed_at` (failed pre-flight, container restart mid-run) left a permanent orphan. Auto-converter's "active run already exists" gate then silently skipped every subsequent cycle. Fix: third UPDATE in `cleanup_orphaned_jobs()` that marks `status='running' AND completed_at IS NULL` rows as `status='failed'`. Defensive table-existence check for older / partial-schema fixtures. Two new tests in `tests/test_bugfix_patch.py:TestOrphanCleanup`. See `docs/version-history.md` v0.34.4 entry for the compound-deadlock narrative + lessons (any table with status+completed_at gating downstream work MUST have startup orphan reaping). |
 
 ### v0.34.3 — Auto-conversion unblocked: disk-space pre-check multiplier
 

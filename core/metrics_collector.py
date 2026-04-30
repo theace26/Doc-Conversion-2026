@@ -249,7 +249,17 @@ def _collect_disk_snapshot_impl() -> dict:
     meili_path = Path(os.environ.get("MEILI_DATA_PATH", "/meili_data"))
     meili_bytes, _ = _walk_dir(meili_path)
 
-    total_bytes = repo_bytes + trash_bytes + conv_bytes + db_bytes + logs_bytes + meili_bytes
+    # v0.34.6 BUG-013: do NOT add conv_bytes here. Post-v0.34.1 the
+    # resolver returns one configured root for both bulk and single-file
+    # conversion, so conv_output == output_repo. conv_bytes is therefore
+    # equal to repo_bytes + trash_bytes already (it walks the same root
+    # without the .trash exclusion). The pre-fix formula double-counted
+    # the entire output share whenever the conv walk succeeded, which is
+    # what made the Resources page disk card balloon to ~2× actual usage.
+    # The conv_bytes column is still persisted for operator-clarity in
+    # the admin breakdown UI (different workflow label) but must not
+    # contribute to the total.
+    total_bytes = repo_bytes + trash_bytes + db_bytes + logs_bytes + meili_bytes
 
     # Volume info
     vol_total = vol_used = vol_free = 0

@@ -21,6 +21,21 @@
 
 ---
 
+## Model + effort
+
+| Role | Model | Effort |
+|------|-------|--------|
+| Implementer | Sonnet | med (4-8h) |
+| Reviewer | Opus | low (2-3h) |
+
+**Reasoning:** Foundation work: aiosqlite migration for the `user_preferences` table, JWT role-claim parsing, design-token CSS, prefs server module + endpoints. Schema and auth-claim mistakes are expensive to undo once data lands, so spend once on Opus review even though Sonnet handles the implementation comfortably. Effort is medium because the scope is wide but each piece is well-defined; reviewer focuses on the migration and JWT slice (the irreversible bits), not the CSS tokens.
+
+**Execution mode:** Dispatch this plan via `superpowers:subagent-driven-development`. Each role is a separate `Agent` call — `Agent({model: "sonnet", ...})` for implementation, `Agent({model: "opus", ...})` for review. A single-session `executing-plans` read will *not* switch models on its own; this metadata is routing input for the orchestrator.
+
+**Source:** [`docs/spreadsheet/phase_model_plan.xlsx`](../../spreadsheet/phase_model_plan.xlsx)
+
+---
+
 ## File structure (this plan creates / modifies)
 
 **Create:**

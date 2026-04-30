@@ -21,6 +21,21 @@
 
 ---
 
+## Model + effort
+
+| Role | Model | Effort |
+|------|-------|--------|
+| Implementer | Haiku | low (2-4h) |
+| Reviewer | Haiku | low (<1h) |
+
+**Reasoning:** Four pure-presentational vanilla-JS components (top-nav, version-chip, avatar, layout-icon), each ≤100 LOC, no state, no async, no server interaction. Pattern is repetitive and the safe-DOM rules are explicit. Cheapest tier on both sides; the review just spot-checks for `innerHTML` and pattern adherence — fits in one short pass.
+
+**Execution mode:** Dispatch this plan via `superpowers:subagent-driven-development`. Each role is a separate `Agent` call — `Agent({model: "haiku", ...})` for implementation, `Agent({model: "haiku", ...})` for review. A single-session `executing-plans` read will *not* switch models on its own; this metadata is routing input for the orchestrator.
+
+**Source:** [`docs/spreadsheet/phase_model_plan.xlsx`](../../spreadsheet/phase_model_plan.xlsx)
+
+---
+
 ## File structure (this plan creates / modifies)
 
 **Create:**

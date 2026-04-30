@@ -106,7 +106,14 @@ def test_write_denied_outside_output(monkeypatch, tmp_path: Path) -> None:
     assert not sm.is_write_allowed("/etc/passwd")
 
 
-def test_write_denied_when_no_output_configured() -> None:
+def test_write_denied_when_no_output_configured(monkeypatch) -> None:
+    # v0.34.7 BUG-014: the guard now consults the storage_paths resolver,
+    # which falls through to BULK_OUTPUT_PATH / OUTPUT_DIR env vars when
+    # no Storage Manager pref is set. Clear those env vars explicitly so
+    # this test exercises the "absent configuration" branch even when the
+    # dev shell happens to have one of them exported.
+    monkeypatch.delenv("BULK_OUTPUT_PATH", raising=False)
+    monkeypatch.delenv("OUTPUT_DIR", raising=False)
     from core import storage_manager as sm
     sm.set_output_path(None)
     assert not sm.is_write_allowed("/anywhere/file")

@@ -23,6 +23,21 @@
 
 ---
 
+## Model + effort
+
+| Role | Model | Effort |
+|------|-------|--------|
+| Implementer | Haiku | low (2-4h) |
+| Reviewer | Sonnet | low (<1h) |
+
+**Reasoning:** Presentational card component with three density modes driven by CSS variables and `MFPrefs`. Implementation is mechanical given the explicit mockups, but bumping reviewer to Sonnet because the density toggle interacts with the prefs system landed in 1C — worth verifying the binding is correct, not just the visuals. Review fits in a single short pass since the surface area is small.
+
+**Execution mode:** Dispatch this plan via `superpowers:subagent-driven-development`. Each role is a separate `Agent` call — `Agent({model: "haiku", ...})` for implementation, `Agent({model: "sonnet", ...})` for review. A single-session `executing-plans` read will *not* switch models on its own; this metadata is routing input for the orchestrator.
+
+**Source:** [`docs/spreadsheet/phase_model_plan.xlsx`](../../spreadsheet/phase_model_plan.xlsx)
+
+---
+
 ## File structure (this plan creates / modifies)
 
 **Create:**

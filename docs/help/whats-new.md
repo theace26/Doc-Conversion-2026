@@ -6,6 +6,327 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.34.9 — Aborted jobs now actually look aborted
+
+A small but operationally important fix. When the bulk worker's
+"too many errors, abort the job" safeguard fires, the
+`bulk_jobs.cancellation_reason` field now updates immediately so
+operators (and the UI) see the abort. Pre-v0.34.9, the abort fired
+in-process correctly but the database write that made it visible
+happened only after **all** workers had exited — which a single
+slow or stuck worker could prevent indefinitely. Net effect: an
+aborted job could keep showing as `running` with no abort signal
+until either (a) the stuck worker finally finished or (b) the
+container restarted and the startup reaper cleaned it up.
+
+This was the visible artifact of BUG-016 in the v0.34.7
+verification run — 31 instant Whisper failures hit the abort
+threshold inside the first 30 seconds, the abort decision was
+made correctly in memory, but the DB never reflected it because
+one worker remained blocked on a slow Whisper transcription that
+the (then-broken) lock had let through. v0.34.8 fixed the lock so
+this scenario shouldn't recur often, but the visibility issue was
+a separate bug and is fixed here.
+
+### What changed
+
+- The abort safeguard now writes `status='cancelled'` and
+  `cancellation_reason` to the DB at the moment it decides to
+  abort, not after every worker has drained the queue.
+- A one-shot guard prevents the abort log line and SSE event from
+  firing once per worker per pull — they now fire exactly once per
+  aborted job. (Previous behavior produced thousands of duplicate
+  log lines for a single aborted job, inflating `markflow.log`.)
+
+### What you should see going forward
+
+- If the bulk worker ever needs to abort a job (e.g. mass mount
+  failure or another systemic-error scenario), the Bulk Jobs page
+  shows the cancellation reason within the same heartbeat tick
+  rather than only after the queue fully drains.
+- The `markflow.log` size growth from aborted jobs drops
+  dramatically — from "once per worker per pull after abort" to
+  "once per aborted job".
+
+### What you should do
+
+- Nothing. Deploy normally.
+
+---
+
+## v0.34.8 — Whisper transcription works again (and the actually actually converting kind)
+
+The first run-now after v0.34.7 deployed surfaced two more
+conversion blockers that the v0.34.6 / v0.34.7 fixes had been
+masking:
+
+1. **Whisper crashed every audio/video file** with a cryptic
+   "asyncio Lock is bound to a different event loop" error,
+   freezing the bulk-worker pool and producing 0 conversions across
+   ~5 min of convert phase.
+2. **macOS resource-fork sidecar files** (the `._FILENAME.pdf` files
+   that pile up on SMB shares whenever a Mac copies a file in)
+   were leaking into the conversion pipeline and failing every
+   PDF handler call with "Cannot open PDF: No /Root object!" —
+   producing a constant trickle of false positives.
+
+Both fixed.
+
+### What was broken
+
+- **Whisper concurrency model.** The transcription module created
+  a single shared lock at import time. The format handlers run
+  each media file's conversion inside its own short-lived event
+  loop (a thread-pool pattern that bridges sync handler code to
+  async transcription). Python's asyncio.Lock binds to the first
+  event loop that touches it — every subsequent loop hit the
+  "different event loop" error. Net effect: only the very first
+  media file per process could even attempt Whisper; everything
+  after that failed instantly.
+- **Resource-fork sidecars.** macOS writes one of these
+  (`._FILENAME.ext`) any time you copy a file to a non-Mac volume.
+  The bytes are metadata, not the file format the extension
+  claims. The scanner already skipped the `.appledouble` directory
+  but missed the per-file sibling, so they were entering the
+  conversion pipeline and triggering "Cannot open PDF" on every
+  one.
+
+### What changed
+
+- The Whisper module now uses one lock per event loop instead of
+  one shared one, cached lazily. Cross-loop CPU serialization is
+  still in place via the underlying thread lock, so the "only one
+  Whisper inference at a time" guarantee is unchanged — only the
+  binding bug is fixed.
+- The bulk scanner's junk-filename filter now skips files starting
+  with `._`. They're caught at scan time and never enter the
+  conversion pipeline.
+
+### What you should see going forward
+
+- Audio/video files actually getting transcribed instead of
+  failing instantly. Throughput per file depends on duration and
+  CPU — the "base" Whisper model on this CPU-only VM runs at
+  roughly 0.5–1× realtime, so a 10-minute video takes 10–20
+  minutes of CPU.
+- The `Cannot open PDF: No /Root object!` rate against `._*` files
+  drops to zero as those files stop reaching the PDF handler.
+- The Activity / Pipeline page's indexed counter should finally
+  start climbing on its own as the auto-converter actually
+  succeeds.
+
+### What's still pending
+
+- **Cloud audio fallback.** The current setup has no audio-capable
+  cloud provider configured (only Anthropic, which doesn't support
+  audio). If you want offload for large media batches or faster
+  throughput, add an OpenAI or Gemini API key in Settings → AI
+  Providers. Local Whisper on CPU works fine for everyday volume
+  but is slow for many-hour archives.
+- **The 20-error abort safeguard didn't fire** on the broken run
+  — logged as BUG-018 in the bug-log for follow-up. Not blocking
+  now that BUG-016 is fixed; the safeguard simply won't need to
+  fire when conversions are actually working.
+
+### What you should do
+
+- **Restart the MarkFlow container once after this release lands.**
+  Deploy normally (`docker-compose up -d` after build). The next
+  scheduled run-now will pick up both fixes.
+
+---
+
+## v0.34.7 — Auto-conversion is unblocked (the actually-converting kind)
+
+The previous three releases each fixed a layer of the
+auto-conversion pipeline:
+
+- **v0.34.3** stopped the disk-space pre-check from rejecting every
+  job (BUG-011).
+- **v0.34.4** stopped the auto-converter slot from staying stuck
+  forever after a failed run (BUG-012).
+- **v0.34.5** verified those two were holding under live load.
+
+But none of that translated into actually-converted files. A
+post-v0.34.6 log audit found two bugs that were silently failing
+**every** worker attempt within the first 20 files of every cycle,
+which then tripped the bulk worker's "abort if first 20 attempts all
+fail" safeguard. Net effect: the scheduler was firing, jobs were
+starting, workers were pulling files — and zero files were actually
+being converted.
+
+### What was broken
+
+1. **The write guard was denying every write.** The internal
+   "is this path inside the configured output directory?" check
+   compared against a Storage-Manager-only cache that had never been
+   populated on this VM. Whenever the cache was empty, the answer
+   was always "no" — including for paths that were clearly inside
+   `BULK_OUTPUT_PATH`. Hundreds of `write denied — outside output
+   dir: /mnt/output-repo/...` rows were piling up in the bulk-files
+   table even though those paths were demonstrably inside
+   `/mnt/output-repo`.
+2. **Excel files containing chart-only sheets crashed the handler.**
+   `openpyxl` exposes those sheets as a different object type
+   (`Chartsheet` instead of `Worksheet`) which doesn't have the
+   methods the handler was calling. 11 files hit this in production.
+
+### What changed
+
+- The write guard now resolves the output directory through the
+  same priority chain as the rest of the pipeline (Storage Manager
+  configured value > `BULK_OUTPUT_PATH` env > `OUTPUT_DIR` env).
+  No more all-deny mode just because the Storage page was never
+  visited.
+- The Excel handler skips Chartsheets cleanly with a log line
+  (`xlsx_chartsheet_skipped`) so you can see which sheets were
+  omitted. Chartsheets contain only an embedded chart, so there's
+  no Markdown content to lose.
+
+### What you should see going forward
+
+- The Activity / Pipeline page's **indexed** counter should start
+  climbing as the auto-converter actually succeeds for the first
+  time in days. Expected throughput at the observed scan rate is
+  ~250 files/min once it's actively converting.
+- `bulk_files` rows with status `failed` and `error_msg` starting
+  with `write denied` should stop accumulating. (Existing rows from
+  before this release still reflect the bug.)
+- The 20-error abort threshold was a real safeguard, not the bug —
+  it was tripping because the two bugs above were turning every
+  attempt into an error. Genuine sources of error (corrupt PDFs,
+  LibreOffice flakes) still exist in the long tail, but should now
+  be a small fraction of attempts rather than 100% of them.
+
+### What you should do
+
+- **Restart the MarkFlow container once after this release lands**
+  (deploy normally — `docker-compose up -d` after build). The next
+  scheduled auto-conversion cycle will fire with both fixes in
+  effect. If you want to verify immediately, hit "Run Now" on the
+  Bulk Jobs page.
+
+---
+
+## v0.34.6 — Disk card no longer double-counts the output share
+
+The Resources page **Disk** card was at risk of overstating
+MarkFlow's footprint by up to 2× whenever the underlying disk-usage
+snapshot completed cleanly. Two separate code paths (the every-6h
+metrics snapshot that powers the card, and the admin breakdown
+endpoint behind the Disk Usage panel) summed the "Conversion Output"
+component on top of "Output Repository" and "Trash" — but post-v0.34.1
+all three walk the same NAS share, so the total counted the share
+twice.
+
+On this VM the bug had been masked: the latest snapshot's conv-walk
+returned 0 (a quiet CIFS hiccup), so the card happened to land on
+the right number (~2.05 TB). Next clean snapshot would have flipped
+it to ~4 TB without any actual change on disk.
+
+### What changed
+
+- The Resources page Disk card and the admin Disk Usage panel now
+  show the genuine MarkFlow footprint: Output Repository (excluding
+  trash) + Trash + Database + Logs + Meilisearch index.
+- The "Conversion Output" row in the admin breakdown is retained
+  for operator clarity (different workflow label) but no longer
+  contributes to the total.
+
+### What you should do
+
+- Nothing on the operations side. The next 6-hour disk snapshot will
+  write a corrected row to the time-series; existing historical rows
+  in the chart still reflect the old (potentially-inflated) totals,
+  so a step-down in the chart line on the day v0.34.6 deployed is
+  expected and benign.
+
+### Bonus: version display now correct again
+
+`/api/version`, `/api/health`, and the dev version chip were
+displaying `0.34.1` on every release from v0.34.2 through v0.34.5.
+The `core/version.py` constant had been missed in those release
+commits. v0.34.6 includes the catch-up bump and a release-discipline
+checklist update so this can't recur silently.
+
+---
+
+## v0.34.5 — Verification milestone
+
+This is a docs-only release that records proof the v0.34.3 + v0.34.4
+fixes are working in production. No new behavior; no setup steps to
+take. If you've already deployed v0.34.4 and restarted the container
+once, you don't need to do anything for v0.34.5.
+
+### What we verified
+
+After deploying v0.34.4, we triggered an immediate auto-conversion
+cycle and watched the logs:
+
+- The bulk-worker pre-flight passed (no more "× 3 buffer" rejection).
+- A bulk_job moved to `running` status — the first one to reach that
+  state on this machine since April 7.
+- The scanner started enumerating files at 130–360 files per second.
+- Both fixes confirmed end-to-end.
+
+### What you should see going forward
+
+- The Activity / Pipeline page's indexed counter should climb steadily
+  as the 92k-pending backlog drains. At the observed rate, expect
+  ~250 files per minute when actively working.
+- No need to keep manually triggering "Run now" — the scheduled
+  45-minute cycles will now actually do work.
+- If indexing stalls again in the future, the most likely causes are
+  (a) genuine disk-space pressure on the output volume, or (b) a
+  repeat of the orphan-stuck pattern on a different table that doesn't
+  have a startup reaper yet. Both are now detectable via the
+  `startup.orphan_cleanup` log line on container restart.
+
+---
+
+## v0.34.4 — Auto-converter no longer wedges itself
+
+Companion patch to v0.34.3. Discovered while verifying that fix: the
+auto-converter wasn't actually starting any new runs even after the
+disk-space check was repaired. Investigation showed a separate
+long-running issue: any time a conversion run failed (or the container
+was restarted mid-run), an internal "this run is in progress" record
+was left behind permanently. The auto-converter's "don't start two
+runs at once" guard then quietly skipped every subsequent cycle.
+
+We found 38 of these stale records going back to April 7. Once they
+accumulate, the only way out was either manual database cleanup or
+shipping this fix. v0.34.4 ships the fix.
+
+### What's fixed
+
+- **The startup cleanup that recovers from "the container was killed
+  mid-job" now also handles auto-conversion runs.** Any time MarkFlow
+  starts up, stale records are reaped automatically.
+- Combined with v0.34.3, the path is now end-to-end clear: scans find
+  files, auto-conversion creates a job, the disk-space check passes
+  with the new sane multiplier, and workers actually convert.
+
+### What you should do
+
+- **Restart the MarkFlow container once after this release lands.** The
+  startup cleanup runs automatically on every boot — no manual cleanup
+  needed.
+- Watch the Activity / Pipeline page over the next few cycles. The
+  "indexed" counter should start climbing as the 92k-pending backlog
+  drains.
+
+### Why this took so long to catch
+
+The compound bug between "disk-space check rejects every job" and
+"failed jobs don't release their auto-converter slot" was completely
+silent — no banner, no badge, no notification. Both were logged at
+"info" level. Building an operator-facing alert when the auto-converter
+hasn't successfully completed a run in N hours is on the upcoming UX
+overhaul list.
+
+---
+
 ## v0.34.3 — Auto-conversion unblocked on large shares
 
 If you have a source share larger than roughly one-third of your output

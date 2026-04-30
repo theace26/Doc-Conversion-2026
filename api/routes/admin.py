@@ -708,6 +708,9 @@ def _compute_disk_usage() -> dict:
     # bulk and single-file conversion; this row reports the same path
     # as Output Repository above, but is retained for operator clarity
     # (the labels still describe distinct workflows in the UI).
+    # v0.34.6 BUG-013: tag with `redundant_in_total=True` so the total-
+    # bytes sum below skips it. Pre-v0.34.6 this row's bytes were summed
+    # alongside Output Repository + Trash, double-counting the share.
     conv_output = get_output_root()
     conv_bytes, conv_count = _walk_dir(conv_output)
     breakdown.append({
@@ -716,7 +719,8 @@ def _compute_disk_usage() -> dict:
         "bytes": conv_bytes,
         "human": _human_bytes(conv_bytes),
         "file_count": conv_count,
-        "description": "Single-file conversion results",
+        "description": "Single-file conversion results (same root as Output Repository post-v0.34.1)",
+        "redundant_in_total": True,
     })
 
     # Database file
@@ -772,7 +776,12 @@ def _compute_disk_usage() -> dict:
         "description": "Search index data",
     })
 
-    total_bytes = sum(item["bytes"] for item in breakdown)
+    # v0.34.6 BUG-013: skip rows tagged as redundant (Conversion Output
+    # walks the same root as Output Repository + Trash post-v0.34.1).
+    total_bytes = sum(
+        item["bytes"] for item in breakdown
+        if not item.get("redundant_in_total")
+    )
 
     # Volume info
     volume_info = None

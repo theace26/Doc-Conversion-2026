@@ -71,6 +71,24 @@ class XlsxHandler(FormatHandler):
 
             for sheet_idx, sheet_name in enumerate(wb_data.sheetnames):
                 ws_data = wb_data[sheet_name]
+
+                # v0.34.7 BUG-015: openpyxl returns Chartsheet objects for
+                # sheets that contain only an embedded chart (no cell grid).
+                # Chartsheets do not expose .merged_cells / .iter_rows /
+                # .max_row, so the rest of this loop -- and the style
+                # extractor below -- crash with AttributeError. There is
+                # no Markdown-extractable content on a chartsheet, so skip
+                # them silently after recording the omission for operator
+                # visibility.
+                if not hasattr(ws_data, "merged_cells"):
+                    log.info(
+                        "xlsx_chartsheet_skipped",
+                        filename=file_path.name,
+                        sheet=sheet_name,
+                        sheet_type=type(ws_data).__name__,
+                    )
+                    continue
+
                 ws_formula = wb_formula[sheet_name] if wb_formula else None
 
                 # Add separator between sheets (not before first)
@@ -480,6 +498,11 @@ class XlsxHandler(FormatHandler):
 
         for sheet_name in wb_data.sheetnames:
             ws_data = wb_data[sheet_name]
+
+            # v0.34.7 BUG-015: skip Chartsheets (see ingest() loop comment)
+            if not hasattr(ws_data, "merged_cells"):
+                continue
+
             ws_formula = wb_formula[sheet_name] if wb_formula else None
 
             sheet_style: dict[str, Any] = {}
