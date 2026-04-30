@@ -419,6 +419,8 @@
     <h1>Batch Management</h1>
     <p class="text-muted text-sm">Review and manage analysis queue batches. Pause batch submission, cancel pending rows, or exclude individual files from analysis.</p>
 
+    <div id="active-op-widget-mount-batch" style="margin-bottom:0.75rem"></div>
+
     <div id="bm-cb-banner-slot"></div>
 
     <div class="bm-topbar">
@@ -449,10 +451,26 @@
     <div id="bm-batches"></div>
   </main>
 
-  <script src="/static/app.js"></script>
-  <script src="/static/js/auto-refresh.js"></script>
-  <!-- v0.33.2: cost-estimator shared module (per-batch cost panel) -->
-  <script src="/static/js/cost-estimator.js?v=0.33.2"></script>
+  <script src="/static/app.js?v=0.35.0"></script>
+  <script src="/static/js/auto-refresh.js?v=0.35.0"></script>
+  <script src="/static/js/cost-estimator.js?v=0.35.0"></script>
+  <script src="/static/js/active-ops-poller.js?v=0.35.0"></script>
+  <script src="/static/js/active-op-widget.js?v=0.35.0"></script>
+  <script>
+  (function () {
+    var params = new URLSearchParams(window.location.search);
+    var hl = params.get('op_id');
+    var mount = document.getElementById('active-op-widget-mount-batch');
+    if (mount && typeof window.mountActiveOpWidget === 'function') {
+      window.mountActiveOpWidget(mount, {
+        filter: function (op) {
+          return op.op_type === 'analysis.rebuild';
+        },
+        highlightOpId: hl,
+      });
+    }
+  })();
+  </script>
   <script>
     (function(){
       'use strict';

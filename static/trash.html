@@ -171,6 +171,8 @@
       </div>
     </div>
 
+    <div id="active-op-widget-mount-trash" style="margin-bottom:0.75rem"></div>
+
     <div class="card" style="padding:0;overflow:auto">
       <table class="data-table" id="trash-table">
         <thead>
@@ -207,11 +209,25 @@
     </dialog>
   </div>
 
-  <script src="/static/app.js"></script>
-  <!-- v0.32.7: cache-bust by version. Bump the ?v= when live-banner.js
-       OR trash.html changes so returning operators don't get stale JS
-       from their browser cache. -->
-  <script src="/static/js/live-banner.js?v=0.32.7"></script>
+  <script src="/static/app.js?v=0.35.0"></script>
+  <script src="/static/js/active-ops-poller.js?v=0.35.0"></script>
+  <script src="/static/js/live-banner.js?v=0.35.0"></script>
+  <script src="/static/js/active-op-widget.js?v=0.35.0"></script>
+  <script>
+  (function () {
+    var params = new URLSearchParams(window.location.search);
+    var hl = params.get('op_id');
+    var mount = document.getElementById('active-op-widget-mount-trash');
+    if (mount && typeof window.mountActiveOpWidget === 'function') {
+      window.mountActiveOpWidget(mount, {
+        filter: function (op) {
+          return op.op_type && op.op_type.indexOf('trash.') === 0;
+        },
+        highlightOpId: hl,
+      });
+    }
+  })();
+  </script>
   <script>
   let trashFiles = [];
 

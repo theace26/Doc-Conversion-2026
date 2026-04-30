@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MarkFlow — History</title>
-  <link rel="stylesheet" href="/static/markflow.css">
+  <link rel="stylesheet" href="/static/markflow.css?v=0.35.0">
   <style>
     .detail-row { display: none; }
     .detail-row.open { display: table-row; }
@@ -34,6 +34,8 @@
 
     <h1 data-help="document-conversion#history">Conversion History</h1>
     <div id="stats-row" class="stats-row mt-1 mb-2"></div>
+
+    <div id="active-op-widget-mount-pipeline" style="margin-bottom:0.75rem"></div>
 
     <!-- Pending Files Card -->
     <div class="card mb-2" id="pending-card" hidden>
@@ -147,9 +149,26 @@
     </div>
   </div>
 
-  <script src="/static/app.js"></script>
-  <script src="/static/js/lifecycle-badge.js"></script>
-  <script src="/static/js/version-panel.js"></script>
+  <script src="/static/app.js?v=0.35.0"></script>
+  <script src="/static/js/lifecycle-badge.js?v=0.35.0"></script>
+  <script src="/static/js/version-panel.js?v=0.35.0"></script>
+  <script src="/static/js/active-ops-poller.js?v=0.35.0"></script>
+  <script src="/static/js/active-op-widget.js?v=0.35.0"></script>
+  <script>
+  (function () {
+    var params = new URLSearchParams(window.location.search);
+    var hl = params.get('op_id');
+    var mount = document.getElementById('active-op-widget-mount-pipeline');
+    if (mount && typeof window.mountActiveOpWidget === 'function') {
+      window.mountActiveOpWidget(mount, {
+        filter: function (op) {
+          return op.op_type && op.op_type.indexOf('pipeline.') === 0;
+        },
+        highlightOpId: hl,
+      });
+    }
+  })();
+  </script>
   <script>
   // State
   let currentPage = 1;

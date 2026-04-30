@@ -9,7 +9,7 @@
        its own ?v=0.33.0) and adds the .scan-detail-* modal classes
        inline below. Bump on every release that touches the CSS
        used by this page. -->
-  <link rel="stylesheet" href="/static/markflow.css?v=0.33.0">
+  <link rel="stylesheet" href="/static/markflow.css?v=0.35.0">
   <style>
     .job-form { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem; align-items: center; }
     .job-form label { font-weight: 500; font-size: 0.9rem; }
@@ -323,6 +323,8 @@
       </div>
     </div>
 
+    <div id="active-op-widget-mount-nonbulk" style="margin-bottom:0.75rem"></div>
+
     <!-- Active Job Progress -->
     <section class="card mb-2" id="active-job-section" hidden>
       <div style="display:flex;justify-content:space-between;align-items:center">
@@ -412,10 +414,25 @@
     </section>
   </div>
 
-  <script src="/static/app.js"></script>
-  <!-- v0.33.0: shared Pipeline card module. Bulk Jobs uses the
-       compact variant; the rich version mounts on /static/status.html. -->
-  <script src="/static/js/pipeline-card.js?v=0.33.0"></script>
+  <script src="/static/app.js?v=0.35.0"></script>
+  <script src="/static/js/active-ops-poller.js?v=0.35.0"></script>
+  <script src="/static/js/pipeline-card.js?v=0.35.0"></script>
+  <script src="/static/js/active-op-widget.js?v=0.35.0"></script>
+  <script>
+  (function () {
+    var params = new URLSearchParams(window.location.search);
+    var hl = params.get('op_id');
+    var mount = document.getElementById('active-op-widget-mount-nonbulk');
+    if (mount && typeof window.mountActiveOpWidget === 'function') {
+      window.mountActiveOpWidget(mount, {
+        filter: function (op) {
+          return op.op_type && op.op_type.indexOf('bulk.') !== 0;
+        },
+        highlightOpId: hl,
+      });
+    }
+  })();
+  </script>
   <script>
   let activeJobId = null;
   let eventSource = null;
