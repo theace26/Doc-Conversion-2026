@@ -126,7 +126,7 @@ the affected plan task number(s) and the corrected instruction.
 
 **Output:** §A of recon doc.
 
-- [ ] **Step 1: Capture `db_write_with_retry` signature.**
+- [x] **Step 1: Capture `db_write_with_retry` signature.**
 
 ```bash
 grep -n "def db_write_with_retry\|db_write_with_retry(" core/db/connection.py | head -10
@@ -137,7 +137,7 @@ Read the function body. Document:
 - Concurrency model (queue, lock)
 - Existing call sites — pick 2 representative examples to quote.
 
-- [ ] **Step 2: Capture `_async_execute` (or equivalent low-level exec helper).**
+- [x] **Step 2: Capture `_async_execute` (or equivalent low-level exec helper).**
 
 ```bash
 grep -n "async def _async_execute\|async def _execute\|async def execute" core/db/*.py core/database.py | head -10
@@ -145,7 +145,7 @@ grep -n "async def _async_execute\|async def _execute\|async def execute" core/d
 
 Document the actual exported name and signature. If it doesn't exist as a public symbol, document the project's convention for raw INSERT/UPDATE (might be `aiosqlite.connect(...).execute()` inline).
 
-- [ ] **Step 3: Capture `Migration` class + `MIGRATIONS` list + `LATEST_VERSION`.**
+- [x] **Step 3: Capture `Migration` class + `MIGRATIONS` list + `LATEST_VERSION`.**
 
 ```bash
 grep -n "class Migration\|MIGRATIONS\|LATEST_VERSION" core/db/migrations.py
@@ -153,7 +153,7 @@ grep -n "class Migration\|MIGRATIONS\|LATEST_VERSION" core/db/migrations.py
 
 Document constructor signature, list location, current LATEST_VERSION value.
 
-- [ ] **Step 4: Inventory all 19 scheduler jobs.**
+- [x] **Step 4: Inventory all 19 scheduler jobs.**
 
 ```bash
 grep -n "scheduler.add_job\|@scheduler.scheduled_job\|trigger=.cron" core/scheduler.py
@@ -161,7 +161,7 @@ grep -n "scheduler.add_job\|@scheduler.scheduled_job\|trigger=.cron" core/schedu
 
 Capture each job's id, cron slot (HH:MM), and a one-line description from the surrounding context. This populates the time-slot table in Task 37 directly — no second discovery pass.
 
-- [ ] **Step 5: Capture lifespan structure in `main.py`.**
+- [x] **Step 5: Capture lifespan structure in `main.py`.**
 
 ```bash
 grep -n "lifespan\|asynccontextmanager\|init_db\|scheduler.start\|include_router" main.py | head -30
@@ -173,7 +173,7 @@ Document:
 - Block where `app.include_router(...)` calls happen
 - Confirm hydration insertion point (after `init_db`, before `scheduler.start`)
 
-- [ ] **Step 6: Capture test fixtures.**
+- [x] **Step 6: Capture test fixtures.**
 
 ```bash
 ls tests/conftest.py tests/test_*_endpoint.py 2>/dev/null
@@ -185,11 +185,11 @@ Pick one `tests/test_*_endpoint.py` (e.g. `test_pipeline.py` or whatever exists)
 - How it constructs an authenticated AsyncClient
 - Whether `authed_operator` / `authed_manager` / `authed_admin` fixtures already exist (if not, document the inline pattern to copy)
 
-- [ ] **Step 7: Append §A to the recon doc.**
+- [x] **Step 7: Append §A to the recon doc.**
 
 Write the recon notes file with the §A section filled in. Include verbatim code snippets (signatures, key lines) so implementation tasks have copy-pasteable content.
 
-- [ ] **Step 8: Commit.**
+- [x] **Step 8: Commit.**
 
 ```bash
 git add docs/superpowers/plans/2026-04-28-active-operations-registry-recon.md
@@ -209,7 +209,7 @@ git commit -m "plan(active_ops): pre-flight recon §A (DB + scheduler + lifespan
 
 **Output:** §B of recon doc.
 
-- [ ] **Step 1: Capture `require_role` signature.**
+- [x] **Step 1: Capture `require_role` signature.**
 
 ```bash
 grep -n "def require_role\|UserRole\.\|class UserRole" core/auth.py | head -20
@@ -220,7 +220,7 @@ Document:
 - All `UserRole` enum values (OPERATOR, MANAGER, ADMIN, others?)
 - `AuthenticatedUser` shape (email, role, … any other fields used)
 
-- [ ] **Step 2: Pick a "model" route file to copy patterns from.**
+- [x] **Step 2: Pick a "model" route file to copy patterns from.**
 
 `api/routes/pipeline.py` is a strong candidate (already explored in this planning session). Document:
 - Router prefix + tags pattern
@@ -229,7 +229,7 @@ Document:
 - Response shape conventions (plain dict; `Response` injection for headers; `HTTPException` raising)
 - structlog usage at module top + per-event log calls
 
-- [ ] **Step 3: AsyncClient + auth fixture.**
+- [x] **Step 3: AsyncClient + auth fixture.**
 
 In one existing `tests/test_*_endpoint.py`:
 - How does it import `app`? (`from main import app` likely)
@@ -238,7 +238,7 @@ In one existing `tests/test_*_endpoint.py`:
 
 Document the **exact fixture code** that the engineer should copy into `tests/conftest.py` for `authed_operator` / `authed_manager` / `authed_admin` if they don't already exist.
 
-- [ ] **Step 4: Append §B to recon doc + commit.**
+- [x] **Step 4: Append §B to recon doc + commit.**
 
 ```bash
 git add docs/superpowers/plans/2026-04-28-active-operations-registry-recon.md
@@ -257,7 +257,7 @@ git commit -m "plan(active_ops): pre-flight recon §B (auth + endpoint + fixture
 
 **Output:** §C of recon doc.
 
-- [ ] **Step 1: Locate `run_pipeline_now` and its `_run` inner function.**
+- [x] **Step 1: Locate `run_pipeline_now` and its `_run` inner function.**
 
 ```bash
 grep -n "run_pipeline_now\|def _run\b\|register_run_now_scan" api/routes/pipeline.py
@@ -271,7 +271,7 @@ Capture:
 
 Document the **exact pre-edit and post-edit forms** of `_run` so Task 14's Step 4 becomes pure transcription.
 
-- [ ] **Step 2: Locate `_run_convert_selected_batch` and `_convert_one_pending_file`.**
+- [x] **Step 2: Locate `_run_convert_selected_batch` and `_convert_one_pending_file`.**
 
 ```bash
 grep -n "def _run_convert_selected_batch\|def _convert_one_pending_file" api/routes/pipeline.py
@@ -282,7 +282,7 @@ Capture:
 - Existing semaphore / asyncio.gather pattern
 - The exact loop variable name (`f` vs `file_dict` etc.)
 
-- [ ] **Step 3: Locate cancel primitives in `scan_coordinator.py`.**
+- [x] **Step 3: Locate cancel primitives in `scan_coordinator.py`.**
 
 ```bash
 grep -n "notify_run_now_cancelled\|is_run_now_cancelled\|run_now_cancel" core/scan_coordinator.py
@@ -290,7 +290,7 @@ grep -n "notify_run_now_cancelled\|is_run_now_cancelled\|run_now_cancel" core/sc
 
 Document the function signatures and the in-process flag they manipulate. Confirm `notify_run_now_cancelled()` is the right hook to wire into the cancel-hook bridge.
 
-- [ ] **Step 4: Locate scan_runs column names.**
+- [x] **Step 4: Locate scan_runs column names.**
 
 ```bash
 grep -n "files_scanned\|files_total\|files_errored\|files_new\|files_modified" core/db/scan_runs.py core/lifecycle_scanner.py | head -10
@@ -298,11 +298,11 @@ grep -n "files_scanned\|files_total\|files_errored\|files_new\|files_modified" c
 
 Document the actual columns. Spec assumed `files_total` / `files_errored` — these may or may not exist. Update Task 14's progress mirror code to use real names. If `files_total` doesn't exist, the mirror runs without total (UI shows indeterminate).
 
-- [ ] **Step 5: Append §C + flag amendments.**
+- [x] **Step 5: Append §C + flag amendments.**
 
 If column names diverge from spec, write into §G (Plan amendments) which Task 14 step needs the substitution.
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ```bash
 git add docs/superpowers/plans/2026-04-28-active-operations-registry-recon.md
@@ -323,7 +323,7 @@ git commit -m "plan(active_ops): pre-flight recon §C (pipeline.py + scan_coordi
 
 **Output:** §D of recon doc.
 
-- [ ] **Step 1: Locate the `_empty_trash_status` worker and dict.**
+- [x] **Step 1: Locate the `_empty_trash_status` worker and dict.**
 
 ```bash
 grep -n "_empty_trash_status\|_empty_trash_cancel\|empty_trash_worker\|@router.post.*empty" api/routes/trash.py
@@ -338,7 +338,7 @@ Capture the **complete current worker function** (likely 30–60 lines). Identif
 
 Document the side-by-side: existing worker (verbatim) ↔ planned retrofit (from Task 17 Step 2) so the engineer can do a structural diff.
 
-- [ ] **Step 2: Same for `_restore_all_status`.**
+- [x] **Step 2: Same for `_restore_all_status`.**
 
 ```bash
 grep -n "_restore_all_status\|_restore_all_cancel\|restore_all_worker\|@router.post.*restore" api/routes/trash.py
@@ -346,7 +346,7 @@ grep -n "_restore_all_status\|_restore_all_cancel\|restore_all_worker\|@router.p
 
 Capture worker + cancel; confirm symmetric to empty.
 
-- [ ] **Step 3: Locate the bulk re-analyze handler in `api/routes/analysis.py`.**
+- [x] **Step 3: Locate the bulk re-analyze handler in `api/routes/analysis.py`.**
 
 ```bash
 grep -n "re_analyze\|reanalyze\|rebuild_analysis\|@router.post.*re-analyze" api/routes/analysis.py
@@ -354,7 +354,7 @@ grep -n "re_analyze\|reanalyze\|rebuild_analysis\|@router.post.*re-analyze" api/
 
 Document the URL path (e.g., `/api/analysis/batches/{id}/re-analyze` — the spec assumed this; verify), the worker function name, and where per-file iteration happens.
 
-- [ ] **Step 4: Locate db.backup and db.restore handlers.**
+- [x] **Step 4: Locate db.backup and db.restore handlers.**
 
 ```bash
 grep -rn "db.backup\|db_backup\|/db/backup\|@router.post.*backup\|@router.post.*restore" api/routes/admin.py core/db_backup.py
@@ -368,7 +368,7 @@ Document:
 
 If backup is synchronous (no background task), the registry pattern needs adjusting — `register_op` happens inline, `finish_op` happens before the response is returned. Document this in §G if so.
 
-- [ ] **Step 5: Locate the search rebuild handler.**
+- [x] **Step 5: Locate the search rebuild handler.**
 
 ```bash
 grep -rn "rebuild.index\|rebuild_index\|@router.post.*rebuild" api/ core/ | head -10
@@ -376,7 +376,7 @@ grep -rn "rebuild.index\|rebuild_index\|@router.post.*rebuild" api/ core/ | head
 
 Document file path + function name + dispatch pattern. Spec assumes `/api/pipeline/rebuild-index` — verify. Also note whether the Meili rebuild emits any progress signal (per-document iteration) or runs as one atomic block. If atomic, Task 19's `update_op` call is a no-op and the widget shows indeterminate — document this so the implementation doesn't waste time hunting for nonexistent progress hooks.
 
-- [ ] **Step 6: Append §D + commit.**
+- [x] **Step 6: Append §D + commit.**
 
 ```bash
 git add docs/superpowers/plans/2026-04-28-active-operations-registry-recon.md
@@ -397,7 +397,7 @@ git commit -m "plan(active_ops): pre-flight recon §D (trash + analysis + admin 
 
 This is the most important recon task. These two files are the largest in the project (likely 1,000–2,000 lines each), and the spec made several assumptions about their internal shape that need verification.
 
-- [ ] **Step 1: Map `lifecycle_scanner.py` structure.**
+- [x] **Step 1: Map `lifecycle_scanner.py` structure.**
 
 ```bash
 grep -n "^async def\|^def\|^class" core/lifecycle_scanner.py
@@ -410,13 +410,13 @@ Document the top-level function/class inventory. Identify:
 - The cooperative cancel point(s)
 - Any shutdown handling (`asyncio.CancelledError` per the v0.32.0 fix mentioned in CLAUDE.md)
 
-- [ ] **Step 2: Capture exact `run_lifecycle_scan` signature + body anatomy.**
+- [x] **Step 2: Capture exact `run_lifecycle_scan` signature + body anatomy.**
 
 Read enough of the function to identify the right wrap-with-register/finish location. Quote the function header + first 20 + last 20 lines verbatim into recon §E.
 
 If the scanner has multiple entry points (e.g., `run_lifecycle_scan` AND `run_periodic_scan`), document both and decide which gets the registry hook. Likely the lower-level one — but verify.
 
-- [ ] **Step 3: Map `bulk_worker.py` structure.**
+- [x] **Step 3: Map `bulk_worker.py` structure.**
 
 ```bash
 grep -n "^async def\|^def\|^class\|self\.processed\|self\.failed\|self\.total\|self\.cancel" core/bulk_worker.py
@@ -430,7 +430,7 @@ Document:
 - Pause / resume handling
 - The terminal state attribute (`self.terminal_error` or similar) — for the `error_msg` mirror
 
-- [ ] **Step 4: Identify the right tick-mirror insertion points in BulkJob.**
+- [x] **Step 4: Identify the right tick-mirror insertion points in BulkJob.**
 
 For Task 23 to land cleanly, we need to know the **exact methods/lines** where:
 - The job starts (register_op call site)
@@ -439,7 +439,7 @@ For Task 23 to land cleanly, we need to know the **exact methods/lines** where:
 
 Quote each candidate insertion point. If "paused" is a quasi-terminal state in BulkJob, document how the registry should handle it (treat as still-running, per spec §17 P3 — but verify the BulkJob's actual paused-state semantics support this).
 
-- [ ] **Step 5: Look for the BulkJob cancel mechanism.**
+- [x] **Step 5: Look for the BulkJob cancel mechanism.**
 
 ```bash
 grep -n "def cancel\|self.cancelled\|self._cancel\|cancel_event\|cancel_pending" core/bulk_worker.py
@@ -447,13 +447,13 @@ grep -n "def cancel\|self.cancelled\|self._cancel\|cancel_event\|cancel_pending"
 
 Document the actual cancel API. Spec assumed `BulkJob.cancel(job_id)` as classmethod. If it's an instance method or a module-level function, update Task 23's hook code in §G.
 
-- [ ] **Step 6: Append §E + flag amendments.**
+- [x] **Step 6: Append §E + flag amendments.**
 
 §E will likely be the longest section in the recon doc — that's expected. Bulk_worker is the most entangled subsystem in v0.35.0's retrofit footprint.
 
 If anything in §E contradicts the plan's Task 23 code, write specific replacement instructions in §G (Plan amendments) before committing.
 
-- [ ] **Step 7: Commit.**
+- [x] **Step 7: Commit.**
 
 ```bash
 git add docs/superpowers/plans/2026-04-28-active-operations-registry-recon.md
@@ -475,7 +475,7 @@ git commit -m "plan(active_ops): pre-flight recon §E (lifecycle_scanner + bulk_
 
 **Output:** §F of recon doc.
 
-- [ ] **Step 1: Inventory CSS variables.**
+- [x] **Step 1: Inventory CSS variables.**
 
 ```bash
 grep -n "^[[:space:]]*--[a-z]" static/markflow.css | head -40
@@ -485,15 +485,15 @@ Document every CSS custom property defined: `--surface`, `--surface-alt`, `--tex
 
 If a variable referenced by the plan's widget code doesn't exist, choose a fallback that does (e.g., `var(--ok)` if `--accent` is missing) and update Tasks 25, 26, 27 in §G.
 
-- [ ] **Step 2: DOM helper conventions.**
+- [x] **Step 2: DOM helper conventions.**
 
 Read `static/js/pipeline-card.js` lines 71–95 (the `el()` helper). Confirm Tasks 25, 26 use the same helper signature. If pipeline-card's helper differs (different opt names like `text` vs `textContent`), align the new modules.
 
-- [ ] **Step 3: Visibility-aware polling pattern.**
+- [x] **Step 3: Visibility-aware polling pattern.**
 
 Read `static/js/auto-refresh.js`. Confirm the visibility-pause pattern. Verify Task 24's poller uses the same approach.
 
-- [ ] **Step 4: Mount-anchor inventory per page.**
+- [x] **Step 4: Mount-anchor inventory per page.**
 
 For each origin page, find where the active-op-widget mount anchor should go:
 
@@ -508,7 +508,7 @@ For each origin page, find where the active-op-widget mount anchor should go:
 
 For each, document the exact line number where the anchor `<div>` should be inserted. Implementation Tasks 28–33 then become "insert at line N" instead of "find Pending Files section."
 
-- [ ] **Step 5: Cache-bust inventory.**
+- [x] **Step 5: Cache-bust inventory.**
 
 ```bash
 grep -rn '\?v=0\.[0-9]' static/*.html | head -40
@@ -516,7 +516,7 @@ grep -rn '\?v=0\.[0-9]' static/*.html | head -40
 
 Capture every existing `?v=…` and target version. Task 34 (cache-bust pass) becomes a deterministic edit list.
 
-- [ ] **Step 6: Append §F + commit.**
+- [x] **Step 6: Append §F + commit.**
 
 ```bash
 git add docs/superpowers/plans/2026-04-28-active-operations-registry-recon.md
@@ -535,13 +535,13 @@ git commit -m "plan(active_ops): pre-flight recon §F (frontend conventions)"
 
 **Output:** plan inline edits where recon contradicted assumptions; final recon-doc commit; quick spot-check.
 
-- [ ] **Step 1: Read §G and decide which amendments to apply now vs at task time.**
+- [x] **Step 1: Read §G and decide which amendments to apply now vs at task time.**
 
 For each amendment in §G:
 - If the change is **mechanical and uncontested** (a column rename, a method-name fix, a CSS-var fallback): apply directly to the affected plan task via `Edit` tool. Mark the §G entry "applied to plan."
 - If the change is **architectural** (e.g., backup is synchronous so the register/finish flow needs restructuring): leave §G as the explicit instruction; flag in the plan task with a `**§G amendment applies**` note pointing at the recon entry.
 
-- [ ] **Step 2: Spot-check sanity of the amended plan.**
+- [x] **Step 2: Spot-check sanity of the amended plan.**
 
 ```bash
 grep -n "TODO\|TBD\|placeholder\|<.*verify.*>\|grep to find" docs/superpowers/plans/2026-04-28-active-operations-registry.md
@@ -549,11 +549,11 @@ grep -n "TODO\|TBD\|placeholder\|<.*verify.*>\|grep to find" docs/superpowers/pl
 
 Any leftover placeholder language from the original plan that recon now resolves should be replaced. e.g., if Task 19 had "grep to find rebuild-index handler," after recon §D the file path is known, so swap the grep instruction for the actual path.
 
-- [ ] **Step 3: Update §A.5 scheduler-job inventory into Task 37's table.**
+- [x] **Step 3: Update §A.5 scheduler-job inventory into Task 37's table.**
 
 Task 37 was the "create scheduler-time-slots.md" task. With recon §A.5 already capturing all 19 existing jobs, Task 37 becomes pure transcription. Update Task 37 inline to embed the table directly from §A.5.
 
-- [ ] **Step 4: Commit any plan amendments.**
+- [x] **Step 4: Commit any plan amendments.**
 
 ```bash
 git add docs/superpowers/plans/2026-04-28-active-operations-registry.md
@@ -562,7 +562,7 @@ git commit -m "plan(active_ops): amendments from pre-flight recon (§G applied)"
 
 (If no amendments needed, skip the commit. Recon was clean — that's the best outcome.)
 
-- [ ] **Step 5: Verify recon doc is committed and present.**
+- [x] **Step 5: Verify recon doc is committed and present.**
 
 ```bash
 git log --oneline | grep "pre-flight recon" | head -10
@@ -591,7 +591,7 @@ This phase ships the registry module with full unit-test coverage, the migration
 - Modify: `core/db/schema.py` (append to `_MIGRATIONS` list)
 - Test: `tests/test_active_ops.py` (NEW)
 
-- [ ] **Step 1: Create the test file with the migration test.**
+- [x] **Step 1: Create the test file with the migration test.**
 
 Write `tests/test_active_ops.py`:
 
@@ -658,14 +658,14 @@ async def test_migration_v29_creates_active_operations_table():
     assert "idx_active_ops_finished_at" in idx_names
 ```
 
-- [ ] **Step 2: Run the test to confirm it fails.**
+- [x] **Step 2: Run the test to confirm it fails.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py::test_migration_v29_creates_active_operations_table -v
 ```
 Expected: FAIL with `assert row is not None` (table doesn't exist yet).
 
-- [ ] **Step 3: Add migration v29 to `core/db/schema.py` `_MIGRATIONS` list.**
+- [x] **Step 3: Add migration v29 to `core/db/schema.py` `_MIGRATIONS` list.**
 
 Locate the `_MIGRATIONS` list (a `list[tuple[int, str, list[str]]]`) in `core/db/schema.py`, ordered by version. Append a new tuple with version **29**. Each migration is a 3-tuple: `(version: int, description: str, statements: list[str])`. The runner executes each statement via `db.execute(...)` in order and records the version in `schema_migrations`.
 
@@ -713,7 +713,7 @@ _MIGRATIONS.append((
 
 No `LATEST_VERSION` constant to bump — the runner picks up the new tuple from `_MIGRATIONS` automatically.
 
-- [ ] **Step 4: Run the migration and re-run the test.**
+- [x] **Step 4: Run the migration and re-run the test.**
 
 ```bash
 docker-compose restart markflow
@@ -722,7 +722,7 @@ docker-compose exec markflow pytest tests/test_active_ops.py::test_migration_v29
 ```
 Expected: PASS.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add core/db/schema.py tests/test_active_ops.py
@@ -737,7 +737,7 @@ git commit -m "feat(active_ops): migration v29 — active_operations table"
 - Create: `core/active_ops.py`
 - Modify: `tests/test_active_ops.py` (append)
 
-- [ ] **Step 1: Write failing tests for the dataclass + whitelist.**
+- [x] **Step 1: Write failing tests for the dataclass + whitelist.**
 
 Append to `tests/test_active_ops.py`:
 
@@ -783,14 +783,14 @@ def test_op_type_whitelist_rejects_unknown():
     assert "bogus.op" not in OP_TYPES
 ```
 
-- [ ] **Step 2: Run to confirm failure.**
+- [x] **Step 2: Run to confirm failure.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py::test_active_operation_dataclass_round_trip tests/test_active_ops.py::test_op_type_whitelist_rejects_unknown -v
 ```
 Expected: FAIL — `core.active_ops` module not found.
 
-- [ ] **Step 3: Create `core/active_ops.py` with the dataclass + whitelist.**
+- [x] **Step 3: Create `core/active_ops.py` with the dataclass + whitelist.**
 
 ```python
 """Active Operations Registry (v0.35.0).
@@ -921,14 +921,14 @@ class ActiveOperation:
         }
 ```
 
-- [ ] **Step 4: Run tests; confirm pass.**
+- [x] **Step 4: Run tests; confirm pass.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py::test_active_operation_dataclass_round_trip tests/test_active_ops.py::test_op_type_whitelist_rejects_unknown -v
 ```
 Expected: PASS.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add core/active_ops.py tests/test_active_ops.py
@@ -943,7 +943,7 @@ git commit -m "feat(active_ops): ActiveOperation dataclass + op_type whitelist"
 - Modify: `core/active_ops.py` (append registry state + register_op)
 - Modify: `tests/test_active_ops.py` (append)
 
-- [ ] **Step 1: Write failing test.**
+- [x] **Step 1: Write failing test.**
 
 Append to `tests/test_active_ops.py`:
 
@@ -1018,14 +1018,14 @@ async def test_register_op_cancellable_without_hook_raises():
         )
 ```
 
-- [ ] **Step 2: Run; confirm failure.**
+- [x] **Step 2: Run; confirm failure.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py -k "register_op" -v
 ```
 Expected: FAIL — `register_op` not defined.
 
-- [ ] **Step 3: Implement registry state + register_op in `core/active_ops.py`.**
+- [x] **Step 3: Implement registry state + register_op in `core/active_ops.py`.**
 
 Append to `core/active_ops.py`:
 
@@ -1143,7 +1143,7 @@ async def _persist_row(row: dict[str, Any]) -> None:
 
 Inspect `core/db/connection.py` first to confirm the right pattern. If unsure, prefer the lambda form used elsewhere in the codebase.
 
-- [ ] **Step 4: Set _hydration_complete in conftest so tests don't hang.**
+- [x] **Step 4: Set _hydration_complete in conftest so tests don't hang.**
 
 Tests that call `register_op` will block forever waiting for hydration. Add to `tests/conftest.py` (create if missing):
 
@@ -1160,14 +1160,14 @@ async def _set_hydration_event():
     # Don't clear — once set, leave set for the rest of the suite
 ```
 
-- [ ] **Step 5: Run tests; confirm pass.**
+- [x] **Step 5: Run tests; confirm pass.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py -k "register_op" -v
 ```
 Expected: PASS for all three.
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ```bash
 git add core/active_ops.py tests/test_active_ops.py tests/conftest.py
@@ -1182,7 +1182,7 @@ git commit -m "feat(active_ops): register_op() — persist + whitelist + cancel-
 - Modify: `core/active_ops.py`
 - Modify: `tests/test_active_ops.py`
 
-- [ ] **Step 1: Write failing tests.**
+- [x] **Step 1: Write failing tests.**
 
 Append to `tests/test_active_ops.py`:
 
@@ -1277,14 +1277,14 @@ async def test_update_op_first_error_forces_immediate_flush():
     )
 ```
 
-- [ ] **Step 2: Run tests; confirm failure.**
+- [x] **Step 2: Run tests; confirm failure.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py -k "update_op" -v
 ```
 Expected: FAIL — `update_op` not defined.
 
-- [ ] **Step 3: Implement update_op + debouncer.**
+- [x] **Step 3: Implement update_op + debouncer.**
 
 Append to `core/active_ops.py`:
 
@@ -1353,14 +1353,14 @@ async def update_op(
         await _persist_op_update(snapshot)
 ```
 
-- [ ] **Step 4: Run tests; confirm pass.**
+- [x] **Step 4: Run tests; confirm pass.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py -k "update_op" -v
 ```
 Expected: PASS for all three.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add core/active_ops.py tests/test_active_ops.py
@@ -1375,7 +1375,7 @@ git commit -m "feat(active_ops): update_op() with 1.5s debouncing + first-error 
 - Modify: `core/active_ops.py`
 - Modify: `tests/test_active_ops.py`
 
-- [ ] **Step 1: Write failing tests.**
+- [x] **Step 1: Write failing tests.**
 
 Append:
 
@@ -1439,14 +1439,14 @@ async def test_update_after_finish_is_noop():
     assert op.finished_at_epoch == finished_at   # not reopened
 ```
 
-- [ ] **Step 2: Run; confirm failure.**
+- [x] **Step 2: Run; confirm failure.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py -k "finish_op or update_after_finish" -v
 ```
 Expected: FAIL — `finish_op` not defined.
 
-- [ ] **Step 3: Implement finish_op + get_op.**
+- [x] **Step 3: Implement finish_op + get_op.**
 
 Append to `core/active_ops.py`:
 
@@ -1492,14 +1492,14 @@ async def get_op(op_id: str) -> ActiveOperation | None:
         return ActiveOperation(**op.__dict__)
 ```
 
-- [ ] **Step 4: Run tests; confirm pass.**
+- [x] **Step 4: Run tests; confirm pass.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py -k "finish_op or update_after_finish" -v
 ```
 Expected: PASS.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add core/active_ops.py tests/test_active_ops.py
@@ -1514,7 +1514,7 @@ git commit -m "feat(active_ops): finish_op() + get_op() with no-op-on-finished g
 - Modify: `core/active_ops.py`
 - Modify: `tests/test_active_ops.py`
 
-- [ ] **Step 1: Write failing tests.**
+- [x] **Step 1: Write failing tests.**
 
 ```python
 @pytest.mark.asyncio
@@ -1595,13 +1595,13 @@ def test_is_cancelled_synchronous():
     assert not inspect.iscoroutinefunction(active_ops.is_cancelled)
 ```
 
-- [ ] **Step 2: Run; confirm failure.**
+- [x] **Step 2: Run; confirm failure.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py -k "cancel" -v
 ```
 
-- [ ] **Step 3: Implement cancel_op + is_cancelled.**
+- [x] **Step 3: Implement cancel_op + is_cancelled.**
 
 Append:
 
@@ -1661,13 +1661,13 @@ async def cancel_op(op_id: str) -> bool:
         return False
 ```
 
-- [ ] **Step 4: Run; confirm pass.**
+- [x] **Step 4: Run; confirm pass.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py -k "cancel or is_cancelled" -v
 ```
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add core/active_ops.py tests/test_active_ops.py
@@ -1682,7 +1682,7 @@ git commit -m "feat(active_ops): cancel_op() + is_cancelled() + hook bridge"
 - Modify: `core/active_ops.py`
 - Modify: `tests/test_active_ops.py`
 
-- [ ] **Step 1: Write failing tests.**
+- [x] **Step 1: Write failing tests.**
 
 ```python
 @pytest.mark.asyncio
@@ -1735,13 +1735,13 @@ async def test_list_ops_excludes_finished_older_than_30s():
     assert op_id not in op_ids
 ```
 
-- [ ] **Step 2: Run; confirm failure.**
+- [x] **Step 2: Run; confirm failure.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py -k "list_ops" -v
 ```
 
-- [ ] **Step 3: Implement list_ops.**
+- [x] **Step 3: Implement list_ops.**
 
 Append:
 
@@ -1771,9 +1771,9 @@ async def list_ops(include_finished: bool = True) -> list[ActiveOperation]:
     return result
 ```
 
-- [ ] **Step 4: Run; confirm pass.**
+- [x] **Step 4: Run; confirm pass.**
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add core/active_ops.py tests/test_active_ops.py
@@ -1788,7 +1788,7 @@ git commit -m "feat(active_ops): list_ops() with 30s grace window"
 - Modify: `core/active_ops.py`
 - Modify: `tests/test_active_ops.py`
 
-- [ ] **Step 1: Write failing tests.**
+- [x] **Step 1: Write failing tests.**
 
 ```python
 @pytest.mark.asyncio
@@ -1887,13 +1887,13 @@ async def test_hydrate_failure_does_not_crash():
     assert active_ops._hydration_complete.is_set()
 ```
 
-- [ ] **Step 2: Run; confirm failure.**
+- [x] **Step 2: Run; confirm failure.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py -k "hydrate" -v
 ```
 
-- [ ] **Step 3: Implement hydrate_on_startup.**
+- [x] **Step 3: Implement hydrate_on_startup.**
 
 Append:
 
@@ -1960,13 +1960,13 @@ async def hydrate_on_startup() -> None:
     _hydration_complete.set()
 ```
 
-- [ ] **Step 4: Run tests; confirm pass.**
+- [x] **Step 4: Run tests; confirm pass.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py -k "hydrate" -v
 ```
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add core/active_ops.py tests/test_active_ops.py
@@ -1983,7 +1983,7 @@ git commit -m "feat(active_ops): hydrate_on_startup() — terminate-by-restart w
 - Modify: `core/scheduler.py`
 - Modify: `tests/test_active_ops.py`
 
-- [ ] **Step 1: Write failing test.**
+- [x] **Step 1: Write failing test.**
 
 ```python
 @pytest.mark.asyncio
@@ -2025,9 +2025,9 @@ async def test_purge_deletes_rows_older_than_7d_excludes_running():
     assert op_ids == {"purge-recent", "purge-running"}
 ```
 
-- [ ] **Step 2: Run; confirm failure.**
+- [x] **Step 2: Run; confirm failure.**
 
-- [ ] **Step 3: Implement purge function.**
+- [x] **Step 3: Implement purge function.**
 
 Append to `core/active_ops.py`:
 
@@ -2073,7 +2073,7 @@ async def purge_old_active_ops() -> int:
     return deleted_holder[0]
 ```
 
-- [ ] **Step 4: Register the scheduler job.**
+- [x] **Step 4: Register the scheduler job.**
 
 In `core/scheduler.py`, locate `start_scheduler()` (line 659). All 21 existing jobs are registered as inline `scheduler.add_job(...)` calls inside this function. Append a 22nd call immediately before `scheduler.start()` at line 905, modeled on the existing `purge_aged_trash` block (line 724) which is the closest pattern (cron daily):
 
@@ -2097,14 +2097,14 @@ scheduler.add_job(
 
 While editing, also fix the stale `log.info("scheduler.started", jobs=19)` literal at `core/scheduler.py:906` — replace `jobs=19` with `jobs=len(scheduler.get_jobs())` so the count is self-correcting and never goes stale again. (Per recon §A.4: the literal was already off-by-2 before this task; the safer fix is making it self-counting rather than bumping to 22.)
 
-- [ ] **Step 5: Run; confirm pass.**
+- [x] **Step 5: Run; confirm pass.**
 
 ```bash
 docker-compose restart markflow   # picks up scheduler change
 docker-compose exec markflow pytest tests/test_active_ops.py -k "purge" -v
 ```
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ```bash
 git add core/active_ops.py core/scheduler.py tests/test_active_ops.py
@@ -2118,14 +2118,14 @@ git commit -m "feat(active_ops): daily 03:50 auto-purge job (7d retention)"
 **Files:**
 - Modify: `main.py`
 
-- [ ] **Step 1: Inspect lifespan, find the right point.**
+- [x] **Step 1: Inspect lifespan, find the right point.**
 
 ```bash
 grep -n "lifespan\|asynccontextmanager\|init_db" main.py | head -20
 ```
 Expected: a `@asynccontextmanager` function near the top, with calls to `init_db()` then scheduler startup. Hydration must run AFTER `init_db()` (table must exist) and BEFORE scheduler/router accepts traffic.
 
-- [ ] **Step 2: Add the hydration call.**
+- [x] **Step 2: Add the hydration call.**
 
 In the lifespan function, immediately after the existing `await init_db()` (or equivalent migration runner) and BEFORE `scheduler.start()`:
 
@@ -2137,7 +2137,7 @@ In the lifespan function, immediately after the existing `await init_db()` (or e
     await hydrate_on_startup()
 ```
 
-- [ ] **Step 3: Restart and watch the log.**
+- [x] **Step 3: Restart and watch the log.**
 
 ```bash
 docker-compose restart markflow
@@ -2145,7 +2145,7 @@ docker-compose logs --tail=50 markflow | grep active_ops
 ```
 Expected: at least `active_ops.hydrate_complete` log line on a clean DB.
 
-- [ ] **Step 4: Manual sanity check via shell.**
+- [x] **Step 4: Manual sanity check via shell.**
 
 ```bash
 docker-compose exec markflow python -c "
@@ -2169,7 +2169,7 @@ asyncio.run(go())
 ```
 Expected: `registered: <uuid>`, `finished`, `list_ops: 1 rows` (the one we just made — visible because finish was within 30s).
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add main.py
