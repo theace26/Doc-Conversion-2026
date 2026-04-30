@@ -7,11 +7,16 @@ and runs generate_fixtures.py to ensure test files exist before any test runs.
 
 import contextvars as _cv
 import os
+import socket
 import tempfile
+import threading
+import time
 from pathlib import Path
 
+import httpx
 import pytest
 import pytest_asyncio
+import uvicorn
 from httpx import ASGITransport, AsyncClient
 
 _test_user_role: "_cv.ContextVar[object | None]" = _cv.ContextVar(
@@ -429,3 +434,118 @@ async def _reset_role_overrides():
     from core.auth import get_current_user
     app.dependency_overrides.pop(get_current_user, None)
     _test_user_role.set(None)
+
+
+# ── Real-uvicorn integration fixtures (Phase 3 Path B) ───────────────────────
+#
+# ASGITransport runs BackgroundTasks inside the test's event loop, which
+# causes pytest teardown to stall when a background task doesn't honor a
+# cancel flag promptly.  Running a real uvicorn server in a background
+# thread gives BackgroundTasks a separate event loop that is fully
+# independent of the test loop — clean startup, clean shutdown.
+#
+# Both fixtures below modify app.dependency_overrides on the module-level
+# app object.  Because pytest runs tests sequentially there is no race;
+# no locking is needed.
+
+@pytest.fixture(scope="session")
+def real_server(client):  # `client` dep ensures init_db() has run
+    """Start a real uvicorn server in a background thread.
+
+    Yields the base URL string, e.g. ``"http://127.0.0.1:54321"``.
+    Session-scoped: one server for the whole test session.
+
+    The ``client`` dependency is declared only to guarantee that
+    ``init_db()`` has run (and the DB schema exists) before the first
+    request hits the real server.
+    """
+    from main import app as _app  # noqa: F401 — ensures app is imported
+
+    # Pick a free port
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+
+    # Build and start the server
+    config = uvicorn.Config(
+        "main:app",
+        host="127.0.0.1",
+        port=port,
+        log_level="warning",
+        lifespan="on",
+    )
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+
+    # Wait for uvicorn to signal startup (server.started is set by uvicorn ≥0.18).
+    # This app has a heavy lifespan (DB pool, Meilisearch, scheduler, etc.)
+    # that takes up to ~15s on first start; 30s gives comfortable headroom.
+    deadline = time.time() + 30
+    while not server.started:
+        if time.time() > deadline:
+            server.should_exit = True
+            thread.join(timeout=5)
+            pytest.fail("real_server: uvicorn did not start within 30 seconds")
+        time.sleep(0.1)
+
+    base_url = f"http://127.0.0.1:{port}"
+    yield base_url
+
+    # Teardown
+    server.should_exit = True
+    thread.join(timeout=5)
+
+
+@pytest_asyncio.fixture
+async def authed_operator_real(real_server):
+    """Per-test AsyncClient aimed at the real uvicorn server with OPERATOR role.
+
+    Installs a dependency override on the module-level app object so the
+    running server returns OPERATOR-scoped responses.  Pops the override
+    on teardown (``_reset_role_overrides`` autouse fixture also covers this).
+    """
+    from core.auth import AuthenticatedUser, UserRole, get_current_user
+    from main import app
+
+    async def _operator():
+        return AuthenticatedUser(
+            sub="test-operator",
+            email="operator@test",
+            role=UserRole.OPERATOR,
+            is_service_account=False,
+        )
+
+    app.dependency_overrides[get_current_user] = _operator
+    try:
+        async with httpx.AsyncClient(base_url=real_server) as ac:
+            yield ac
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest_asyncio.fixture
+async def authed_manager_real(real_server):
+    """Per-test AsyncClient aimed at the real uvicorn server with MANAGER role.
+
+    Installs a dependency override on the module-level app object so the
+    running server returns MANAGER-scoped responses.  Pops the override
+    on teardown (``_reset_role_overrides`` autouse fixture also covers this).
+    """
+    from core.auth import AuthenticatedUser, UserRole, get_current_user
+    from main import app
+
+    async def _manager():
+        return AuthenticatedUser(
+            sub="test-manager",
+            email="manager@test",
+            role=UserRole.MANAGER,
+            is_service_account=False,
+        )
+
+    app.dependency_overrides[get_current_user] = _manager
+    try:
+        async with httpx.AsyncClient(base_url=real_server) as ac:
+            yield ac
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
