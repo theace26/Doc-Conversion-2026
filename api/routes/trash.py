@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 import asyncio
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 
 from core.auth import AuthenticatedUser, UserRole, require_role
 
@@ -65,7 +65,7 @@ async def empty_trash(
     """Purge all trashed files. Batched DB operations, runs in background."""
     from core.lifecycle_manager import purge_all_trash, get_empty_trash_status
 
-    status = get_empty_trash_status()
+    status = await get_empty_trash_status()
     if status["running"]:
         # v0.32.6: also flatten started_at / last_progress / total
         # into the top-level response so the frontend can adopt them
@@ -98,11 +98,19 @@ async def empty_trash(
 
 @router.get("/empty/status")
 async def empty_trash_status(
+    response: Response,
     user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
 ) -> dict:
-    """Poll progress of a running empty-trash operation."""
+    """DEPRECATED facade — use ``GET /api/active-ops`` with op_type filter
+    ``trash.empty`` instead.  Kept for one release; removal scheduled for
+    v0.36.x (track via new BUG-NNN row at v0.36 release time).
+    """
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = "Sun, 01 Jun 2026 00:00:00 GMT"
+    response.headers["Link"] = '</api/active-ops>; rel="successor-version"'
+
     from core.lifecycle_manager import get_empty_trash_status
-    return get_empty_trash_status()
+    return await get_empty_trash_status()
 
 
 @router.post("/restore-all")
@@ -221,3 +229,23 @@ async def purge_single(
     from core.lifecycle_manager import purge_file
     await purge_file(bulk_file_id)
     return {"success": True, "message": "File purged"}
+
+
+# ── Active Operations Registry: cancel hooks for trash worker ops ───────────
+#
+# The workers in core/lifecycle_manager.py (purge_all_trash, restore_all_trash)
+# poll active_ops.is_cancelled(op_id) at the top of each chunk loop iteration.
+# Recon §D.1 confirmed there was no pre-existing cancel mechanism for these
+# workers; we deliberately did not introduce one in lifecycle_manager.py — the
+# registry's cancelled flag is the only signal.  These hooks therefore stay as
+# no-ops, but registration is still required because register_op() validates
+# at module-import time that every cancellable=True op_type has a hook bound.
+from core.active_ops import register_cancel_hook  # noqa: E402
+
+
+async def _cancel_trash_empty_via_active_ops(op_id: str) -> None:
+    """No-op: ``purge_all_trash`` polls ``active_ops.is_cancelled`` per chunk."""
+    return None
+
+
+register_cancel_hook("trash.empty", _cancel_trash_empty_via_active_ops)

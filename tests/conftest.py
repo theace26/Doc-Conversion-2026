@@ -344,6 +344,7 @@ async def _set_hydration_event():
     active_ops._cancel_hooks.setdefault("pipeline.run_now", _stub_cancel)
     active_ops._cancel_hooks.setdefault("pipeline.convert_selected", _stub_cancel)
     active_ops._cancel_hooks.setdefault("pipeline.scan", _stub_cancel)
+    active_ops._cancel_hooks.setdefault("trash.empty", _stub_cancel)
 
     yield
     # Don't clear — once set, leave set for the rest of the suite
@@ -621,6 +622,49 @@ async def sample_pending_file_id(client):
     try:
         conn.execute("DELETE FROM bulk_files WHERE id=?", (file_id,))
         conn.execute("DELETE FROM bulk_jobs WHERE id=?", (job_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@pytest_asyncio.fixture
+async def sample_in_trash_source_file_id(client):
+    """Seed a ``source_files`` row with ``lifecycle_status='in_trash'``
+    and yield its id.
+
+    Used by Task 17 / 18 integration tests because POST /api/trash/empty
+    and POST /api/trash/restore-all both short-circuit with "status:
+    done" when ``count_source_files_by_lifecycle_status('in_trash')``
+    returns 0 — bypassing the worker entirely, so no op ever registers
+    in the active-ops registry.
+
+    Same sync-sqlite3 pattern as ``sample_pending_file_id`` — bypasses
+    the async pool to avoid cross-loop deadlock when combined with the
+    ``real_server`` fixture.
+    """
+    import os
+    import sqlite3
+    import uuid
+
+    sf_id = "test-trash-" + uuid.uuid4().hex[:8]
+    db_path = os.environ["DB_PATH"]
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO source_files (id, source_path, file_ext, lifecycle_status) "
+            "VALUES (?, ?, 'pdf', 'in_trash')",
+            (sf_id, f"/tmp/fake-trash-{sf_id}.pdf"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    yield sf_id
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("DELETE FROM source_files WHERE id=?", (sf_id,))
         conn.commit()
     finally:
         conn.close()

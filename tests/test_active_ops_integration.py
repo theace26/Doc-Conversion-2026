@@ -136,3 +136,51 @@ async def test_pipeline_scan_registers_op(authed_manager_real):
     assert scan_op["origin_url"] == "/status.html"
     assert scan_op["cancellable"] is True
     assert scan_op["icon"] != ""
+
+
+@pytest.mark.asyncio
+async def test_trash_empty_registers_op_replacing_old_dict(
+    authed_manager_real, sample_in_trash_source_file_id,
+):
+    """POST /api/trash/empty registers a trash.empty op visible in
+    /api/active-ops, AND the deprecated /api/trash/empty/status facade
+    still returns the legacy shape with a ``Deprecation: true`` header.
+
+    Uses HTTP only via authed_manager_real because the endpoint spawns
+    work via ``asyncio.create_task`` — under ASGITransport that runs
+    in the test loop and risks the same teardown stall the real-server
+    fixture was created to avoid.
+
+    The ``sample_in_trash_source_file_id`` fixture seeds one trashed
+    row so the endpoint actually invokes ``purge_all_trash`` (and thus
+    registers the op).  Without it, the endpoint short-circuits with
+    "status: done" when count_source_files_by_lifecycle_status returns
+    0, and no op ever registers.
+    """
+    resp = await authed_manager_real.post("/api/trash/empty")
+    assert resp.status_code == 200, f"POST /empty -> {resp.status_code}: {resp.text}"
+
+    # Wait for asyncio.create_task to actually run + register the op
+    await asyncio.sleep(0.8)
+
+    ops_resp = await authed_manager_real.get("/api/active-ops")
+    assert ops_resp.status_code == 200
+    ops = ops_resp.json()["ops"]
+    trash_ops = [o for o in ops if o["op_type"] == "trash.empty"]
+    assert len(trash_ops) >= 1, (
+        f"Expected trash.empty op, got types: "
+        f"{sorted({o['op_type'] for o in ops})} (ops: {ops})"
+    )
+    op = trash_ops[0]
+    assert op["origin_url"] == "/trash.html"
+    assert op["cancellable"] is True
+    assert op["icon"] != ""
+
+    # Deprecated facade still works + carries Deprecation header
+    facade = await authed_manager_real.get("/api/trash/empty/status")
+    assert facade.status_code == 200
+    body = facade.json()
+    assert {"running", "total", "done", "errors"}.issubset(body.keys()), (
+        f"Facade missing legacy keys, got: {sorted(body.keys())}"
+    )
+    assert facade.headers.get("Deprecation", "").lower() == "true"
