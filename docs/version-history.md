@@ -4,6 +4,119 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.34.6 — Resources page Disk card double-count fix (BUG-013) + version-constant catch-up (2026-04-30)
+
+**Two-part release. Code fix for a metric that quietly overstated
+MarkFlow's disk footprint by up to 2× on the Resources page, plus
+catch-up for a release-discipline gap that shipped v0.34.2 → v0.34.5
+with `core/version.py` still reading `0.34.1`.**
+
+### BUG-013 — Resources page Disk card double-counted the output share
+
+**Symptom (operator-facing).** The Resources page **Disk** card
+showed `2.05 TB` total MarkFlow disk usage on the production VM —
+which happened to be the right number, but only because of a
+masking accident (see "Why this stayed hidden" below). The bug was
+latent and would have flipped the card to roughly `4 TB` the next
+time the underlying walk completed cleanly, with nothing actually
+having changed on disk.
+
+**Root cause.** Post-v0.34.1, `core/storage_paths.get_output_root()`
+returns one configured root for **both** bulk and single-file
+conversion. Two of MarkFlow's disk-usage callers had not been
+updated to reflect that consolidation:
+
+1. `core/metrics_collector.py:_collect_disk_snapshot_impl` — walks
+   the output repo three times: `repo_bytes` (excl `.trash`),
+   `trash_bytes` (just `.trash`), and `conv_bytes` (the same root,
+   no exclusion). Every walk runs every 6 hours and persists as a
+   row in `disk_metrics`. The pre-fix sum was:
+
+   ```python
+   total_bytes = repo_bytes + trash_bytes + conv_bytes \
+                 + db_bytes + logs_bytes + meili_bytes
+   ```
+
+   When the conv walk succeeded, `conv_bytes ≈ repo_bytes + trash_bytes`
+   — so the entire output share was added to the total twice.
+   `disk_metrics.total_bytes` is what `/api/resources/summary` returns
+   as `disk.current_total_bytes`, which the Resources card renders
+   directly as the headline number.
+
+2. `api/routes/admin.py:_compute_disk_usage` — the admin breakdown
+   endpoint `/api/admin/disk-usage` builds the same set of rows and
+   then does `total_bytes = sum(item["bytes"] for item in breakdown)`.
+   Same double-count, surfaced on the admin Disk Usage panel.
+
+**Why this stayed hidden until 2026-04-30.** The latest snapshot in
+the live `disk_metrics` table at investigation time had
+`conversion_output_bytes = 0` — likely a CIFS walk failure on the
+NAS that `_walk_dir` swallowed silently. With one of the two
+duplicate components zero, the displayed total happened to land on
+the genuine MarkFlow footprint (~2.1 TB). The bug was a sleeper —
+the next successful conv-walk snapshot would have made the card
+jump to ~4 TB.
+
+**Fix.**
+
+`core/metrics_collector.py:252` — drop `conv_bytes` from the sum:
+
+```python
+total_bytes = repo_bytes + trash_bytes + db_bytes + logs_bytes + meili_bytes
+```
+
+The `conversion_output_bytes` column is still populated (so the
+admin breakdown UI can keep its "Conversion Output" workflow row
+for operator clarity) but no longer contributes to the total.
+
+`api/routes/admin.py:_compute_disk_usage` — tag the redundant
+breakdown row with `redundant_in_total: True` and skip such rows
+in the sum:
+
+```python
+total_bytes = sum(
+    item["bytes"] for item in breakdown
+    if not item.get("redundant_in_total")
+)
+```
+
+**Why a flag instead of removing the row.** The "Conversion Output"
+breakdown row is intentionally retained — pre-v0.34.1 it was a
+distinct path (single-file conversion vs bulk output), and operators
+mentally model the two workflows separately even now that the
+resolver returns one root. The fix preserves that mental model
+without re-inflating the total.
+
+**Lesson.** When a refactor consolidates two paths into one
+(`get_output_root()` did this in v0.34.1), every per-component sum
+that previously partitioned by path-of-origin needs to be revisited.
+A grep for the old call sites isn't enough — the bug is in the
+*shape* of the sum, not in any individual call.
+
+### Catch-up: `core/version.py` shipped stale through v0.34.2 → v0.34.5
+
+The version constant was last bumped in v0.34.1 (`14fdaea`) and
+missed in every subsequent release commit. `/api/version` and the
+`gpu`-block sibling in `/api/health` therefore reported `0.34.1`
+against v0.34.5 code on every running deployment. Caught while
+deploying the latest pull on the Proxmox VM.
+
+Bumped here to `0.34.6` and added a step 1 to CLAUDE.md's
+"Documentation discipline (per release)" so the constant cannot
+fall behind silently again.
+
+### Files touched
+
+- `core/version.py` — bump `0.34.5` → `0.34.6`.
+- `core/metrics_collector.py:252` — drop `conv_bytes` from `total_bytes`.
+- `api/routes/admin.py:_compute_disk_usage` — `redundant_in_total` flag + skip in sum; description text updated to note the post-v0.34.1 root consolidation.
+- `docs/bug-log.md` — BUG-013 row in Shipped section; header bug-range citation updated.
+- `docs/version-history.md` — this entry.
+- `docs/help/whats-new.md` — operator note.
+- `CLAUDE.md` — Current Version block bumped to v0.34.6.
+
+---
+
 ## v0.34.5 — Verification milestone for v0.34.3 + v0.34.4 (2026-04-28)
 
 **Docs-only bump. No code changes. Captures the live-log evidence that

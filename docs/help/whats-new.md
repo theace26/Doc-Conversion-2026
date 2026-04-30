@@ -6,6 +6,49 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.34.6 — Disk card no longer double-counts the output share
+
+The Resources page **Disk** card was at risk of overstating
+MarkFlow's footprint by up to 2× whenever the underlying disk-usage
+snapshot completed cleanly. Two separate code paths (the every-6h
+metrics snapshot that powers the card, and the admin breakdown
+endpoint behind the Disk Usage panel) summed the "Conversion Output"
+component on top of "Output Repository" and "Trash" — but post-v0.34.1
+all three walk the same NAS share, so the total counted the share
+twice.
+
+On this VM the bug had been masked: the latest snapshot's conv-walk
+returned 0 (a quiet CIFS hiccup), so the card happened to land on
+the right number (~2.05 TB). Next clean snapshot would have flipped
+it to ~4 TB without any actual change on disk.
+
+### What changed
+
+- The Resources page Disk card and the admin Disk Usage panel now
+  show the genuine MarkFlow footprint: Output Repository (excluding
+  trash) + Trash + Database + Logs + Meilisearch index.
+- The "Conversion Output" row in the admin breakdown is retained
+  for operator clarity (different workflow label) but no longer
+  contributes to the total.
+
+### What you should do
+
+- Nothing on the operations side. The next 6-hour disk snapshot will
+  write a corrected row to the time-series; existing historical rows
+  in the chart still reflect the old (potentially-inflated) totals,
+  so a step-down in the chart line on the day v0.34.6 deployed is
+  expected and benign.
+
+### Bonus: version display now correct again
+
+`/api/version`, `/api/health`, and the dev version chip were
+displaying `0.34.1` on every release from v0.34.2 through v0.34.5.
+The `core/version.py` constant had been missed in those release
+commits. v0.34.6 includes the catch-up bump and a release-discipline
+checklist update so this can't recur silently.
+
+---
+
 ## v0.34.5 — Verification milestone
 
 This is a docs-only release that records proof the v0.34.3 + v0.34.4

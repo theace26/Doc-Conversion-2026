@@ -67,71 +67,61 @@ live", `key-files.md`. For "is this bug already known", `bug-log.md`.
 
 ---
 
-## Current Version — v0.34.5
+## Current Version — v0.34.6
 
-**Verification milestone. v0.34.3 (BUG-011) + v0.34.4 (BUG-012)
-confirmed working end-to-end on the production K-drive workload via
-live-log evidence. No new code; this is a docs-only bump that captures
-the one-shot manual cleanup performed during investigation and the
-proof-of-fix evidence so future debugging has a clear reference.**
+**Two-part release. (1) BUG-013: the Resources page Disk card and the
+admin Disk Usage panel were summing the "Conversion Output" row on
+top of "Output Repository" + "Trash" — but post-v0.34.1 all three
+walk the same NAS root, so the total was a double-count waiting to
+trigger. Latent on this VM (the latest snapshot's conv-walk happened
+to return 0). (2) Catch-up bump for `core/version.py` which had
+shipped at `0.34.1` through every release from v0.34.2 → v0.34.5,
+and a new step 1 in the per-release documentation discipline so the
+constant cannot fall behind silently again.**
 
-### What was verified in production
+### What changed
 
-After v0.34.4 deployed, run-now triggered a fresh auto-conversion
-cycle. The `bulk_disk_precheck` log event fired with the new
-`multiplier=0.5`, the pre-check passed (250 GB × 0.5 = 125 GB needed
-vs 158 GB free), and a bulk_job entered `running` status. Live
-scan_progress events captured the worker enumerating files at
-130–360 files/sec:
+- `core/metrics_collector.py:252` — `total_bytes` no longer adds
+  `conv_bytes`. `disk_metrics.conversion_output_bytes` is still
+  populated for operator-facing breakdown rows, but the time-series
+  total stops including a path it already counted via
+  `repo_bytes + trash_bytes`.
+- `api/routes/admin.py:_compute_disk_usage` — the redundant
+  Conversion Output row is tagged `redundant_in_total: True` and
+  the sum skips such rows. The breakdown row is retained because
+  operators still mentally model bulk vs single-file conversion as
+  separate workflows even now that the resolver returns one root.
+- `core/version.py` — `0.34.5` → `0.34.6`.
 
-```
-23:34:53 scan_coordinator.run_now_paused reason=bulk_job_started:8a472712...
-23:34:57 scan_progress completed=608   files_per_second=360
-23:35:02 scan_progress completed=1408  files_per_second=215
-23:35:07 scan_progress completed=2008  files_per_second=163
-23:35:33 scan_progress completed=5408  files_per_second=142
-```
+### What operators should see
 
-This is the first successful auto-triggered bulk_job since 2026-04-07
-on the affected machine — proof both fixes hold under real load.
+- **Resources Disk card.** No change on this VM right now (the
+  pre-fix total was already correct here because the conv-walk
+  returned 0 in the most recent snapshot). On future snapshots, or
+  on any other deploy where the conv-walk completes cleanly, the
+  card will land on the genuine MarkFlow footprint instead of ~2×
+  it.
+- **Disk time-series chart.** A step-down on the day v0.34.6
+  deployed is possible and benign — historical rows still reflect
+  the old (sometimes-inflated) totals.
+- **`/api/version` and `/api/health`.** Now report `0.34.6` instead
+  of the stale `0.34.1` they were stuck on through v0.34.5.
 
-### One-shot manual cleanup performed during investigation
+### Loose ends still tracked from prior releases
 
-To unblock the verification (the v0.34.4 startup reaper hadn't yet
-been deployed when investigation began), 38 stale `auto_conversion_runs`
-rows accumulated since 2026-04-07 were cleaned manually via SQL:
-
-```sql
-UPDATE auto_conversion_runs SET status='failed', completed_at=now()
-WHERE status='running' AND completed_at IS NULL;
-```
-
-Plus zero stale `bulk_jobs` (the existing reaper had already cleaned
-those at the v0.34.3 container restart). Going forward, the v0.34.4
-startup reaper handles this on every container start — no operator
-intervention needed for future occurrences.
-
-### Loose ends captured for follow-up
-
-These were discovered during the investigation but are NOT shipping
-in this release. They're tracked as part of the upcoming UX overhaul
-spec (`docs/superpowers/specs/2026-04-28-ux-overhaul-search-as-home-design.md`):
+Carried forward from v0.34.5; not re-implemented here:
 
 1. **No operator-facing alert** when auto-conversion fails N cycles
-   in a row. Currently logged at `info` level only. UX overhaul §13
-   (Notifications) covers the trigger-rule infrastructure that will
-   power this alert.
-2. **No "scanned vs indexed delta" surface** — the gap between
-   `source_files` count and Meilisearch index count is the leading
-   indicator that conversion is wedged. Plan 4 (UX IA shift) will
-   surface this on the Activity dashboard.
+   in a row. UX overhaul §13 (Notifications) covers the trigger-rule
+   infrastructure.
+2. **No "scanned vs indexed delta" surface** — Plan 4 (UX IA shift)
+   will surface this on the Activity dashboard.
 3. **Failure-path explicit `completed_at` writes** — the bulk_job
-   pre-flight failure handler should write `auto_conversion_runs.completed_at`
-   directly rather than relying on the startup orphan reaper as a
-   backstop. Tracked as a future hardening pass; not urgent now that
-   the reaper exists.
+   pre-flight failure handler should write
+   `auto_conversion_runs.completed_at` directly rather than relying
+   on the startup orphan reaper as a backstop.
 
-Full per-version detail (v0.34.2 and every prior release back to v0.13.x)
+Full per-version detail (v0.34.5 and every prior release back to v0.13.x)
 lives in [`docs/version-history.md`](docs/version-history.md). **Do not
 duplicate that changelog here.** On each release, the outgoing Current
 Version block above moves into `version-history.md` and is replaced with

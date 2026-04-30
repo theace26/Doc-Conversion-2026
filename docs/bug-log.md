@@ -51,7 +51,7 @@ not narrative.
 
 ## Open / Planned
 
-(BUG-001 through BUG-012 closed in v0.34.1 / v0.34.2 / v0.34.3 / v0.34.4 — see Shipped section.)
+(BUG-001 through BUG-013 closed in v0.34.1 / v0.34.2 / v0.34.3 / v0.34.4 / v0.34.6 — see Shipped section.)
 
 ### Security audit findings (long-running)
 
@@ -62,6 +62,24 @@ not narrative.
 ---
 
 ## Shipped (history)
+
+### v0.34.6 — Resources page disk card double-count
+
+Resources page **Disk** card showed inflated MarkFlow disk usage
+(roughly 2× actual on hosts where the conv-output walk completed).
+Both the time-series snapshot writer (`core/metrics_collector.py`) and
+the admin breakdown endpoint (`api/routes/admin.py`) summed the
+"Conversion Output" component into the total. Post-v0.34.1 that
+component walks the same root as Output Repository + Trash, so the
+sum was over by the entire output-share size whenever the conv walk
+returned non-zero. The bug was masked on the live VM until now
+because the conv walk happened to return 0 in the most recent
+snapshot; with the conv walk succeeding, the card would have jumped
+from ~2 TB to ~4 TB without anything actually changing on disk.
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-013 | shipped-v0.34.6 | medium | Resources page Disk card and admin disk-usage breakdown double-counted the output share post-v0.34.1 | Post-v0.34.1 `core/storage_paths.get_output_root()` returns one root for both bulk and single-file conversion. The "Output Repository" walk (excl `.trash`), the "Trash" walk, and the "Conversion Output" walk together covered the same files twice. `core/metrics_collector.py:_collect_disk_snapshot_impl` summed `repo_bytes + trash_bytes + conv_bytes + db_bytes + logs_bytes + meili_bytes` into `total_bytes` (persisted to `disk_metrics.total_bytes` and shown by `/api/resources/summary` as `disk.current_total_human`). `api/routes/admin.py:_compute_disk_usage` summed `item["bytes"] for item in breakdown` over the same redundant rows. Fix: drop `conv_bytes` from the metrics-collector sum; tag the admin breakdown's Conversion Output row with `redundant_in_total=True` and skip such rows in the sum. The "Conversion Output" row is retained in the admin UI for operator clarity (different workflow label) but no longer contributes to the displayed total. See `docs/version-history.md` v0.34.6 entry for the full narrative. |
 
 ### v0.34.4 — Orphan reaper extended to `auto_conversion_runs`
 
