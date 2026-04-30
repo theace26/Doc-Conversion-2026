@@ -329,18 +329,83 @@ async def _set_hydration_event():
     # Don't clear — once set, leave set for the rest of the suite
 
 
-# ── authed_operator: AsyncClient with operator access (v0.35.0) ──────────────
+# ── authed_operator / authed_manager: role-scoped AsyncClients (v0.35.0) ─────
+#
+# Both fixtures inject a concrete role via dependency_overrides[get_current_user].
+# When a test uses BOTH fixtures simultaneously (e.g. test_cancel_requires_manager_role),
+# the overrides would conflict if stored globally. We solve this with a ContextVar:
+# the override function reads the desired role from a ContextVar, and each client
+# sets the ContextVar before each request via an httpx event hook. This ensures
+# role isolation even when both clients are live concurrently.
+
+import contextvars as _cv
+_test_user_role: "_cv.ContextVar[object | None]" = _cv.ContextVar(
+    "_test_user_role", default=None
+)
+
+
+def _make_role_scoped_client(app, role):
+    """Build an AsyncClient that injects `role` into every request via ContextVar."""
+    from core.auth import AuthenticatedUser, UserRole, get_current_user
+
+    # Install (or replace) the override that reads the ContextVar
+    async def _role_from_contextvar():
+        _role = _test_user_role.get()
+        if _role is None:
+            _role = role  # fallback for single-fixture tests
+        return AuthenticatedUser(
+            sub=f"test-{_role.value}",
+            email=f"{_role.value}@test",
+            role=_role,
+            is_service_account=False,
+        )
+
+    app.dependency_overrides[get_current_user] = _role_from_contextvar
+
+    # httpx event hook: set the ContextVar to this fixture's role before each request
+    async def _set_role(request):  # noqa: ARG001
+        _test_user_role.set(role)
+
+    transport = ASGITransport(app=app)
+    return AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        event_hooks={"request": [_set_role]},
+    )
+
 
 @pytest_asyncio.fixture
 async def authed_operator():
-    """Per-test AsyncClient with operator-equivalent role.
+    """Per-test AsyncClient with exactly OPERATOR role.
 
-    Relies on DEV_BYPASS_AUTH=True (set at module load) to grant ADMIN,
-    which satisfies the OPERATOR role check. init_db() is intentionally
-    omitted here — the session-scoped `client` fixture already calls it
-    once at session start."""
+    Injects UserRole.OPERATOR via a ContextVar-backed dependency override so
+    that endpoints guarded by require_role(UserRole.MANAGER) return 403, while
+    endpoints guarded by require_role(UserRole.OPERATOR) return 200.
+    Safe to use alongside authed_manager in the same test."""
+    from core.auth import UserRole, get_current_user
     from main import app
 
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
+    ac = _make_role_scoped_client(app, UserRole.OPERATOR)
+    try:
+        async with ac:
+            yield ac
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest_asyncio.fixture
+async def authed_manager():
+    """Per-test AsyncClient with exactly MANAGER role.
+
+    Injects UserRole.MANAGER via a ContextVar-backed dependency override so
+    that endpoints guarded by require_role(UserRole.MANAGER) return 200.
+    Safe to use alongside authed_operator in the same test."""
+    from core.auth import UserRole, get_current_user
+    from main import app
+
+    ac = _make_role_scoped_client(app, UserRole.MANAGER)
+    try:
+        async with ac:
+            yield ac
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)

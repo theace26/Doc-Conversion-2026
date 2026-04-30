@@ -9,7 +9,7 @@ Endpoints:
 from __future__ import annotations
 
 import structlog
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 
 from core import active_ops
 from core.auth import AuthenticatedUser, UserRole, require_role
@@ -31,3 +31,40 @@ async def list_active_ops(
     ops = await active_ops.list_ops()
     response.headers["Cache-Control"] = "no-cache"
     return {"ops": [op.to_api_dict() for op in ops]}
+
+
+@router.post("/{op_id}/cancel")
+async def cancel_active_op(
+    op_id: str,
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
+) -> dict:
+    """Cancel a running op. 404 if op_id unknown, 400 if op already
+    finished or op_type uncancellable."""
+    op = await active_ops.get_op(op_id)
+    if op is None:
+        raise HTTPException(status_code=404, detail=f"Unknown op_id: {op_id}")
+    if op.finished_at_epoch is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="Operation already finished — cancel ignored.",
+        )
+    if not op.cancellable:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Operation type {op.op_type!r} is uncancellable.",
+        )
+
+    cancelled = await active_ops.cancel_op(op_id)
+    log.info(
+        "active_ops.cancel_requested",
+        op_id=op_id, op_type=op.op_type, by=user.email, success=cancelled,
+    )
+    return {
+        "cancelled": cancelled,
+        "message": (
+            "Cancel signal sent. Operation will stop within "
+            "the next progress tick."
+            if cancelled else
+            "Cancel hook failed — see error_msg on the op."
+        ),
+    }

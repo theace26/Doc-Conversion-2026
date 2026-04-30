@@ -98,3 +98,73 @@ async def test_get_active_ops_no_cache_header(authed_operator):
     resp = await authed_operator.get("/api/active-ops")
     cc = resp.headers.get("cache-control", "").lower()
     assert "no-cache" in cc
+
+
+@pytest.mark.asyncio
+async def test_cancel_requires_manager_role(authed_operator, authed_manager):
+    """Operator role can read but not cancel; Manager can cancel.
+    authed_manager is a Manager-role-equivalent fixture."""
+    from core import active_ops
+
+    async def hook(op_id: str) -> None: ...
+    active_ops.register_cancel_hook("pipeline.run_now", hook)
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="op@test",
+        cancellable=True,
+    )
+
+    # Operator → 403
+    resp_op = await authed_operator.post(f"/api/active-ops/{op_id}/cancel")
+    assert resp_op.status_code in (401, 403)
+
+    # Manager → 200
+    resp_mgr = await authed_manager.post(f"/api/active-ops/{op_id}/cancel")
+    assert resp_mgr.status_code == 200
+    body = resp_mgr.json()
+    assert body["cancelled"] is True
+
+
+@pytest.mark.asyncio
+async def test_cancel_404_on_unknown_op_id(authed_manager):
+    resp = await authed_manager.post(
+        "/api/active-ops/00000000-0000-0000-0000-000000000000/cancel"
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_cancel_400_on_already_finished(authed_manager):
+    from core import active_ops
+
+    async def hook(op_id: str) -> None: ...
+    active_ops.register_cancel_hook("pipeline.run_now", hook)
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.run_now", label="X", icon="⚙",
+        origin_url="/", started_by="op@test",
+        cancellable=True,
+    )
+    await active_ops.finish_op(op_id)
+
+    resp = await authed_manager.post(f"/api/active-ops/{op_id}/cancel")
+    assert resp.status_code == 400
+    assert "finished" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_cancel_400_on_uncancellable(authed_manager):
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="db.backup", label="DB Backup", icon="💾",
+        origin_url="/settings.html", started_by="op@test",
+        cancellable=False,
+    )
+    try:
+        resp = await authed_manager.post(f"/api/active-ops/{op_id}/cancel")
+        assert resp.status_code == 400
+        assert "uncancellable" in resp.json()["detail"].lower()
+    finally:
+        await active_ops.finish_op(op_id)
