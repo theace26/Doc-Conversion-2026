@@ -67,47 +67,40 @@ live", `key-files.md`. For "is this bug already known", `bug-log.md`.
 
 ---
 
-## Current Version — v0.34.8
+## Current Version — v0.34.9
 
-**Empirical follow-up to v0.34.7. The first post-v0.34.7 run-now
-exposed two more conversion blockers that BUG-014 / BUG-015 had been
-masking: every audio/video file was failing the moment Whisper was
-called, and the macOS resource-fork sidecars on the SMB source share
-were piling up "corrupt PDF" errors against files that aren't PDFs
-at all.**
+**Closes BUG-018 — the "the abort safeguard didn't fire on the v0.34.7
+stuck run" mystery. Turns out the safeguard *was* firing in memory;
+the DB persistence was just gated on `asyncio.gather(*workers)`
+returning, which a single stuck worker can prevent indefinitely.
+Move the persistence to the abort site itself.**
 
-- **BUG-016 (critical): Whisper `asyncio.Lock` is bound to a
-  different event loop.** `core/whisper_transcriber.py:43`
-  constructed an `asyncio.Lock` at module-import time. The format
-  handlers (`media_handler`, `audio_handler`) call
-  `asyncio.run(_convert())` inside a thread pool — one fresh event
-  loop per media file. The module-level lock bound to the first
-  loop and rejected every subsequent file with `is bound to a
-  different event loop`. Result: 31 consecutive failures and a
-  frozen worker heartbeat in the v0.34.7 verification run. Fix:
-  per-loop lock dict keyed by `id(running_loop)`, lazy-created
-  inside `_get_asyncio_lock()`. Cross-loop CPU/GPU serialization is
-  still provided by the unchanged `_thread_lock`.
-- **BUG-017 (low): macOS `._*` resource-fork files attempted as
-  PDFs.** macOS writes a sidecar file named `._<original>` whenever
-  it copies a file to a non-HFS+ volume (every SMB share, including
-  this VM's source mount). Bytes are AppleDouble metadata, not the
-  format the extension claims. `_JUNK_BASENAME_PREFIXES_LOWER` in
-  `core/bulk_scanner.py` already skipped the `.appledouble`
-  directory but missed the per-file siblings. Fix: add `"._"` to
-  the prefix list. Junk-filename check runs at scanner level so
-  these never reach a handler.
+- **BUG-018 (medium):** `core/bulk_worker.py:713` correctly fires
+  the abort decision when `should_abort()` returns True
+  (`consecutive_errors >= 20`), but only sets `_cancel_reason` in
+  memory + sets `_cancel_event`. The DB write that materialises
+  `bulk_jobs.cancellation_reason` lives at line 591, AFTER
+  `await asyncio.gather(*workers)`. If any worker is blocked
+  inside `_process_convertible` (long Whisper, frozen CIFS read,
+  etc.), `gather` never returns and the cancellation is invisible
+  to the UI / startup reaper / operators. Fix: persist the abort
+  to the DB at the abort site itself via `update_bulk_job_status()`,
+  guarded by a one-shot `_abort_persisted` flag so the per-worker
+  re-observation collapses to a single action per job (also
+  eliminates the `bulk_worker_error_rate_abort` log/event spam
+  that previously fired once per worker per pull after abort was
+  signaled).
 
 ### What operators should see
 
-- Audio/video files actually getting transcribed instead of
-  failing instantly. Throughput per file depends on duration —
-  "base" Whisper on CPU runs ~0.5–1× realtime, so a 10-min video
-  takes 10–20 min of CPU.
-- `bulk_files.error_msg` rows containing
-  `Cannot open PDF: No /Root object!` against paths starting with
-  `._` stop accumulating.
-- `/api/version` and `/api/health` report `0.34.8`.
+- When the bulk worker's "too many errors, abort" safeguard fires,
+  `bulk_jobs.cancellation_reason` and `bulk_jobs.status='cancelled'`
+  appear within the same heartbeat tick — not "after every worker
+  drains the queue" (which a stuck worker can prevent).
+- `markflow.log` growth from aborted jobs drops dramatically —
+  from "once per worker per pull after abort" to "once per
+  aborted job".
+- `/api/version` reports `0.34.9`.
 
 ### Loose ends still tracked from prior releases
 
@@ -127,34 +120,36 @@ Carried forward; not re-implemented here:
    `~/.config/libreoffice` profile dir. Tracked for a future
    hardening pass; not blocking now that the dominant failures
    above are fixed.
-5. **Log spam:** `bulk_worker_error_rate_abort` fires once per
-   worker per pull *after* abort is signaled, producing thousands
-   of duplicate lines for one job. A "log once per abort" guard
-   would be cheap; not blocking.
-6. **No audio-capable cloud provider configured.** Local Whisper
+5. **No audio-capable cloud provider configured.** Local Whisper
    on CPU works for everyday volume but is slow for hours-long
    archives. Add an OpenAI or Gemini API key on the Settings → AI
    Providers page if offload is needed; Anthropic does not
    currently support audio.
-7. **BUG-018 (open):** `bulk_worker.error_rate_abort` did not fire
-   on the v0.34.7 stuck run despite 31 consecutive failures and
-   `error_rate=1.0`. The check exists at
-   `core/bulk_worker.py:713` and the underlying logic in
-   `core/storage_probe.py:ErrorRateMonitor.should_abort` triggers
-   on `consecutive_errors >= 20`. Tracked in `bug-log.md`. Not
-   blocking now that BUG-016 is fixed (errors will be a minority
-   of attempts and the safeguard won't need to fire); revisit
-   when the next "everything is failing" scenario surfaces.
+6. **Worker heartbeat freezes during multi-minute Whisper
+   transcriptions.** Workers correctly hold the threading.Lock
+   through CPU inference, but the heartbeat updater inside the
+   worker loop doesn't tick during the blocking call. Operators
+   see a job that looks "stuck" while it's actually working.
+   Likely fixed by either a per-file deadline or a separate
+   heartbeat coroutine. Not blocking; cosmetic.
 
-### Audit hint from this release
+### Audit hints from this release sequence
 
-When you find a `RuntimeError: ... is bound to a different event
-loop`, the first place to look is module-level constructions of
-asyncio primitives (`asyncio.Lock`, `asyncio.Event`,
-`asyncio.Condition`, `asyncio.Queue`, `asyncio.Semaphore`).
-`asyncio.run()` inside a thread pool is the most common trigger.
-Worth a one-time grep across the codebase if other "Whisper-style"
-mixed-loop integrations exist.
+- **BUG-016 lesson:** module-level asyncio primitives (`asyncio.Lock`,
+  `Event`, `Condition`, `Queue`, `Semaphore`) silently bind to
+  whichever loop first uses them. Mixed-loop code paths
+  (`asyncio.run` inside a thread pool) will then fail with
+  `is bound to a different event loop`. Worth a one-time grep for
+  other module-level constructions of these types if a similar
+  symptom resurfaces.
+- **BUG-018 lesson:** for state transitions that matter to
+  operators (status flips, cancellations, abort decisions), persist
+  at the *decision site*, not at the *closeout site*. Other
+  `_cancel_event.set()` sites in `core/bulk_worker.py`
+  (lines 905, 1301-1302, 1507, 1526) likely have the same coupling
+  to the post-gather write — out of scope for this release but
+  worth a similar audit if a bug like BUG-018 resurfaces in any
+  of those paths.
 
 Full per-version detail (v0.34.6 and every prior release back to v0.13.x)
 lives in [`docs/version-history.md`](docs/version-history.md). **Do not

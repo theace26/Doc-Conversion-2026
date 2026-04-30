@@ -711,18 +711,60 @@ class BulkJob:
 
             # Check error rate — abort if source is unreachable
             if self._error_monitor.should_abort():
-                log.error("bulk_worker_error_rate_abort",
-                          job_id=self.job_id, worker_id=worker_id,
-                          error_rate=round(self._error_monitor.error_rate, 2),
-                          total_errors=self._error_monitor.total_errors)
-                _emit_bulk_event(self.job_id, "job_error_rate_abort", {
-                    "job_id": self.job_id,
-                    "error_rate": round(self._error_monitor.error_rate, 2),
-                    "total_errors": self._error_monitor.total_errors,
-                })
-                self._cancel_reason = f"Aborted: error rate {round(self._error_monitor.error_rate * 100)}% exceeded threshold ({self._error_monitor.total_errors} errors)"
-                self._cancel_event.set()
-                self._pause_event.set()
+                # v0.34.9 BUG-018: persist the abort to bulk_jobs IMMEDIATELY
+                # so operators see status='cancelled' and cancellation_reason
+                # even if a downstream worker is stuck (e.g. mid-Whisper on
+                # slow CPU) preventing gather() from returning. Without this,
+                # the post-gather DB write at the bottom of run() hangs behind
+                # the stuck worker indefinitely and the cancellation is
+                # invisible to the UI / operator / startup reaper. Also
+                # eliminates the per-worker log/event spam — the abort fires
+                # once per job instead of once per worker iteration after
+                # cancel-event is set. Subsequent re-observations short-circuit
+                # via the idempotent ``_cancel_event.is_set()`` check on the
+                # next loop iteration. The post-gather write at the bottom of
+                # run() is still safe (idempotent overwrite with same values
+                # plus completed_at).
+                if not getattr(self, "_abort_persisted", False):
+                    self._abort_persisted = True
+                    self._cancel_reason = (
+                        f"Aborted: error rate "
+                        f"{round(self._error_monitor.error_rate * 100)}% "
+                        f"exceeded threshold "
+                        f"({self._error_monitor.total_errors} errors)"
+                    )
+                    self._cancel_event.set()
+                    self._pause_event.set()
+                    log.error(
+                        "bulk_worker_error_rate_abort",
+                        job_id=self.job_id,
+                        worker_id=worker_id,
+                        error_rate=round(self._error_monitor.error_rate, 2),
+                        total_errors=self._error_monitor.total_errors,
+                    )
+                    _emit_bulk_event(
+                        self.job_id,
+                        "job_error_rate_abort",
+                        {
+                            "job_id": self.job_id,
+                            "error_rate": round(self._error_monitor.error_rate, 2),
+                            "total_errors": self._error_monitor.total_errors,
+                        },
+                    )
+                    try:
+                        await update_bulk_job_status(
+                            self.job_id,
+                            "cancelled",
+                            cancellation_reason=self._cancel_reason,
+                        )
+                    except Exception as exc:
+                        # Best-effort: don't let DB hiccups block the abort
+                        # path. The post-gather write still has a chance.
+                        log.warning(
+                            "bulk_worker_abort_persist_failed",
+                            job_id=self.job_id,
+                            error=str(exc),
+                        )
                 continue  # drain queue
 
             # Check cancel

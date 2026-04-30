@@ -51,13 +51,7 @@ not narrative.
 
 ## Open / Planned
 
-(BUG-001 through BUG-017 closed in v0.34.1 / v0.34.2 / v0.34.3 / v0.34.4 / v0.34.6 / v0.34.7 / v0.34.8 — see Shipped section. BUG-018 still open.)
-
-### Active
-
-| ID | Status | Sev | Summary | Details |
-|----|--------|-----|---------|---------|
-| BUG-018 | open | medium | Bulk-worker `error_rate_abort` safeguard didn't fire on the v0.34.7 stalled run despite 31 consecutive failures and `error_rate=1.0` | `core/bulk_worker.py:713` checks `self._error_monitor.should_abort()` at the top of each `_worker()` iteration; `core/storage_probe.py:ErrorRateMonitor.should_abort` triggers on `consecutive_errors >= 20`. In the v0.34.7 run that hit BUG-016, `bulk_jobs.failed` reached 31 and `bulk_jobs.cancellation_reason` stayed `None`. Hypothesis: `_cancel_reason` is set on the worker instance but the DB write that propagates it to `bulk_jobs.cancellation_reason` happened to lose the race, OR `record_error` accounting diverged from the per-file `failed` counter under the asyncio-lock failure mode. Not blocking now that BUG-016 is fixed (errors will be a minority of attempts and the safeguard won't need to fire); revisit when the next "everything is failing" scenario surfaces.
+(BUG-001 through BUG-018 closed in v0.34.1 / v0.34.2 / v0.34.3 / v0.34.4 / v0.34.6 / v0.34.7 / v0.34.8 / v0.34.9 — see Shipped section.)
 
 ### Security audit findings (long-running)
 
@@ -68,6 +62,22 @@ not narrative.
 ---
 
 ## Shipped (history)
+
+### v0.34.9 — Bulk-worker abort persists immediately, even with stuck workers
+
+The post-v0.34.8 verification confirmed BUG-018's true root cause:
+the abort safeguard *was* firing in memory, but the DB write that
+makes the cancellation visible to operators happens only after
+`asyncio.gather(*workers)` returns. A single stuck worker (the
+v0.34.7 case: one stalled Whisper transcription on slow CPU)
+prevents `gather` from returning, so the abort never propagates to
+`bulk_jobs.cancellation_reason` even though the in-memory state is
+correct. Symptom: `bulk_jobs.cancellation_reason=None` despite 31
+consecutive failures with `error_rate=1.0`.
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-018 | shipped-v0.34.9 | medium | Bulk-worker `error_rate_abort` decision was invisible to the DB until ALL workers exited — a single stuck worker stranded the cancellation indefinitely | `core/bulk_worker.py:713` correctly fires when `should_abort()` returns True (sets `_cancel_reason` in-memory, `_cancel_event.set()`, `_pause_event.set()`, then `continue` to drain queue). But the DB persistence of `cancellation_reason` lives at line 591, AFTER `await asyncio.gather(*workers)`. If any worker is blocked inside `_process_convertible` (long-running Whisper transcribe, frozen CIFS read, etc.), gather never returns and the cancellation is invisible. The v0.34.4 startup orphan reaper would eventually clean up on next container restart, but operators reading the live UI saw a job stuck in `running` with no abort signal. Fix: persist `status='cancelled' + cancellation_reason` immediately at the abort site via `update_bulk_job_status()`, guarded by a one-shot `_abort_persisted` flag so the per-worker re-observation doesn't keep re-writing. The post-gather write at line 591 still runs when gather *does* eventually return (idempotent overwrite + adds `completed_at`). Bonus: the per-worker log+event spam after abort fires (`bulk_worker_error_rate_abort` once per worker per pull) is also collapsed to one fire per job by the same one-shot guard. See `docs/version-history.md` v0.34.9 entry for the diagnosis chain. |
 
 ### v0.34.8 — Whisper asyncio-lock per-loop + macOS resource-fork skip
 

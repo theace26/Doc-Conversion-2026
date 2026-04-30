@@ -4,6 +4,142 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.34.9 — Bulk-worker abort persists immediately even with stuck workers (BUG-018) (2026-04-30)
+
+**Closes the "abort safeguard didn't fire" mystery from the v0.34.7
+verification run. The safeguard was firing — the DB persistence
+just happened to be gated on `asyncio.gather()` returning, which a
+single stuck worker can prevent indefinitely. Move the persistence
+to the abort site itself, with a one-shot guard so re-observers
+don't double-write or double-log.**
+
+### BUG-018 — abort decision invisible to DB while any worker is stuck
+
+**Symptom (operator-facing).** In the v0.34.7 verification run that
+exposed BUG-016, `bulk_jobs.cancellation_reason` stayed `None`
+despite the bulk-worker hitting `error_rate=1.0` with 31 consecutive
+Whisper-lock failures. Operators reading the UI saw a job in
+`status='running'` with `failed=31` and no abort signal — the
+opposite of what the safeguard exists to communicate.
+
+**Diagnosis.** Reading `core/bulk_worker.py` end to end:
+
+1. The abort check at line 713 runs at the top of each `_worker()`
+   iteration. `should_abort()` returns True correctly when
+   `consecutive_errors >= 20` (verified against
+   `core/storage_probe.py:ErrorRateMonitor`).
+2. When abort fires, the existing code does:
+   ```python
+   self._cancel_reason = "Aborted: error rate ..."
+   self._cancel_event.set()
+   self._pause_event.set()
+   continue  # drain queue
+   ```
+3. `_cancel_reason` lives ONLY on the worker instance (in-memory).
+   The DB persistence happens later, in the post-gather code at
+   line 580-591:
+   ```python
+   await asyncio.gather(*workers)
+   ...
+   if self._cancel_event.is_set():
+       cancel_reason = getattr(self, '_cancel_reason', ...)
+   ...
+   await update_bulk_job_status(self.job_id, final_status, **extra_fields)
+   ```
+4. `asyncio.gather(*workers)` blocks until **all** workers exit. In
+   the v0.34.7 run, one worker was inside a multi-minute Whisper
+   transcription on slow CPU (the lock-holder from BUG-016, before
+   it was fixed) and never reached the top of the loop again.
+   The other 7 workers reached the top, observed
+   `_cancel_event.is_set()`, and drained the queue — but they
+   couldn't exit either, because `_queue.get()` blocks until a
+   `None` terminator is enqueued (and the terminator wasn't being
+   pushed during abort).
+
+So the abort fired correctly in memory, all observable side effects
+of the abort happened in memory, but the DB never reflected any of
+it because the worker pool was stranded.
+
+**Fix.** Persist the abort to the DB at the abort site itself, not
+just in memory. Use a one-shot `_abort_persisted` flag so the
+per-worker re-observation (every worker that hits the top of the
+loop after `_cancel_event.set()` would otherwise re-fire the log,
+re-emit the event, and re-write the DB) collapses to a single
+action per job:
+
+```python
+if self._error_monitor.should_abort():
+    if not getattr(self, "_abort_persisted", False):
+        self._abort_persisted = True
+        self._cancel_reason = (...)
+        self._cancel_event.set()
+        self._pause_event.set()
+        log.error("bulk_worker_error_rate_abort", ...)
+        _emit_bulk_event(self.job_id, "job_error_rate_abort", ...)
+        try:
+            await update_bulk_job_status(
+                self.job_id,
+                "cancelled",
+                cancellation_reason=self._cancel_reason,
+            )
+        except Exception as exc:
+            log.warning("bulk_worker_abort_persist_failed", ...)
+    continue
+```
+
+The flag is set BEFORE the await, so re-observations on subsequent
+worker iterations short-circuit cleanly (asyncio's single-threaded
+loop guarantees no race within one event loop). The post-gather
+write at line 591 is now an idempotent overwrite that adds
+`completed_at` if and when gather eventually returns; if gather
+never returns (truly stuck worker), the v0.34.4 startup reaper
+will mark the job on next container restart, but at least the
+operator-visible state already reflects the abort.
+
+**Bonus fix folded in: log/event spam.** Pre-v0.34.9, every worker
+that reached the top of the loop after `_cancel_event.set()` would
+re-fire `bulk_worker_error_rate_abort` (log + SSE event), producing
+thousands of duplicate lines per aborted job. The same one-shot
+guard collapses this to exactly one fire per job, which is what
+the operator and downstream tooling expect.
+
+**Why not just remove the post-gather write.** Two reasons. (1) On
+a normal abort where workers DO exit cleanly, the post-gather write
+adds `completed_at` and refreshes counters — useful state. (2)
+Defensive symmetry: keep the in-memory + DB writes both intact so
+neither path is the single source of truth. The DB write at abort
+time means operators see the cancellation immediately; the
+post-gather write means the row is fully closed out when workers
+finish draining.
+
+**Lesson — DB persistence should track in-memory state changes
+within bounded latency, not gate them on a separate event chain.**
+Anywhere the in-memory state of a long-lived async task can diverge
+from its persisted representation, that divergence is operator-
+visible (or invisible) latency that compounds when something
+upstream goes wrong. For state transitions that matter to
+operators (status flips, cancellations, abort decisions),
+persist at the decision site, not at the closeout site.
+
+**Audit hint.** Other `_cancel_event.set()` sites in
+`core/bulk_worker.py` (lines 905, 1301-1302, 1507, 1526) likely
+have similar dependence on the post-gather write to persist
+cancellation. Out of scope for this release but worth a similar
+audit if any of those paths surfaces a bug like this one.
+
+### Files touched
+
+- `core/version.py` — `0.34.8` → `0.34.9`.
+- `core/bulk_worker.py` — abort site at line 713 now persists
+  immediately + one-shot guard against re-fires.
+- `docs/bug-log.md` — BUG-018 moved from Active to Shipped.
+  Header bug-range citation updated.
+- `docs/version-history.md` — this entry.
+- `docs/help/whats-new.md` — operator note.
+- `CLAUDE.md` — Current Version block bumped to v0.34.9.
+
+---
+
 ## v0.34.8 — Whisper asyncio-lock per-loop + macOS resource-fork skip (BUG-016, BUG-017) (2026-04-30)
 
 **Empirical follow-up to v0.34.7. The first run-now after v0.34.7

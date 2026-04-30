@@ -6,6 +6,54 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.34.9 — Aborted jobs now actually look aborted
+
+A small but operationally important fix. When the bulk worker's
+"too many errors, abort the job" safeguard fires, the
+`bulk_jobs.cancellation_reason` field now updates immediately so
+operators (and the UI) see the abort. Pre-v0.34.9, the abort fired
+in-process correctly but the database write that made it visible
+happened only after **all** workers had exited — which a single
+slow or stuck worker could prevent indefinitely. Net effect: an
+aborted job could keep showing as `running` with no abort signal
+until either (a) the stuck worker finally finished or (b) the
+container restarted and the startup reaper cleaned it up.
+
+This was the visible artifact of BUG-016 in the v0.34.7
+verification run — 31 instant Whisper failures hit the abort
+threshold inside the first 30 seconds, the abort decision was
+made correctly in memory, but the DB never reflected it because
+one worker remained blocked on a slow Whisper transcription that
+the (then-broken) lock had let through. v0.34.8 fixed the lock so
+this scenario shouldn't recur often, but the visibility issue was
+a separate bug and is fixed here.
+
+### What changed
+
+- The abort safeguard now writes `status='cancelled'` and
+  `cancellation_reason` to the DB at the moment it decides to
+  abort, not after every worker has drained the queue.
+- A one-shot guard prevents the abort log line and SSE event from
+  firing once per worker per pull — they now fire exactly once per
+  aborted job. (Previous behavior produced thousands of duplicate
+  log lines for a single aborted job, inflating `markflow.log`.)
+
+### What you should see going forward
+
+- If the bulk worker ever needs to abort a job (e.g. mass mount
+  failure or another systemic-error scenario), the Bulk Jobs page
+  shows the cancellation reason within the same heartbeat tick
+  rather than only after the queue fully drains.
+- The `markflow.log` size growth from aborted jobs drops
+  dramatically — from "once per worker per pull after abort" to
+  "once per aborted job".
+
+### What you should do
+
+- Nothing. Deploy normally.
+
+---
+
 ## v0.34.8 — Whisper transcription works again (and the actually actually converting kind)
 
 The first run-now after v0.34.7 deployed surfaced two more
