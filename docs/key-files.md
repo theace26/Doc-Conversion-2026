@@ -206,7 +206,12 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `static/storage.html` | Storage page: Quick Access, Sources, Output, Network Shares, Exclusions, first-run wizard overlay (v0.28.0) |
 | `static/js/storage.js` | Storage page JS: vanilla fetch against `/api/storage/*`, all DOM via `createElement` (XSS-safe), wizard with per-step validation (v0.28.0) |
 | `static/js/storage-restart-banner.js` | Amber sticky banner injected on every page; polls `/api/storage/restart-status` every 60s (v0.28.0) |
-| `static/js/deletion-banner.js` | Dismissible banner for deleted files in search |
+| `core/active_ops.py` | Active Operations Registry. Workers register, update, finish; hydrates on startup; auto-purge daily. v0.35.0+ |
+| `api/routes/active_ops.py` | HTTP API: `GET /api/active-ops`, `POST /api/active-ops/{id}/cancel`. v0.35.0+ |
+| `static/js/active-ops-poller.js` | Shared frontend poller for `/api/active-ops`. Visibility-aware. v0.35.0+ |
+| `static/js/active-op-widget.js` | Inline progress widget mounted on origin pages (history, trash, settings, batch-management, bulk). v0.35.0+ |
+| `static/js/active-ops-hub.js` | Status page Active Operations index section. v0.35.0+ |
+| `docs/scheduler-time-slots.md` | Canonical scheduler job time-slot allocation table (spec §17 P7). v0.35.0+ |
 | `static/js/pipeline-card.js` | Shared Pipeline card module: `mountPipelineCard(el, opts)` polls `/api/pipeline/status` every 30s, renders rich card (compact:false) or 1-line summary (compact:true). Used by status.html + bulk.html (v0.33.0) |
 | `static/js/cost-estimator.js` | Shared LLM cost render module: `window.CostEstimator.{formatUsd, formatTokens, formatRate, renderBatchCostPanel, renderPeriodCostCard}`. Used by batch-management.html (per-batch cost panel) + admin.html (Provider Spend card). All DOM via createElement+textContent (XSS-safe). (v0.33.2) |
 | `static/js/prproj-refs.js` | Shared Premiere cross-reference render module: `window.PrprojRefs.{fetchProjectsReferencing, renderReferencesCard, isLikelyMediaPath}`. Used by preview.html "Used in Premiere projects" sidebar card. All DOM via createElement+textContent (XSS-safe). (v0.34.0) |
