@@ -14,6 +14,25 @@
 
 ---
 
+## Model + effort per phase
+
+| Phase | Implementer | Reviewer |
+|-------|-------------|----------|
+| Phase 0 — Pre-flight reconnaissance | Haiku · low (2-4h) | Haiku · low (<1h) |
+| Phase 1 — Registry + DB foundation | **Opus** · high (8-16h) | **Opus** · med (3-5h) |
+| Phase 2 — HTTP API | Sonnet · low (2-4h) | Sonnet · low (<1h) |
+| Phase 3 — Worker retrofits | **Opus** · max (16-32h) | Sonnet · med (5-8h) |
+| Phase 4 — Frontend | Sonnet · high (8-16h) | Haiku · low (2-3h) |
+| Phase 5 — Cleanup + documentation | Sonnet · med (4-8h) | Sonnet · low (2-3h) |
+
+Per-phase reasoning sits at each `## Phase N` header below.
+
+**Execution mode:** Dispatch this plan via `superpowers:subagent-driven-development`. Each phase × role is its own `Agent` call with the model above (`Agent({model: "opus", ...})`, etc.). A single-session `executing-plans` read will *not* switch models on its own — this metadata is routing input for the orchestrator, not in-session magic.
+
+**Source:** [`docs/spreadsheet/phase_model_plan.xlsx`](../../spreadsheet/phase_model_plan.xlsx)
+
+---
+
 ## Pre-flight
 
 Before starting Task 1, verify the environment:
@@ -51,6 +70,8 @@ Expected: `28` (we add v29 in Task 1).
 ---
 
 ## Phase 0: Pre-flight reconnaissance (Tasks 0.1–0.7)
+
+**Model + effort:** Implementer **Haiku** · low (2-4h) · Reviewer **Haiku** · low (<1h). Dispatch via `Agent({model: "haiku", ...})` for both. *Reasoning:* Read-only discovery — trace `pipeline.py`, `scan_coordinator.py`, `bulk_worker.py`, `lifecycle_scanner.py` to confirm assumptions about cancel signals and lifecycle hooks. Output is notes, not code. Cheapest tier on both sides; review is a sanity-check that recon notes match the plan's stated assumptions.
 
 This phase runs **before** Phase 1 and produces a companion **recon-notes document** at:
 
@@ -555,6 +576,8 @@ Expected: 6 recon commits (one per §A–§F task) + maybe 1 amendment commit. R
 ---
 
 ## Phase 1: Registry + DB foundation (Tasks 1–10)
+
+**Model + effort:** Implementer **Opus** · high (8-16h) · Reviewer **Opus** · med (3-5h). Dispatch via `Agent({model: "opus", ...})` for both. *Reasoning:* Load-bearing concurrency primitive — new `core/active_ops.py` (in-memory dict + write-through to a new `active_operations` SQLite table), lifespan hooks, scheduler integration, singleton lifecycle. Every later phase depends on this; race conditions or write-through gaps cascade across all six worker subsystems. Spend tokens here on both sides — this is the genuinely highest-risk slice of the whole plan and the only place where Opus/Opus is unconditionally the right call.
 
 **Recon dependency:** §A (DB layer + scheduler + lifespan + test fixtures). Re-run Task 0.1 if recon is > 7 days old or any of these files changed since: `core/db/connection.py`, `core/database.py`, `core/db/migrations.py`, `core/scheduler.py`, `main.py`.
 
@@ -2146,6 +2169,8 @@ git commit -m "feat(active_ops): wire hydrate_on_startup into lifespan"
 
 ## Phase 2: HTTP API (Tasks 11–13)
 
+**Model + effort:** Implementer **Sonnet** · low (2-4h) · Reviewer **Sonnet** · low (<1h). Dispatch via `Agent({model: "sonnet", ...})` for both. *Reasoning:* Single `GET /api/active-ops` endpoint feeding three frontend surfaces. Standard FastAPI pattern with a strict response schema. Review is a quick contract check against Phase 4's three consumers; payload is small and readable in one screen.
+
 **Recon dependency:** §B (auth + endpoint + AsyncClient patterns). Re-run Task 0.2 if recon is > 7 days old or any of these files changed since: `core/auth.py`, the model `api/routes/*.py` files captured in §B, the existing `tests/test_*_endpoint.py` whose pattern §B copied.
 
 Three tasks: GET endpoint, POST cancel endpoint, router registration.
@@ -2518,6 +2543,8 @@ Expected: `Cache-Control: no-cache, no-store, must-revalidate`.
 ---
 
 ## Phase 3: Worker retrofits (Tasks 14–23)
+
+**Model + effort:** Implementer **Opus** · max (16-32h) · Reviewer **Sonnet** · med (5-8h). Dispatch via `Agent({model: "opus", ...})` for implementation, `Agent({model: "sonnet", ...})` for review. *Reasoning:* Touches six worker modules (pipeline, scan_coordinator, trash, analysis, lifecycle_scanner, bulk_worker) to register/update/finish operations and bridge cancel signals to each subsystem's native mechanism. Largest phase by far. The structural traps — double-register, missed cleanup on exception paths, cancel hook never firing — need Opus to catch on the implementer side. Reviewer at Sonnet has 6 modules × cancel paths to walk through, hence medium not low.
 
 **Recon dependency:** §C (pipeline + scan_coordinator), §D (trash + analysis + admin + search), §E (lifecycle_scanner + bulk_worker). This phase has the highest spec-vs-reality drift risk. **Per-task pre-flight rule:** before applying any retrofit, verify the recon-captured signature against the file's current state with one targeted `grep` or `Read`. If the file has been modified since recon, re-run the relevant recon task before continuing — silent drift here cascades into multiple downstream tasks.
 
@@ -3669,6 +3696,8 @@ git commit -m "feat(active_ops): BulkJob thin mirror + cancel hook"
 
 ## Phase 4: Frontend (Tasks 24–34)
 
+**Model + effort:** Implementer **Sonnet** · high (8-16h) · Reviewer **Haiku** · low (2-3h). Dispatch via `Agent({model: "sonnet", ...})` for implementation, `Agent({model: "haiku", ...})` for review. *Reasoning:* Three presentational surfaces (sticky banner, per-page inline widget, Status hub) all fed by the `/api/active-ops` payload from Phase 2. 11 tasks across the three surfaces. Once that contract is stable the work is mechanical DOM construction + polling. Haiku reviewer is fine — visual diff against mockups is exactly what cheap models do well — but they need low-not-trivial effort because there are three surfaces to compare.
+
 **Recon dependency:** §F (CSS variables + DOM helpers + per-page mount anchors + cache-bust inventory). Re-run Task 0.6 if recon is > 7 days old or any of these files changed: `static/markflow.css`, `static/js/auto-refresh.js`, `static/js/pipeline-card.js`, the 6 origin HTML pages.
 
 Frontend tests stay manual per project convention (CLAUDE.md). Each task ends with a smoke check. Cache-bust convention: every script-tag query string becomes `?v=0.35.0`.
@@ -4757,6 +4786,8 @@ git commit -m "ops(active_ops): cache-bust convention pass v0.35.0 (audit P8)"
 ---
 
 ## Phase 5: Cleanup + documentation (Tasks 35–46)
+
+**Model + effort:** Implementer **Sonnet** · med (4-8h) · Reviewer **Sonnet** · low (2-3h). Dispatch via `Agent({model: "sonnet", ...})` for both. *Reasoning:* Removing dead per-subsystem progress code that the registry now subsumes, plus `CLAUDE.md` / `version-history.md` / `whats-new.md` updates. 12 tasks. Deletions are irreversible — judgement about what's truly subsumed vs. what still has unique callers needs Sonnet, not Haiku. Reviewer focus is on the deletions, not the doc edits.
 
 This phase cleans up audit findings and updates all 5 release-discipline docs (per CLAUDE.md). The release commit lands at the end of Task 46.
 

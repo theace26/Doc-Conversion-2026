@@ -22,6 +22,21 @@
 
 ---
 
+## Model + effort
+
+| Role | Model | Effort |
+|------|-------|--------|
+| Implementer | Sonnet | high (8-16h) |
+| Reviewer | Sonnet | med (3-5h) |
+
+**Reasoning:** Hover preview popover, right-click context menu, multi-select observable state, bulk action bar, folder-browse page wrapping it all. Multiple interaction systems coexisting without listener leaks is the failure mode. This is the biggest UX-overhaul phase — reviewer needs medium effort because there are 4 distinct interaction surfaces to walk through, not one.
+
+**Execution mode:** Dispatch this plan via `superpowers:subagent-driven-development`. Each role is a separate `Agent` call — `Agent({model: "sonnet", ...})` for implementation, `Agent({model: "sonnet", ...})` for review. A single-session `executing-plans` read will *not* switch models on its own; this metadata is routing input for the orchestrator.
+
+**Source:** [`docs/spreadsheet/phase_model_plan.xlsx`](../../spreadsheet/phase_model_plan.xlsx)
+
+---
+
 ## File structure (this plan creates / modifies)
 
 **Create:**

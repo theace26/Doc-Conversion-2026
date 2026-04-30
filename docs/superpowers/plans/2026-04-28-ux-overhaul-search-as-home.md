@@ -26,6 +26,21 @@
 
 ---
 
+## Model + effort
+
+| Role | Model | Effort |
+|------|-------|--------|
+| Implementer | Sonnet | med (4-8h) |
+| Reviewer | Sonnet | low (2-3h) |
+
+**Reasoning:** Feature-flagged replacement of `static/index.html` with three layout modes (Maximal / Recent / Minimal). Both flag-on and flag-off paths must work — flag-off keeps the legacy Convert page live, so rollback is cheap. Reviewer's main job is verifying the flag branching and that legacy still renders.
+
+**Execution mode:** Dispatch this plan via `superpowers:subagent-driven-development`. Each role is a separate `Agent` call — `Agent({model: "sonnet", ...})` for implementation, `Agent({model: "sonnet", ...})` for review. A single-session `executing-plans` read will *not* switch models on its own; this metadata is routing input for the orchestrator.
+
+**Source:** [`docs/spreadsheet/phase_model_plan.xlsx`](../../spreadsheet/phase_model_plan.xlsx)
+
+---
+
 ## File structure (this plan creates / modifies)
 
 **Create:**

@@ -22,6 +22,21 @@
 
 ---
 
+## Model + effort
+
+| Role | Model | Effort |
+|------|-------|--------|
+| Implementer | Sonnet | med (4-8h) |
+| Reviewer | Sonnet | low (2-3h) |
+
+**Reasoning:** Prefs client (localStorage cache + 500ms debounced PUT), telemetry helper (fire-and-forget), avatar/layout popovers with click-outside + Escape. Subtle async + event-lifecycle but well-bounded. Reviewer needs to follow the popover state machine + debounce semantics, hence small-but-not-trivial review effort.
+
+**Execution mode:** Dispatch this plan via `superpowers:subagent-driven-development`. Each role is a separate `Agent` call — `Agent({model: "sonnet", ...})` for implementation, `Agent({model: "sonnet", ...})` for review. A single-session `executing-plans` read will *not* switch models on its own; this metadata is routing input for the orchestrator.
+
+**Source:** [`docs/spreadsheet/phase_model_plan.xlsx`](../../spreadsheet/phase_model_plan.xlsx)
+
+---
+
 ## File structure (this plan creates / modifies)
 
 **Create:**

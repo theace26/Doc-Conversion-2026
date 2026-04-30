@@ -22,6 +22,21 @@
 
 ---
 
+## Model + effort
+
+| Role | Model | Effort |
+|------|-------|--------|
+| Implementer | Sonnet | med (4-8h) |
+| Reviewer | Opus | low (2-3h) |
+
+**Reasoning:** New `/api/me` endpoint, real role binding via UnionCore JWT (replaces the hardcoded `role='admin'` placeholder), Activity dashboard gated by `core.auth.Role`. Auth surface — role-gating bugs are security issues. Opus reviewer once to verify the gate is enforced on every protected endpoint, not just the obvious ones; effort is small because the new endpoint surface is narrow.
+
+**Execution mode:** Dispatch this plan via `superpowers:subagent-driven-development`. Each role is a separate `Agent` call — `Agent({model: "sonnet", ...})` for implementation, `Agent({model: "opus", ...})` for review. A single-session `executing-plans` read will *not* switch models on its own; this metadata is routing input for the orchestrator.
+
+**Source:** [`docs/spreadsheet/phase_model_plan.xlsx`](../../spreadsheet/phase_model_plan.xlsx)
+
+---
+
 ## File structure (this plan creates / modifies)
 
 **Create:**
