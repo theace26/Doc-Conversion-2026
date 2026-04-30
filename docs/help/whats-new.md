@@ -6,6 +6,29 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.35.0 — Active Operations Hub (April 28, 2026)
+
+### What's new for you
+
+**Force Transcribe and every other long-running action now show a progress bar where you started it AND on the Status page.** Click any active operation card on Status to jump back to where you started it (the corresponding progress widget pulses amber to confirm).
+
+**Operations covered:** Force Transcribe / Convert Pending, Convert Selected, Pipeline scans, Empty Trash, Restore All from Trash, Rebuild Search Index, Bulk Re-analyze, Database Backup, Database Restore, Bulk Conversion jobs.
+
+**Cancel button** on every cancellable operation's progress widget.
+
+**Restart safety:** if MarkFlow restarts while operations are in flight, you'll see them marked "terminated by restart" on the Status page so you know what was lost (instead of operations silently disappearing).
+
+### What's changed for you behind the scenes
+
+The old Trash status banner (Empty Trash / Restore All progress) is now powered by the same registry that drives the new widgets. Same look, same behavior — just a unified system underneath.
+
+### Known limitations
+
+- Cancel for Database Backup / Restore is intentionally disabled (data integrity). Wait for completion or revert via a fresh restore from a different snapshot.
+- Multi-tab: clicking Force Transcribe in two browser tabs creates two operations (the second errors out since one is already queued). A future release will deduplicate.
+
+---
+
 ## v0.34.9 — Aborted jobs now actually look aborted
 
 A small but operationally important fix. When the bulk worker's

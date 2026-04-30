@@ -10,6 +10,42 @@ visible to users with the **Admin** role.
 
 ---
 
+## Active Operations Hub (Status page, v0.35.0+)
+
+The Status page now shows a unified index of every long-running operation MarkFlow is currently running. Each row is clickable and navigates to the page where the operation was started, with the operation highlighted on arrival.
+
+### What appears in the index
+
+- **Force Transcribe / Convert Pending** (originating page: History) — when an operator clicks Force Transcribe.
+- **Convert Selected** — per-call entry from the History Pending Files bulk-action bar.
+- **Pipeline scan** — every scheduled or manual scan registers here.
+- **Emptying trash / Restoring all** — both Trash bulk operations.
+- **Database backup / restore** — from Settings.
+- **Search index rebuild** — from Settings.
+- **Bulk re-analyze** — per-batch entry from Batch Management.
+- **Bulk conversion job** — thin summary of any active BulkJob; click navigates to the rich Active Jobs view below.
+
+### Programmatic access
+
+`GET /api/active-ops` returns `{"ops": [...]}` with one row per running operation plus operations finished in the last 30 seconds. Authentication: OPERATOR+ via JWT or X-API-Key.
+
+`POST /api/active-ops/{op_id}/cancel` requests cancellation. Authentication: MANAGER+. Returns `400` if the operation is uncancellable or already finished, `404` if the op_id is unknown.
+
+Example:
+```bash
+curl -s http://localhost:8000/api/active-ops | jq '.ops[] | {label, op_type, done, total}'
+```
+
+### Restart behavior
+
+If MarkFlow restarts while operations are in flight, the registry marks them `terminated_by_restart` on next startup. The Status hub shows up to 20 most-recently-started terminated ops (with an expand button for the full list). Older terminated rows are pre-finalized so they fall outside the 30-second grace window — visible only via "Show all" expansion.
+
+### Audit trail
+
+Every register / update / finish / cancel emits a structured log event (`active_ops.registered`, `active_ops.finished`, etc.). Search via Log Viewer with `?q=active_ops`.
+
+---
+
 ## Repository Overview
 
 The top of the Admin page is a live dashboard of your MarkFlow repository. It
