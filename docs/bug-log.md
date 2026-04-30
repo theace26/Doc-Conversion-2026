@@ -76,6 +76,7 @@ Planned during the Active Operations Registry (v0.35.0) implementation. Original
 | BUG-021 | planned | low | Periodic drift detection job (scheduler 03:55) that compares `bulk_jobs.processed` vs `active_operations.done` and `scan_runs` vs `active_operations` for the same `op_id`; logs `active_ops.drift_detected` on mismatch. | spec §17 P3 |
 | BUG-022 | planned | low | Boot-time self-check that walks the scheduler job table and logs `scheduler.time_slot_collision` if two jobs are within 5 min of each other (and neither yields to the other). | spec §17 P7 |
 | BUG-023 | planned | low | Audit deprecated public surfaces in the codebase and apply the v0.35.0 deprecation convention (`console.warn` for JS; `Deprecation` + `Sunset` headers for HTTP). | spec §17 P9 |
+| BUG-024 | open | low | `tests/test_bulk_worker.py` calls `BulkJob(source_path=...)` but `BulkJob.__init__` takes `source_paths=` (plural). 5 tests fail at instantiation: `test_job_registry`, `test_bulk_job_run_empty_source`, `test_bulk_job_cancel`, `test_bulk_job_pause_resume`, `test_bulk_job_failed_file_does_not_stop_job`. Fix: update the 5 call sites in `tests/test_bulk_worker.py` to use `source_paths=`. Discovered during v0.35.0 smoke test (2026-04-30). |
 
 ### Security audit findings (long-running)
 
