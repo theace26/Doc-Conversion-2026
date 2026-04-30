@@ -316,3 +316,43 @@ async def test_analysis_rebuild_registers_op(
     assert op["origin_url"] == "/batch-management.html"
     assert op["cancellable"] is True
     assert op["icon"] != ""
+
+
+@pytest.mark.asyncio
+async def test_db_backup_registers_op(authed_admin_real):
+    """POST /api/db/backup registers a db.backup op visible in
+    /api/active-ops with cancellable=False.
+
+    The handler is fully synchronous — by the time the response returns
+    the op is already finalised.  list_ops()'s 30s grace window keeps
+    the finished op visible to this poll.
+
+    Note: this test actually performs a real backup against the test DB
+    (it's a temp file under /tmp, very fast).  If the backup fails for
+    any reason on a dev environment (BACKUPS_DIR misconfigured, disk
+    space, etc.) the endpoint returns a 4xx and the op is still
+    registered+finished — the assertions below check op presence, not
+    a 200 response, so the test is robust to either outcome.
+    """
+    resp = await authed_admin_real.post("/api/db/backup")
+    # Either 200 (backup succeeded) or 4xx (backup failed but op still
+    # registered+finished). 5xx would be a real bug.
+    assert resp.status_code < 500, (
+        f"POST /api/db/backup -> {resp.status_code}: {resp.text}"
+    )
+
+    ops_resp = await authed_admin_real.get("/api/active-ops")
+    assert ops_resp.status_code == 200
+    ops = ops_resp.json()["ops"]
+    backup_ops = [o for o in ops if o["op_type"] == "db.backup"]
+    assert len(backup_ops) >= 1, (
+        f"Expected db.backup op, got types: "
+        f"{sorted({o['op_type'] for o in ops})}"
+    )
+    op = backup_ops[0]
+    assert op["origin_url"] == "/settings.html"
+    assert op["cancellable"] is False
+    assert op["icon"] != ""
+    # Synchronous handler — by the time we polled, op should have
+    # finish_at_epoch populated.
+    assert op["finished_at_epoch"] is not None

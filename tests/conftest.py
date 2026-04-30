@@ -564,6 +564,32 @@ async def authed_manager_real(real_server):
         app.dependency_overrides.pop(get_current_user, None)
 
 
+@pytest_asyncio.fixture
+async def authed_admin_real(real_server):
+    """Per-test AsyncClient aimed at the real uvicorn server with ADMIN role.
+
+    Same shape as ``authed_manager_real`` but for endpoints that require
+    ADMIN (e.g. POST /api/db/backup, POST /api/db/restore — Tasks 21, 22).
+    """
+    from core.auth import AuthenticatedUser, UserRole, get_current_user
+    from main import app
+
+    async def _admin():
+        return AuthenticatedUser(
+            sub="test-admin",
+            email="admin@test",
+            role=UserRole.ADMIN,
+            is_service_account=False,
+        )
+
+    app.dependency_overrides[get_current_user] = _admin
+    try:
+        async with httpx.AsyncClient(base_url=real_server) as ac:
+            yield ac
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
 # ── Seed fixtures for integration tests (Phase 3 retrofits) ──────────────────
 
 @pytest_asyncio.fixture
