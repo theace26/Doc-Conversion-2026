@@ -184,3 +184,44 @@ async def test_trash_empty_registers_op_replacing_old_dict(
         f"Facade missing legacy keys, got: {sorted(body.keys())}"
     )
     assert facade.headers.get("Deprecation", "").lower() == "true"
+
+
+@pytest.mark.asyncio
+async def test_trash_restore_all_registers_op(
+    authed_manager_real, sample_in_trash_source_file_id,
+):
+    """POST /api/trash/restore-all registers a trash.restore_all op
+    visible in /api/active-ops, AND the deprecated
+    /api/trash/restore-all/status facade still returns the legacy shape
+    with a ``Deprecation: true`` header.
+
+    Same shape as test_trash_empty_registers_op_replacing_old_dict
+    (recon §D.2 — restore-all has the same chunk/loop semantics, no
+    pre-existing cancel mechanism, and the same legacy dict pattern
+    as empty-trash).
+    """
+    resp = await authed_manager_real.post("/api/trash/restore-all")
+    assert resp.status_code == 200, f"POST /restore-all -> {resp.status_code}: {resp.text}"
+
+    await asyncio.sleep(0.8)
+
+    ops_resp = await authed_manager_real.get("/api/active-ops")
+    assert ops_resp.status_code == 200
+    ops = ops_resp.json()["ops"]
+    matching = [o for o in ops if o["op_type"] == "trash.restore_all"]
+    assert len(matching) >= 1, (
+        f"Expected trash.restore_all op, got types: "
+        f"{sorted({o['op_type'] for o in ops})} (ops: {ops})"
+    )
+    op = matching[0]
+    assert op["origin_url"] == "/trash.html"
+    assert op["cancellable"] is True
+    assert op["icon"] != ""
+
+    facade = await authed_manager_real.get("/api/trash/restore-all/status")
+    assert facade.status_code == 200
+    body = facade.json()
+    assert {"running", "total", "done", "errors"}.issubset(body.keys()), (
+        f"Facade missing legacy keys, got: {sorted(body.keys())}"
+    )
+    assert facade.headers.get("Deprecation", "").lower() == "true"

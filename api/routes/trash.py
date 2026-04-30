@@ -120,7 +120,7 @@ async def restore_all_trash(
     """Restore all trashed files. Runs in background."""
     from core.lifecycle_manager import restore_all_trash, get_restore_all_status
 
-    status = get_restore_all_status()
+    status = await get_restore_all_status()
     if status["running"]:
         # v0.32.6: flatten timestamps for frontend adoption.
         return {
@@ -144,11 +144,19 @@ async def restore_all_trash(
 
 @router.get("/restore-all/status")
 async def restore_all_status(
+    response: Response,
     user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
 ) -> dict:
-    """Poll progress of restore-all operation."""
+    """DEPRECATED facade — use ``GET /api/active-ops`` with op_type filter
+    ``trash.restore_all`` instead.  Kept for one release; removal scheduled
+    for v0.36.x (track via new BUG-NNN row at v0.36 release time).
+    """
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = "Sun, 01 Jun 2026 00:00:00 GMT"
+    response.headers["Link"] = '</api/active-ops>; rel="successor-version"'
+
     from core.lifecycle_manager import get_restore_all_status
-    return get_restore_all_status()
+    return await get_restore_all_status()
 
 
 @router.get("")
@@ -249,3 +257,13 @@ async def _cancel_trash_empty_via_active_ops(op_id: str) -> None:
 
 
 register_cancel_hook("trash.empty", _cancel_trash_empty_via_active_ops)
+
+
+async def _cancel_trash_restore_all_via_active_ops(op_id: str) -> None:
+    """No-op: ``restore_all_trash`` polls ``active_ops.is_cancelled`` per row."""
+    return None
+
+
+register_cancel_hook(
+    "trash.restore_all", _cancel_trash_restore_all_via_active_ops,
+)
