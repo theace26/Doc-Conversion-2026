@@ -356,3 +356,47 @@ async def test_db_backup_registers_op(authed_admin_real):
     # Synchronous handler — by the time we polled, op should have
     # finish_at_epoch populated.
     assert op["finished_at_epoch"] is not None
+
+
+@pytest.mark.asyncio
+async def test_db_restore_registers_op(authed_admin_real):
+    """POST /api/db/restore registers a db.restore op visible in
+    /api/active-ops with cancellable=False.
+
+    The handler is fully synchronous — by the time the response returns
+    the op is already finalised.  list_ops()'s 30s grace window keeps
+    the finished op visible to this poll.
+
+    We upload an invalid SQLite file (random bytes) so restore_database
+    fails its integrity check and returns {"ok": False} without touching
+    the live DB.  The op still registers and finishes, which is what this
+    test verifies.  The expected response is 4xx (integrity_check_failed),
+    not 5xx — same robustness contract as test_db_backup_registers_op.
+    """
+    import io
+
+    invalid_db_bytes = b"not a valid sqlite database file"
+
+    resp = await authed_admin_real.post(
+        "/api/db/restore",
+        files={"file": ("test_backup.db", io.BytesIO(invalid_db_bytes), "application/octet-stream")},
+    )
+    # Integrity check fails → 400; 5xx would be a real bug.
+    assert resp.status_code < 500, (
+        f"POST /api/db/restore -> {resp.status_code}: {resp.text}"
+    )
+
+    ops_resp = await authed_admin_real.get("/api/active-ops")
+    assert ops_resp.status_code == 200
+    ops = ops_resp.json()["ops"]
+    restore_ops = [o for o in ops if o["op_type"] == "db.restore"]
+    assert len(restore_ops) >= 1, (
+        f"Expected db.restore op, got types: "
+        f"{sorted({o['op_type'] for o in ops})}"
+    )
+    op = restore_ops[0]
+    assert op["origin_url"] == "/settings.html"
+    assert op["cancellable"] is False
+    assert op["icon"] != ""
+    # Synchronous handler — finished_at_epoch should be populated.
+    assert op["finished_at_epoch"] is not None

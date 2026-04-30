@@ -3657,7 +3657,7 @@ git commit -m "feat(active_ops): retrofit db.backup"
 - Modify: `api/routes/db_health.py:124-200` (the `POST /api/db/restore` handler, adjacent to `/backup`)
 - Modify: `tests/test_active_ops_integration.py`
 
-- [ ] **Step 1: Append integration test.**
+- [x] **Step 1: Append integration test.**
 
 ```python
 @pytest.mark.asyncio
@@ -3680,7 +3680,7 @@ async def test_db_restore_registers_op(authed_admin, sample_backup_file):
     assert matching[0].finished_at_epoch is not None
 ```
 
-- [ ] **Step 2: Wire register/finish in the restore handler (synchronous).**
+- [x] **Step 2: Wire register/finish in the restore handler (synchronous).**
 
 ```python
 @router.post("/restore")
@@ -3712,9 +3712,9 @@ async def restore(
 
 Do NOT register a cancel hook for `db.restore` — uncancellable per spec.
 
-- [ ] **Step 3: Run; confirm pass.**
+- [x] **Step 3: Run; confirm pass.**
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ```bash
 git add <files> tests/test_active_ops_integration.py
