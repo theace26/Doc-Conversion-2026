@@ -2,6 +2,35 @@
 
 Auto-loaded by Claude Code at session start. Detailed references live in `docs/`.
 
+---
+
+## 📌 Session handoff — 2026-04-30 (delete this section once Phase 3 ships)
+
+**Active branch:** `feat/active-ops-registry` (26 commits ahead of `main`, all pushed). Switch to it before doing anything: `git checkout feat/active-ops-registry`.
+
+**Where Phase 3 left off:**
+
+- ✅ **Phase 0** (recon §A–§G) and **Phase 1** (registry + DB foundation, Tasks 1–10) shipped. `core/active_ops.py` + 70/70 unit tests.
+- ✅ **Phase 2** HTTP API (Tasks 11–13). `GET /api/active-ops` + `POST /api/active-ops/{id}/cancel` live, OPERATOR/MANAGER role-gated, `Cache-Control: no-cache`.
+- ✅ **Phase 3 Task 14** — `pipeline.run_now` retrofit + cancel hook. Two related commits:
+  - `4dc1d61` test infra: real-uvicorn-in-thread fixture (`tests/conftest.py` `real_server` + `authed_*_real`). Required because FastAPI BackgroundTasks under ASGITransport stalls pytest teardown.
+  - `9f3f6b4` cancel-bridge fix. **Latent bug we caught:** the cancel hook set `_run_now_cancel` but `run_lifecycle_scan` polled `_lifecycle_cancel` — two flags, no bridge. Operators clicking Cancel had no effect once the scan was running. Fix wires the hook to `_lifecycle_cancel.set()` directly.
+- ⏸ **Phase 3 Tasks 15–23** pending. Each retrofit follows Task 14's pattern (register at start, mirror progress, finish in `try/finally`, register cancel hook). **Watch for the same two-flag bug pattern in each one** — the cancel hook must route to whatever flag the worker actually polls. Run the **foresight skill** before each commit; it's exactly the bug shape it catches.
+
+**Plan + spreadsheet:**
+- Plan: `docs/superpowers/plans/2026-04-28-active-operations-registry.md` (Phase 0/1/2 checkboxes ticked; Phase 3 unticked).
+- Recon: `docs/superpowers/plans/2026-04-28-active-operations-registry-recon.md` (refreshed for v0.34.9 BUG-018 +73 line shift in `bulk_worker.py`).
+- Model + effort routing: `docs/spreadsheet/phase_model_plan.xlsx`. Phase 3 = Opus implementer / Sonnet reviewer per task. Each plan has the metadata embedded in a `## Model + effort` section.
+
+**Test pattern for new Phase 3 tasks:**
+- Use `authed_operator_real` / `authed_manager_real` fixtures (live HTTP via uvicorn-in-thread) for any test that exercises `BackgroundTasks`. Use the in-process `authed_operator` / `authed_manager` for endpoint-only tests.
+- Verify cancel signal end-to-end against the real worker — don't no-op-mock the underlying primitive (that's how the cancel-bridge bug got hidden in Task 14's first attempt).
+
+**Known unrelated work pending:**
+- UX overhaul Plans 1A–3 implementation lives only on the user's *work workstation* (the one you may now be on) — not yet pushed to GitHub. Stage 1 diagnostic was drafted but never run on the workstation. If `git status` / `git log origin/main..HEAD` show committed-but-unpushed work in the markflow repo, that's it.
+
+---
+
 ## Project
 
 **Doc-Conversion-2026** (internal name: MarkFlow) — Python/FastAPI web app
