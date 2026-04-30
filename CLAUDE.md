@@ -214,6 +214,22 @@ No temporary instrumentation currently active.
 
 All phases 0–11 are **Done**. Phase 1 historical spec: [`docs/phase-1-instructions.md`](docs/phase-1-instructions.md).
 
+### Long-running operations
+
+Every long-running file-related op routes through `core/active_ops.py`
+(v0.35.0+). Never roll your own progress dict.
+
+- **Active Operations Registry** — `register_op()`, `update_op()`, `finish_op()`, `cancel_op()`, `is_cancelled()`. See gotchas.md.
+- **Shared mutable state needs `asyncio.Lock`** (P2).
+- **Source-of-truth + drift rule** for any thin-mirror pair (P3).
+- **Subsystem cancel signals bridged via `register_cancel_hook()`** — never silent (P5).
+- **Lifespan-event gating** for any subsystem-ready dependency (P4).
+- **Predicate-gated scheduler cleanup** — never wall-clock-only (P6).
+- **Scheduler time slots declared in `docs/scheduler-time-slots.md`** (P7).
+- **Frontend: CSS variables only, named-anchor mounts, silent degradation** (P8).
+- **Deprecation signals: `console.warn` (JS) + `Sunset` header (HTTP)** (P9).
+- **DB writes always through `db_write_with_retry`** (P10).
+
 ---
 
 ## Critical Files (full table: [`docs/key-files.md`](docs/key-files.md))
@@ -226,6 +242,7 @@ All phases 0–11 are **Done**. Phase 1 historical spec: [`docs/phase-1-instruct
 | `core/preferences_cache.py` | In-memory TTL cache for DB preferences (v0.23.0) |
 | `core/storage_paths.py` | Output-root resolver — single source of truth (v0.34.1) |
 | `core/converter.py` | Pipeline orchestrator (single-file conversion) |
+| `core/active_ops.py` | Active Operations Registry — single source of truth for long-running ops (v0.35.0) |
 | `core/bulk_worker.py` | Worker pool: BulkJob, pause/resume/cancel, SSE |
 | `core/scan_coordinator.py` | Scan priority coordinator (Bulk > Run Now > Lifecycle) |
 | `core/scheduler.py` | APScheduler: lifecycle scan, trash expiry, DB maintenance, pipeline watchdog |
