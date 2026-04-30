@@ -47,15 +47,16 @@ Read on demand — none of these are auto-loaded.
 On every release that fixes a bug or introduces a known one, all of these
 update together — `bug-log.md` is the canonical ledger that ties them:
 
-1. **`docs/bug-log.md`** — move shipped rows to Shipped section (set `status: shipped-vX.Y.Z`). Add new `BUG-NNN` rows for any newly discovered bugs.
-2. **`docs/version-history.md`** — append the per-release narrative entry; cite `BUG-NNN` IDs.
-3. **`docs/help/whats-new.md`** — operator-facing summary for any user-visible bug fix.
-4. **`docs/gotchas.md`** — if the fix exposed a class of bug worth not recreating, add a row in the relevant subsystem section (cite `BUG-NNN`).
-5. **`CLAUDE.md`** — update the Current Version block.
+1. **`core/version.py`** — bump `__version__` to the new release. This is the single source of truth queried by `/api/version` and the `/api/health` payload. Forgetting this step makes every release after the miss appear stale to clients (caught during v0.34.5 deploy: v0.34.2–v0.34.5 all shipped with the constant still reading `0.34.1`).
+2. **`docs/bug-log.md`** — move shipped rows to Shipped section (set `status: shipped-vX.Y.Z`). Add new `BUG-NNN` rows for any newly discovered bugs.
+3. **`docs/version-history.md`** — append the per-release narrative entry; cite `BUG-NNN` IDs.
+4. **`docs/help/whats-new.md`** — operator-facing summary for any user-visible bug fix.
+5. **`docs/gotchas.md`** — if the fix exposed a class of bug worth not recreating, add a row in the relevant subsystem section (cite `BUG-NNN`).
+6. **`CLAUDE.md`** — update the Current Version block.
 
-For a feature-only release, step 1 is skipped but the bug-log is still
-re-checked for items the release might affect (apply the
-`checking-blast-radius` skill before shipping).
+For a feature-only release, step 2 (bug-log Shipped migration) is
+skipped but the bug-log is still re-checked for items the release
+might affect (apply the `checking-blast-radius` skill before shipping).
 
 ### Rule of thumb
 
