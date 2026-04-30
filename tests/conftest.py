@@ -330,10 +330,19 @@ async def _set_hydration_event():
     # Stub hook for pipeline.run_now so test_register_op_returns_unique_uuid_and_persists
     # (which passes cancellable=True) succeeds. Intentionally NOT registering
     # for db.backup so test_register_op_cancellable_without_hook_raises still raises.
+    #
+    # Also stubs pipeline.convert_selected (Task 15) — the real hook is
+    # registered at module import in api/routes/pipeline.py, but
+    # tests/test_active_ops_endpoint.py's autouse fixture *clears* the
+    # dict before and after every test in that file.  When integration
+    # tests run after that file in the same suite, the real hook is gone
+    # (Python doesn't re-execute module-level code), so the integration
+    # test's cancellable=True call would raise without this re-seed.
     async def _stub_cancel(op_id: str) -> None:
         return None
 
     active_ops._cancel_hooks.setdefault("pipeline.run_now", _stub_cancel)
+    active_ops._cancel_hooks.setdefault("pipeline.convert_selected", _stub_cancel)
 
     yield
     # Don't clear — once set, leave set for the rest of the suite
@@ -549,3 +558,68 @@ async def authed_manager_real(real_server):
             yield ac
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+# ── Seed fixtures for integration tests (Phase 3 retrofits) ──────────────────
+
+@pytest_asyncio.fixture
+async def sample_pending_file_id(client):
+    """Insert a parent ``bulk_jobs`` row + a ``bulk_files`` row with
+    ``status='pending'`` and yield the file id.
+
+    Drives integration tests that exercise endpoints requiring a real
+    pending bulk_files row (e.g. ``POST /api/pipeline/convert-selected``).
+    The conversion worker will fail to actually process the file (the
+    source path doesn't exist on disk) but that's irrelevant — the test
+    asserts on op registration, which happens before the worker runs.
+
+    Uses **direct synchronous sqlite3** (not the async pool).  Tests
+    that combine ``client`` and ``real_server`` have two event loops;
+    the connection pool's single-writer task is bound to whichever
+    loop called ``init_db()`` first — writing through the pool from
+    the *other* loop deadlocks.  WAL is enabled, so a sync commit
+    here is visible to the real server's pool on its next read.
+
+    The ``client`` dep guarantees ``init_db()`` has applied all
+    migrations (including v29's ``active_operations``) before the
+    seed inserts run.
+    """
+    import os
+    import sqlite3
+    import uuid
+
+    file_id = "test-pending-" + uuid.uuid4().hex[:8]
+    job_id = "test-job-" + uuid.uuid4().hex[:8]
+    db_path = os.environ["DB_PATH"]
+
+    # bulk_jobs: id + source_path + output_path are NOT NULL; the rest
+    # have defaults. bulk_files needs a real bulk_jobs row to satisfy
+    # the FK on bulk_files.job_id.
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO bulk_jobs (id, source_path, output_path) "
+            "VALUES (?, '/tmp', '/tmp/output')",
+            (job_id,),
+        )
+        # bulk_files: id, job_id, source_path, file_ext are NOT NULL.
+        # source_path has UNIQUE — embed file_id so parallel/repeated
+        # runs don't collide.
+        conn.execute(
+            "INSERT INTO bulk_files (id, job_id, source_path, file_ext, status) "
+            "VALUES (?, ?, ?, 'pdf', 'pending')",
+            (file_id, job_id, f"/tmp/fake-{file_id}.pdf"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    yield file_id
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("DELETE FROM bulk_files WHERE id=?", (file_id,))
+        conn.execute("DELETE FROM bulk_jobs WHERE id=?", (job_id,))
+        conn.commit()
+    finally:
+        conn.close()
