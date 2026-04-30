@@ -273,8 +273,9 @@ the relevant subsystem. Referenced from CLAUDE.md.
 - **Never use TimedRotatingFileHandler or bare FileHandler**: A single day's debug log
   can grow to 4 GB+. Always use size-based `RotatingFileHandler` to cap file growth.
 
-- **Log archives preserve rotated content**: The `log_archiver` scheduler job (every 6h)
-  compresses rotated `.log.N` files into `logs/archive/*.gz` (~10:1 compression).
+- **Log archives preserve rotated content**: The log management scheduler job (every 6h)
+  — implemented in `core/log_manager.py` since v0.31.0 — quietly compresses rotated
+  `.log.N` files into `logs/archive/*.gz` (~10:1 compression).
   Archives retained for 90 days (configurable via `LOG_ARCHIVE_RETENTION_DAYS`).
   This is interim — planned migration to Grafana Loki / ELK for external aggregation.
 

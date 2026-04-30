@@ -778,7 +778,8 @@ def start_scheduler() -> None:
     )
 
     # v0.31.0: Unified log management job. Replaces the v0.12.2
-    # `core.log_archiver.archive_rotated_logs` (deleted) with a thin
+    # `core.log_manager.archive_rotated_logs` (the old core.log_archiver
+    # module was consolidated into core/log_manager.py) with a thin
     # wrapper around `core.log_manager` so the Settings-page
     # preferences (compression format, retention days) actually
     # govern the automated cycle. Previously the cron ignored those
