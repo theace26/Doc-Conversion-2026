@@ -390,13 +390,28 @@ class SearchIndexer:
         """Remove document from 'documents' index."""
         await self.client.delete_document("documents", _doc_id(source_path))
 
-    async def rebuild_index(self, job_id: str | None = None) -> RebuildStatus:
+    async def rebuild_index(
+        self,
+        job_id: str | None = None,
+        op_id: str | None = None,
+    ) -> RebuildStatus:
         """Walk all converted files in bulk_files and re-index.
 
         Uses ErrorRateMonitor to detect Meilisearch unavailability and abort
         early instead of spamming thousands of failed indexing calls.
+
+        ``op_id`` (Task 19, v0.35.0): when provided, mirrors per-document
+        progress to the active-ops registry via update_op so the rebuild
+        is visible in /api/active-ops.  The registry's 1.5s write-through
+        debounce coalesces these so per-doc ticks don't pressure the DB.
         """
         from core.database import get_bulk_files, get_unindexed_adobe_entries
+
+        # Lazy import: only reach for active_ops when op_id was passed.
+        if op_id is not None:
+            from core import active_ops as _active_ops
+        else:
+            _active_ops = None
 
         status = RebuildStatus()
         error_monitor = ErrorRateMonitor(window_size=50, min_ops=10)
@@ -412,6 +427,11 @@ class SearchIndexer:
                    JOIN bulk_files bf ON bf.source_file_id = sf.id AND bf.status = 'converted'
                    GROUP BY sf.id"""
             )
+
+        # Initial total = files only.  Adobe entries are fetched mid-run
+        # below; total is bumped again after that fetch.
+        if _active_ops is not None:
+            await _active_ops.update_op(op_id, total=len(files))
 
         from core.request_pressure import get_request_pressure
         pressure = get_request_pressure()
@@ -436,7 +456,9 @@ class SearchIndexer:
                 if ok:
                     status.documents_indexed += 1
                     error_monitor.record_success()
-                    # Vector index (best-effort)
+                    # Vector index (best-effort — failures here are NOT
+                    # reflected in status.errors, intentional per CLAUDE.md
+                    # gotcha and recon §D.5).
                     try:
                         from core.vector.index_manager import get_vector_indexer
                         vec = await get_vector_indexer()
@@ -461,9 +483,22 @@ class SearchIndexer:
                 status.errors += 1
                 error_monitor.record_error(f"file not found: {output_path}")
 
+            if _active_ops is not None:
+                await _active_ops.update_op(
+                    op_id,
+                    done=status.documents_indexed + status.adobe_indexed,
+                    errors=status.errors,
+                )
+
         # Re-index Adobe entries (skip if already aborted)
         if not error_monitor.aborted:
             adobe_entries = await get_unindexed_adobe_entries(limit=10000)
+            # Bump registry total now that adobe count is known.
+            if _active_ops is not None:
+                await _active_ops.update_op(
+                    op_id, total=len(files) + len(adobe_entries),
+                )
+
             for entry in adobe_entries:
                 if error_monitor.should_abort():
                     log.error("index_rebuild_adobe_abort",
@@ -486,6 +521,13 @@ class SearchIndexer:
                 else:
                     status.errors += 1
                     error_monitor.record_error("index_adobe failed")
+
+                if _active_ops is not None:
+                    await _active_ops.update_op(
+                        op_id,
+                        done=status.documents_indexed + status.adobe_indexed,
+                        errors=status.errors,
+                    )
 
         # Record activity event for index rebuild
         try:

@@ -225,3 +225,42 @@ async def test_trash_restore_all_registers_op(
         f"Facade missing legacy keys, got: {sorted(body.keys())}"
     )
     assert facade.headers.get("Deprecation", "").lower() == "true"
+
+
+@pytest.mark.asyncio
+async def test_search_rebuild_index_registers_op(authed_manager_real):
+    """POST /api/search/index/rebuild registers a search.rebuild_index op
+    visible in /api/active-ops with cancellable=False (Meili rebuild is
+    atomic-ish; the existing ErrorRateMonitor inside SearchIndexer
+    handles abort-on-failure internally).
+
+    Uses authed_manager_real because the endpoint spawns the rebuild via
+    asyncio.create_task; under ASGITransport that runs in the test loop.
+
+    On dev machines with no converted files the worker exits very
+    quickly (zero files + zero adobe entries), but list_ops()'s 30s
+    grace window keeps the op visible to this test either way.
+
+    Note: the role guard was raised from SEARCH_USER to MANAGER in Task
+    19 (full re-index holds the Meilisearch index lock and is
+    operator-class work) — authed_manager_real has the right role.
+    """
+    resp = await authed_manager_real.post("/api/search/index/rebuild")
+    assert resp.status_code == 200, (
+        f"POST /api/search/index/rebuild -> {resp.status_code}: {resp.text}"
+    )
+
+    await asyncio.sleep(0.6)
+
+    ops_resp = await authed_manager_real.get("/api/active-ops")
+    assert ops_resp.status_code == 200
+    ops = ops_resp.json()["ops"]
+    rebuild_ops = [o for o in ops if o["op_type"] == "search.rebuild_index"]
+    assert len(rebuild_ops) >= 1, (
+        f"Expected search.rebuild_index op, got types: "
+        f"{sorted({o['op_type'] for o in ops})}"
+    )
+    op = rebuild_ops[0]
+    assert op["origin_url"] == "/settings.html"
+    assert op["cancellable"] is False
+    assert op["icon"] != ""

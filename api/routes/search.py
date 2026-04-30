@@ -703,9 +703,14 @@ async def index_status(
 @router.post("/index/rebuild")
 async def rebuild_index(
     body: dict | None = None,
-    user: AuthenticatedUser = Depends(require_role(UserRole.SEARCH_USER)),
+    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
 ):
-    """Trigger a full index rebuild."""
+    """Trigger a full index rebuild.
+
+    Role raised from SEARCH_USER to MANAGER in v0.35.0 (Task 19) — a full
+    re-index holds the Meilisearch index lock for the duration and is
+    operator-class work, not search-user work.
+    """
     client = get_meili_client()
     if not await client.health_check():
         raise HTTPException(
@@ -718,14 +723,41 @@ async def rebuild_index(
     if not indexer:
         raise HTTPException(status_code=503, detail="Search indexer not initialized.")
 
+    # Active-ops registry (v0.35.0): register a search.rebuild_index op
+    # before spawning the worker, finalise via finish_op in try/finally
+    # inside the task so a Meilisearch crash mid-rebuild can't leak a
+    # 'running' row to hydrate_on_startup.  cancellable=False — Meili
+    # rebuild is atomic-ish and the existing ErrorRateMonitor inside
+    # SearchIndexer.rebuild_index handles abort-on-failure internally.
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="search.rebuild_index",
+        label="Rebuilding search index",
+        icon="\U0001F504",  # 🔄
+        origin_url="/settings.html",
+        started_by=user.email,
+        cancellable=False,
+        extra={"indexes": ["documents", "adobe-files", "transcripts"],
+               "job_id": job_id},
+    )
+
     async def _rebuild():
-        result = await indexer.rebuild_index(job_id=job_id)
-        log.info(
-            "search_rebuild_complete",
-            documents=result.documents_indexed,
-            adobe=result.adobe_indexed,
-            errors=result.errors,
-        )
+        error_msg: str | None = None
+        try:
+            result = await indexer.rebuild_index(job_id=job_id, op_id=op_id)
+            log.info(
+                "search_rebuild_complete",
+                documents=result.documents_indexed,
+                adobe=result.adobe_indexed,
+                errors=result.errors,
+            )
+        except Exception as exc:
+            error_msg = f"{type(exc).__name__}: {exc}"
+            log.error("search_rebuild_failed", error=error_msg)
+            raise
+        finally:
+            await active_ops.finish_op(op_id, error_msg=error_msg)
 
     asyncio.create_task(_rebuild())
-    return {"status": "rebuild_started", "job_id": job_id}
+    return {"status": "rebuild_started", "job_id": job_id, "op_id": op_id}
