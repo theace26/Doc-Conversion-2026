@@ -1,6 +1,6 @@
 # Active Operations Registry Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Unify every long-running file-related operation in MarkFlow under a single in-memory + DB-backed registry; surface progress on each operation's originating page (inline widget) and on the Status page (index hub) with click-through navigation.
 
@@ -37,21 +37,21 @@ Per-phase reasoning sits at each `## Phase N` header below.
 
 Before starting Task 1, verify the environment:
 
-- [ ] **Verify v0.34.2 has shipped (or skip if working on the v0.35.0 branch ahead of the hotfix).**
+- [x] **Verify v0.34.2 has shipped (or skip if working on the v0.35.0 branch ahead of the hotfix).**
 
 ```bash
 git log --oneline | grep "v0.34.2" | head -1
 ```
 If empty: stop. v0.34.2 must ship first per spec §14. If proceeding ahead of v0.34.2 by design, note it in the eventual release commit.
 
-- [ ] **Verify baseline tests pass.**
+- [x] **Verify baseline tests pass.**
 
 ```bash
 docker-compose exec markflow pytest tests/ -q
 ```
 Expected: all green. If any pre-existing failure, capture the count so post-feature comparison is meaningful.
 
-- [ ] **Verify current scheduler job count is 19.**
+- [x] **Verify current scheduler job count is 19.**
 
 ```bash
 docker-compose exec markflow python -c "from core.scheduler import _SCHEDULED_JOBS; print(len(_SCHEDULED_JOBS))"
@@ -60,7 +60,7 @@ Expected: `19` (per spec §10; we add the 20th in Task 9).
 
 If the count differs, investigate before continuing — the spec assumed 19.
 
-- [ ] **Verify current migration version.**
+- [x] **Verify current migration version.**
 
 ```bash
 docker-compose exec markflow python -c "from core.db.migrations import LATEST_VERSION; print(LATEST_VERSION)"
@@ -4988,7 +4988,7 @@ This phase cleans up audit findings and updates all 5 release-discipline docs (p
 **Files:**
 - Delete: `static/js/deletion-banner.js`
 
-- [ ] **Step 1: Verify zero callers.**
+- [x] **Step 1: Verify zero callers.**
 
 ```bash
 grep -rn "deletion-banner\|checkDeletionBanner" static/ docs/ | grep -v "deletion-banner.js:"
@@ -4997,13 +4997,13 @@ Expected: no output (zero references outside the file itself).
 
 If the grep finds anything, STOP. Investigate and either keep the file or fix the reference before deleting.
 
-- [ ] **Step 2: Delete the file.**
+- [x] **Step 2: Delete the file.**
 
 ```bash
 git rm static/js/deletion-banner.js
 ```
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git commit -m "chore: delete orphaned deletion-banner.js (audit MEDIUM #6)"
@@ -5018,13 +5018,13 @@ git commit -m "chore: delete orphaned deletion-banner.js (audit MEDIUM #6)"
 - Modify: `api/routes/logs.py:124` (comment)
 - Modify: `docs/gotchas.md` (the `log_archiver` line, around `:276`)
 
-- [ ] **Step 1: Find each reference.**
+- [x] **Step 1: Find each reference.**
 
 ```bash
 grep -n "log_archiver" core/scheduler.py api/routes/logs.py docs/gotchas.md
 ```
 
-- [ ] **Step 2: Update each comment to reference `core/log_manager.py`.**
+- [x] **Step 2: Update each comment to reference `core/log_manager.py`.**
 
 For `core/scheduler.py` and `api/routes/logs.py`: edit the comment line to say `core/log_manager.py` instead of `core/log_archiver` (the module was consolidated in v0.31.0).
 
@@ -5035,7 +5035,7 @@ The log management scheduler job (every 6h) — implemented in
 `core/log_manager.py` since v0.31.0 — quietly compresses ...
 ```
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add core/scheduler.py api/routes/logs.py docs/gotchas.md
@@ -5051,7 +5051,7 @@ git commit -m "chore: update stale log_archiver comments → log_manager"
 **Files:**
 - Create: `docs/scheduler-time-slots.md`
 
-- [ ] **Step 1: Write the doc using the inventory below (no inventory step needed — already captured by recon §A.4.2).**
+- [x] **Step 1: Write the doc using the inventory below (no inventory step needed — already captured by recon §A.4.2).**
 
 ```markdown
 # Scheduler time-slot allocation
@@ -5123,7 +5123,7 @@ A boot-time self-check that flags collisions automatically is
 queued as a future ticket.
 ```
 
-- [ ] **Step 2: Add module docstring reference.**
+- [x] **Step 2: Add module docstring reference.**
 
 In `core/scheduler.py`, near the top:
 
@@ -5138,7 +5138,7 @@ self-counting via `len(scheduler.get_jobs())` as of v0.35.0 — no
 manual count to maintain."""
 ```
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add docs/scheduler-time-slots.md core/scheduler.py
@@ -5152,7 +5152,7 @@ git commit -m "docs(active_ops): scheduler time-slot allocation table (P7)"
 **Files:**
 - Modify: `docs/gotchas.md`
 
-- [ ] **Step 1: Add "Active Operations Registry" section.**
+- [x] **Step 1: Add "Active Operations Registry" section.**
 
 At the top of `docs/gotchas.md`, add a new top-level section (before existing sections):
 
@@ -5169,7 +5169,7 @@ At the top of `docs/gotchas.md`, add a new top-level section (before existing se
 - **Schema: `active_operations` table (migration v29).** See `core/active_ops.py` docstring for the field-by-field contract.
 ```
 
-- [ ] **Step 2: Add "Long-running operations & shared state" section.**
+- [x] **Step 2: Add "Long-running operations & shared state" section.**
 
 Add another new top-level section (the P1–P10 patterns from spec §17):
 
@@ -5209,7 +5209,7 @@ Deprecated public surfaces emit deprecation signals (JS: console.warn; HTTP: Dep
 The single-writer queue (v0.23.0) is universal. NO subsystem implements its own retry/serialization logic.
 ```
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add docs/gotchas.md
@@ -5223,7 +5223,7 @@ git commit -m "docs(active_ops): add Active Ops Registry + P1–P10 sections to 
 **Files:**
 - Modify: `CLAUDE.md`
 
-- [ ] **Step 1: Add a "Long-running operations" subsection to the Architecture Reminders block.**
+- [x] **Step 1: Add a "Long-running operations" subsection to the Architecture Reminders block.**
 
 After the existing bullet list (the "All phases 0–11 are Done" line), add:
 
@@ -5245,7 +5245,7 @@ Every long-running file-related op routes through `core/active_ops.py`
 - **DB writes always through `db_write_with_retry`** (P10).
 ```
 
-- [ ] **Step 2: Update the Critical Files table to add `core/active_ops.py`.**
+- [x] **Step 2: Update the Critical Files table to add `core/active_ops.py`.**
 
 Add a new row:
 
@@ -5253,7 +5253,7 @@ Add a new row:
 | `core/active_ops.py` | Active Operations Registry — single source of truth for long-running ops (v0.35.0) |
 ```
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add CLAUDE.md
@@ -5267,7 +5267,7 @@ git commit -m "docs(active_ops): CLAUDE.md Architecture Reminders + active_ops.p
 **Files:**
 - Modify: `docs/key-files.md`
 
-- [ ] **Step 1: Add 6 new rows.**
+- [x] **Step 1: Add 6 new rows.**
 
 ```markdown
 | `core/active_ops.py` | Active Operations Registry. Workers register, update, finish; hydrates on startup; auto-purge daily. v0.35.0+ |
@@ -5278,7 +5278,7 @@ git commit -m "docs(active_ops): CLAUDE.md Architecture Reminders + active_ops.p
 | `docs/scheduler-time-slots.md` | Canonical scheduler job time-slot allocation table (spec §17 P7). v0.35.0+ |
 ```
 
-- [ ] **Step 2: Commit.**
+- [x] **Step 2: Commit.**
 
 ```bash
 git add docs/key-files.md
@@ -5292,7 +5292,7 @@ git commit -m "docs(active_ops): 6 new rows in key-files.md"
 **Files:**
 - Modify: `docs/help/whats-new.md`
 
-- [ ] **Step 1: Add operator-friendly section at the top.**
+- [x] **Step 1: Add operator-friendly section at the top.**
 
 ```markdown
 ## v0.35.0 — Active Operations Hub (April 28, 2026)
@@ -5317,7 +5317,7 @@ The old Trash status banner (Empty Trash / Restore All progress) is now powered 
 - Multi-tab: clicking Force Transcribe in two browser tabs creates two operations (the second errors out since one is already queued). A future release will deduplicate.
 ```
 
-- [ ] **Step 2: Commit.**
+- [x] **Step 2: Commit.**
 
 ```bash
 git add docs/help/whats-new.md
@@ -5331,7 +5331,7 @@ git commit -m "docs(active_ops): whats-new entry for v0.35.0"
 **Files:**
 - Modify: `docs/help/admin-tools.md`
 
-- [ ] **Step 1: Add "Active Operations Hub" section.**
+- [x] **Step 1: Add "Active Operations Hub" section.**
 
 Insert a new section near the top:
 
@@ -5371,7 +5371,7 @@ If MarkFlow restarts while operations are in flight, the registry marks them `te
 Every register / update / finish / cancel emits a structured log event (`active_ops.registered`, `active_ops.finished`, etc.). Search via Log Viewer with `?q=active_ops`.
 ```
 
-- [ ] **Step 2: Commit.**
+- [x] **Step 2: Commit.**
 
 ```bash
 git add docs/help/admin-tools.md
@@ -5385,7 +5385,7 @@ git commit -m "docs(active_ops): admin-tools.md Active Operations Hub section"
 **Files:**
 - Modify: `docs/bug-log.md`
 
-- [ ] **Step 1: Append 5 rows in the Planned section.**
+- [x] **Step 1: Append 5 rows in the Planned section.**
 
 ```markdown
 | BUG-015 | planned | v0.36.x | Remove deprecated `/api/trash/empty/status` and `/api/trash/restore-all/status` after the v0.35.0 facade window. Endpoints currently return registry-derived data with `Deprecation: true` + `Sunset` headers. | spec §14, §17 P9 |
@@ -5402,7 +5402,7 @@ allocated BUG-013 / 014 for two pre-existing-but-newly-discovered bugs
 (`tests/test_phase9/test_scheduler.py` import + `pipeline-card.js` URL),
 this reservation block was bumped forward to BUG-015..019.)
 
-- [ ] **Step 2: Commit.**
+- [x] **Step 2: Commit.**
 
 ```bash
 git add docs/bug-log.md
@@ -5416,7 +5416,7 @@ git commit -m "docs(active_ops): add BUG-015, 016, 017, 018, 019 (planned, v0.36
 **Files:**
 - Modify: `docs/version-history.md`
 
-- [ ] **Step 1: Prepend a new v0.35.0 entry.**
+- [x] **Step 1: Prepend a new v0.35.0 entry.**
 
 Insert at the top of the file (before the v0.34.1 entry):
 
@@ -5471,7 +5471,7 @@ Insert at the top of the file (before the v0.34.1 entry):
 ---
 ```
 
-- [ ] **Step 2: Commit.**
+- [x] **Step 2: Commit.**
 
 ```bash
 git add docs/version-history.md
@@ -5485,13 +5485,13 @@ git commit -m "docs(active_ops): version-history entry for v0.35.0"
 **Files:**
 - Modify: `core/version.py`
 
-- [ ] **Step 1: Edit.**
+- [x] **Step 1: Edit.**
 
 ```python
 __version__ = "0.35.0"
 ```
 
-- [ ] **Step 2: Verify the version is exposed via `/api/health` or wherever it's read.**
+- [x] **Step 2: Verify the version is exposed via `/api/health` or wherever it's read.**
 
 ```bash
 docker-compose restart markflow
@@ -5499,7 +5499,7 @@ docker-compose exec markflow curl -s http://localhost:8000/api/health | python -
 ```
 Expected: shows `0.35.0`.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add core/version.py
@@ -5512,7 +5512,7 @@ git commit -m "release: v0.35.0 — Active Operations Registry"
 
 **Files:** none (verification only)
 
-- [ ] **Step 1: Walk the spec §13 smoke checklist.**
+- [x] **Step 1: Walk the spec §13 smoke checklist.**
 
 Run all 6 manual smoke tests from spec §13:
 
@@ -5525,14 +5525,14 @@ Run all 6 manual smoke tests from spec §13:
 
 If any smoke test fails, STOP. The relevant Phase task may need a follow-up commit.
 
-- [ ] **Step 2: Run the full test suite.**
+- [x] **Step 2: Run the full test suite.**
 
 ```bash
 docker-compose exec markflow pytest tests/ -q
 ```
 Expected: all green. New tests added in this plan: ~45 (unit) + ~10 (endpoint) + ~10 (integration) = 65 new.
 
-- [ ] **Step 3: Final commit hygiene check.**
+- [x] **Step 3: Final commit hygiene check.**
 
 ```bash
 git status
@@ -5540,13 +5540,13 @@ git log --oneline -50
 ```
 Expected: working tree clean. Recent commits show the v0.35.0 progression.
 
-- [ ] **Step 4: Tag the release.**
+- [x] **Step 4: Tag the release.**
 
 ```bash
 git tag -a v0.35.0 -m "v0.35.0 — Active Operations Registry"
 ```
 
-- [ ] **Step 5: Push (if your house rule says push after a feature ships).**
+- [x] **Step 5: Push (if your house rule says push after a feature ships).**
 
 ```bash
 git push origin main
