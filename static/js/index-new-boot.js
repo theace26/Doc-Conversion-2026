@@ -1,5 +1,5 @@
-/* Boot script for the new Search-as-home page (Plan 3).
- * Mounts top-nav + companions, then mounts MFSearchHome.
+/* Boot script for the new Search-as-home page (Plan 4).
+ * Fetches /api/me for real role + build info, then mounts chrome + home.
  *
  * Safe DOM throughout. */
 (function () {
@@ -8,28 +8,59 @@
   var navRoot = document.getElementById('mf-top-nav');
   var homeRoot = document.getElementById('mf-home');
 
-  // TODO Plan 4: pull real role from /api/me. For now default to 'admin'
-  // so Activity link is visible during development.
-  var role = 'admin';
-  var build = { version: 'v0.34.5-dev', branch: 'main', sha: 'unknown', date: 'today' };
-  var user = { name: 'Operator', role: role, scope: '' };
+  function fetchMe() {
+    return fetch('/api/me', { credentials: 'same-origin' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('me fetch failed: ' + r.status);
+        return r.json();
+      })
+      .catch(function (e) {
+        // Defensive fallback — render as member with no build info so the
+        // page still loads. Real auth surfaces a 401 via get_current_user;
+        // this fallback only fires when /api/me is reachable but errors.
+        console.warn('mf: /api/me failed; falling back to member', e);
+        return {
+          user_id: 'dev', name: 'dev', role: 'member', scope: '',
+          build: { version: 'unknown', branch: 'unknown', sha: 'unknown', date: 'dev' },
+        };
+      });
+  }
 
-  var avatarMenu = MFAvatarMenu.create({
-    user: user,
-    build: build,
-    onSelectItem: function (id) { console.log('avatar item:', id); },
-    onSignOut: function () { console.log('sign out'); },
+  // Wire hover + context menu (body-level, no role dependency)
+  var hp = MFHoverPreview.create({
+    onAction: function (action, doc) { console.log('hover:', action, doc.id); },
+  });
+  var cm = MFContextMenu.create({
+    onAction: function (action, doc) { console.log('ctx:', action, doc.id); },
+  });
+  document.addEventListener('mf:doc-contextmenu', function (ev) {
+    cm.openAt(ev.detail.x, ev.detail.y, ev.detail.doc);
   });
 
-  var layoutPop = MFLayoutPopover.create({
-    current: MFPrefs.get('layout') || 'minimal',
-    onChoose: function (mode) {
-      MFPrefs.set('layout', mode);
-      MFTelemetry.emit('ui.layout_mode_selected', { mode: mode, source: 'popover' });
-    },
-  });
+  Promise.all([MFPrefs.load(), fetchMe()]).then(function (results) {
+    var me = results[1];
+    var role = me.role;
+    var build = me.build;
+    var user = { name: me.name, role: role, scope: me.scope };
 
-  function mountChrome() {
+    var avatarMenu = MFAvatarMenu.create({
+      user: user,
+      build: build,
+      onSelectItem: function (id) { console.log('avatar item:', id); },
+      onSignOut: function () {
+        fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' })
+          .finally(function () { window.location.href = '/'; });
+      },
+    });
+
+    var layoutPop = MFLayoutPopover.create({
+      current: MFPrefs.get('layout') || 'minimal',
+      onChoose: function (mode) {
+        MFPrefs.set('layout', mode);
+        MFTelemetry.emit('ui.layout_mode_selected', { mode: mode, source: 'popover' });
+      },
+    });
+
     MFTopNav.mount(navRoot, { role: role, activePage: 'search' });
     MFVersionChip.mount(
       navRoot.querySelector('[data-mf-slot="version-chip"]'),
@@ -43,34 +74,18 @@
       navRoot.querySelector('[data-mf-slot="layout-icon"]'),
       { onClick: function (btn) { layoutPop.openAt(btn); } }
     );
-  }
 
-  // Cmd+\ cycles layouts
-  var MODES = ['maximal', 'recent', 'minimal'];
-  MFKeybinds.on('mod+\\', function () {
-    var current = MFPrefs.get('layout') || 'minimal';
-    var next = MODES[(MODES.indexOf(current) + 1) % MODES.length];
-    MFPrefs.set('layout', next);
-    layoutPop.setCurrent(next);
-    MFTelemetry.emit('ui.layout_mode_selected', { mode: next, source: 'kbd' });
-    return true;
-  });
+    // Cmd+\ cycles layouts
+    var MODES = ['maximal', 'recent', 'minimal'];
+    MFKeybinds.on('mod+\\', function () {
+      var current = MFPrefs.get('layout') || 'minimal';
+      var next = MODES[(MODES.indexOf(current) + 1) % MODES.length];
+      MFPrefs.set('layout', next);
+      layoutPop.setCurrent(next);
+      MFTelemetry.emit('ui.layout_mode_selected', { mode: next, source: 'kbd' });
+      return true;
+    });
 
-  // Wire hover + context menu + selection (the doc-card interaction
-  // event listeners are global at body level, just like dev-chrome).
-  var hp = MFHoverPreview.create({
-    onAction: function (action, doc) { console.log('hover:', action, doc.id); },
-  });
-  var cm = MFContextMenu.create({
-    onAction: function (action, doc) { console.log('ctx:', action, doc.id); },
-  });
-  document.addEventListener('mf:doc-contextmenu', function (ev) {
-    cm.openAt(ev.detail.x, ev.detail.y, ev.detail.doc);
-  });
-
-  // Hydrate prefs, then render
-  MFPrefs.load().then(function () {
-    mountChrome();
     var homeHandle = MFSearchHome.mount(homeRoot, {
       systemStatus: 'All systems running · 12,847 indexed',
     });
