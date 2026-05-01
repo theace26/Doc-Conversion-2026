@@ -6,6 +6,11 @@
 */
 
 :root {
+  /* === Theme system (v0.37.0) === */
+  --mf-text-scale:   1;
+  --mf-font-family:  system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --mf-btn-bg:       var(--mf-color-accent);
+
   /* === Color — primary accent (purple) === */
   --mf-color-accent:           #5b3df5;
   --mf-color-accent-soft:      #9d7bff;
@@ -57,10 +62,10 @@
   --mf-text-h1:         1.85rem;
   --mf-text-h2:         1.4rem;
   --mf-text-h3:         1.05rem;
-  --mf-text-body:       0.94rem;
-  --mf-text-sm:         0.86rem;
-  --mf-text-xs:         0.78rem;
-  --mf-text-micro:      0.7rem;
+  --mf-text-body:       calc(0.94rem * var(--mf-text-scale));
+  --mf-text-sm:         calc(0.86rem * var(--mf-text-scale));
+  --mf-text-xs:         calc(0.78rem * var(--mf-text-scale));
+  --mf-text-micro:      calc(0.7rem  * var(--mf-text-scale));
 
   --mf-tracking-tight:  -0.025em;
   --mf-tracking-wide:   0.07em;
@@ -112,6 +117,8 @@
   --mf-gradient-paper-fade: linear-gradient(180deg, rgba(254,254,251,0) 0%, rgba(254,254,251,1) 92%); /* snippet fade */
   --mf-shadow-text:         0 1px 2px rgba(0, 0, 0, 0.18);                                /* text on gradient band */
 }
+
+:root { font-family: var(--mf-font-family); }
 
 /* Production: hide the dev version chip (Plan 1B will style .mf-ver-chip). */
 body[data-env="prod"] .mf-ver-chip { display: none; }
