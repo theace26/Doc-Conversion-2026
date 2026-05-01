@@ -577,6 +577,11 @@ async def settings_log_management_page():
     return FileResponse("static/settings-log-mgmt.html")
 
 
+@app.get("/settings/ai-providers/cost", include_in_schema=False)
+async def settings_cost_cap_page():
+    return FileResponse("static/settings-cost-cap.html")
+
+
 @app.get("/settings/{section}", include_in_schema=False)
 async def settings_section_page(section: str):
     """Future plans implement each section. Redirect to overview for now."""
