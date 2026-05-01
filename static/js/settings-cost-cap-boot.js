@@ -40,12 +40,64 @@
       });
   }
 
+  function _normalizeRates(rateData) {
+    var flat = [];
+    var nested = rateData && rateData.rates;
+    if (!nested || Array.isArray(nested)) return flat;
+    var providers = Object.keys(nested);
+    for (var pi = 0; pi < providers.length; pi++) {
+      var provName = providers[pi];
+      var models = nested[provName];
+      if (!models || typeof models !== 'object') continue;
+      var modelKeys = Object.keys(models);
+      for (var mi = 0; mi < modelKeys.length; mi++) {
+        var modelName = modelKeys[mi];
+        var r = models[modelName];
+        if (!r || typeof r !== 'object') continue;
+        flat.push({
+          provider: r.provider || provName,
+          model: r.model || modelName,
+          input_per_1m: r.input_per_million_usd != null ? r.input_per_million_usd : null,
+          output_per_1m: r.output_per_million_usd != null ? r.output_per_million_usd : null,
+          cache_write_per_1m: r.cache_write_per_million_usd != null ? r.cache_write_per_million_usd : null,
+          cache_read_per_1m: r.cache_read_per_million_usd != null ? r.cache_read_per_million_usd : null,
+          effective_date: r.effective_date || null,
+        });
+      }
+    }
+    return flat;
+  }
+
+  function _normalizePeriod(period) {
+    var rawByModel = period.by_model || {};
+    var byModelArr = [];
+    if (!Array.isArray(rawByModel)) {
+      var keys = Object.keys(rawByModel);
+      for (var i = 0; i < keys.length; i++) {
+        var key = keys[i];
+        var usd = rawByModel[key];
+        var parts = key.split('/');
+        var prov = parts.length >= 2 ? parts[0] : '';
+        var mod = parts.length >= 2 ? parts.slice(1).join('/') : parts[0];
+        byModelArr.push({ provider: prov, model: mod, input_tokens: null, output_tokens: null, usd: usd });
+      }
+    } else {
+      byModelArr = rawByModel;
+    }
+    return {
+      total_usd: period.total_cost_usd != null ? period.total_cost_usd : (period.total_usd || 0),
+      by_provider: period.by_provider || {},
+      by_model: byModelArr,
+      daily: [],
+    };
+  }
+
   Promise.all([
     MFPrefs.load(),
     fetchMe(),
-    fetchOrEmpty('/api/admin/llm-costs', { rates: [] }),
-    fetchOrEmpty('/api/analysis/cost/period', { total_usd: 0, by_provider: {}, by_model: [], daily: [] }),
-    fetchOrEmpty('/api/analysis/cost/period?days=30', { total_usd: 0, by_provider: {}, by_model: [], daily: [] }),
+    fetchOrEmpty('/api/admin/llm-costs', { rates: {} }),
+    fetchOrEmpty('/api/analysis/cost/period', { total_cost_usd: 0, by_provider: {}, by_model: {} }),
+    fetchOrEmpty('/api/analysis/cost/period?days=30', { total_cost_usd: 0, by_provider: {}, by_model: {} }),
     fetchOrEmpty('/api/analysis/cost/staleness', { is_stale: false, age_days: 0 }),
     fetchOrEmpty('/api/preferences', {}),
   ]).then(function (results) {
@@ -96,7 +148,7 @@
       { onClick: function (btn) { layoutPop.openAt(btn); } }
     );
 
-    var rateTable = rateData.rates || [];
+    var rateTable = _normalizeRates(rateData);
 
     var providerSet = {};
     var providers = [];
@@ -108,12 +160,15 @@
     });
     providers.sort();
 
+    var periodNorm = _normalizePeriod(period);
+    var period30Norm = _normalizePeriod(period30);
+
     var prefs = prefsData.preferences || prefsData || {};
 
     MFCostCapDetail.mount(costRoot, {
       rateTable: rateTable,
-      period: period,
-      period30: period30,
+      period: periodNorm,
+      period30: period30Norm,
       staleness: staleness,
       providers: providers,
       prefs: prefs,

@@ -48,8 +48,7 @@
   }
 
   function _todayDateString() {
-    var now = new Date();
-    return now.getFullYear() + '-' + _pad2(now.getMonth() + 1) + '-' + _pad2(now.getDate());
+    return new Date().toISOString().slice(0, 10); // YYYY-MM-DD in UTC
   }
 
   function _todayUSD(daily) {
@@ -348,7 +347,7 @@
     var daily = period.daily || [];
     var byModel = period.by_model || [];
 
-    var isSingle = providers.length === 1;
+    var isSingle = providers.length <= 1;
 
     /* tiles */
     var tilesDiv = el('div', 'mf-cost__tiles ' + (isSingle ? 'mf-cost__tiles--2up' : 'mf-cost__tiles--3up'));
@@ -495,10 +494,49 @@
     contentSlot.appendChild(note);
   }
 
+  /* ── RFC 4180-compliant CSV line splitter ── */
+  function _splitCSVLine(line) {
+    var fields = [];
+    var i = 0;
+    while (i < line.length) {
+      if (line[i] === '"') {
+        var field = '';
+        i++; // skip opening quote
+        while (i < line.length) {
+          if (line[i] === '"') {
+            if (i + 1 < line.length && line[i + 1] === '"') {
+              field += '"'; // escaped quote
+              i += 2;
+            } else {
+              i++; // skip closing quote
+              break;
+            }
+          } else {
+            field += line[i];
+            i++;
+          }
+        }
+        // skip comma after field
+        if (i < line.length && line[i] === ',') i++;
+        fields.push(field);
+      } else {
+        var end = line.indexOf(',', i);
+        if (end === -1) {
+          fields.push(line.slice(i).trim());
+          break;
+        } else {
+          fields.push(line.slice(i, end).trim());
+          i = end + 1;
+        }
+      }
+    }
+    return fields;
+  }
+
   /* ── CSV parser ── */
   function _parseCSV(text) {
     var REQUIRED = ['provider', 'model', 'input_per_1m', 'output_per_1m'];
-    var OPTIONAL = ['cache_write_per_1m', 'cache_read_per_1m', 'vision_per_image', 'batch_discount_pct', 'effective_date'];
+    /* intentionally not validated — optional columns are preserved as-is */
 
     if (text.charCodeAt(0) === 0xFEFF) {
       text = text.slice(1);
@@ -515,7 +553,7 @@
     }
 
     var headerLine = nonEmpty[0].raw;
-    var headers = headerLine.split(',').map(function (h) { return h.trim().toLowerCase(); });
+    var headers = _splitCSVLine(headerLine).map(function (h) { return h.toLowerCase(); });
 
     var errors = [];
     for (var ri = 0; ri < REQUIRED.length; ri++) {
@@ -530,7 +568,7 @@
     var rows = [];
     for (var di = 1; di < nonEmpty.length; di++) {
       var lineNum = nonEmpty[di].lineNum;
-      var cells = nonEmpty[di].raw.split(',').map(function (c) { return c.trim(); });
+      var cells = _splitCSVLine(nonEmpty[di].raw);
       var rowObj = {};
       for (var hi = 0; hi < headers.length; hi++) {
         rowObj[headers[hi]] = cells[hi] !== undefined ? cells[hi] : '';
@@ -612,15 +650,25 @@
     dropLabel.textContent = 'Drop a CSV rate file here';
     dropZone.appendChild(dropLabel);
 
-    dropZone.addEventListener('dragover', function (e) {
+    var dragDepth = 0;
+
+    dropZone.addEventListener('dragenter', function (e) {
       e.preventDefault();
+      dragDepth++;
       dropZone.classList.add('mf-cost__drop-zone--active');
     });
     dropZone.addEventListener('dragleave', function () {
-      dropZone.classList.remove('mf-cost__drop-zone--active');
+      dragDepth--;
+      if (dragDepth === 0) {
+        dropZone.classList.remove('mf-cost__drop-zone--active');
+      }
+    });
+    dropZone.addEventListener('dragover', function (e) {
+      e.preventDefault(); // required to allow drop
     });
     dropZone.addEventListener('drop', function (e) {
       e.preventDefault();
+      dragDepth = 0;
       dropZone.classList.remove('mf-cost__drop-zone--active');
       var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
       if (file) {
@@ -711,7 +759,7 @@
           reloadBtn.textContent = 'Reload rates';
           reloadBtn.disabled = false;
           var successMsg = el('div', 'mf-cost__reload-success');
-          successMsg.textContent = 'Loaded ' + (data.loaded_count || 0) + ' rate entries. Refresh the page to see updated rates.';
+          successMsg.textContent = 'Loaded ' + (data.loaded_count || data.total_rates || 0) + ' rate entries. Refresh the page to see updated rates.';
           feedbackSlot.appendChild(successMsg);
         })
         .catch(function (e) {
@@ -727,6 +775,14 @@
       var reader = new FileReader();
       reader.onload = function (evt) {
         _applyParse(evt.target.result);
+      };
+      reader.onerror = function () {
+        var errList = el('ul', 'mf-cost__error-list');
+        var li = document.createElement('li');
+        li.textContent = 'Could not read the file. Try again or use another file.';
+        errList.appendChild(li);
+        while (errorSlot.firstChild) errorSlot.removeChild(errorSlot.firstChild);
+        errorSlot.appendChild(errList);
       };
       reader.readAsText(file);
     }
@@ -881,7 +937,7 @@
     });
 
     thresholdInput.addEventListener('change', function () {
-      currentThreshold = parseFloat(thresholdInput.value) || 0;
+      currentThreshold = Math.max(0, parseFloat(thresholdInput.value) || 0);
     });
 
     /* save bar */
