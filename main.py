@@ -557,6 +557,11 @@ async def settings_ai_providers_page():
     return FileResponse("static/settings-ai-providers.html")
 
 
+@app.get("/settings/auth", include_in_schema=False)
+async def settings_auth_page():
+    return FileResponse("static/settings-auth.html")
+
+
 @app.get("/settings/{section}", include_in_schema=False)
 async def settings_section_page(section: str):
     """Future plans implement each section. Redirect to overview for now."""
