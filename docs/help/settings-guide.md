@@ -1,310 +1,558 @@
 # Settings Reference
 
-The Settings page lets you configure how MarkFlow behaves. Click
-**Save** at the top of each section to commit changes. Some settings
-require the **Manager** role.
-
-As of v0.23.4 the 21 sections are grouped into logical clusters. The
-three top-level groups are:
-
-- **Files and Locations** — where MarkFlow reads files from and how
-  it handles per-file concerns
-- **Conversion Options** — how files get turned into Markdown
-- **AI Options** — everything that touches an LLM provider
-
-Use **Expand All / Collapse All** in the page header to open or
-close every section at once. Only **Files and Locations** and
-**Conversion Options** are open by default.
+This article covers every setting in MarkFlow. If you can't find something,
+use your browser's **Find** (Ctrl+F / Cmd+F) to search by keyword.
 
 ---
 
-## Files and Locations
+## Getting to Settings
 
-The starting point for every pipeline action.
+Click your **avatar** (your initials or profile icon) in the top-right
+corner of any page. A dropdown menu appears — click **Settings** to open
+the settings overview.
+
+> The old nav-bar Settings link is gone in v0.36.0. If you're used to
+> clicking a link in the top navigation bar, look for your avatar instead.
+
+---
+
+## The Settings Overview
+
+Settings opens to a **card grid** — one card per major section. Each card
+shows the section name and who can access it.
+
+Click any card to open that section's dedicated page. Every section page
+has a **sidebar** on the left listing sub-sections. Click a sidebar item
+to jump to that group of settings. When you make a change, a **Save bar**
+appears at the bottom of the page — click **Save** to commit your changes
+or **Discard** to abandon them.
+
+### Who can see what
+
+| Card | Minimum role required |
+|------|-----------------------|
+| Storage | Operator |
+| Pipeline | Operator |
+| AI Providers | Operator |
+| Auth & Security | Admin |
+| Notifications | Operator |
+| DB Health | Admin |
+| Log Management | Admin |
+
+If a card doesn't appear on your overview, you don't have the required role.
+Ask your administrator if you think that's a mistake.
+
+---
+
+## Storage
+
+**URL:** `/settings/storage`
+
+Everything about where MarkFlow reads files from and where it writes output.
+
+### Source Locations
 
 | Setting | What It Does |
 |---------|--------------|
-| Source locations | Paths MarkFlow scans for files (add / edit / delete) |
-| Output directory | Where converted Markdown is written |
-| Excluded paths | Prefix-match directories to drop from the catalog — adding an exclusion will mark every existing file under it for deletion (36h grace → trash → 60d retention). See [File Lifecycle](/help.html#file-lifecycle) for the full cascade |
-| Check access | Verify MarkFlow can read each configured source |
+| Source paths | Paths MarkFlow scans for files. Add, edit, or remove paths here. |
+| Check access | Verify MarkFlow can actually read each configured path. |
 
-### Password Recovery
+### Output Directory
 
-How MarkFlow handles password-protected documents and archives.
+| Setting | What It Does |
+|---------|--------------|
+| Output directory | Where converted Markdown files are written. |
 
-| Setting | Default | What It Does |
-|---------|---------|--------------|
-| Dictionary attack | On | Try common passwords from the bundled wordlist |
-| Brute-force | Off | Try all character combinations (can be slow) |
-| Brute-force max length | 6 | Longest password to try |
-| Brute-force charset | Alphanumeric | Numeric, alpha, alphanumeric, or all |
-| Recovery timeout | 300s | Max seconds per file |
-| Reuse found passwords | On | Try passwords that worked on other files in the batch |
-| Use hashcat | On | GPU-accelerated cracking when available |
-| Hashcat workload | 3 (High) | GPU intensity: 1=Low, 2=Default, 3=High, 4=Maximum |
+### Excluded Paths
 
-### File Flagging
+Prefix-match rules for directories you want MarkFlow to ignore.
 
-Self-service + admin content moderation.
+| Setting | What It Does |
+|---------|--------------|
+| Excluded paths | Add a path prefix to skip it entirely during scanning. |
 
-| Setting | Default | What It Does |
-|---------|---------|--------------|
-| Flag webhook URL | (empty) | Optional webhook fired on every flag event |
-| Default expiry days | 30 | How long a flag stays active before auto-expiring |
-
-### Info
-
-Read-only view of system metadata: version, database path, build
-info, container health. Useful for support tickets.
+> **Important:** Adding an exclusion marks every file under that path for
+> removal from the catalog. Those files enter a 36-hour grace period, then
+> move to trash, then are permanently deleted after 60 days. See the
+> [File Lifecycle](/help.html#file-lifecycle) article before excluding a
+> large directory.
 
 ### Storage Connections
 
-Mount remote filesystems (NFS, SMB, tiered NAS) without editing
-`docker-compose.yml`. Add a mount with server address, export path,
-and local mount point. MarkFlow handles `mount` and re-mounts on
-container restart.
-
----
-
-## Conversion Options
-
-How files get turned into Markdown.
-
-| Setting | Default | What It Does |
-|---------|---------|--------------|
-| Default direction | To Markdown | Whether uploads default to → MD or ← MD |
-| Max upload size | 100 MB | Largest single file you can upload |
-| Max batch size | 500 MB | Total size limit for a multi-file upload |
-| Retention days | 30 | How long conversion results are kept (0 = forever) |
-| Max concurrent | 3 | How many files convert at the same time |
-| PDF engine | pdfplumber | Which library reads PDF files |
-| Database sample rows per table | 25 | First N rows extracted per table in database files (max 1000) |
-| **Skip file extensions** *(v0.23.3)* | `[]` | JSON list of extensions (no dots) to exclude from scanning. Example: `["tmp", "bak", "log"]` |
-| **PPTX chart extraction** *(v0.23.8)* | Placeholder | How to handle charts in PowerPoint files. `Placeholder` shows `[Chart: title]` text. `LibreOffice` renders charts as PNG images via LibreOffice headless (~5s per chart). SmartArt shapes always produce a warning regardless of this setting. |
-
-### OCR
-
-Automatic text extraction from scanned documents.
-
-| Setting | Default | Range | What It Does |
-|---------|---------|-------|--------------|
-| Confidence threshold | 60 | 0–100 | Pages below this score are flagged for review |
-| Unattended mode | Off | On/Off | Auto-accepts all OCR text without flagging |
-| OCR preprocessing | On | On/Off | Deskew, contrast, noise reduction |
-| **Handwriting confidence threshold** *(v0.20.3)* | 40 | 0–100 | Below this, MarkFlow sends the page image to the active LLM vision provider for handwriting transcription |
-| **Force OCR by default** *(v0.23.6)* | Off | On/Off | When on, new bulk jobs default to re-OCRing every PDF page even if a text layer is present. Per-job override is in the Bulk page config modal. |
-
-> **Tip:** 60-80% is a good balance for the main confidence threshold.
-> Lower it if too many pages are flagged, raise it if accuracy is
-> critical. For handwriting, 40% is aggressive; raise to 30% if too
-> many clean-print pages are being sent to the LLM.
-
-### Path Safety
-
-How MarkFlow names output files and handles collisions.
-
-| Setting | Default | What It Does |
-|---------|---------|--------------|
-| Max path length | 240 | Max output path length — files longer are skipped with `skip_reason` |
-| Collision strategy | rename | What to do when two files would produce the same output name: `rename`, `overwrite`, or `skip` |
-
----
-
-## AI Options
-
-Features that call out to an LLM provider. All require an active
-provider configured on the **Providers** page.
-
-| Setting | Default | What It Does |
-|---------|---------|--------------|
-| OCR correction | Off | Use AI to fix garbled OCR output |
-| Summarize | Off | Generate a one-paragraph summary in every document's frontmatter |
-| Heading inference | Off | Detect headings in PDFs that lack structure |
-
-### Vision & Frame Description
-
-Visual content analysis for videos and image-heavy documents.
-
-| Setting | Default | What It Does |
-|---------|---------|--------------|
-| Enrichment level | 2 | 1=basic, 2=standard, 3=comprehensive |
-| Frame limit | 50 | Max keyframes extracted per video |
-| Save keyframes | Off | Keep extracted frame images on disk |
-| Vision provider | (uses active provider) | Provider used for image analysis |
-
-### Claude Integration (MCP)
-
-The Model Context Protocol server lets Claude (or any MCP client)
-query your MarkFlow index directly. Runs on port 8001.
+Mount remote filesystems (NFS shares, SMB/Windows shares, tiered NAS
+volumes) without editing any Docker configuration files.
 
 | Setting | What It Does |
 |---------|--------------|
-| Enable MCP server | Start/stop the MCP server |
-| MCP auth token | Bearer token clients must supply |
-| Setup Instructions | Expandable — copy-paste config for Claude Desktop |
+| Server address | Hostname or IP of the remote server |
+| Export / share path | The path on the remote server to mount |
+| Local mount point | Where MarkFlow sees the mount inside the container |
+| Mount type | NFS or SMB |
 
-### Transcription
-
-Audio/video transcription pipeline.
-
-| Setting | Default | What It Does |
-|---------|---------|--------------|
-| Whisper model | base | Local Whisper model size: `tiny`, `base`, `small`, `medium`, `large` |
-| Caption file extensions | `srt,vtt,sbv` | Caption files auto-ingested alongside media |
-| Cloud fallback priority | (empty) | Fallback order if local Whisper unavailable: `openai,gemini`, etc. |
-
-### AI-Assisted Search
-
-The Claude-powered answer drawer on the Search page.
-
-| Setting | Default | What It Does |
-|---------|---------|--------------|
-| Enable AI Assist org-wide | On | Master switch; users can still toggle per-browser |
-| Max output tokens | 700 | Response length cap (about 380 words) |
-| Max snippets fed to Claude | 8 | How many top search results Claude sees |
-
-> **Per-provider opt-in:** On the **Providers** page, tick **Use for
-> AI Assist** on any Anthropic provider to route AI Assist to it
-> independently of the image-scanner provider. See [What's
-> New → v0.22.11](/help.html#whats-new) for details.
-
----
-
-## Billing & Costs *(v0.33.2)*
-
-| Setting | Default | What It Does |
-|---------|---------|--------------|
-| Billing cycle start day | 1 | Day-of-month (1-28) when your provider's invoice cycle starts. The Provider Spend card on the Admin page sums LLM costs from this day of the previous month through today. Match your actual invoice date for an accurate running total. |
-
-> **Why does this exist?** Different providers close their bills on
-> different days. If your Anthropic invoice closes on the 15th, set
-> this to 15 so MarkFlow's "this cycle" total matches what you'll be
-> charged. Capped at 28 to avoid February's edge case (no Feb 30/31).
-
-> **Where do the rate values live?** The per-1M-token rates for each
-> model are in `core/data/llm_costs.json` inside the container. To
-> update without a restart: edit the file (it's host-mounted), then
-> hit `POST /api/admin/llm-costs/reload` (admin only). View what's
-> currently loaded at `/api/admin/llm-costs`.
-
----
-
-## Logging
-
-| Setting | Default | What It Does |
-|---------|---------|--------------|
-| Log level | Normal | Normal = warnings only. Elevated = operational info. Developer = everything |
-
-> **Note:** Developer mode also enables frontend action tracking
-> (every button click). Turn it off when not actively debugging.
-
----
-
-## File Lifecycle
-
-Automatic change detection and file management.
-
-| Setting | Default | What It Does |
-|---------|---------|--------------|
-| Scanner enabled | On | Periodic scanning of source locations |
-| Scan interval | 15 min | How often to check for changes |
-| Business hours | 06:00–18:00 | Scanner only runs during these hours (weekdays) |
-| Incremental scan | On | Skip directories whose mtime has not changed |
-| Full walk every N scans | 5 | Force a full walk every Nth scan |
-| Grace period | 36 hours | Wait time before a missing file moves to trash |
-| Trash retention | 60 days | How long trashed files are kept before auto-purge |
-| **Auto-purge aged trash** *(v0.23.6)* | On | Master switch for the daily 04:00 job that permanently deletes trashed files older than the retention window. Turn off to keep trash indefinitely. |
-
-> **Note:** Both the grace period and the trash retention are now
-> production values. The daily auto-purge job runs at 04:00 local
-> time, is gated on the **Auto-purge aged trash** toggle above, and
-> yields automatically to active bulk jobs.
+MarkFlow handles the `mount` command and automatically re-mounts on
+container restart. After adding a mount, use **Check access** under
+Source Locations to confirm MarkFlow can read it.
 
 ---
 
 ## Pipeline
 
-Master switch for the automated conversion pipeline.
+**URL:** `/settings/pipeline`
+
+Controls the automated conversion pipeline — how MarkFlow discovers files
+and converts them in the background.
+
+### Pipeline Switch
 
 | Setting | Default | What It Does |
 |---------|---------|--------------|
-| Pipeline enabled | On | Master switch — when off, no auto-conversion |
-| Max files per run | 0 | Cap files per auto-conversion batch (0 = no cap) |
-| Startup delay | 5 min | Wait this long before the first post-startup scan |
-| Auto-reset days | 3 | If pipeline is disabled, auto re-enable after N days |
+| Pipeline enabled | On | Master switch. When off, no automatic conversion runs. |
 
----
+> Turning this off does not stop a conversion that's already running. To
+> stop an active job, use the Bulk page.
 
-## Cloud Prefetch
-
-Background prefetch for cloud-synced source directories (OneDrive,
-Google Drive, Dropbox, iCloud, tiered NAS).
+### Schedule
 
 | Setting | Default | What It Does |
 |---------|---------|--------------|
-| Cloud prefetch enabled | Off | Enable background prefetch for cloud placeholders |
-| Concurrency | 4 | How many prefetch workers run in parallel |
-| Rate limit | 10/sec | Max files prefetched per second |
-| Timeout | 120s | Max seconds to wait for a single file |
-| Min size bytes | 0 | Skip files smaller than this |
+| Scanner enabled | On | Periodic scanning of source locations |
+| Scan interval | 15 min | How often to check for new or changed files |
+| Business hours | 06:00–18:00 | Scanner only runs during these hours on weekdays |
+| Incremental scan | On | Skip directories whose modification time hasn't changed |
+| Full walk every N scans | 5 | Force a complete directory walk every Nth scan |
+| Startup delay | 5 min | How long to wait after container start before the first scan |
 
----
-
-## Search Preview
-
-The hover popup on search results.
+### Auto-Conversion
 
 | Setting | Default | What It Does |
 |---------|---------|--------------|
-| Hover Preview | On | Show or hide the preview popup on hover |
-| Preview size | Medium | Small (320x240), Medium (480x360), Large (640x480) |
-| Hover delay | 400ms | How long to hover before the preview appears (100–2000ms) |
-
-> **Tip:** If you find previews distracting, turn them off or raise
-> the delay. If you want instant previews, drop to 100 ms.
-
----
-
-## Auto-Conversion
-
-Decision engine for auto-converting newly scanned files. Works in
-tandem with the Pipeline section above.
-
-| Setting | Default | What It Does |
-|---------|---------|--------------|
-| Mode | Batch | `batch`, `immediate`, or `off` |
-| Batch size | 500 | Files per auto-batch |
+| Mode | Batch | How newly discovered files are converted: `batch`, `immediate`, or `off` |
+| Batch size | 500 | Files per automatic batch |
 | Workers | 4 | Parallel conversion workers |
-| OCR threshold for auto-skip | 50 | Files below this OCR confidence are skipped |
+| OCR threshold for auto-skip | 50 | Files below this OCR confidence score are skipped in auto-conversion |
+| Max files per run | 0 | Cap on files converted per auto-conversion run (0 means no cap) |
+| Auto-reset days | 3 | If the pipeline is disabled, automatically re-enable it after N days |
 
-See the [Auto-Conversion](/help.html#auto-conversion) article for mode
-details.
+See the [Auto-Conversion](/help.html#auto-conversion) article for a full
+explanation of the `batch`, `immediate`, and `off` modes.
 
----
-
-## Debug: DB Contention Logging
-
-**Temporary diagnostic section** introduced in v0.19.6.5 to diagnose
-"database is locked" errors. Produces three extra log files in
-`logs/`. Turn off when contention issues are resolved — the logs
-are high-volume.
+### File Lifecycle
 
 | Setting | Default | What It Does |
 |---------|---------|--------------|
-| DB contention logging | Off | Enable the three diagnostic log files |
+| Grace period | 36 hours | How long a missing file waits before moving to trash |
+| Trash retention | 60 days | How long trashed files are kept before permanent deletion |
+| Auto-purge aged trash | On | Master switch for the daily 04:00 auto-purge job |
+
+> The daily auto-purge job runs at 04:00 local time and skips automatically
+> if a bulk job is active. Turning off **Auto-purge aged trash** keeps trash
+> indefinitely (useful if you want to review before permanent deletion).
 
 ---
 
-## Advanced
+## AI Providers
 
-Seldom-needed options for experienced operators.
+**URL:** `/settings/ai-providers`
+
+Configure the LLM providers MarkFlow can use for AI features (OCR
+correction, document summarization, heading inference, handwriting
+transcription, and AI-assisted search).
+
+### Provider List
+
+The sidebar lists each provider you've added. Click one to view or edit
+it. Supported provider types:
+
+- **Anthropic** — Claude models (recommended for AI Assist)
+- **OpenAI** — GPT and Whisper models
+- **Gemini** — Google Gemini models
+- **Ollama** — Local models running on your own hardware
+
+### Adding or Editing a Provider
+
+Click **Add Provider** (or select an existing provider from the sidebar)
+to open the provider form.
+
+| Field | What It Does |
+|-------|--------------|
+| Provider type | Anthropic, OpenAI, Gemini, or Ollama |
+| API key | Your API key for the provider (stored encrypted) |
+| Display name | A friendly name shown in dropdowns and logs |
+| Is active | Whether this provider is available for use |
+| Use for AI Assist | Route the AI-powered search answer drawer to this provider |
+| Default model | Which model to use when no per-feature model is specified |
+
+> **AI Assist note:** The **Use for AI Assist** checkbox is independent of
+> the image-scanner provider. You can have one provider handle OCR/vision
+> and a different one handle AI-assisted search. Only Anthropic providers
+> support the AI Assist drawer today.
+
+### AI Options
+
+These settings appear under the main **AI Providers** sidebar section:
+
+| Setting | Default | What It Does |
+|---------|---------|--------------|
+| OCR correction | Off | Use AI to clean up garbled OCR output |
+| Summarize | Off | Generate a one-paragraph summary in each document's frontmatter |
+| Heading inference | Off | Detect headings in PDFs that lack document structure |
+| Enable AI Assist org-wide | On | Master switch for the AI answer drawer on the Search page |
+| Max output tokens | 700 | Response length cap for AI Assist answers (about 380 words) |
+| Max snippets fed to AI | 8 | How many top search results the AI sees when forming an answer |
+
+### Vision & Frame Description
+
+| Setting | Default | What It Does |
+|---------|---------|--------------|
+| Enrichment level | 2 | 1 = basic, 2 = standard, 3 = comprehensive |
+| Frame limit | 50 | Max keyframes extracted per video |
+| Save keyframes | Off | Keep extracted frame images on disk after processing |
+| Vision provider | (uses active provider) | Provider used for image and video analysis |
+
+### Transcription
+
+| Setting | Default | What It Does |
+|---------|---------|--------------|
+| Whisper model | base | Local model size: `tiny`, `base`, `small`, `medium`, `large`. Larger = more accurate but slower. |
+| Caption file extensions | `srt,vtt,sbv` | Caption files that are ingested automatically alongside media |
+| Cloud fallback priority | (empty) | Order to try cloud providers if local Whisper is unavailable, e.g. `openai,gemini` |
+
+### Claude Integration (MCP)
+
+The Model Context Protocol server lets Claude Desktop (or any MCP client)
+query your MarkFlow document index directly. It runs on port 8001.
 
 | Setting | What It Does |
 |---------|--------------|
-| Reset to defaults | Restore every setting on this page to its default value (irreversible) |
+| Enable MCP server | Start or stop the MCP endpoint |
+| MCP auth token | Bearer token that clients must supply |
+| Setup instructions | Expandable section with copy-paste config for Claude Desktop |
+
+---
+
+### Cost Dashboard
+
+**URL:** `/settings/ai-providers/cost`
+
+The Cost page gives you a clear view of what you're spending on LLM
+providers. Access it by clicking **Cost** in the AI Providers sidebar.
+
+#### Spend Tiles
+
+At the top of the page you'll see spend summary tiles:
+
+- **Spend today** — token costs accumulated since midnight local time
+- **Spend this month** — costs since your billing cycle start day
+
+If you have multiple active providers, the layout expands to show a tile
+per provider.
+
+#### Daily Spend Chart
+
+A bar chart shows your daily LLM spend over the past 30 days, broken down
+by provider. Hover over a bar to see the exact amount and which models
+drove the cost.
+
+#### CSV Rate Import
+
+If your provider gives you a custom rate table (for example, enterprise
+pricing that differs from the public list price), you can import it here.
+
+Drag and drop a CSV file onto the import area, or click to browse. The
+CSV must have these four columns (header row required):
+
+| Column | Format | Example |
+|--------|--------|---------|
+| `provider` | Provider name (lowercase) | `anthropic` |
+| `model` | Model ID as returned by the API | `claude-sonnet-4-6` |
+| `input_per_1m` | Cost in USD per 1 million input tokens | `3.00` |
+| `output_per_1m` | Cost in USD per 1 million output tokens | `15.00` |
+
+After import, MarkFlow uses these rates for all future cost calculations.
+Existing historical records are not retroactively updated.
+
+#### Alert Thresholds
+
+| Setting | What It Does |
+|---------|--------------|
+| Monthly spend alert | Send a notification when month-to-date spend crosses this dollar amount |
+| Billing cycle start day | Day-of-month (1–28) when your provider's invoice cycle starts. Match your actual invoice date for an accurate running total. |
+
+> Set **Billing cycle start day** to match when your provider closes its
+> bill. For example, if your Anthropic invoice closes on the 15th, set this
+> to 15. Capped at 28 to avoid February edge cases.
+
+#### Per-Provider Rate Tables
+
+Below the chart, each provider has an expandable table showing the current
+model pricing that MarkFlow is using. This reflects either the built-in
+defaults or your most recent CSV import.
+
+---
+
+## Auth & Security
+
+**URL:** `/settings/auth`  **Admin only**
+
+Security and access controls for the MarkFlow instance.
+
+### JWT Settings
+
+| Setting | What It Does |
+|---------|--------------|
+| JWT secret | The signing key for session tokens. Rotating this invalidates all active sessions. |
+| Token expiry | How long a login session lasts before requiring re-authentication |
+| Refresh token expiry | How long a "remember me" session lasts |
+
+> **Warning:** After rotating the JWT secret, all users are logged out
+> immediately. Plan for a low-traffic window.
+
+### API Keys
+
+| Setting | What It Does |
+|---------|--------------|
+| API keys | List of active API keys for machine-to-machine access. Create, rotate, or revoke keys here. |
+| Key role | The role assigned to each key (Viewer, Operator, Admin) |
+| Key expiry | Optional expiry date for a key |
+
+### Session Config
+
+| Setting | Default | What It Does |
+|---------|---------|--------------|
+| Max concurrent sessions per user | 5 | How many devices a single user can be signed in on at once |
+| DEV_BYPASS_AUTH | false | Bypass authentication entirely (development only — must be false in production) |
+
+---
+
+## Notifications
+
+**URL:** `/settings/notifications`
+
+Configure where MarkFlow sends alerts and what triggers them.
+
+### Alert Channels
+
+| Setting | What It Does |
+|---------|--------------|
+| Email | SMTP settings for sending alert emails |
+| Webhook | URL that receives a POST request on each alert event |
+| Slack | Slack incoming webhook URL |
+
+### Threshold Rules
+
+| Setting | What It Does |
+|---------|--------------|
+| Rules list | Each rule specifies: trigger event, condition, channel(s) to notify |
+| Common triggers | Bulk job failed, auto-conversion abort, LLM spend threshold crossed, OCR failure rate spike |
+
+---
+
+## DB Health
+
+**URL:** `/settings/db-health`  **Admin only**
+
+Database maintenance tools. Run these during low-traffic periods.
+
+### Compact
+
+SQLite's `VACUUM` command — reclaims space from deleted rows. Safe to run
+at any time, but locks the database for several seconds on large databases.
+
+### Integrity Check
+
+Verifies the database file has no corruption. Returns "ok" or a list of
+errors. Run this if you suspect storage issues or after an unexpected
+container crash.
+
+### Backup
+
+| Setting | What It Does |
+|---------|--------------|
+| Download backup | Create a point-in-time snapshot of the database and download it as a file |
+| Backup path | Optional — write the backup to a path inside the container instead of downloading |
+
+### Restore
+
+Upload a previously downloaded backup file. MarkFlow will stop the
+pipeline, swap in the backup, run a quick integrity check, then restart.
+Active jobs are aborted before restore begins.
+
+> **Caution:** Restore is irreversible. Make sure you have a current backup
+> of the database you're replacing before proceeding.
+
+---
+
+## Log Management
+
+**URL:** `/settings/log-management`  **Admin only**
+
+Control how verbose MarkFlow's logs are and how long they're kept.
+
+### Log Levels
+
+| Level | What Gets Logged |
+|-------|-----------------|
+| Normal | Warnings and errors only (recommended for production) |
+| Elevated | Operational info — job starts/stops, file counts, scheduler events |
+| Developer | Everything, including per-file debug traces and frontend click tracking |
+
+> Turn Developer mode off when you're not actively debugging. It generates
+> high log volume and enables frontend action tracking for every user.
+
+### Retention
+
+| Setting | Default | What It Does |
+|---------|---------|--------------|
+| Log retention days | 30 | Log files older than this are automatically deleted |
+
+### Live Viewer
+
+A link to the live log stream in your browser. Useful for watching what
+MarkFlow is doing right now without SSH access.
+
+### Export
+
+Download a bundled ZIP of all current log files. Handy for sending to
+support or archiving before a major change.
+
+---
+
+## Other Settings
+
+Several settings live on section pages alongside related options. They don't
+have their own top-level cards but are important to know about.
+
+### OCR Confidence Thresholds
+**Location:** Pipeline → Auto-Conversion sub-section
+
+| Setting | Default | What It Does |
+|---------|---------|--------------|
+| Confidence threshold | 60 | Pages below this score are flagged for review |
+| Unattended mode | Off | Auto-accepts all OCR output without flagging |
+| OCR preprocessing | On | Deskew, contrast adjustment, noise reduction |
+| Handwriting confidence threshold | 40 | Below this, the page image is sent to the vision provider for handwriting transcription |
+| Force OCR by default | Off | New bulk jobs re-OCR every PDF page even if a text layer exists. Per-job override available on the Bulk page. |
+
+### Password Recovery
+**Location:** Storage → Password Recovery sub-section
+
+| Setting | Default | What It Does |
+|---------|---------|--------------|
+| Dictionary attack | On | Try common passwords from the built-in wordlist |
+| Brute-force | Off | Try all character combinations (can be slow for long passwords) |
+| Brute-force max length | 6 | Longest password to attempt |
+| Brute-force charset | Alphanumeric | Numeric, alpha, alphanumeric, or all printable characters |
+| Recovery timeout | 300s | Maximum seconds per file before giving up |
+| Reuse found passwords | On | Try passwords that worked on other files in the same batch |
+| Use hashcat | On | GPU-accelerated cracking when available |
+| Hashcat workload | 3 (High) | GPU intensity: 1 = Low, 2 = Default, 3 = High, 4 = Maximum |
+
+### File Flagging
+**Location:** Storage → File Flagging sub-section
+
+| Setting | Default | What It Does |
+|---------|---------|--------------|
+| Flag webhook URL | (empty) | Optional webhook fired on every flag or unflag event |
+| Default expiry days | 30 | How long a flag stays active before auto-expiring |
+
+### Cloud Prefetch
+**Location:** Pipeline → Cloud Prefetch sub-section
+
+Background prefetch for cloud-synced source directories (OneDrive, Google
+Drive, Dropbox, iCloud, tiered NAS with stubs).
+
+| Setting | Default | What It Does |
+|---------|---------|--------------|
+| Cloud prefetch enabled | Off | Enable background prefetch of cloud placeholder files |
+| Concurrency | 4 | How many prefetch workers run in parallel |
+| Rate limit | 10/sec | Maximum files prefetched per second |
+| Timeout | 120s | Maximum seconds to wait per file |
+| Min size bytes | 0 | Skip files smaller than this size |
+
+### Search Preview Hover
+**Location:** Visible to all users via the Search page settings gear
+
+| Setting | Default | What It Does |
+|---------|---------|--------------|
+| Hover preview | On | Show or hide the document preview popup on hover |
+| Preview size | Medium | Small (320×240), Medium (480×360), or Large (640×480) |
+| Hover delay | 400ms | How long to hover before the preview appears (100–2000 ms) |
+
+> These are per-browser preferences, not global settings. Each user can
+> configure their own hover behavior from the Search page.
+
+### Fidelity Tiers
+**Location:** Pipeline → Conversion sub-section
+
+| Tier | What It Does |
+|------|--------------|
+| Tier 1 — Structure | Core content guaranteed (headings, paragraphs, tables, lists) |
+| Tier 2 — Styles | Formatting preserved in a sidecar JSON file alongside the Markdown |
+| Tier 3 — Original patch | Original file embedded or linked for full fidelity |
+
+The active fidelity tier controls how much metadata is preserved during
+conversion. Higher tiers produce larger output but preserve more of the
+original document's appearance.
+
+### Path Safety
+**Location:** Pipeline → Conversion sub-section
+
+| Setting | Default | What It Does |
+|---------|---------|--------------|
+| Max path length | 240 | Output paths longer than this are skipped with a `skip_reason` note |
+| Collision strategy | rename | What to do when two files would produce the same output name: `rename`, `overwrite`, or `skip` |
+
+### Advanced / Export & Import
+**Location:** Any settings detail page → Advanced sub-section
+
+| Setting | What It Does |
+|---------|--------------|
+| Reset to defaults | Restore all settings in this section to factory defaults (irreversible) |
 | Export settings | Download a JSON snapshot of the current configuration |
 | Import settings | Upload a previously exported JSON snapshot |
+
+---
+
+## Common Questions
+
+**Where did my settings go? I used to see them all on one page.**
+
+In v0.36.0 the single long settings page was split into dedicated pages
+per section. Every setting still exists — it's just on its own page now.
+Use your browser's **Find** on this article to locate a specific setting,
+then navigate to the page listed next to it.
+
+**Why can't I see the AI Providers card (or Auth & Security, DB Health,
+or Log Management)?**
+
+Those cards are hidden if your account doesn't have the required role.
+AI Providers, Pipeline, Storage, and Notifications require the **Operator**
+role. Auth & Security, DB Health, and Log Management require the **Admin**
+role. Contact your MarkFlow administrator to request a role change.
+
+**I changed a setting but nothing happened.**
+
+Make sure you clicked **Save** in the save bar at the bottom of the page.
+Changes are not applied until you save. If the save bar isn't visible,
+your changes may not have been detected — try making the change again.
+
+**Where is the "Expand All / Collapse All" button?**
+
+That button was part of the old accordion layout. The new sidebar layout
+doesn't need it — click any sidebar item to jump directly to that
+sub-section.
+
+**Where do I set the billing cycle start day?**
+
+Go to **AI Providers → Cost** (click the Cost item in the AI Providers
+sidebar). The billing cycle start day is in the Alert Thresholds section
+of that page.
+
+**How do I update LLM pricing rates?**
+
+Go to **AI Providers → Cost** and use the CSV Rate Import tool to drag in
+your rate table. The CSV needs four columns: `provider`, `model`,
+`input_per_1m`, and `output_per_1m`.
 
 ---
 
@@ -317,3 +565,4 @@ Seldom-needed options for experienced operators.
 - [LLM Provider Setup](/help.html#llm-providers)
 - [Password-Protected Documents](/help.html#password-recovery)
 - [Search](/help.html#search)
+- [File Lifecycle](/help.html#file-lifecycle)
