@@ -101,6 +101,11 @@
   --mf-transition-fast: 0.15s;
   --mf-transition-med:  0.2s;
 
+  /* === Shorthand aliases (used by component CSS) === */
+  --mf-text-primary: var(--mf-color-text);
+  --mf-text-muted:   var(--mf-color-text-muted);
+  --mf-bg-card:      var(--mf-surface);
+
   /* === Card surfaces === */
   --mf-border-warm:         #e8e6df;                                                       /* warm thumbnail border */
   --mf-surface-glass:       rgba(255, 255, 255, 0.92);                                     /* semi-transparent overlay */

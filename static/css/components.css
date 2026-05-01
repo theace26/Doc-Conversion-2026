@@ -1715,3 +1715,27 @@
   margin-top: 0.6rem;
   min-height: 1.2em;
 }
+
+/* ── DB Health detail ──────────────────────── */
+.mf-dbh__stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.mf-dbh__stat { display: flex; flex-direction: column; gap: 0.2rem; }
+.mf-dbh__stat-label { font-size: 0.78rem; color: var(--mf-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.mf-dbh__stat-value { font-size: 1rem; font-weight: 600; color: var(--mf-text-primary); }
+.mf-dbh__mono { font-family: "SF Mono", "Cascadia Code", monospace; font-size: 0.82rem; }
+.mf-dbh__action-row { display: flex; align-items: center; gap: 0.85rem; margin-top: 0.85rem; flex-wrap: wrap; }
+.mf-dbh__result-pill {
+  display: inline-block;
+  padding: 0.2rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.mf-dbh__result-pill--ok  { background: var(--mf-color-success-bg); color: var(--mf-color-success); }
+.mf-dbh__result-pill--err { background: var(--mf-color-error-bg); color: var(--mf-color-error); }
+.mf-dbh__result-pill--neutral { background: var(--mf-bg-card); color: var(--mf-text-muted); border: 1px solid var(--mf-border); }
+.mf-dbh__spinner { color: var(--mf-text-muted); font-size: 0.85rem; }

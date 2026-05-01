@@ -567,6 +567,11 @@ async def settings_notifications_page():
     return FileResponse("static/settings-notifications.html")
 
 
+@app.get("/settings/db-health", include_in_schema=False)
+async def settings_db_health_page():
+    return FileResponse("static/settings-db-health.html")
+
+
 @app.get("/settings/{section}", include_in_schema=False)
 async def settings_section_page(section: str):
     """Future plans implement each section. Redirect to overview for now."""
