@@ -103,9 +103,9 @@ Same spend breakdown table as Overview but scoped to last 30 days. No chart. "Do
 
 For v1: display current threshold preferences from `/api/preferences` (cost_alert_threshold_usd, cost_alert_enabled). Toggle + numeric input. Save bar. Note: "Alert delivery (Slack / email) configured in Notifications → Channels."
 
-- [ ] **Step 1:** Create `static/settings-cost-cap.html` — same chrome stack, slot `#mf-cost-cap`
-- [ ] **Step 2:** Create `static/js/pages/settings-cost-cap.js` — `MFCostCapDetail` with adaptive layout logic
-- [ ] **Step 3:** Create `static/js/settings-cost-cap-boot.js` — fetches `/api/me` + all 3 cost endpoints in parallel; handles `staleness.is_stale` and passes to component; members → `/`, operators+
+- [x] **Step 1:** Create `static/settings-cost-cap.html` — same chrome stack, slot `#mf-cost-cap`
+- [x] **Step 2:** Create `static/js/pages/settings-cost-cap.js` — `MFCostCapDetail` with adaptive layout logic
+- [x] **Step 3:** Create `static/js/settings-cost-cap-boot.js` — fetches `/api/me` + all 3 cost endpoints in parallel; handles `staleness.is_stale` and passes to component; members → `/`, operators+
 
 ---
 
@@ -128,8 +128,8 @@ This sub-section lives inside `MFCostCapDetail` as the "Sources & CSV import" co
 - **"Reload rates" button** (primary) — disabled until a valid parse has been produced. On click: POST `/api/admin/llm-costs/reload`. Show spinner inline; on success show "Loaded N rate entries" success banner. On error show error text.
 - **Per-provider source note** — below each provider's rates sub-section: "Source: CSV import. Update rates in Sources & CSV import →."
 
-- [ ] **Step 4:** Extend `settings-cost-cap.js` — add `_renderCSVImport()` function and wire into "Sources & CSV import" content panel
-- [ ] **Step 5:** Append `mf-cost__*` CSS to `components.css`:
+- [x] **Step 4:** Extend `settings-cost-cap.js` — add `_renderCSVImport()` function and wire into "Sources & CSV import" content panel
+- [x] **Step 5:** Append `mf-cost__*` CSS to `components.css`:
   - `mf-cost__tiles` (2-up and 3-up grid variants)
   - `mf-cost__chart-wrap` + `mf-cost__chart-svg`
   - `mf-cost__legend` (chip row)
@@ -145,14 +145,14 @@ This sub-section lives inside `MFCostCapDetail` as the "Sources & CSV import" co
 
 **Agent dispatch:** `mf-impl-medium` (model: **haiku**) · review: `mf-rev-medium` (model: **haiku**)
 
-- [ ] **Step 6:** Create `docs/help/cost-rates-csv-format.md` with:
+- [x] **Step 6:** Create `docs/help/cost-rates-csv-format.md` with:
   - Title: "Cost Rate CSV Format"
   - Required columns table: provider, model, input_per_1m, output_per_1m
   - Optional columns table: cache_write_per_1m, cache_read_per_1m, vision_per_image, batch_discount_pct, effective_date
   - Full example CSV block (3–4 rows covering Anthropic claude-3-5-sonnet + claude-3-haiku + OpenAI gpt-4o)
   - Notes: UTF-8 only; empty cells = "doesn't apply" not zero; historical rates via effective_date; "providers change pricing without notice — verify against provider dashboard"
 
-- [ ] **Step 7:** Add route in `main.py` **before** the `{section}` catch-all:
+- [x] **Step 7:** Add route in `main.py` **before** the `{section}` catch-all:
   ```python
   @app.get("/settings/ai-providers/cost", include_in_schema=False)
   async def settings_cost_cap_page():
@@ -160,20 +160,20 @@ This sub-section lives inside `MFCostCapDetail` as the "Sources & CSV import" co
   ```
   Note: `/settings/{section}` only matches one path segment, so this route would 404 without explicit registration.
 
-- [ ] **Step 8:** Commit `feat(ux): Cost cap & alerts deep-dive sub-page (Plan 7)`
+- [x] **Step 8:** Commit `feat(ux): Cost cap & alerts deep-dive sub-page (Plan 7)`
 
 ---
 
 ## Acceptance checks
 
-- [ ] `grep -n "innerHTML" static/js/pages/settings-cost-cap.js` — zero matches
-- [ ] `GET /settings/ai-providers/cost` → 200 (not 302)
-- [ ] `GET /settings/ai-providers` still → 200 (sibling route not broken)
-- [ ] Single-provider mode: 2 tiles, no legend, no provider column in table
-- [ ] Multi-provider mode: 3 tiles, legend chips, totals row with accent border
-- [ ] Stale banner appears when `staleness.is_stale === true`
-- [ ] CSV import: valid CSV parses and shows preview; invalid CSV shows error list
-- [ ] "Reload rates" button disabled before valid parse; fires POST on click
-- [ ] "Paste from clipboard" reads clipboard text and feeds to parser
-- [ ] `docs/help/cost-rates-csv-format.md` exists with all required + optional columns documented
-- [ ] Sidebar "CSV format reference ↗" link points to the help file or `/help` anchor
+- [x] `grep -n "innerHTML" static/js/pages/settings-cost-cap.js` — zero matches
+- [x] `GET /settings/ai-providers/cost` → 200 (not 302)
+- [x] `GET /settings/ai-providers` still → 200 (sibling route not broken)
+- [x] Single-provider mode: 2 tiles, no legend, no provider column in table
+- [x] Multi-provider mode: 3 tiles, legend chips, totals row with accent border
+- [x] Stale banner appears when `staleness.is_stale === true`
+- [x] CSV import: valid CSV parses and shows preview; invalid CSV shows error list
+- [x] "Reload rates" button disabled before valid parse; fires POST on click
+- [x] "Paste from clipboard" reads clipboard text and feeds to parser
+- [x] `docs/help/cost-rates-csv-format.md` exists with all required + optional columns documented
+- [x] Sidebar "CSV format reference ↗" link points to the help file or `/help` anchor
