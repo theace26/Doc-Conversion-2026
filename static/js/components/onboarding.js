@@ -234,8 +234,8 @@
       } else if (ev.key === 'ArrowRight') {
         idx = (idx + 1) % MODES.length;
       }
-      /* For Enter, just confirm current — selection already tracked */
       if (ev.key !== 'Enter') {
+        ev.preventDefault();
         selectedMode = MODES[idx].id;
         for (var k = 0; k < cardEls.length; k++) {
           if (cardEls[k].getAttribute('data-mode') === selectedMode) {
@@ -246,6 +246,20 @@
           }
         }
         onModeChange(selectedMode);
+      } else {
+        /* Enter on a layout card: advance to Step 3 */
+        var ob = cards.closest ? cards.closest('.mf-ob__card') : null;
+        if (!ob) {
+          /* Fallback for IE: walk up manually */
+          ob = cards.parentNode;
+          while (ob && !ob.classList.contains('mf-ob__card')) {
+            ob = ob.parentNode;
+          }
+        }
+        if (ob) {
+          var nextBtn = ob.querySelector('.mf-btn--primary');
+          if (nextBtn) nextBtn.click();
+        }
       }
     });
 
@@ -593,7 +607,9 @@
             if (global.MFPrefs && global.MFPrefs.set) {
               global.MFPrefs.set('layout', selectedMode);
             }
-            sourcesPromise = fetchSources();
+            if (!sourcesPromise) {
+              sourcesPromise = fetchSources();
+            }
           }
           currentStep += 1;
           render();
