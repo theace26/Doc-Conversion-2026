@@ -510,6 +510,10 @@ app.include_router(telemetry_routes.router)
 from api.routes import me as me_routes
 app.include_router(me_routes.router)
 
+# UX overhaul Plan 4: /api/activity/summary — operator-gated activity aggregator
+from api.routes import activity as activity_routes
+app.include_router(activity_routes.router)
+
 # /pipeline -> /activity 301 alias (one-release deprecation window).
 # Spec §1: route renamed during UX overhaul. Remove after Plan 4 ships
 # and confirm no internal links / bookmarks still hit /pipeline.
