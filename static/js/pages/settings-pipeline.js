@@ -174,6 +174,7 @@
 
     function doSave(feedback) {
       Promise.resolve()
+        .then(function () { return _putPref('pipeline_enabled', _toggleOn(toggle) ? 'true' : 'false'); })
         .then(function () { return _putPref('scan_window_start', startInput.value); })
         .then(function () { return _putPref('scan_window_end', endInput.value); })
         .then(function () { return _putPref('scan_days_of_week', collectDays()); })
@@ -395,18 +396,24 @@
     toggleRow.appendChild(toggleLabel);
 
     toggle.addEventListener('click', function () {
+      if (toggle.getAttribute('data-mf-loading') === '1') return;
+      toggle.setAttribute('data-mf-loading', '1');
       var currentlyOn = _toggleOn(toggle);
       var url = currentlyOn ? '/api/pipeline/pause' : '/api/pipeline/resume';
+      _setToggle(toggle, !currentlyOn);
       fetch(url, { method: 'POST', credentials: 'same-origin' })
         .then(function (r) {
           if (!r.ok) throw new Error(url + ' failed: ' + r.status);
           var nowPaused = currentlyOn;
-          _setToggle(toggle, !nowPaused);
           badge.textContent = nowPaused ? 'PAUSED' : 'LIVE';
           badge.className = 'mf-pip__live-badge mf-pip__live-badge--' + (nowPaused ? 'paused' : 'running');
         })
         .catch(function (e) {
           console.warn('mf: pipeline pause/resume failed', e);
+          _setToggle(toggle, currentlyOn);
+        })
+        .finally(function () {
+          toggle.removeAttribute('data-mf-loading');
         });
     });
 
@@ -414,12 +421,12 @@
 
     if (status.next_scan) {
       var nextScanDiv = el('div', 'mf-pip__next-scan');
-      var ts;
+      var ts = status.next_scan;
       try {
-        var d = new Date(status.next_scan.indexOf('Z') === -1 && status.next_scan.indexOf('+') === -1
-          ? status.next_scan + 'Z'
-          : status.next_scan);
-        ts = d.toLocaleString();
+        var parsed = (typeof window.parseUTC === 'function')
+          ? window.parseUTC(status.next_scan)
+          : new Date(status.next_scan.replace(' ', 'T').replace(/Z?$/, 'Z'));
+        ts = (parsed && !isNaN(parsed.getTime())) ? parsed.toLocaleString() : status.next_scan;
       } catch (e) {
         ts = status.next_scan;
       }
