@@ -25,20 +25,21 @@ taxonomy, schema relationships, runbook).
 2. [Authentication](#authentication)
 3. [API surface (high-level)](#api-surface-high-level)
 4. [Active Operations Registry (v0.35.0)](#active-operations-registry-v0350)
-5. [Premiere project cross-reference (v0.34.0)](#premiere-project-cross-reference-v0340)
-6. [LLM cost subsystem (v0.33.x)](#llm-cost-subsystem-v033x)
-7. [Search + AI Assist](#search--ai-assist)
-8. [Pipeline / bulk conversion](#pipeline--bulk-conversion)
-9. [Lifecycle + Trash](#lifecycle--trash)
-10. [Storage + mounts](#storage--mounts)
-11. [Analysis (image-vision) queue](#analysis-image-vision-queue)
-12. [Logs + log management](#logs--log-management)
-13. [Database schema](#database-schema)
-14. [Log event taxonomy](#log-event-taxonomy)
-15. [Format handler architecture](#format-handler-architecture)
-16. [Docker / CLI workflows](#docker--cli-workflows)
-17. [Environment variables](#environment-variables)
-18. [Runbook](#runbook)
+5. [New UX Architecture (v0.36.0)](#new-ux-architecture-v0360)
+6. [Premiere project cross-reference (v0.34.0)](#premiere-project-cross-reference-v0340)
+7. [LLM cost subsystem (v0.33.x)](#llm-cost-subsystem-v033x)
+8. [Search + AI Assist](#search--ai-assist)
+9. [Pipeline / bulk conversion](#pipeline--bulk-conversion)
+10. [Lifecycle + Trash](#lifecycle--trash)
+11. [Storage + mounts](#storage--mounts)
+12. [Analysis (image-vision) queue](#analysis-image-vision-queue)
+13. [Logs + log management](#logs--log-management)
+14. [Database schema](#database-schema)
+15. [Log event taxonomy](#log-event-taxonomy)
+16. [Format handler architecture](#format-handler-architecture)
+17. [Docker / CLI workflows](#docker--cli-workflows)
+18. [Environment variables](#environment-variables)
+19. [Runbook](#runbook)
 
 ---
 
@@ -156,7 +157,7 @@ curl 'http://localhost:8000/api/logs/search?q=auth_failed'
 
 ## API surface (high-level)
 
-Routers register from `api/routes/*.py` in `main.py`. As of v0.34.0 the
+Routers register from `api/routes/*.py` in `main.py`. As of v0.36.0 the
 prefixes you'll likely care about:
 
 | Prefix | Module | Purpose |
@@ -184,6 +185,10 @@ prefixes you'll likely care about:
 | `/api/help/*` | `help` | Help wiki (public, no auth) |
 | `/api/health` | `admin` | System health check |
 | `/api/active-ops` | `active_ops` | Active Operations Registry — list running ops + cancel (v0.35.0) |
+| `/api/me` | `me` | Authenticated user identity, role, and build info. OPERATOR+. |
+| `/api/activity/summary` | `activity` | Activity dashboard aggregator — scan health, file delta, pipeline state, recent ops. OPERATOR+. |
+| `/api/user-prefs` | `user_prefs` | Per-user preferences (layout, pinned folders, density, onboarding state). Portable across machines. AUTH_USER+. |
+| `/api/telemetry` | `telemetry` | UI event sink — ui.* events (button clicks, navigation). Accepts unauthenticated POSTs from the browser. |
 
 For the full list, hit `/openapi.json`.
 
@@ -210,6 +215,208 @@ Requests cancellation of a running operation. Returns `{"cancelled": true}` on s
 curl -s -X POST -H "X-API-Key: $KEY" \
   http://localhost:8000/api/active-ops/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx/cancel
 ```
+
+---
+
+## New UX Architecture (v0.36.0)
+
+### Feature flag
+
+`ENABLE_NEW_UX` in `.env` controls which home page the app serves. When
+`true`, `GET /` serves `static/index-new.html`; when unset or `false` it
+serves `static/index.html` (the legacy UI). Read server-side via
+`core.feature_flags.is_new_ux_enabled()`. Set `ENABLE_NEW_UX=true` in
+`.env` to activate the new UX for a machine.
+
+### Page structure
+
+No SPA. Each page is a standalone HTML file the browser loads fresh on
+navigation. JavaScript modules are vanilla ES5 IIFEs:
+
+```javascript
+(function(global) {
+  'use strict';
+  // ...
+})(window);
+```
+
+No bundler, no transpiler, no build step. Every file is exactly what
+ships to the browser.
+
+### Boot pattern
+
+Each page has a corresponding `*-boot.js` file that orchestrates
+startup in four steps:
+
+1. Calls `MFPrefs.load()` to hydrate the page from `localStorage`.
+2. Calls `fetch('/api/me')` to get the current user's identity and role.
+3. Runs any page-specific API fetches inside a `Promise.all()` so they
+   execute in parallel.
+4. Calls `ComponentName.mount(slot, data)` with the resolved data to
+   render the page.
+
+Boot scripts check the `role` returned by `/api/me` and redirect
+`search_user` members away from OPERATOR+ pages before rendering.
+
+### Component pattern
+
+Components are global objects registered on `window`
+(e.g. `window.MFCostCapDetail`, `window.MFOnboarding`). Each exposes a
+`mount(slot, opts)` function that accepts a DOM element and a data
+options object.
+
+All DOM construction uses `createElement` / `textContent` / `appendChild`
+exclusively. `innerHTML` with template literals is banned by project
+convention -- the linter enforces this. Never bypass the convention with
+`insertAdjacentHTML`, `outerHTML`, or similar.
+
+### Design tokens
+
+Colors, spacing, and typography are defined in
+`static/css/design-tokens.css` as CSS custom properties (`--mf-*`).
+Component styles live in `static/css/components.css` and consume tokens
+via `var(--mf-*)`. Never hardcode hex values in component CSS -- always
+reference a token, adding one to `design-tokens.css` if needed.
+
+### Per-user preferences (`MFPrefs`)
+
+`static/js/preferences.js` exposes three functions:
+
+| Function | Signature | Notes |
+|----------|-----------|-------|
+| `MFPrefs.load()` | `() -> Promise<void>` | Fetches `GET /api/user-prefs` and merges into `localStorage`. Call once at boot. |
+| `MFPrefs.get(key)` | `(string) -> string\|null` | Reads from `localStorage` synchronously. |
+| `MFPrefs.set(key, value)` | `(string, string) -> void` | Writes to `localStorage` immediately and debounces a `PUT /api/user-prefs/{key}` within 500ms. |
+
+`localStorage` is the fast-path for reads; the server is the persistence
+layer. On a new device, `MFPrefs.load()` at boot restores the user's
+settings before the page renders.
+
+Supported keys (validated server-side against a whitelist):
+
+| Key | Values | Purpose |
+|-----|--------|---------|
+| `layout` | `maximal` / `recent` / `minimal` | Home page document-card layout |
+| `density` | `cards` / `compact` / `list` | Document grid density |
+| `pinned_folders` | JSON array string | Folders pinned to the sidebar |
+| `onboarding_done` | `1` / null | Whether the onboarding overlay has been dismissed |
+| `advanced_actions_inline` | `1` / null | Whether advanced actions appear inline or in a menu |
+
+### `/api/me` endpoint
+
+`GET /api/me` — OPERATOR+. Returns:
+
+```json
+{
+  "email": "xerxes@example.com",
+  "role": "operator",
+  "avatar_initials": "XS",
+  "version": "0.36.0",
+  "features": {
+    "new_ux": true
+  }
+}
+```
+
+`role` is one of `search_user` / `operator` / `manager` / `admin`.
+`features` is a flat object of feature flags; boot scripts use this to
+conditionally enable UI surfaces without a server restart. Boot scripts
+redirect `search_user` members away from OPERATOR+ pages.
+
+### `/api/activity/summary` endpoint
+
+`GET /api/activity/summary` — OPERATOR+. Returns a point-in-time
+snapshot of the auto-conversion subsystem:
+
+```json
+{
+  "scan_runs": 142,
+  "source_count": 18420,
+  "indexed_count": 18103,
+  "pending_count": 317,
+  "pipeline_state": "running",
+  "recent_ops": [
+    {
+      "op_type": "bulk_job",
+      "label": "Q4-archive",
+      "done": 4102,
+      "total": 4102,
+      "finished_at_epoch": 1746000000
+    }
+  ]
+}
+```
+
+The Activity dashboard renders from this endpoint. `pending_count` uses
+the NOT EXISTS join pattern (never `COUNT(*) WHERE status='pending'` --
+see bulk_files pending count quirk in `docs/gotchas.md`).
+
+### `/api/user-prefs` endpoints
+
+Two endpoints. Auth: JWT or `X-API-Key`. Minimum role: `AUTH_USER`
+(any authenticated user).
+
+**`GET /api/user-prefs`** -- returns all stored prefs for the current
+user (keyed by the `sub` claim from their JWT):
+
+```json
+{ "prefs": { "layout": "maximal", "density": "cards" } }
+```
+
+**`PUT /api/user-prefs/{key}`** -- upserts a single preference. Body:
+
+```json
+{ "value": "compact" }
+```
+
+Returns `400` if the key is not in the server-side whitelist. Returns
+`200 {"ok": true}` on success. `MFPrefs.set()` in the browser calls
+this automatically within 500ms of a local write.
+
+### `/api/telemetry` endpoint
+
+`POST /api/telemetry` -- no authentication required (the browser sends
+this on navigation before the user's token is guaranteed to be present).
+
+Body:
+
+```json
+{
+  "event": "ui.nav.click",
+  "properties": { "target": "activity", "from": "home" }
+}
+```
+
+Events are logged at `structlog` INFO level under the `telemetry.*`
+prefix. No storage beyond the log file -- telemetry is append-only and
+reviewed via `api/logs/search?q=telemetry`.
+
+### Settings routing note
+
+Routes under `/settings/ai-providers/cost` must be registered **before**
+the `{section}` catch-all (`/settings/{section}`) in `main.py`. The
+catch-all matches only one path segment -- it would 404 the
+multi-segment sub-path otherwise. Always add new multi-segment settings
+routes above the catch-all in the router registration block.
+
+### Onboarding flow
+
+`MFOnboarding.show(opts)` mounts a full-viewport overlay on top of the
+home page without replacing the underlying content. Signature:
+
+```javascript
+MFOnboarding.show({
+  fetchSources: () => Promise<source[]>,  // lazy-fetched at Step 3
+  onComplete: () => void,
+  onSkip: () => void
+});
+```
+
+`fetchSources` is a callback, not a resolved value -- the sources list
+is only fetched when the user reaches Step 3 of the wizard, not at
+mount time. On `onComplete` or `onSkip`, the overlay calls
+`MFPrefs.set('onboarding_done', '1')` and removes itself from
+`document.body`. The home page underneath remains intact throughout.
 
 ---
 
@@ -534,7 +741,7 @@ goes through a single-writer pool (`core/db/pool.py`) for writes and a
 small read-pool for reads. See `core/db/schema.py:_SCHEMA_SQL` for the
 full DDL.
 
-Major tables (current as of v0.34.0):
+Major tables (current as of v0.36.0):
 
 | Table | Purpose |
 |-------|---------|
@@ -556,6 +763,8 @@ Major tables (current as of v0.34.0):
 | `db_maintenance_log` | DB compaction / integrity history |
 | `schema_migrations` | Applied migration versions |
 | `user_preferences` | Singleton key-value config |
+| `active_operations` | **v0.35.0** — Active Operations Registry. In-memory dict + DB write-through. Daily auto-purge of old finished rows. |
+| `mf_user_prefs` | **v0.36.0** — Per-user preferences keyed by UnionCore `sub` claim. JSON value, schema-versioned. Distinct from `user_preferences` (system singletons). |
 
 Cross-reference relationships:
 
@@ -593,7 +802,7 @@ DDL, recording applied versions in `schema_migrations`. Migrations are
 idempotent -- ALTER TABLE "column already exists" is caught and ignored;
 all other DDL failures propagate.
 
-Latest migration: **28** -- adds `prproj_media_refs` (v0.34.0).
+Latest migration: **30** -- adds `mf_user_prefs` (v0.36.0). Migration 29 adds `active_operations` (v0.35.0). Migration 28 adds `prproj_media_refs` (v0.34.0).
 
 ---
 
@@ -620,6 +829,9 @@ Useful prefixes:
 | `lifecycle.*` | File lifecycle (mark_for_deletion, restore, purge) |
 | `mount.*` | SMB / NFS mounts (probe, success, failure) |
 | `markflow.*` | App lifespan (startup, db_ready, shutdown) |
+| `active_ops.*` | **v0.35.0** Active Operations Registry (register, update, finish, cancel, purge, hydrate) |
+| `telemetry.*` | **v0.36.0** UI event sink (event received, event logged) |
+| `user_prefs.*` | **v0.36.0** Per-user prefs (loaded, set, schema_mismatch) |
 
 Worth knowing:
 
@@ -767,6 +979,7 @@ Read from `.env` (gitignored, per-machine). All optional unless
 | `DRIVE_C` / `DRIVE_D` | (unset) | Per-machine drive-letter mounts (Windows hosts) |
 | `BULK_SOURCE_PATH` | (unset) | Default source for first-run wizard |
 | `BULK_OUTPUT_PATH` | (unset) | Default output for first-run wizard |
+| `ENABLE_NEW_UX` | (unset) | Set to `true` to serve `static/index-new.html` at `/` instead of the legacy UI. Read via `core.feature_flags.is_new_ux_enabled()`. |
 
 `docker-compose.override.yml` is gitignored (v0.29.3) so per-machine
 GPU / Apple-Silicon configs don't leak into the repo. macOS scripts
