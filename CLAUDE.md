@@ -69,28 +69,26 @@ live", `key-files.md`. For "is this bug already known", `bug-log.md`.
 
 ---
 
-## Current Version — v0.36.0
+## Current Version — v0.37.0
 
-**UX Overhaul (Plans 1A–8), feature-flagged behind `ENABLE_NEW_UX`.** Delivers the full redesign in one coordinated release: search-as-home with three layout modes, stateful chrome (avatar menu, version chip, layout popover), color-coded document cards with density switching, a new Activity dashboard for operators, a per-section Settings architecture, a cost-tracking deep-dive under AI Providers, first-run onboarding overlay, and per-user preferences persisted to `mf_user_prefs`. Existing UI is completely unchanged when the flag is off.
+**Display Preferences & Theme System.** 28 color themes (Original UX / New UX / High Contrast / Pastel / Seasonal), 14 font choices, 4 text scale steps. Per-user Display Preferences drawer (avatar menu -> Display preferences). System-level Settings -> Appearance page (operator only). Three-tier UX toggle: user pref > env bypass > system pref > False. Default experience: Nebula theme + New UX. CSS custom properties via `data-theme`, `data-font`, `data-text-scale`, `data-ux` attrs on `<html>`. SCHEMA_VER bumped 1->2 in `mf_user_prefs`. Zero-flash: synchronous init script in every HTML `<head>`.
 
-### What operators and users see (when ENABLE_NEW_UX=true)
+### What operators and users see
 
-- First visit triggers a 3-step onboarding overlay: Welcome → pick your layout → pin up to 6 quick-access folders.
-- Home page defaults to **Maximal** (card grid + search bar). `Cmd+\` / `Ctrl+\` cycles to Recent Activity or Minimal; choice is saved per user.
-- Document tiles show a gradient top band color-coded by file type; density switches between Cards / Compact / List.
-- Settings split into per-section pages: Storage, Pipeline, AI Providers, Auth, Notifications, DB Health, Log Management.
-- `/settings/ai-providers/cost` — spend tiles (MTD + rolling-30d), daily bar chart, CSV rate import, alert thresholds.
-- `/activity` — scan vs index delta, auto-conversion health, live op status (OPERATOR role required).
-- `/api/version` reports `0.36.0`.
+- Avatar menu (top-right) -> Display preferences opens the theme/font/text-scale/UX-toggle drawer. Changes apply live.
+- 28 themes in 6 groups; switching UX mode auto-migrates theme to the matching counterpart.
+- Settings -> Appearance (OPERATOR+): sets system default for New UX + controls whether users can override.
+- Three-tier UX resolution: user pref > `ENABLE_NEW_UX` env var > system DB pref > False.
+- `/api/version` reports `0.37.0`.
 
 ### Loose ends tracked forward
 
-1. **BUG-019** — remove deprecated `/api/trash/empty/status` and `/api/trash/restore-all/status` facades.
-2. **BUG-020** — apply P1 (no-op-on-terminal) hardening to `BulkJob.tick()` and `lifecycle_scanner` `_scan_state` mutations.
-3. **BUG-021** — periodic drift detection job comparing `bulk_jobs.processed` vs `active_operations.done`.
-4. **BUG-022** — boot-time scheduler time-slot collision self-check.
-5. **BUG-023** — audit deprecated public surfaces, apply v0.35.0 deprecation convention.
-6. **Failure-path explicit `completed_at` writes** — bulk_job pre-flight failure handler should write `auto_conversion_runs.completed_at` directly.
+1. **BUG-019** -- remove deprecated `/api/trash/empty/status` and `/api/trash/restore-all/status` facades.
+2. **BUG-020** -- apply P1 (no-op-on-terminal) hardening to `BulkJob.tick()` and `lifecycle_scanner` `_scan_state` mutations.
+3. **BUG-021** -- periodic drift detection job comparing `bulk_jobs.processed` vs `active_operations.done`.
+4. **BUG-022** -- boot-time scheduler time-slot collision self-check.
+5. **BUG-023** -- audit deprecated public surfaces, apply v0.35.0 deprecation convention.
+6. **Failure-path explicit `completed_at` writes** -- bulk_job pre-flight failure handler should write `auto_conversion_runs.completed_at` directly.
 7. **LibreOffice headless flakes** on `.xls` (parallel-worker contention on `~/.config/libreoffice`). Tracked for hardening.
 8. **Worker heartbeat freezes** during long Whisper transcriptions. Cosmetic; not blocking.
 
@@ -127,8 +125,9 @@ No temporary instrumentation currently active.
 - **Folder drop** — Convert page accepts whole folders via drag-and-drop.
 - **Per-user preferences are portable** — `core/user_prefs.py` stores per-user prefs (layout, density, etc.) in the `mf_user_prefs` table keyed by UnionCore subject claim. **Distinct from** the existing `core/db/preferences.py` + `user_preferences` table (system-level singletons; do not conflate). Client mirror in `localStorage` via `static/js/preferences.js` (Plan 1B) with debounced server sync to `/api/user-prefs`. Spec: `docs/superpowers/specs/2026-04-28-ux-overhaul-search-as-home-design.md` §10.
 - **Role hierarchy from JWT** — `core.auth.Role` IntEnum (MEMBER=0 < OPERATOR=1 < ADMIN=2). Use `extract_role(claims)` and `role >= Role.OPERATOR` for visibility gates. Spec §11.
-- **`ENABLE_NEW_UX` feature flag** — gates new UX rendering across Plans 1B and beyond. Default off in prod until phase 4 ships. Read via `core.feature_flags.is_new_ux_enabled()`.
-- **Design tokens are CSS variables** — `static/css/design-tokens.css` is the single source of truth for colors, type, spacing, shadows. Never hardcode hex outside that file. Component CSS in `static/css/components.css` consumes tokens via `var(--mf-*)`.
+- **`ENABLE_NEW_UX` feature flag** -- three-tier lookup via `core.feature_flags.is_new_ux_enabled_for(user_sub)`: user pref wins, then env var (bypass), then system DB pref, then False. Env-only (no user context) uses `is_new_ux_enabled()`.
+- **Theme system** -- `<html data-theme data-font data-text-scale data-ux>` attrs drive CSS custom properties from `static/css/design-themes.css`. Synchronous init script in every HTML `<head>` sets attrs before paint. `preferences.js` syncs from `/api/user-prefs` and hot-swaps attrs live.
+- **Design tokens are CSS variables** -- `static/css/design-tokens.css` is the single source of truth for colors, type, spacing, shadows. Never hardcode hex outside that file. Component CSS in `static/css/components.css` consumes tokens via `var(--mf-*)`.
 
 All phases 0–11 are **Done**. Phase 1 historical spec: [`docs/phase-1-instructions.md`](docs/phase-1-instructions.md).
 
@@ -168,7 +167,7 @@ Every long-running file-related op routes through `core/active_ops.py`
 | `Dockerfile.base` / `Dockerfile` | Base (system deps) + app (pip + code) |
 | `docker-compose.yml` | Ports: 8000 app, 8001 MCP, 7700 Meilisearch |
 | `core/user_prefs.py` | Server-side **per-user** preferences (portable, JSON value, schema versioned). Distinct from `core/db/preferences.py` (system singletons). |
-| `core/feature_flags.py` | Feature flag accessors (e.g. `is_new_ux_enabled()`) |
+| `core/feature_flags.py` | Feature flag accessors: `is_new_ux_enabled()` (env-only) + `is_new_ux_enabled_for(sub)` (three-tier) |
 | `static/css/design-tokens.css` | Visual system as CSS variables — single source of truth |
 | `static/css/components.css` | Shared component classes (pills, toggles, segmented, pulse, role pill, version chip) |
 

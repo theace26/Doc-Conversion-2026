@@ -4,6 +4,62 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.37.0 — Display Preferences & Theme System (2026-04-30)
+
+**Goal:** Ship a full per-user display customization layer on top of the v0.36.0 UX overhaul. Users get 28 color themes, 14 font choices, and 4 text-scale steps, all accessible from a drawer in the avatar menu. Operators get a new Settings -> Appearance page to control system defaults and the per-user override gate.
+
+**Why this matters:** The v0.36.0 UX overhaul introduced a new design language (Nebula palette, Inter font, card grid), but all users were locked into the same visual experience. Different operators have different accessibility needs, brand preferences, and screen environments. Delivering theme/font/scale controls as a first-class feature (not a future consideration) also allowed the three-tier UX toggle to replace the blunt `ENABLE_NEW_UX` env-only mechanism -- users can now switch interface mode themselves without waiting for an operator to flip a flag.
+
+**What changed:**
+
+1. **user_prefs SCHEMA_VER 1->2** -- `core/user_prefs.py` bumps `SCHEMA_VER` to 2. Four new preference keys added to `mf_user_prefs`: `theme` (default: `"nebula"`), `font` (default: `"system-ui"`), `text_scale` (default: `"1"`), `use_new_ux` (default: `None`, meaning defer to system/env). Schema migration is additive and runs at startup via `_migrate_schema()`. Existing rows with `schema_ver=1` are upgraded in place.
+
+2. **Three-tier UX toggle** -- `core/feature_flags.py` gains `is_new_ux_enabled_for(user_sub)`. Resolution order: (1) user's stored `use_new_ux` pref if set; (2) `ENABLE_NEW_UX` env var if set (env acts as deployment bypass, overrides user pref in forced-on/off scenarios); (3) system DB pref `enable_new_ux`; (4) False. The existing `is_new_ux_enabled()` (env-only, used during request-context-free startup) is unchanged.
+
+3. **System preference keys** -- `core/db/preferences.py` gains three new system-level pref keys: `enable_new_ux` (boolean, default False), `allow_user_theme_override` (boolean, default True), `default_theme` (string, default `"nebula"`). These feed the Appearance settings page and the tier-3 fallback in the three-tier lookup.
+
+4. **design-themes.css** -- NEW file `static/css/design-themes.css` contains all 28 theme blocks as `[data-theme="name"]` CSS attribute-selector rules, 13 Google Font `@import` blocks (14 choices; System UI is no import), and 4 `[data-text-scale]` blocks. `static/css/components.css` gains `@import "./design-themes.css"` at the top. Token overrides follow the same `var(--mf-*)` naming convention established in `design-tokens.css`.
+
+5. **Zero-flash init script** -- All 35+ HTML pages gain a synchronous `<script>` block inside `<head>` (before any stylesheet link) that reads `localStorage` and writes `data-theme`, `data-font`, `data-text-scale`, and `data-ux` onto `<html>` before the browser paints. This prevents the flash-of-default-theme that would occur if attrs were applied after DOMContentLoaded. All pages also gain a `<link rel="preconnect">` for `fonts.googleapis.com` and the Google Fonts `<link>` for the selected font.
+
+6. **preferences.js extension** -- `static/js/preferences.js` gains `syncAttrs()` (writes all four `data-*` attrs from the current prefs object), a `COUNTERPART` map (maps each Original-UX theme to its New-UX equivalent and vice versa), and UX-mode migration logic (when the user toggles `use_new_ux`, the current theme is migrated to the counterpart if one exists). Debounced server sync to `/api/user-prefs` unchanged.
+
+7. **Display Preferences drawer** -- NEW file `static/js/components/display-prefs-drawer.js`. Mounts as a slide-in drawer from the right side of the screen. Contains: theme swatch grid (6 groups, 28 swatches), font picker (14 options each rendered in its own typeface), text-scale selector (4 buttons), and New UX toggle. All DOM via `createElement` + `textContent` (XSS-safe). Wired to the avatar menu "Display preferences" entry across all 11 new-UX boot files.
+
+8. **Settings -> Appearance page** -- NEW files: `static/settings-appearance.html` (page shell), `static/js/pages/settings-appearance.js` (page module), `static/js/settings-appearance-boot.js` (boot script). Page is OPERATOR+ gated. Controls: "New interface (default)" toggle (writes `enable_new_ux` system pref), "Allow per-user display overrides" toggle (writes `allow_user_theme_override`). Card added to `settings-overview.js`. Route `/settings/appearance` mounted in `main.py`.
+
+**Design decisions and rationale:**
+
+- **Why Nebula as the default theme.** Nebula is the New UX palette -- deep purple accent, dark card surfaces, the visual identity introduced in v0.36.0. Making it the default for new installs means the first impression of MarkFlow is the intended design, not the legacy Classic Light theme. Existing users who have not set a preference will see Nebula on their next load; operators who want the old look can set `default_theme=classic-light` in Settings -> Appearance.
+
+- **Why `data-*` attributes on `<html>` rather than a CSS class or a separate stylesheet swap.** The `data-*` approach is the current industry standard for CSS custom property theming: one selector per theme in a single file, no JavaScript-driven class toggling, no FOUC from stylesheet swaps, no specificity fights. It also composes cleanly -- `[data-theme="nebula"][data-text-scale="large"]` selects naturally without any JS coordination needed.
+
+- **Why a COUNTERPART map for UX-mode migration.** The Original UX and New UX theme groups have different palettes that serve the same role in each design system. When a user switches UX mode, landing on the wrong palette is jarring -- e.g., switching from New UX (Nebula) to Original UX and seeing an entirely different color scheme. The COUNTERPART map (Nebula -> Classic Light, Aurora -> Sage, etc.) makes the transition feel intentional rather than accidental. Users can still pick any theme manually after the migration.
+
+- **Why Google Fonts with `display=swap`.** The 13 non-system fonts are loaded from Google Fonts CDN with `&display=swap` so the page renders in the system font immediately and the chosen font swaps in when it loads. This means no layout shift on first load and no blocking network request. The `<link rel="preconnect" href="https://fonts.googleapis.com">` in every page head reduces DNS + TLS latency on first load.
+
+- **Why SCHEMA_VER 2 rather than a new table.** The four new preference keys (theme, font, text_scale, use_new_ux) are per-user preferences of the same character as the existing layout/density/pinned-folders keys. Splitting them into a separate table would require a join on every preference read. Bumping the schema version and migrating existing rows in place is simpler and consistent with the pattern already established in `core/user_prefs.py`.
+
+**New API routes:**
+- `GET /settings/appearance` -- Appearance settings page (HTML, OPERATOR+).
+- `GET /api/user-prefs` / `PATCH /api/user-prefs` -- unchanged endpoint, now handles 4 additional keys.
+
+**Files shipped (major new):**
+- `static/css/design-themes.css` (NEW)
+- `static/js/components/display-prefs-drawer.js` (NEW)
+- `static/js/pages/settings-appearance.js` (NEW)
+- `static/js/settings-appearance-boot.js` (NEW)
+- `static/settings-appearance.html` (NEW)
+- Modified: `core/user_prefs.py` (SCHEMA_VER bump + 4 new keys), `core/feature_flags.py` (three-tier lookup), `core/db/preferences.py` (3 new system pref keys), `static/css/design-tokens.css` (3 new token variables), `static/css/components.css` (@import + drawer styles), `static/js/preferences.js` (syncAttrs + COUNTERPART map), all 35+ HTML pages (init script + Google Fonts), all 11 new-UX boot files (drawer wiring), `static/js/pages/settings-overview.js` (Appearance card), `main.py` (/settings/appearance route).
+
+**Dependencies:** No new Python packages. One new Google Fonts CDN dependency (client-side only, graceful fallback to system-ui).
+
+**Backend pipeline:** No changes. Conversion, bulk worker, scheduler, scan coordinator, auth, and lifecycle subsystems are identical to v0.36.0.
+
+**Order:** Shipped after v0.36.0 (UX Overhaul Plans 1A-8).
+
+---
+
 ## v0.36.0 — UX Overhaul (Plans 1A–8) (2026-04-30)
 
 **Goal:** Ship the full UX overhaul behind a `ENABLE_NEW_UX` feature flag. All eight plans (foundation, home page, stateful chrome, document cards, IA shift, settings redesign, cost dashboard, onboarding) are implemented and gated. Existing UI is completely unchanged for any deployment where the flag is off.

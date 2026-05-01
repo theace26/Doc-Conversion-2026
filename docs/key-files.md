@@ -218,7 +218,12 @@ Quick-reference for file purposes. Referenced from CLAUDE.md.
 | `core/llm_costs.py` | LLM cost lookup + arithmetic + period aggregation. Frozen-dataclass loader, strict schema validation, `estimate_cost`/`aggregate_batch_cost`/`aggregate_period_cost`/`is_data_stale`. Soft-fails to empty table on disk errors. (v0.33.1) |
 | `core/data/llm_costs.json` | Operator-curated LLM rate table (Anthropic / OpenAI / Gemini / Ollama, 11 models). Hot-reloadable via POST `/api/admin/llm-costs/reload` — no container restart needed. (v0.33.1) |
 | `api/routes/llm_costs.py` | LLM cost API: GET /api/admin/llm-costs (OPERATOR+), POST /reload (ADMIN), GET /api/analysis/cost/{file/batch/period/staleness} (OPERATOR+). External integrators (IP2A, finance dashboards) consume these via X-API-Key. (v0.33.1) |
-| `api/routes/prproj.py` | Premiere project cross-reference API (v0.34.0): GET /api/prproj/references?path=… (reverse lookup), GET /api/prproj/{project_id}/media (forward lookup), GET /api/prproj/stats. OPERATOR+ on all reads. |
+| `api/routes/prproj.py` | Premiere project cross-reference API (v0.34.0): GET /api/prproj/references?path=... (reverse lookup), GET /api/prproj/{project_id}/media (forward lookup), GET /api/prproj/stats. OPERATOR+ on all reads. |
+| `static/css/design-themes.css` | 28-theme CSS attribute-selector blocks + 14 font blocks + 4 text-scale blocks (v0.37.0) |
+| `static/js/components/display-prefs-drawer.js` | Display Preferences drawer -- theme swatches, font picker, text scale, UX toggle (v0.37.0) |
+| `static/js/pages/settings-appearance.js` | Settings -> Appearance page module -- system UX default + per-user override gate (v0.37.0) |
+| `static/js/settings-appearance-boot.js` | Boot script for Settings -> Appearance page (v0.37.0) |
+| `static/settings-appearance.html` | Appearance settings page HTML shell (v0.37.0) |
 
 ## MCP, Tools & Config
 

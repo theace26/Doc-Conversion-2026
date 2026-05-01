@@ -6,6 +6,22 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.37.0 — Display Preferences & Theme System
+
+**28 color themes.** Choose from Original UX, New UX, High Contrast, Pastel, and Seasonal palettes -- six groups in all. Themes apply instantly without a page reload.
+
+**14 font choices.** System UI, Inter, IBM Plex Sans, Roboto, Source Sans 3, Lato, Merriweather, JetBrains Mono, Nunito, Playfair Display, Raleway, Poppins, DM Sans, Crimson Pro. Each is previewed in its own typeface inside the picker.
+
+**Text size control.** Four steps -- Small (0.84x), Default (1x), Large (1.18x), X-Large (1.36x) -- independent of your browser zoom level.
+
+**Per-user Display Preferences.** Open the drawer from the avatar menu in the top-right corner. All changes save automatically and sync across tabs.
+
+**New UX toggle.** Switch between the original interface and the new search-as-home design at any time. Operators can set the system-wide default in Settings -> Appearance.
+
+**Settings -> Appearance (operators).** New operator-only settings page to configure the system default for New UX and control whether users can override display settings.
+
+---
+
 ## v0.36.0 — New Look & Feel (April 30, 2026)
 
 > **Note for most users:** The new interface described below is not active by default. An administrator must turn on the new look before you will see it. If your MarkFlow looks the same as it always has, that is intentional — the update is ready and waiting, not missing.
