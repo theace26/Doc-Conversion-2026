@@ -31,6 +31,19 @@ Visit `/debug` in your browser. This always-available developer page shows
 health pills for each dependency, recent conversion activity, OCR confidence
 distribution, and a real-time log viewer.
 
+### Active Operations Hub *(v0.35.0)*
+
+Before chasing a stuck operation through logs, check the **Active
+Operations Hub** at the top of the [Status page](/help.html#status-page).
+It lists every long-running operation MarkFlow is currently tracking —
+bulk jobs, pipeline scans, trash empty/restore, search-index rebuild,
+database backup/restore — with live progress, started-by user,
+duration, and a Cancel button (where supported). If an operation
+looks stuck, the duration column reveals it instantly. If something
+disappeared after a restart, the Hub's **Terminated** section
+(red, auto-hides after 30s) shows what was running when the process
+exited.
+
 ### Container Logs
 
 The most detailed information lives in the container logs:

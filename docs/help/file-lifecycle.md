@@ -64,8 +64,20 @@ The Trash page shows all files currently in the trash:
 1. **Restore** — move a file back to active status
 2. **Purge** — permanently delete a file immediately
 3. **Empty Trash** — purge all trashed files at once
+4. **Restore All** — pull every trashed file back to active
 
 > **Warning:** Purging is permanent. There is no undo.
+
+### Watch progress in the Active Operations Hub *(v0.35.0)*
+
+Both **Empty Trash** and **Restore All** are long-running batch
+operations. While one is in flight, an inline progress widget
+appears at the top of the Trash page showing the live count of
+files processed, plus a Cancel button. The same operation also
+appears in the **Active Operations Hub** at the top of the
+[Status page](/help.html#status-page). Cancelling from either
+spot is cooperative — the worker finishes its current chunk,
+then exits cleanly. Partial progress is preserved.
 
 ### Automatic purge *(v0.23.6)*
 

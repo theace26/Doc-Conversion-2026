@@ -206,6 +206,16 @@ The Status link in the navigation bar shows a badge with the number of active jo
 
 > **Tip:** You can monitor jobs from any page — the badge in the navigation bar always shows the current count. Click it to go to the full Status page for details.
 
+### Active Operations Hub *(v0.35.0)*
+
+In addition to the per-job cards, the Status page now opens with the
+**Active Operations Hub** — a unified index of every long-running
+operation in MarkFlow. Bulk jobs appear there as `bulk.job` rows with
+the same progress count, alongside other ops (pipeline scans, trash
+empty/restore, search-index rebuild, DB backup/restore). Click any
+row to jump to the page where the operation was started; the inline
+widget on that page pulses amber to confirm which one was highlighted.
+
 
 ## Lifecycle Scanner
 

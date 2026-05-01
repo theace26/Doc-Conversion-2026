@@ -145,6 +145,15 @@ Use Run Now when:
 
 Run Now respects the current Workers and Batch Size settings.
 
+> **Tip *(v0.35.0)*:** While Run Now is in flight, the **Active
+> Operations Hub** at the top of the Status page shows two live
+> rows — `pipeline.run_now` (the orchestration shell) and
+> `pipeline.scan` (the actual scanner work). The scan row's
+> progress mirrors the live count from the underlying scan run,
+> so it stays accurate even if Run Now had to pause for a bulk
+> job first. Both rows have a Cancel button; cancelling from
+> either signals a coordinated stop.
+
 
 ## How It Interacts with Manual Bulk Jobs
 
