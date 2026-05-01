@@ -141,6 +141,10 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     # Cost alerts (Plan 7) — notify when monthly spend exceeds threshold.
     "cost_alert_enabled": "false",
     "cost_alert_threshold_usd": "10.0",
+    # Interface defaults (v0.37.0)
+    "enable_new_ux": "false",
+    "allow_user_theme_override": "true",
+    "default_theme": "nebula",
 }
 
 
