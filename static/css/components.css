@@ -1808,7 +1808,7 @@
   color: var(--mf-text-primary);
 }
 .mf-log__file-name {
-  font-family: "SF Mono", "Cascadia Code", monospace;
+  font-family: var(--mf-font-mono);
   font-size: 0.82rem;
 }
 .mf-log__compressed-badge {

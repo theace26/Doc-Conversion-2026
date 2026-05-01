@@ -270,7 +270,8 @@
       row.appendChild(tdSize);
 
       var tdMod = document.createElement('td');
-      tdMod.textContent = f.modified ? parseUTC(f.modified).toLocaleString() : '';
+      var modDate = (f.modified && typeof window.parseUTC === 'function') ? window.parseUTC(f.modified) : null;
+      tdMod.textContent = (modDate && !isNaN(modDate.getTime())) ? modDate.toLocaleString() : (f.modified || '');
       row.appendChild(tdMod);
 
       var tdComp = document.createElement('td');
