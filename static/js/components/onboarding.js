@@ -253,13 +253,219 @@
     return wrap;
   }
 
-  /* ── Step 3: stub (Task 2 fills this out) ── */
-  function buildStep3() {
+  /* ── Step 3: Pin folders ── */
+
+  /* Build the folder list (or empty state) from resolved sources. */
+  function _renderPinFolders(sources) {
+    var frag = document.createDocumentFragment();
+    var MAX_VISIBLE = 8;
+    var MAX_PINS    = 6;
+
+    /* Header */
+    var icon = el('div', 'mf-ob__step-icon');
+    icon.textContent = '📌';   /* 📌 */
+
+    var headline = el('h2', 'mf-ob__headline');
+    headline.textContent = 'Pin your first folders.';
+
+    var subtitle = el('p', 'mf-ob__subtitle');
+    subtitle.textContent = 'These appear as quick-access cards on your home page.';
+
+    frag.appendChild(icon);
+    frag.appendChild(headline);
+    frag.appendChild(subtitle);
+
+    if (!sources || sources.length === 0) {
+      /* Empty state */
+      var empty = el('div', 'mf-ob__folder-empty');
+
+      var emptyIcon = el('span', 'mf-ob__step-icon');
+      emptyIcon.textContent = '🗂️';   /* 🗂️ */
+
+      var emptyLine1 = el('p');
+      emptyLine1.textContent = 'No indexed folders yet.';
+
+      var emptyLine2 = el('p');
+      emptyLine2.textContent = 'Folders appear here once the pipeline scans your K Drive.';
+
+      empty.appendChild(emptyIcon);
+      empty.appendChild(emptyLine1);
+      empty.appendChild(emptyLine2);
+      frag.appendChild(empty);
+      return frag;
+    }
+
+    /* Pin limit warning node (hidden until needed) */
+    var limitNote = el('div', 'mf-ob__pin-limit-note');
+    limitNote.textContent = 'Unpin a folder to add another.';
+    limitNote.style.display = 'none';
+
+    /* Folder list */
+    var ul = el('ul', 'mf-ob__folder-list');
+    ul.style.listStyle = 'none';
+
+    var pinnedCount = 0;
+    var liEls = [];   /* all li elements in order */
+
+    function setPinned(liEl, cb, pinned) {
+      if (pinned) {
+        liEl.classList.add('mf-ob__folder-item--pinned');
+        cb.checked = true;
+      } else {
+        liEl.classList.remove('mf-ob__folder-item--pinned');
+        cb.checked = false;
+      }
+    }
+
+    function toggleItem(liEl, cb) {
+      var wasPinned = liEl.classList.contains('mf-ob__folder-item--pinned');
+      if (!wasPinned) {
+        /* Trying to pin */
+        if (pinnedCount >= MAX_PINS) {
+          /* Enforce max — show warning, don't change state */
+          limitNote.style.display = '';
+          cb.checked = false;
+          return;
+        }
+        pinnedCount += 1;
+        setPinned(liEl, cb, true);
+      } else {
+        /* Unpinning */
+        pinnedCount -= 1;
+        setPinned(liEl, cb, false);
+        /* Hide warning if under the limit again */
+        if (pinnedCount < MAX_PINS) {
+          limitNote.style.display = 'none';
+        }
+      }
+    }
+
+    var hidden = [];   /* li elements beyond MAX_VISIBLE */
+
+    for (var i = 0; i < sources.length; i++) {
+      var src = sources[i];
+      var displayText = (src.label && src.label !== src.path) ? src.label : src.path;
+
+      var li = el('li', 'mf-ob__folder-item');
+      li.setAttribute('data-path', src.path);
+
+      var cb = el('input');
+      cb.setAttribute('type', 'checkbox');
+      cb.className = 'mf-ob__folder-cb';
+      cb.style.width  = '18px';
+      cb.style.height = '18px';
+
+      var folderIcon = el('span');
+      folderIcon.textContent = '📁';   /* 📁 */
+
+      var labelSpan = el('span');
+      labelSpan.textContent = displayText;
+
+      li.appendChild(cb);
+      li.appendChild(folderIcon);
+      li.appendChild(labelSpan);
+
+      /* Capture loop vars */
+      (function (liRef, cbRef) {
+        li.addEventListener('click', function (ev) {
+          /* If the checkbox itself was clicked, the browser toggles it before
+           * the click fires on li — we need to read the NEW checked state.
+           * For any other part of the row, we manually flip. */
+          if (ev.target === cbRef) {
+            /* checkbox toggled natively; sync state */
+            var willBePinned = cbRef.checked;
+            if (willBePinned && pinnedCount >= MAX_PINS) {
+              /* Undo native toggle */
+              cbRef.checked = false;
+              limitNote.style.display = '';
+              return;
+            }
+            if (willBePinned) {
+              pinnedCount += 1;
+              liRef.classList.add('mf-ob__folder-item--pinned');
+            } else {
+              pinnedCount -= 1;
+              liRef.classList.remove('mf-ob__folder-item--pinned');
+              if (pinnedCount < MAX_PINS) limitNote.style.display = 'none';
+            }
+          } else {
+            toggleItem(liRef, cbRef);
+          }
+        });
+      })(li, cb);
+
+      ul.appendChild(li);
+      liEls.push(li);
+
+      if (i >= MAX_VISIBLE) {
+        li.style.display = 'none';
+        hidden.push(li);
+      }
+    }
+
+    frag.appendChild(ul);
+
+    /* "Show N more" link */
+    if (hidden.length > 0) {
+      var showMore = el('a', 'mf-ob__show-more');
+      showMore.setAttribute('href', '#');
+      showMore.textContent = 'Show ' + hidden.length + ' more';
+      showMore.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        for (var j = 0; j < hidden.length; j++) {
+          hidden[j].style.display = '';
+        }
+        if (showMore.parentNode) showMore.parentNode.removeChild(showMore);
+      });
+      frag.appendChild(showMore);
+    }
+
+    frag.appendChild(limitNote);
+
+    return frag;
+  }
+
+  function buildStep3(sourcesPromise, fetchSources) {
     var s3 = el('div', 'mf-ob__step');
-    var ph = el('p');
-    ph.textContent = 'Loading folders…';
-    s3.appendChild(ph);
+
+    /* Loading placeholder */
+    var loading = el('p', 'mf-ob__loading');
+    loading.textContent = 'Loading folders…';
+    s3.appendChild(loading);
+
+    /* Determine the promise to use */
+    var promise = sourcesPromise;
+    if (!promise) {
+      promise = fetchSources();
+    }
+
+    promise.then(function (data) {
+      /* API returns { sources: [...] } or a bare array */
+      var list = Array.isArray(data) ? data : (data && data.sources ? data.sources : []);
+      /* Remove loading text */
+      if (loading.parentNode) loading.parentNode.removeChild(loading);
+      var frag = _renderPinFolders(list);
+      s3.appendChild(frag);
+    }).catch(function () {
+      if (loading.parentNode) loading.parentNode.removeChild(loading);
+      var frag = _renderPinFolders([]);
+      s3.appendChild(frag);
+    });
+
     return s3;
+  }
+
+  /* Collect pinned paths from step-3 node */
+  function _getPinnedPaths(stepNode) {
+    var pins = stepNode.querySelectorAll('.mf-ob__folder-item--pinned');
+    var paths = [];
+    for (var i = 0; i < pins.length; i++) {
+      /* Third child is the label span; its text matches displayText (label or path).
+       * We need the actual path — store it on the li as a data attribute. */
+      var pathAttr = pins[i].getAttribute('data-path');
+      if (pathAttr) paths.push(pathAttr);
+    }
+    return paths;
   }
 
   /* ── Footer buttons ── */
@@ -312,12 +518,12 @@
       var skipBtn3 = el('button', 'mf-btn mf-btn--ghost');
       skipBtn3.setAttribute('type', 'button');
       skipBtn3.textContent = 'Skip';
-      skipBtn3.addEventListener('click', handlers.onComplete);
+      skipBtn3.addEventListener('click', handlers.onSkip3);
 
       var finishBtn = el('button', 'mf-btn mf-btn--primary');
       finishBtn.setAttribute('type', 'button');
       finishBtn.textContent = 'Finish setup →';
-      finishBtn.addEventListener('click', handlers.onComplete);
+      finishBtn.addEventListener('click', handlers.onFinish);
 
       footer.appendChild(backBtn3);
       footer.appendChild(skipBtn3);
@@ -376,7 +582,7 @@
           selectedMode = mode;
         });
       } else {
-        stepNode = buildStep3();
+        stepNode = buildStep3(sourcesPromise, fetchSources);
       }
       stepSlot.appendChild(stepNode);
 
@@ -400,7 +606,17 @@
           onSkip();
           hide();
         },
-        onComplete: function () {
+        onSkip3: function () {
+          /* Step 3 "Skip" — complete without saving pinned folders */
+          onComplete();
+          hide();
+        },
+        onFinish: function () {
+          /* Step 3 "Finish setup" — save pinned folders then complete */
+          var pinnedPaths = _getPinnedPaths(stepSlot);
+          if (global.MFPrefs && global.MFPrefs.set) {
+            global.MFPrefs.set('pinned_folders', JSON.stringify(pinnedPaths));
+          }
           onComplete();
           hide();
         }
