@@ -75,17 +75,17 @@ Day-pills are rendered as `<button>` elements (not `<a>`) with `aria-pressed`. A
 
 **Boot:** Fetches `/api/me` + `/api/pipeline/status` + `/api/preferences` in parallel. Members → `/`. Operators+.
 
-- [ ] **Step 1:** Create `static/settings-pipeline.html` — same chrome stack, slot `#mf-pipeline`
-- [ ] **Step 2:** Create `static/js/pages/settings-pipeline.js` — `MFPipelineDetail`
-- [ ] **Step 3:** Create `static/js/settings-pipeline-boot.js`
-- [ ] **Step 4:** Append `mf-pip__*` CSS to `components.css` — day-pill styles, live badge, save bar, toggle-row; reuse `mf-stg__` field/label tokens where possible
-- [ ] **Step 5:** Insert route in `main.py` before the `{section}` catch-all:
+- [x] **Step 1:** Create `static/settings-pipeline.html` — same chrome stack, slot `#mf-pipeline`
+- [x] **Step 2:** Create `static/js/pages/settings-pipeline.js` — `MFPipelineDetail`
+- [x] **Step 3:** Create `static/js/settings-pipeline-boot.js`
+- [x] **Step 4:** Append `mf-pip__*` CSS to `components.css` — day-pill styles, live badge, save bar, toggle-row; reuse `mf-stg__` field/label tokens where possible
+- [x] **Step 5:** Insert route in `main.py` before the `{section}` catch-all:
   ```python
   @app.get("/settings/pipeline", include_in_schema=False)
   async def settings_pipeline_page():
       return FileResponse("static/settings-pipeline.html")
   ```
-- [ ] **Step 6:** Commit `feat(ux): Pipeline & lifecycle settings detail (Plan 6 Task 1)`
+- [x] **Step 6:** Commit `feat(ux): Pipeline & lifecycle settings detail (Plan 6 Task 1)`
 
 ---
 
@@ -115,17 +115,17 @@ Sidebar entries for Anthropic/OpenAI are hidden if no provider of that type is c
 
 **Boot:** Fetches `/api/me` + `/api/llm-providers` + `/api/llm-providers/registry`. Members → `/`. Operators+.
 
-- [ ] **Step 1:** Create `static/settings-ai-providers.html` — slot `#mf-ai-providers`
-- [ ] **Step 2:** Create `static/js/pages/settings-ai-providers.js` — `MFAIProvidersDetail`
-- [ ] **Step 3:** Create `static/js/settings-ai-providers-boot.js`
-- [ ] **Step 4:** Append `mf-ai__*` CSS — provider badge, active/verify button states, dynamic sidebar
-- [ ] **Step 5:** Insert route in `main.py`:
+- [x] **Step 1:** Create `static/settings-ai-providers.html` — slot `#mf-ai-providers`
+- [x] **Step 2:** Create `static/js/pages/settings-ai-providers.js` — `MFAIProvidersDetail`
+- [x] **Step 3:** Create `static/js/settings-ai-providers-boot.js`
+- [x] **Step 4:** Append `mf-ai__*` CSS — provider badge, active/verify button states, dynamic sidebar
+- [x] **Step 5:** Insert route in `main.py`:
   ```python
   @app.get("/settings/ai-providers", include_in_schema=False)
   async def settings_ai_providers_page():
       return FileResponse("static/settings-ai-providers.html")
   ```
-- [ ] **Step 6:** Commit `feat(ux): AI providers settings detail (Plan 6 Task 2)`
+- [x] **Step 6:** Commit `feat(ux): AI providers settings detail (Plan 6 Task 2)`
 
 ---
 
@@ -150,17 +150,17 @@ Sidebar entries for Anthropic/OpenAI are hidden if no provider of that type is c
 
 **Boot:** Fetches `/api/me` + `/api/preferences`. Members → `/`. Operators+.
 
-- [ ] **Step 1:** Create `static/settings-auth.html` — slot `#mf-auth`
-- [ ] **Step 2:** Create `static/js/pages/settings-auth.js` — `MFAuthDetail`
-- [ ] **Step 3:** Create `static/js/settings-auth-boot.js`
-- [ ] **Step 4:** Append `mf-auth__*` CSS — role pill in content area, mapping table, read-only note style
-- [ ] **Step 5:** Insert route in `main.py`:
+- [x] **Step 1:** Create `static/settings-auth.html` — slot `#mf-auth`
+- [x] **Step 2:** Create `static/js/pages/settings-auth.js` — `MFAuthDetail`
+- [x] **Step 3:** Create `static/js/settings-auth-boot.js`
+- [x] **Step 4:** Append `mf-auth__*` CSS — role pill in content area, mapping table, read-only note style
+- [x] **Step 5:** Insert route in `main.py`:
   ```python
   @app.get("/settings/auth", include_in_schema=False)
   async def settings_auth_page():
       return FileResponse("static/settings-auth.html")
   ```
-- [ ] **Step 6:** Commit `feat(ux): Account & auth settings detail (Plan 6 Task 3)`
+- [x] **Step 6:** Commit `feat(ux): Account & auth settings detail (Plan 6 Task 3)`
 
 ---
 
@@ -185,17 +185,17 @@ Members may access Notifications (it's not `adminOnly` per the overview card). A
 
 **Boot:** Fetches `/api/me` + `/api/preferences`. Members allowed. Role check: members see read-only view, operators can save.
 
-- [ ] **Step 1:** Create `static/settings-notifications.html` — slot `#mf-notifications`
-- [ ] **Step 2:** Create `static/js/pages/settings-notifications.js` — `MFNotificationsDetail`
-- [ ] **Step 3:** Create `static/js/settings-notifications-boot.js` (no member redirect)
-- [ ] **Step 4:** Append `mf-notif__*` CSS — trigger-rule list, channel card, quiet-hours row
-- [ ] **Step 5:** Insert route in `main.py`:
+- [x] **Step 1:** Create `static/settings-notifications.html` — slot `#mf-notifications`
+- [x] **Step 2:** Create `static/js/pages/settings-notifications.js` — `MFNotificationsDetail`
+- [x] **Step 3:** Create `static/js/settings-notifications-boot.js` (no member redirect)
+- [x] **Step 4:** Append `mf-notif__*` CSS — trigger-rule list, channel card, quiet-hours row
+- [x] **Step 5:** Insert route in `main.py`:
   ```python
   @app.get("/settings/notifications", include_in_schema=False)
   async def settings_notifications_page():
       return FileResponse("static/settings-notifications.html")
   ```
-- [ ] **Step 6:** Commit `feat(ux): Notifications settings detail (Plan 6 Task 4)`
+- [x] **Step 6:** Commit `feat(ux): Notifications settings detail (Plan 6 Task 4)`
 
 ---
 
@@ -224,17 +224,17 @@ Action buttons: disable after click until response returns. Show result as a sta
 
 **Boot:** Fetches `/api/me` + `/api/db/health` + `/api/db/maintenance-log` (handle 403 gracefully). Members → `/`. Operators+.
 
-- [ ] **Step 1:** Create `static/settings-db-health.html` — slot `#mf-db-health`
-- [ ] **Step 2:** Create `static/js/pages/settings-db-health.js` — `MFDBHealthDetail`
-- [ ] **Step 3:** Create `static/js/settings-db-health-boot.js`
-- [ ] **Step 4:** Append `mf-dbh__*` CSS — stat grid, action-result pill, spinner (CSS keyframe)
-- [ ] **Step 5:** Insert route in `main.py`:
+- [x] **Step 1:** Create `static/settings-db-health.html` — slot `#mf-db-health`
+- [x] **Step 2:** Create `static/js/pages/settings-db-health.js` — `MFDBHealthDetail`
+- [x] **Step 3:** Create `static/js/settings-db-health-boot.js`
+- [x] **Step 4:** Append `mf-dbh__*` CSS — stat grid, action-result pill, spinner (CSS keyframe)
+- [x] **Step 5:** Insert route in `main.py`:
   ```python
   @app.get("/settings/db-health", include_in_schema=False)
   async def settings_db_health_page():
       return FileResponse("static/settings-db-health.html")
   ```
-- [ ] **Step 6:** Commit `feat(ux): Database health settings detail (Plan 6 Task 5)`
+- [x] **Step 6:** Commit `feat(ux): Database health settings detail (Plan 6 Task 5)`
 
 ---
 
@@ -259,30 +259,30 @@ Action buttons: disable after click until response returns. Show result as a sta
 
 **Boot:** Fetches `/api/me` + `/api/logs` + `/api/logs/settings` (handle 403 gracefully). Members → `/`. Admins only (log management is admin-gated).
 
-- [ ] **Step 1:** Create `static/settings-log-mgmt.html` — slot `#mf-log-mgmt`
-- [ ] **Step 2:** Create `static/js/pages/settings-log-mgmt.js` — `MFLogMgmtDetail`
-- [ ] **Step 3:** Create `static/js/settings-log-mgmt-boot.js`
-- [ ] **Step 4:** Append `mf-log__*` CSS — level-select row, file-inventory table, download button
-- [ ] **Step 5:** Insert route in `main.py`:
+- [x] **Step 1:** Create `static/settings-log-mgmt.html` — slot `#mf-log-mgmt`
+- [x] **Step 2:** Create `static/js/pages/settings-log-mgmt.js` — `MFLogMgmtDetail`
+- [x] **Step 3:** Create `static/js/settings-log-mgmt-boot.js`
+- [x] **Step 4:** Append `mf-log__*` CSS — level-select row, file-inventory table, download button
+- [x] **Step 5:** Insert route in `main.py`:
   ```python
   @app.get("/settings/log-management", include_in_schema=False)
   async def settings_log_management_page():
       return FileResponse("static/settings-log-mgmt.html")
   ```
-- [ ] **Step 6:** Commit `feat(ux): Log management settings detail (Plan 6 Task 6)`
+- [x] **Step 6:** Commit `feat(ux): Log management settings detail (Plan 6 Task 6)`
 
 ---
 
 ## Acceptance checks
 
-- [ ] `grep -rn "innerHTML" static/js/pages/settings-pipeline.js static/js/pages/settings-ai-providers.js static/js/pages/settings-auth.js static/js/pages/settings-notifications.js static/js/pages/settings-db-health.js static/js/pages/settings-log-mgmt.js` — zero matches
-- [ ] All 6 new routes return 200 (not 302) in curl/browser
-- [ ] `GET /settings/pipeline` → `GET /settings/ai-providers` → `GET /settings/auth` → `GET /settings/notifications` → `GET /settings/db-health` → `GET /settings/log-management` all 200
-- [ ] `GET /settings/unknown-section` still → 302 to `/settings` (catch-all still fires)
-- [ ] Settings overview Storage card now has 5 siblings all rendering detail pages
-- [ ] Pipeline Pause & resume toggle calls correct API and reflects state
-- [ ] AI providers sidebar hides provider entries for unconfigured provider types
-- [ ] Notifications boot does NOT redirect members (notifications card is member-accessible)
-- [ ] Database health action buttons disable while request in-flight
-- [ ] Log management Download bundle triggers the correct POST
-- [ ] `git log --oneline | head -8` shows 6 task commits (one per page)
+- [x] `grep -rn "innerHTML" static/js/pages/settings-pipeline.js static/js/pages/settings-ai-providers.js static/js/pages/settings-auth.js static/js/pages/settings-notifications.js static/js/pages/settings-db-health.js static/js/pages/settings-log-mgmt.js` — zero matches
+- [x] All 6 new routes return 200 (not 302) in curl/browser
+- [x] `GET /settings/pipeline` → `GET /settings/ai-providers` → `GET /settings/auth` → `GET /settings/notifications` → `GET /settings/db-health` → `GET /settings/log-management` all 200
+- [x] `GET /settings/unknown-section` still → 302 to `/settings` (catch-all still fires)
+- [x] Settings overview Storage card now has 5 siblings all rendering detail pages
+- [x] Pipeline Pause & resume toggle calls correct API and reflects state
+- [x] AI providers sidebar hides provider entries for unconfigured provider types
+- [x] Notifications boot does NOT redirect members (notifications card is member-accessible)
+- [x] Database health action buttons disable while request in-flight
+- [x] Log management Download bundle triggers the correct POST
+- [x] `git log --oneline | head -8` shows 6 task commits (one per page)
