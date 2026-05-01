@@ -27,6 +27,14 @@
       adminOnly: true,
     },
     {
+      id: 'appearance',
+      icon: '\u{1F3A8}',
+      label: 'Appearance',
+      desc: 'Default theme, UX mode, and whether users can customize their own display.',
+      href: '/settings/appearance',
+      adminOnly: true,
+    },
+    {
       id: 'ai-providers',
       icon: '\u{1F9E0}',
       label: 'AI Providers',

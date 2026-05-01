@@ -595,6 +595,11 @@ async def settings_cost_cap_page():
     return FileResponse("static/settings-cost-cap.html")
 
 
+@app.get("/settings/appearance", include_in_schema=False)
+async def settings_appearance_page():
+    return FileResponse("static/settings-appearance.html")
+
+
 @app.get("/settings/{section}", include_in_schema=False)
 async def settings_section_page(section: str):
     """Future plans implement each section. Redirect to overview for now."""
