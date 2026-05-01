@@ -6,6 +6,48 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.36.0 — New Look & Feel (April 30, 2026)
+
+> **Note for most users:** The new interface described below is not active by default. An administrator must turn on the new look before you will see it. If your MarkFlow looks the same as it always has, that is intentional — the update is ready and waiting, not missing.
+
+### The first time you load the new look
+
+When an administrator enables the new interface, the first person to visit MarkFlow after the update will see a short welcome walkthrough — three quick steps:
+
+1. **Welcome screen** — introduces the new home page.
+2. **Pick your layout** — choose how you want the home page to look (see below).
+3. **Pin your folders** — pick up to six frequently used folders and they'll appear as quick-access tiles on your home page.
+
+The walkthrough takes about 30 seconds. Once you finish it, it won't appear again. If you want to redo it later, you can restart it from Settings.
+
+### Three ways to use the home page
+
+The new home page puts the search bar front and center. You can choose the layout that suits your workflow:
+
+- **Maximal** — a full grid of document cards fills the page, with the search bar above. Best if you browse by file.
+- **Recent Activity** — the search bar sits at the top, with a row of file-type filters below it and your most recently touched files underneath. Best if you jump between a handful of active files.
+- **Minimal** — just the search bar, large and centered. Everything else is hidden. Best if you almost always start with a search.
+
+To switch layouts, click the layout icon in the top navigation bar, or press Ctrl+\ (Cmd+\ on Mac). Your choice is saved and will be the same next time you log in or open MarkFlow from a different browser.
+
+### Document cards look different
+
+Files now show as cards with a colored stripe across the top — blue for Word documents, orange for audio files, purple for PDFs, and so on — so you can spot file types at a glance without reading the extension. You can also switch how dense the list is: the full card view, a compact row view, or a flat list. The density setting is saved per user.
+
+### Settings has a cleaner layout
+
+The Settings area is reorganized. Instead of one long page with everything on it, each section (Storage, Pipeline, AI Providers, Notifications, and others) now has its own dedicated page. You can reach them from the Settings overview, which shows a card for each section.
+
+### Cost tracking under AI Providers (administrators)
+
+Under Settings, AI Providers now has a cost detail page. It shows how much your configured AI providers have been used this month and over the trailing 30 days, a day-by-day chart, and the option to set soft-warning and hard-cap thresholds. Administrators can also import a CSV file to set custom per-token rates if the built-in defaults do not match your contract pricing.
+
+### Activity dashboard (operators and administrators)
+
+There is a new Activity page that shows the health of the auto-conversion pipeline: how many files have been scanned, how many have been fully indexed, and the gap between the two — files that are in the system but not yet searchable. It also shows how the automatic conversion process has been performing over the past week.
+
+---
+
 ## v0.35.0 — Active Operations Hub (April 28, 2026)
 
 ### What's new for you

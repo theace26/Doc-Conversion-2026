@@ -69,29 +69,30 @@ live", `key-files.md`. For "is this bug already known", `bug-log.md`.
 
 ---
 
-## Current Version — v0.35.0
+## Current Version — v0.36.0
 
-**Active Operations Registry.** Single source of truth for every long-running file-related op. Workers register at start, update on tick, finish at end. One unified frontend surface (sticky banner, inline per-page widget, Status hub) consumes one polling endpoint. Replaces ad-hoc per-subsystem progress dicts.
+**UX Overhaul (Plans 1A–8), feature-flagged behind `ENABLE_NEW_UX`.** Delivers the full redesign in one coordinated release: search-as-home with three layout modes, stateful chrome (avatar menu, version chip, layout popover), color-coded document cards with density switching, a new Activity dashboard for operators, a per-section Settings architecture, a cost-tracking deep-dive under AI Providers, first-run onboarding overlay, and per-user preferences persisted to `mf_user_prefs`. Existing UI is completely unchanged when the flag is off.
 
-### What operators see
+### What operators and users see (when ENABLE_NEW_UX=true)
 
-- Force Transcribe, pipeline scans, trash ops, DB maintenance — all show a live progress widget on the origin page and in the Status hub.
-- Click any Status hub card to jump to the origin page; the widget pulses amber to confirm which op was clicked.
-- Cancel button on every cancellable op. DB backup/restore intentionally uncancellable.
-- After restart: ops in flight show as "terminated by restart" on Status hub for 30 s.
-- `/api/version` reports `0.35.0`.
+- First visit triggers a 3-step onboarding overlay: Welcome → pick your layout → pin up to 6 quick-access folders.
+- Home page defaults to **Maximal** (card grid + search bar). `Cmd+\` / `Ctrl+\` cycles to Recent Activity or Minimal; choice is saved per user.
+- Document tiles show a gradient top band color-coded by file type; density switches between Cards / Compact / List.
+- Settings split into per-section pages: Storage, Pipeline, AI Providers, Auth, Notifications, DB Health, Log Management.
+- `/settings/ai-providers/cost` — spend tiles (MTD + rolling-30d), daily bar chart, CSV rate import, alert thresholds.
+- `/activity` — scan vs index delta, auto-conversion health, live op status (OPERATOR role required).
+- `/api/version` reports `0.36.0`.
 
 ### Loose ends tracked forward
 
-1. **BUG-019** — remove deprecated `/api/trash/empty/status` and `/api/trash/restore-all/status` facades (v0.36.x).
-2. **BUG-020** — apply P1 (no-op-on-terminal) hardening to `BulkJob.tick()` and `lifecycle_scanner` `_scan_state` mutations (v0.36.x).
-3. **BUG-021** — periodic drift detection job comparing `bulk_jobs.processed` vs `active_operations.done` (v0.36.x).
-4. **BUG-022** — boot-time scheduler time-slot collision self-check (v0.36.x).
-5. **BUG-023** — audit deprecated public surfaces, apply v0.35.0 deprecation convention (v0.36.x).
-6. **No operator-facing alert** when auto-conversion fails N cycles in a row. UX overhaul §13 covers this.
-7. **Failure-path explicit `completed_at` writes** — bulk_job pre-flight failure handler should write `auto_conversion_runs.completed_at` directly.
-8. **LibreOffice headless flakes** on `.xls` (parallel-worker contention on `~/.config/libreoffice`). Tracked for hardening.
-9. **Worker heartbeat freezes** during long Whisper transcriptions. Cosmetic; not blocking.
+1. **BUG-019** — remove deprecated `/api/trash/empty/status` and `/api/trash/restore-all/status` facades.
+2. **BUG-020** — apply P1 (no-op-on-terminal) hardening to `BulkJob.tick()` and `lifecycle_scanner` `_scan_state` mutations.
+3. **BUG-021** — periodic drift detection job comparing `bulk_jobs.processed` vs `active_operations.done`.
+4. **BUG-022** — boot-time scheduler time-slot collision self-check.
+5. **BUG-023** — audit deprecated public surfaces, apply v0.35.0 deprecation convention.
+6. **Failure-path explicit `completed_at` writes** — bulk_job pre-flight failure handler should write `auto_conversion_runs.completed_at` directly.
+7. **LibreOffice headless flakes** on `.xls` (parallel-worker contention on `~/.config/libreoffice`). Tracked for hardening.
+8. **Worker heartbeat freezes** during long Whisper transcriptions. Cosmetic; not blocking.
 
 Full per-version detail (v0.34.6 and every prior release back to v0.13.x)
 lives in [`docs/version-history.md`](docs/version-history.md). **Do not

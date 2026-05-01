@@ -4,6 +4,61 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.36.0 — UX Overhaul (Plans 1A–8) (2026-04-30)
+
+**Goal:** Ship the full UX overhaul behind a `ENABLE_NEW_UX` feature flag. All eight plans (foundation, home page, stateful chrome, document cards, IA shift, settings redesign, cost dashboard, onboarding) are implemented and gated. Existing UI is completely unchanged for any deployment where the flag is off.
+
+**Why this matters:** The pre-overhaul UI accumulated friction across every major workflow — no search-first entry point, no per-user layout preferences, settings buried in a single sprawling page, no visibility into AI spend, no first-run guidance. The overhaul addresses all of these in one coordinated release, delivered as a flag-gated surface so operators can validate before rolling out.
+
+**What changed:**
+
+1. **Design system (Plans 1A + 1B)** — `static/css/design-tokens.css` introduces CSS custom properties for every color, spacing step, and type scale used by the new UI. `static/css/components.css` adds shared component classes (cards, chips, avatars, density modifiers). Purple accent `#5b3df5` is the primary brand color throughout. No existing stylesheets were modified.
+
+2. **New home page — search-as-home (Plan 2)** — `static/index-new.html` replaces the Convert page as the default landing view. Three layout modes are available: **Maximal** (large card grid + prominent search bar), **Recent Activity** (search + file-type chip row + recent-document cards), and **Minimal** (large centered search bar only, everything else hidden). `Cmd+\` (or `Ctrl+\` on Windows/Linux) cycles between modes. The active mode is persisted in per-user preferences and survives page reload and container restart.
+
+3. **Stateful chrome (Plan 3)** — top navigation bar gains an avatar menu (role-gated entry point to Settings), a version chip showing the current release, and a layout-icon popover for switching between the three home-page modes. The avatar menu is suppressed for unauthenticated or viewer-role sessions.
+
+4. **Document cards (Plan 4)** — document tiles across all list views gain a gradient top band color-coded by file type (Office files, audio, image, PDF, etc.) and a paper-snippet body showing a text excerpt. Three density modes are available: **Cards** (default, full gradient tile), **Compact** (condensed row with small icon), and **List** (flat table row). Density is stored per user.
+
+5. **Activity dashboard (Plan 5, IA shift)** — new page at `/activity`. Shows live scan/convert status, the delta between files scanned vs files indexed (surfacing the "scanned but not yet searchable" gap operators previously had no visibility into), and auto-conversion health over the trailing 7 days. Replaces the old Pipeline status tab for operators. Requires OPERATOR role or above.
+
+6. **Settings redesign (Plan 6)** — `/settings` now renders an overview card grid; each section has its own full-page route: `/settings/storage`, `/settings/pipeline`, `/settings/ai-providers`, `/settings/auth`, `/settings/notifications`, `/settings/db-health`, `/settings/log-management`. The old single-page settings accordion is preserved for non-new-UX deployments.
+
+7. **Cost dashboard (Plan 7)** — `/settings/ai-providers/cost` is a new deep-dive page under AI Providers. Surfaces spend tiles (MTD and rolling-30d totals per provider), a daily spend bar chart, CSV rate import for custom per-token pricing, and configurable alert thresholds (soft warning / hard cap). Powered by the new `/api/telemetry` UI-event sink.
+
+8. **First-run onboarding (Plan 8)** — 3-step full-screen overlay presented on the first visit to the home page: Welcome → Layout picker (choose Maximal / Recent / Minimal) → Pin folders (select up to 6 source folders as quick-access cards). Completion state persists in `mf_user_prefs` so the overlay does not reappear after the first run. Can be re-triggered from Settings → Account.
+
+9. **Per-user preferences** — `core/user_prefs.py` (NEW) + `mf_user_prefs` DB table (schema in `_SCHEMA_SQL`, no migrations subdir). Stores: layout mode, density setting, pinned folders (up to 6), and onboarding completion flag. Exposed via `/api/user-prefs` (GET + PATCH). Scoped per authenticated user; anonymous sessions get a session-local fallback.
+
+**New API routes:**
+- `GET /api/me` — authenticated identity (username, display name, role). Used by the avatar menu.
+- `GET /api/activity/summary` — operator-gated dashboard data (scan counts, index delta, auto-conversion health).
+- `GET /api/user-prefs` / `PATCH /api/user-prefs` — per-user layout, density, pinned folders, onboarding state.
+- `POST /api/telemetry` — UI event sink (click, layout-switch, search-submit events). Writes to a ring-buffered SQLite table; consumed by the cost dashboard aggregation query.
+
+**Files shipped (major new):**
+- `static/css/design-tokens.css` (NEW)
+- `static/css/components.css` (NEW)
+- `static/index-new.html` (NEW)
+- `static/js/layout-switcher.js` (NEW)
+- `static/js/doc-cards.js` (NEW)
+- `static/js/onboarding.js` (NEW)
+- `core/user_prefs.py` (NEW)
+- `api/routes/me.py` (NEW)
+- `api/routes/activity.py` (NEW)
+- `api/routes/telemetry.py` (NEW)
+- ~15 modified: `main.py` (route mounts, flag guard), `static/css/app.css` (token imports), existing page HTML files (cache-bust, nav chrome injection)
+
+**Dependencies:** No new Python packages. No changes to `requirements.txt` or `Dockerfile.base`.
+
+**Feature flag:** `ENABLE_NEW_UX` environment variable. Default is `off` (empty / unset). Set to `true` in `.env` or `docker-compose.yml` to activate the new surfaces. All new routes and static files are served regardless (so operators can preview), but the application shell only switches to the new home page and chrome when the flag is on.
+
+**Backend pipeline:** No changes. Conversion, bulk worker, scheduler, scan coordinator, auth, and lifecycle subsystems are identical to v0.35.0.
+
+**Order:** Shipped after v0.35.0 (Active Operations Registry).
+
+---
+
 ## v0.35.0 — Active Operations Registry (2026-04-28)
 
 **Goal:** Single source of truth for every long-running file-related op in MarkFlow. Workers register at start, update on tick, finish at end. One unified frontend surface (sticky banner, inline per-page widget, Status hub) consumes one polling endpoint. Replaces the v0.32.6 ad-hoc trash status dicts with a generic registry that 10 op_types route through.
