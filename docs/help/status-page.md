@@ -1,5 +1,34 @@
 # Status & Active Jobs
 
+## Activity Dashboard (since v0.36.0)
+
+The **Activity** page (`/activity`) is where operators keep an eye on the
+health of MarkFlow's background work. It replaces the old "Pipeline" page
+and brings everything together in one place.
+
+You will find it in the navigation bar if you have an Operator role or
+higher. Members do not see it.
+
+Here is what the Activity dashboard covers:
+
+- **Auto-conversion health** — whether the background pipeline is running,
+  idle, paused, or disabled, and when it last scanned.
+- **Scan status** — the most recent scan result, how many files were seen,
+  and when the next scan is scheduled.
+- **Scanned-vs-indexed delta** — how many files have been scanned but not
+  yet added to the search index, so you can spot backlogs at a glance.
+- **Pipeline controls** — pause, resume, or trigger a manual scan without
+  leaving the page.
+- **Active Operations Hub** — a unified list of every long-running operation
+  currently in progress (bulk jobs, trash empty, index rebuilds, and more).
+  See the section below for details.
+
+> **Note for existing users:** The Activity page is the renamed and
+> redesigned version of the old Pipeline / Status page. Everything that
+> used to live on `/status.html` is now at `/activity`.
+
+---
+
 The Status page shows you everything that's currently happening in MarkFlow — running jobs, their progress, and controls to pause, resume, or stop them.
 
 ## The Status Page
@@ -124,3 +153,4 @@ The Status link in the navigation bar shows a small number badge indicating how 
 - [Bulk Repository Conversion](/help.html#bulk-conversion)
 - [File Lifecycle & Versioning](/help.html#file-lifecycle)
 - [Administration](/help.html#admin-tools)
+- [Activity Dashboard](/activity) — auto-conversion health, scan status, pipeline controls

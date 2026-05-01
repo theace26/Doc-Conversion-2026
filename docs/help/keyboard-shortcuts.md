@@ -7,6 +7,24 @@ more that work well with MarkFlow's pages.
 
 ---
 
+## Home Page (Search)
+
+The Search page is the home page — when you open MarkFlow, you are already
+on it. There is no separate nav link to click.
+
+| Key | Action |
+|-----|--------|
+| `/` | Jump focus to the search bar from anywhere on the home page |
+| **`Ctrl + \`** (Windows) / **`⌘ \`** (Mac) | Cycle through layout modes: Minimal → Recent Activity → Maximal → Minimal … |
+
+The layout icon in the top-right corner opens a picker popover if you
+prefer to choose a mode directly rather than cycling through them.
+
+> **Tip:** `Ctrl+\` / `⌘\` works from anywhere on the home page — even
+> when you are typing in a pinned-folder card or hovering a result.
+
+---
+
 ## Search Page
 
 The search input field has `autofocus`, which means your cursor is already
@@ -36,6 +54,10 @@ the arrow keys let you pick a suggestion without reaching for the mouse.
 
 These work from anywhere on the Search page, even when the search box is
 focused (the `Alt` modifier prevents conflict with typing letters).
+
+> **Note:** Because the Search page is also the home page, `Ctrl+\` /
+> `⌘\` (cycle layout mode) is also available here — see the Home Page
+> section above.
 
 | Key | Action |
 |-----|--------|
@@ -238,14 +260,18 @@ Rather than tabbing through nav links, use the browser address bar
 
 | Page | URL |
 |------|-----|
-| Search | `/search.html` |
-| Status | `/status.html` |
+| Home / Search | `/` |
 | Convert | `/index.html` |
 | History | `/history.html` |
 | Bulk Jobs | `/bulk.html` |
+| Activity (was: Pipeline / Status) | `/activity` |
 | Trash | `/trash.html` |
 | Resources | `/resources.html` |
-| Settings | `/settings.html` |
+| Settings overview | `/settings` |
+| Settings — Storage | `/settings/storage` |
+| Settings — AI Providers | `/settings/ai-providers` |
+| Settings — Cost tracking | `/settings/ai-providers/cost` |
+| Settings — Notifications | `/settings/notifications` |
 | Admin | `/admin.html` |
 | Debug | `/debug` |
 

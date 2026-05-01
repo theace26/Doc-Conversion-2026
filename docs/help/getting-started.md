@@ -32,13 +32,44 @@ You do not need to learn Markdown to use MarkFlow. The application reads and wri
 > **Tip:** Markdown files are just plain text, so they open in any text editor — Notepad, VS Code, or even a web browser. You will never be locked into a single application.
 
 
+## The Home Page — Search
+
+When you first open MarkFlow, you land on the **Search** page. This is your home base: you can search for any document MarkFlow has seen, browse recent files, and jump to your pinned folders — all from one place. There is no separate "Search" link in the nav bar because you are already on it.
+
+### Layout Modes
+
+The home page comes in three layouts so you can set it up the way you work best:
+
+| Layout | What it looks like |
+|--------|--------------------|
+| **Minimal** | One large, centered search bar. Clean and distraction-free. This is the default on your first visit. |
+| **Recent Activity** | Search bar at the top, then a row of recent-file chips, then a grid of document cards. |
+| **Maximal** | A large document card grid with the search bar pinned at the top. Great for browsing by eye. |
+
+To switch layouts, press **Ctrl+\\** (Windows) or **⌘\\** (Mac) from anywhere on the home page. Each press cycles to the next mode. You can also click the layout icon in the top-right corner to open a picker and choose directly.
+
+### Pinned Folders
+
+Up to six source folders can be pinned as quick-access cards on the home page. Clicking a pinned folder immediately shows you the documents inside it without having to search. You can set your pinned folders during the first-run onboarding or at any time afterward from the home page.
+
+### First-Run Onboarding
+
+The very first time you open MarkFlow, a short overlay walks you through three steps:
+
+1. **Welcome** — a brief introduction to what MarkFlow does.
+2. **Pick a layout** — choose Minimal, Recent Activity, or Maximal for your home page.
+3. **Pin your folders** — select up to six source folders to appear as quick-access cards.
+
+The overlay only appears once. If you skip it or want to change your choices later, you can adjust the layout from the home page at any time.
+
+
 ## Your First Conversion
 
 Let's walk through converting a Word document step by step.
 
 ### Step 1: Open MarkFlow
 
-Open your web browser and go to the address your team uses for MarkFlow (usually something like `http://localhost:8000`). You will land on the **Search** page.
+Open your web browser and go to the address your team uses for MarkFlow (usually something like `http://localhost:8000`). You will land on the **Search** home page.
 
 ### Step 2: Go to the Convert Page
 
@@ -87,22 +118,16 @@ The navigation bar runs along the top of every page. Depending on your account p
 
 | Nav Link       | What it does                                                        |
 |----------------|---------------------------------------------------------------------|
-| **Search**     | Find previously converted documents by keyword                      |
 | **Convert**    | Upload and convert a single file                                    |
 | **Bulk**       | Convert entire folders of files at once                             |
 | **History**    | Browse all past conversions with filters and sorting                |
-| **Status**     | See running jobs, pause or cancel them                              |
+| **Activity**   | See auto-conversion health, running jobs, and pipeline controls (operators only) |
 | **Trash**      | View and restore deleted files before they are permanently removed  |
-| **Settings**   | Adjust preferences like OCR sensitivity and worker count            |
 | **Admin**      | System dashboard for administrators (resource usage, API keys)      |
 
-> **Tip:** The Status link shows a small number badge when jobs are actively running. This lets you keep an eye on progress from any page.
+> **Tip:** To open Settings, click your **avatar** (your initials or icon) in the top-right corner of any page. Settings is no longer a separate nav link.
 
-> **Tip *(v0.35.0)*:** The top of the Status page is the **Active
-> Operations Hub** — a single live list of every long-running thing
-> MarkFlow is currently doing (bulk jobs, pipeline scans, trash empty,
-> search-index rebuild, database backup, etc.). It's the one place
-> to look when you want to know "what's MarkFlow up to right now?".
+> **Tip *(v0.35.0)*:** The top of the Activity page is the **Active Operations Hub** — a single live list of every long-running thing MarkFlow is currently doing (bulk jobs, pipeline scans, trash empty, search-index rebuild, database backup, etc.). It's the one place to look when you want to know "what's MarkFlow up to right now?".
 
 ### Pages You Might Not See
 
@@ -110,9 +135,9 @@ Not every link appears for every user. MarkFlow uses roles to control who can do
 
 | Role             | What you can access                                    |
 |------------------|--------------------------------------------------------|
-| **Search User**  | Search and Status only                                 |
-| **Operator**     | Everything above, plus Convert, Bulk, History, Trash   |
-| **Manager**      | Everything above, plus Settings                        |
+| **Search User**  | Search (home) and basic status only                    |
+| **Operator**     | Everything above, plus Convert, Bulk, History, Trash, and Activity |
+| **Manager**      | Everything above, plus Settings (via the avatar menu)  |
 | **Admin**        | Full access, including Admin panel and API keys        |
 
 If you need access to a page you cannot see, ask your team administrator.
@@ -153,6 +178,12 @@ Some documents have complex formatting that does not translate perfectly. Check 
 
 **Do I need to be online?**
 MarkFlow runs on your local network. As long as you can reach the server, you are good. No internet connection is required.
+
+**Where did the Settings link in the nav bar go?**
+Settings moved to the avatar menu. Click your initials or icon in the top-right corner of any page to reach it.
+
+**Where did the Pipeline page go?**
+It is now called **Activity** and lives at the same spot in the nav bar (operators only).
 
 
 ## Next Steps
