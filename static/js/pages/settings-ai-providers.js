@@ -67,11 +67,14 @@
     return fetch(url, { method: 'POST', credentials: 'same-origin' })
       .then(function (r) {
         if (!r.ok) {
-          return r.json().catch(function () { return {}; }).then(function (body) {
+          return r.text().then(function (text) {
+            var body = text ? JSON.parse(text) : {};
             throw new Error(body.detail || ('HTTP ' + r.status));
-          });
+          }).catch(function (e) { throw e; });
         }
-        return r.json();
+        return r.text().then(function (text) {
+          return text ? JSON.parse(text) : { ok: true };
+        });
       })
       .then(function (data) {
         resultEl.classList.add('mf-ai__action-result--ok');
@@ -123,12 +126,15 @@
     wrap.appendChild(result);
 
     btn.addEventListener('click', function () {
+      var savedText = btn.textContent;
       _postAction('/api/llm-providers/' + provider.id + '/activate', btn, result, '')
         .then(function (data) {
           if (data !== undefined) {
             btn.textContent = 'Active ✓';
             btn.disabled = true;
             result.textContent = '';
+          } else {
+            btn.textContent = savedText;
           }
         });
     });
