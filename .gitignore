@@ -63,6 +63,12 @@ docker-compose.override.yml
 .DS_Store
 Thumbs.db
 
+# Office temp lock files (created while a file is open, auto-deleted on close)
+~$*
+
+# Planning spreadsheets — CSV version is committed; binary xlsx is not needed
+docs/ux-overhaul-execution-config.xlsx
+
 # Claude Code auto-memory should NEVER live in the project tree.
 # The canonical path is ~/.claude/projects/<encoded-project>/memory/.
 # If a stray `memory/` ever appears here it's an artifact from an earlier
