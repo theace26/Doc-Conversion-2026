@@ -441,6 +441,7 @@
 
   function buildStep3(sourcesPromise, fetchSources) {
     var s3 = el('div', 'mf-ob__step');
+    var alive = true;
 
     /* Loading placeholder */
     var loading = el('p', 'mf-ob__loading');
@@ -454,18 +455,22 @@
     }
 
     promise.then(function (data) {
+      if (!alive) { return; }
       /* API returns { sources: [...] } or a bare array */
       var list = Array.isArray(data) ? data : (data && data.sources ? data.sources : []);
+      if (!Array.isArray(list)) { list = []; }
       /* Remove loading text */
       if (loading.parentNode) loading.parentNode.removeChild(loading);
       var frag = _renderPinFolders(list);
       s3.appendChild(frag);
     }).catch(function () {
+      if (!alive) { return; }
       if (loading.parentNode) loading.parentNode.removeChild(loading);
       var frag = _renderPinFolders([]);
       s3.appendChild(frag);
     });
 
+    s3._teardown = function () { alive = false; };
     return s3;
   }
 
@@ -585,6 +590,10 @@
 
     function render() {
       progress.setActive(currentStep);
+      var oldStep = stepSlot.firstChild;
+      if (oldStep && typeof oldStep._teardown === 'function') {
+        oldStep._teardown();
+      }
       clearSlot(stepSlot);
       clearSlot(footerSlot);
 
