@@ -495,12 +495,278 @@
     contentSlot.appendChild(note);
   }
 
-  /* ── Sources & CSV import (Task 1 stub) ── */
-  function _renderSources(contentSlot) {
-    var stub = el('p');
-    stub.style.cssText = 'color:var(--mf-text-muted);';
-    stub.textContent = 'CSV import coming in the next step.';
-    contentSlot.appendChild(stub);
+  /* ── CSV parser ── */
+  function _parseCSV(text) {
+    var REQUIRED = ['provider', 'model', 'input_per_1m', 'output_per_1m'];
+    var OPTIONAL = ['cache_write_per_1m', 'cache_read_per_1m', 'vision_per_image', 'batch_discount_pct', 'effective_date'];
+
+    if (text.charCodeAt(0) === 0xFEFF) {
+      text = text.slice(1);
+    }
+
+    var lines = text.split(/\r?\n/);
+    var nonEmpty = [];
+    for (var i = 0; i < lines.length; i++) {
+      if (lines[i].trim() !== '') nonEmpty.push({ raw: lines[i], lineNum: i + 1 });
+    }
+
+    if (nonEmpty.length === 0) {
+      return { rows: [], errors: [{ row: 0, message: 'File is empty.' }] };
+    }
+
+    var headerLine = nonEmpty[0].raw;
+    var headers = headerLine.split(',').map(function (h) { return h.trim().toLowerCase(); });
+
+    var errors = [];
+    for (var ri = 0; ri < REQUIRED.length; ri++) {
+      if (headers.indexOf(REQUIRED[ri]) === -1) {
+        errors.push({ row: 0, message: 'Missing required column: ' + REQUIRED[ri] });
+      }
+    }
+    if (errors.length > 0) {
+      return { rows: [], errors: errors };
+    }
+
+    var rows = [];
+    for (var di = 1; di < nonEmpty.length; di++) {
+      var lineNum = nonEmpty[di].lineNum;
+      var cells = nonEmpty[di].raw.split(',').map(function (c) { return c.trim(); });
+      var rowObj = {};
+      for (var hi = 0; hi < headers.length; hi++) {
+        rowObj[headers[hi]] = cells[hi] !== undefined ? cells[hi] : '';
+      }
+      var rowErrors = false;
+      for (var rqi = 0; rqi < REQUIRED.length; rqi++) {
+        var colName = REQUIRED[rqi];
+        if (!rowObj[colName] || rowObj[colName] === '') {
+          errors.push({ row: lineNum, message: 'Empty required cell: ' + colName });
+          rowErrors = true;
+        }
+      }
+      if (!rowErrors) {
+        rows.push(rowObj);
+      }
+    }
+
+    return { rows: rows, errors: errors };
+  }
+
+  /* ── Format preview (color-coded, no innerHTML) ── */
+  function _buildPreview(rows, headers) {
+    var block = el('div', 'mf-cost__preview-block');
+    block.style.cssText = 'background:#1a1a1a;color:#e6e6e6;font-family:var(--mf-font-mono);font-size:0.78rem;padding:0.75rem;border-radius:var(--mf-radius);overflow-x:auto;white-space:pre;margin-top:1rem;';
+
+    var RATE_COLS = ['input_per_1m', 'output_per_1m', 'cache_write_per_1m', 'cache_read_per_1m', 'vision_per_image', 'batch_discount_pct'];
+
+    var limit = rows.length < 5 ? rows.length : 5;
+    for (var ri = 0; ri < limit; ri++) {
+      var row = rows[ri];
+      var p = el('p');
+      p.style.margin = '0';
+
+      for (var hi = 0; hi < headers.length; hi++) {
+        var colName = headers[hi];
+        var cellVal = row[colName] !== undefined ? row[colName] : '';
+
+        var span = el('span');
+        if (colName === 'provider') {
+          span.style.color = 'var(--mf-color-accent)';
+        } else if (RATE_COLS.indexOf(colName) !== -1) {
+          span.style.color = 'var(--mf-color-success)';
+        } else {
+          span.style.color = '#e6e6e6';
+        }
+        span.textContent = cellVal;
+        p.appendChild(span);
+
+        if (hi < headers.length - 1) {
+          var comma = el('span');
+          comma.style.color = '#888';
+          comma.textContent = ',';
+          p.appendChild(comma);
+        }
+      }
+      block.appendChild(p);
+    }
+    return block;
+  }
+
+  /* ── Sources & CSV import ── */
+  function _renderCSVImport(contentSlot) {
+    var frag = document.createDocumentFragment();
+
+    var lastParseResult = null;
+    var reloadBtn = null;
+    var previewSlot = null;
+    var errorSlot = null;
+    var feedbackSlot = null;
+
+    /* Drop zone */
+    var dropZone = el('div', 'mf-cost__drop-zone');
+
+    var dropIcon = el('div', 'mf-cost__drop-icon');
+    dropIcon.textContent = '↑';
+    dropZone.appendChild(dropIcon);
+
+    var dropLabel = el('div');
+    dropLabel.textContent = 'Drop a CSV rate file here';
+    dropZone.appendChild(dropLabel);
+
+    dropZone.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      dropZone.classList.add('mf-cost__drop-zone--active');
+    });
+    dropZone.addEventListener('dragleave', function () {
+      dropZone.classList.remove('mf-cost__drop-zone--active');
+    });
+    dropZone.addEventListener('drop', function (e) {
+      e.preventDefault();
+      dropZone.classList.remove('mf-cost__drop-zone--active');
+      var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (file) {
+        _readFileAndParse(file);
+      }
+    });
+
+    frag.appendChild(dropZone);
+
+    /* Button row */
+    var btnRow = el('div', 'mf-cost__btn-row');
+
+    var chooseBtn = el('button', 'mf-btn mf-btn--ghost mf-btn--sm');
+    chooseBtn.type = 'button';
+    chooseBtn.textContent = 'Choose file';
+    chooseBtn.addEventListener('click', function () {
+      var fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = '.csv';
+      fileInput.addEventListener('change', function () {
+        var file = fileInput.files && fileInput.files[0];
+        if (file) {
+          _readFileAndParse(file);
+        }
+      });
+      fileInput.click();
+    });
+    btnRow.appendChild(chooseBtn);
+
+    var pasteBtn = el('button', 'mf-btn mf-btn--ghost mf-btn--sm');
+    pasteBtn.type = 'button';
+    pasteBtn.textContent = 'Paste from clipboard';
+    pasteBtn.addEventListener('click', function () {
+      if (!navigator.clipboard || !navigator.clipboard.readText) {
+        _showClipboardUnavailable();
+        return;
+      }
+      navigator.clipboard.readText().then(function (text) {
+        _applyParse(text);
+      }).catch(function () {
+        _showClipboardUnavailable();
+      });
+    });
+    btnRow.appendChild(pasteBtn);
+
+    frag.appendChild(btnRow);
+
+    /* Clipboard unavailable inline note slot */
+    var clipNote = el('span');
+    clipNote.style.cssText = 'font-size:0.85rem;color:var(--mf-color-error);margin-left:0.5rem;display:none;';
+    clipNote.textContent = 'Clipboard not available in this browser.';
+    btnRow.appendChild(clipNote);
+
+    /* Preview and error slots */
+    previewSlot = el('div');
+    frag.appendChild(previewSlot);
+
+    errorSlot = el('div');
+    frag.appendChild(errorSlot);
+
+    /* Reload button */
+    reloadBtn = el('button', 'mf-btn mf-btn--primary');
+    reloadBtn.type = 'button';
+    reloadBtn.textContent = 'Reload rates';
+    reloadBtn.disabled = true;
+    reloadBtn.style.marginTop = '1rem';
+    frag.appendChild(reloadBtn);
+
+    /* Feedback slot for reload success/error */
+    feedbackSlot = el('div');
+    frag.appendChild(feedbackSlot);
+
+    reloadBtn.addEventListener('click', function () {
+      if (!lastParseResult || lastParseResult.errors.length > 0 || lastParseResult.rows.length === 0) return;
+      reloadBtn.disabled = true;
+      reloadBtn.textContent = 'Reloading…';
+      while (feedbackSlot.firstChild) feedbackSlot.removeChild(feedbackSlot.firstChild);
+
+      fetch('/api/admin/llm-costs/reload', {
+        method: 'POST',
+        credentials: 'same-origin',
+      })
+        .then(function (r) {
+          if (!r.ok) throw new Error('Server error ' + r.status);
+          return r.json();
+        })
+        .then(function (data) {
+          reloadBtn.textContent = 'Reload rates';
+          reloadBtn.disabled = false;
+          var successMsg = el('div', 'mf-cost__reload-success');
+          successMsg.textContent = 'Loaded ' + (data.loaded_count || 0) + ' rate entries. Refresh the page to see updated rates.';
+          feedbackSlot.appendChild(successMsg);
+        })
+        .catch(function (e) {
+          reloadBtn.textContent = 'Reload rates';
+          reloadBtn.disabled = false;
+          var errMsg = el('div', 'mf-cost__reload-error');
+          errMsg.textContent = e.message || 'Reload failed.';
+          feedbackSlot.appendChild(errMsg);
+        });
+    });
+
+    function _readFileAndParse(file) {
+      var reader = new FileReader();
+      reader.onload = function (evt) {
+        _applyParse(evt.target.result);
+      };
+      reader.readAsText(file);
+    }
+
+    function _applyParse(text) {
+      var result = _parseCSV(text);
+      lastParseResult = result;
+
+      /* Clear previous state */
+      while (previewSlot.firstChild) previewSlot.removeChild(previewSlot.firstChild);
+      while (errorSlot.firstChild) errorSlot.removeChild(errorSlot.firstChild);
+      while (feedbackSlot.firstChild) feedbackSlot.removeChild(feedbackSlot.firstChild);
+      clipNote.style.display = 'none';
+
+      if (result.errors.length > 0) {
+        reloadBtn.disabled = true;
+        var errList = el('ul', 'mf-cost__error-list');
+        for (var i = 0; i < result.errors.length; i++) {
+          var li = el('li');
+          li.textContent = 'Row ' + result.errors[i].row + ': ' + result.errors[i].message;
+          errList.appendChild(li);
+        }
+        errorSlot.appendChild(errList);
+      } else if (result.rows.length > 0) {
+        reloadBtn.disabled = false;
+        /* Collect headers from first row keys, preserving order */
+        var firstRow = result.rows[0];
+        var hdrs = [];
+        for (var k in firstRow) {
+          if (Object.prototype.hasOwnProperty.call(firstRow, k)) hdrs.push(k);
+        }
+        previewSlot.appendChild(_buildPreview(result.rows, hdrs));
+      }
+    }
+
+    function _showClipboardUnavailable() {
+      clipNote.style.display = '';
+    }
+
+    contentSlot.appendChild(frag);
   }
 
   /* ── Spend history ── */
@@ -684,7 +950,7 @@
     } else if (activeSection === 'sources') {
       head.textContent = 'Sources & CSV import';
       contentSlot.appendChild(head);
-      _renderSources(contentSlot);
+      _renderCSVImport(contentSlot);
     } else if (activeSection === 'history') {
       head.textContent = 'Spend history';
       contentSlot.appendChild(head);
