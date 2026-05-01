@@ -592,7 +592,7 @@
   /* ── Format preview (color-coded, no innerHTML) ── */
   function _buildPreview(rows, headers) {
     var block = el('div', 'mf-cost__preview-block');
-    block.style.cssText = 'background:#1a1a1a;color:#e6e6e6;font-family:var(--mf-font-mono);font-size:0.78rem;padding:0.75rem;border-radius:var(--mf-radius);overflow-x:auto;white-space:pre;margin-top:1rem;';
+    block.style.cssText = 'background:#1a1a1a;color:#e6e6e6;font-family:var(--mf-font-mono);font-size:0.78rem;padding:0.75rem;border-radius:var(--mf-radius-input);overflow-x:auto;white-space:pre;margin-top:1rem;';
 
     var RATE_COLS = ['input_per_1m', 'output_per_1m', 'cache_write_per_1m', 'cache_read_per_1m', 'vision_per_image', 'batch_discount_pct'];
 
@@ -943,25 +943,22 @@
     /* save bar */
     var barObj = _makeSaveBar(
       function (saveBtn, savedMsg) {
-        var payload = {
-          cost_alert_enabled: currentEnabled,
-          cost_alert_threshold_usd: currentThreshold,
-        };
-        fetch('/api/preferences', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify(payload),
-        })
-          .then(function (r) {
-            if (!r.ok) throw new Error('save failed: ' + r.status);
+        function _savePref(key, value) {
+          return fetch('/api/preferences/' + encodeURIComponent(key), {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ value: value }),
+          }).then(function (r) {
+            if (!r.ok) throw new Error('PUT /api/preferences/' + key + ' failed: ' + r.status);
             return r.json();
-          })
-          .then(function () {
-            _showSaved(saveBtn, savedMsg);
-          })
+          });
+        }
+        _savePref('cost_alert_enabled', currentEnabled ? 'true' : 'false')
+          .then(function () { return _savePref('cost_alert_threshold_usd', String(currentThreshold)); })
+          .then(function () { _showSaved(saveBtn, savedMsg); })
           .catch(function (e) {
-            console.error('mf: cost alert save failed', e);
+            console.error('mf: failed to save cost alert settings', e);
             saveBtn.disabled = false;
           });
       },
