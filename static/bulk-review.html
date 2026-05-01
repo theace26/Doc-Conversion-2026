@@ -3,6 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>
+  (function(){
+    var D={theme:'nebula',font:'system',textScale:'default',useNewUx:true};
+    var p=Object.assign({},D,JSON.parse(localStorage.getItem('mf:preferences:v1')||'{}'));
+    var h=document.documentElement;
+    h.setAttribute('data-theme',p.theme);
+    h.setAttribute('data-font',p.font);
+    h.setAttribute('data-text-scale',p.textScale);
+    h.setAttribute('data-ux',p.useNewUx?'new':'orig');
+  })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Roboto:wght@400;500;700&family=Source+Sans+3:wght@400;600&family=Lato:wght@400;700&family=Merriweather:wght@400;700&family=JetBrains+Mono:wght@400;500&family=Nunito:wght@400;500;700&family=Playfair+Display:wght@400;700&family=Raleway:wght@400;500;700&family=Poppins:wght@400;500;600&family=DM+Sans:wght@400;500&family=Crimson+Pro:wght@400;600&display=swap">
   <title>MarkFlow — Review Queue</title>
   <link rel="stylesheet" href="/static/markflow.css">
   <style>
