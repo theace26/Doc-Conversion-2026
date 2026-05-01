@@ -2087,6 +2087,70 @@
   margin-bottom: 0.75rem;
   overflow: hidden;
   position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px;
+  align-content: flex-start;
+}
+
+/* Maximal preview: grid of small blocks */
+.mf-ob__prev-row {
+  display: flex;
+  gap: 3px;
+  width: 100%;
+}
+
+.mf-ob__prev-block {
+  flex: 1;
+  height: 14px;
+  background: var(--mf-border);
+  border-radius: 2px;
+  min-width: 0;
+}
+
+/* Recent / Minimal preview: search bar rect */
+.mf-ob__prev-bar {
+  width: 100%;
+  height: 10px;
+  background: var(--mf-border);
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.mf-ob__prev-bar--tall {
+  height: 20px;
+}
+
+/* Recent preview: chip row */
+.mf-ob__prev-chips {
+  display: flex;
+  gap: 3px;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.mf-ob__prev-chip {
+  height: 8px;
+  width: 22px;
+  background: var(--mf-border);
+  border-radius: 4px;
+}
+
+/* Recent preview: card grid */
+.mf-ob__prev-cards {
+  display: flex;
+  gap: 3px;
+  width: 100%;
+  flex: 1;
+}
+
+.mf-ob__prev-card-sm {
+  flex: 1;
+  background: var(--mf-border);
+  border-radius: 2px;
+  min-height: 20px;
+  min-width: 0;
 }
 
 .mf-ob__card-name {
