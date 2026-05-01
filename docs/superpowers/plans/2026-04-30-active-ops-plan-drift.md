@@ -2,7 +2,7 @@
 
 **Sibling doc to:** [`2026-04-28-active-operations-registry.md`](2026-04-28-active-operations-registry.md)
 
-**Status:** punch-list, to be addressed from workstation. Tasks 15/16/17 already shipped against the corrected patterns described below; remaining tasks (18-23) will encode further fixes inline as they ship.
+**Status:** ✅ RESOLVED (2026-04-30). All 6 pattern-level concerns were applied inline as Tasks 18–23 shipped. Pre-existing run_now flake fixed in commit `e732791` (snapshot+restore of `_cancel_hooks` in `_reset_active_ops`). Historical only.
 
 ---
 
