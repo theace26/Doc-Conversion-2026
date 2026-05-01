@@ -1423,6 +1423,31 @@
 }
 .mf-stg__table-name { font-weight: 600; }
 .mf-stg__table-type { font-family: var(--mf-font-mono); font-size: 0.8rem; color: var(--mf-color-text-muted); }
+
+/* === mf-btn — shared button style for settings detail pages === */
+.mf-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mf-space-2);
+  padding: 0.5rem 1rem;
+  border-radius: var(--mf-radius-pill);
+  font-weight: 600;
+  font-size: 0.86rem;
+  font-family: var(--mf-font-sans);
+  border: none;
+  cursor: pointer;
+  transition: opacity var(--mf-transition-fast), background var(--mf-transition-fast);
+}
+.mf-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.mf-btn--primary { background: var(--mf-color-accent); color: #ffffff; }
+.mf-btn--primary:not(:disabled):hover { opacity: 0.88; }
+.mf-btn--ghost {
+  background: transparent;
+  color: var(--mf-color-text-muted);
+  border: 1px solid var(--mf-border);
+}
+.mf-btn--ghost:not(:disabled):hover { background: var(--mf-surface-soft); color: var(--mf-color-text); }
+.mf-btn--sm { padding: 0.35rem 0.75rem; font-size: 0.78rem; }
 .mf-stg__table-path { font-family: var(--mf-font-mono); font-size: 0.82rem; color: var(--mf-color-text-soft); }
 .mf-stg__table-empty { color: var(--mf-color-text-faint); font-style: italic; padding: 1.2rem 0.5rem; }
 .mf-stg__pill {
