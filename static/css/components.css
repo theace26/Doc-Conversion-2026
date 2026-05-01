@@ -1557,3 +1557,90 @@
   color: var(--mf-color-text-muted);
   margin-top: 0.85rem;
 }
+
+/* === AI providers settings detail === */
+.mf-ai__provider-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+  margin-bottom: 1rem;
+}
+.mf-ai__provider-table thead tr { border-bottom: 1px solid var(--mf-border); }
+.mf-ai__provider-table th {
+  text-align: left;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--mf-color-text-faint);
+  padding: 0 0.5rem 0.55rem;
+}
+.mf-ai__provider-table td {
+  padding: 0.7rem 0.5rem;
+  border-bottom: 1px solid var(--mf-border-soft);
+  vertical-align: middle;
+}
+.mf-ai__type-badge {
+  display: inline-flex;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--mf-radius-pill);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--mf-color-accent-tint);
+  color: var(--mf-color-accent);
+}
+.mf-ai__active-badge {
+  display: inline-flex;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--mf-radius-pill);
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: var(--mf-color-success-bg);
+  color: var(--mf-color-success);
+}
+.mf-ai__action-btn {
+  background: var(--mf-surface);
+  border: 1px solid var(--mf-border);
+  border-radius: var(--mf-radius-thumb);
+  padding: 0.32rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--mf-color-text-soft);
+  transition: border-color 0.12s, color 0.12s;
+}
+.mf-ai__action-btn:hover:not(:disabled) { border-color: var(--mf-color-accent-border); color: var(--mf-color-accent); }
+.mf-ai__action-btn:disabled { opacity: 0.5; cursor: default; }
+.mf-ai__action-result {
+  display: inline-block;
+  margin-left: 0.5rem;
+  font-size: 0.78rem;
+}
+.mf-ai__action-result--ok    { color: var(--mf-color-success); }
+.mf-ai__action-result--error { color: var(--mf-color-error); }
+.mf-ai__provider-note {
+  font-size: 0.82rem;
+  color: var(--mf-color-text-faint);
+  margin-top: 1rem;
+  font-style: italic;
+}
+.mf-ai__cost-card {
+  background: var(--mf-surface-soft);
+  border: 1px solid var(--mf-border);
+  border-radius: var(--mf-radius-card);
+  padding: 1.4rem 1.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.mf-ai__cost-card-text { font-size: 0.92rem; color: var(--mf-color-text-soft); }
+.mf-ai__cost-link {
+  color: var(--mf-color-accent);
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+.mf-ai__cost-link:hover { text-decoration: underline; }
