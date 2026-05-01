@@ -547,6 +547,11 @@ async def settings_storage_page():
     return FileResponse("static/settings-storage.html")
 
 
+@app.get("/settings/pipeline", include_in_schema=False)
+async def settings_pipeline_page():
+    return FileResponse("static/settings-pipeline.html")
+
+
 @app.get("/settings/{section}", include_in_schema=False)
 async def settings_section_page(section: str):
     """Future plans implement each section. Redirect to overview for now."""
