@@ -11,7 +11,7 @@ GET  /api/db/maintenance-log  — recent log entries
 from pathlib import Path
 
 import structlog
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from core.auth import AuthenticatedUser, UserRole, require_role
@@ -34,31 +34,40 @@ async def db_health(
 
 @router.post("/compact")
 async def trigger_compaction(
-    background_tasks: BackgroundTasks,
     user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
 ) -> dict:
-    """Trigger DB compaction in background."""
+    """Run DB compaction synchronously. Returns {ok, duration_ms}."""
+    import time
     from core.db_maintenance import run_compaction
 
-    # Check for running scans
+    # Advisory check — a scan could start after this point.
+    # run_compaction() will surface "database is locked" if that happens.
     from core.database import db_fetch_one
     running = await db_fetch_one(
         "SELECT id FROM scan_runs WHERE status='running' LIMIT 1"
     )
     if running:
-        return {"message": "Compaction deferred — scan in progress", "deferred": True}
+        return {"ok": False, "duration_ms": 0, "error": "Compaction deferred — scan in progress"}
 
-    background_tasks.add_task(run_compaction)
-    return {"message": "Compaction started", "deferred": False}
+    t0 = time.perf_counter()
+    try:
+        await run_compaction()
+        return {"ok": True, "duration_ms": int((time.perf_counter() - t0) * 1000)}
+    except Exception as exc:
+        return {"ok": False, "duration_ms": int((time.perf_counter() - t0) * 1000), "error": str(exc)}
 
 
 @router.post("/integrity-check")
 async def trigger_integrity_check(
     user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
 ) -> dict:
-    """Run integrity check synchronously."""
+    """Run integrity check synchronously. Returns {ok, issues}."""
     from core.db_maintenance import run_integrity_check
-    return await run_integrity_check()
+    result = await run_integrity_check()
+    return {
+        "ok": result.get("result") == "ok",
+        "issues": result.get("findings", []) if result.get("result") != "ok" else [],
+    }
 
 
 @router.post("/stale-check")

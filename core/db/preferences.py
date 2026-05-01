@@ -138,6 +138,9 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     # Day-of-month (1-28; capped to avoid Feb edge case) when the operator's
     # provider invoice cycle begins. Default 1 = calendar month.
     "billing_cycle_start_day": "1",
+    # Cost alerts (Plan 7) — notify when monthly spend exceeds threshold.
+    "cost_alert_enabled": "false",
+    "cost_alert_threshold_usd": "10.0",
 }
 
 

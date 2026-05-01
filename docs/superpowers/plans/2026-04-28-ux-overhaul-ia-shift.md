@@ -67,7 +67,7 @@
 - Create: `tests/test_me_endpoint.py`
 - Modify: `main.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/test_me_endpoint.py`:
 
@@ -121,13 +121,13 @@ def test_me_includes_build_info(authed_admin_client):
     assert "version" in body["build"]
 ```
 
-- [ ] **Step 2: Run tests — verify they fail**
+- [x] **Step 2: Run tests — verify they fail**
 
 Run: `pytest tests/test_me_endpoint.py -v`
 
 Expected: FAIL — endpoint doesn't exist.
 
-- [ ] **Step 3: Implement the endpoint**
+- [x] **Step 3: Implement the endpoint**
 
 Create `api/routes/me.py`:
 
@@ -205,7 +205,7 @@ async def get_me(user=Depends(require_user)):
 
 If the project's `require_user` returns a different shape, adapt the field accesses.
 
-- [ ] **Step 4: Wire into `main.py`**
+- [x] **Step 4: Wire into `main.py`**
 
 Add to `main.py`:
 
@@ -214,13 +214,13 @@ from api.routes import me as me_routes
 app.include_router(me_routes.router)
 ```
 
-- [ ] **Step 5: Run tests — verify they pass**
+- [x] **Step 5: Run tests — verify they pass**
 
 Run: `pytest tests/test_me_endpoint.py -v`
 
 Expected: 4 PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add api/routes/me.py main.py tests/test_me_endpoint.py
@@ -243,7 +243,7 @@ this. Spec §1, §11."
 **Files:**
 - Modify: `static/js/index-new-boot.js`
 
-- [ ] **Step 1: Replace hardcoded values with /api/me fetch**
+- [x] **Step 1: Replace hardcoded values with /api/me fetch**
 
 In `static/js/index-new-boot.js`, replace the hardcoded `role`, `build`, and `user` block plus the bottom `MFPrefs.load().then(...)` block with:
 
@@ -351,7 +351,7 @@ In `static/js/index-new-boot.js`, replace the hardcoded `role`, `build`, and `us
 
 (Remove the old hardcoded `role = 'admin'`, `build = {...}`, `user = {...}`, `avatarMenu = MFAvatarMenu.create(...)`, `layoutPop = MFLayoutPopover.create(...)`, `mountChrome` function definition, the standalone `MFKeybinds.on` block, the standalone `hp` / `cm` block, and the closing `MFPrefs.load().then(...)` — they all live inside the new Promise.all callback now.)
 
-- [ ] **Step 2: Smoke verify**
+- [x] **Step 2: Smoke verify**
 
 ```bash
 docker-compose up -d --force-recreate markflow
@@ -364,7 +364,7 @@ Visit `http://localhost:8000/` (with `ENABLE_NEW_UX=true`). Expected:
 
 If the user is unauthenticated and the system has `DEV_BYPASS_AUTH=true`, the fallback renders a generic "dev" user.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add static/js/index-new-boot.js
@@ -388,7 +388,7 @@ into POST /api/auth/logout (existing endpoint)."
 
 The aggregator endpoint that backs the Activity dashboard. Returns a single payload with everything the page needs: status pulse, top tiles, throughput sparkline data, running jobs, queues, recent jobs.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/test_activity_endpoint.py`:
 
@@ -433,13 +433,13 @@ def test_activity_summary_unauthenticated_401():
     assert r.status_code == 401
 ```
 
-- [ ] **Step 2: Run tests — verify they fail**
+- [x] **Step 2: Run tests — verify they fail**
 
 Run: `pytest tests/test_activity_endpoint.py -v`
 
 Expected: FAIL — endpoint doesn't exist.
 
-- [ ] **Step 3: Implement the endpoint**
+- [x] **Step 3: Implement the endpoint**
 
 Create `api/routes/activity.py`:
 
@@ -620,20 +620,20 @@ async def _safe_count(sql: str) -> int:
 
 If the project's `db_fetch_one` / `db_fetch_all` signatures differ, adapt — keep the SQL.
 
-- [ ] **Step 4: Wire into `main.py`**
+- [x] **Step 4: Wire into `main.py`**
 
 ```python
 from api.routes import activity as activity_routes
 app.include_router(activity_routes.router)
 ```
 
-- [ ] **Step 5: Run tests — verify they pass**
+- [x] **Step 5: Run tests — verify they pass**
 
 Run: `pytest tests/test_activity_endpoint.py -v`
 
 Expected: 3 PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add api/routes/activity.py main.py tests/test_activity_endpoint.py
@@ -652,7 +652,7 @@ only (member 403). Unauthenticated 401."
 **Files:**
 - Create: `static/activity.html`
 
-- [ ] **Step 1: Create the template**
+- [x] **Step 1: Create the template**
 
 Create `static/activity.html`:
 
@@ -687,7 +687,7 @@ Create `static/activity.html`:
 </html>
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add static/activity.html
@@ -707,7 +707,7 @@ script that fetches /api/me + /api/activity/summary."
 
 The biggest component in this plan. Renders all six sections from `/api/activity/summary`: pulse, tiles, throughput sparkline, running jobs, queues, recent jobs. Plus the pipeline-controls section at the bottom.
 
-- [ ] **Step 1: Create the component**
+- [x] **Step 1: Create the component**
 
 Create `static/js/pages/activity.js`:
 
@@ -949,7 +949,7 @@ Create `static/js/pages/activity.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Append CSS to components.css**
+- [x] **Step 2: Append CSS to components.css**
 
 Append (large block — keeping it focused on the activity-specific styles since most chrome reuses Plan 1A's tokens):
 
@@ -1095,13 +1095,13 @@ Append (large block — keeping it focused on the activity-specific styles since
 .mf-act__ctrl-sub { font-size: 0.76rem; color: var(--mf-color-text-faint); line-height: 1.4; }
 ```
 
-- [ ] **Step 3: Verify safe DOM**
+- [x] **Step 3: Verify safe DOM**
 
 Run: `grep -n "innerHTML" static/js/pages/activity.js`
 
 Expected: zero matches.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add static/js/pages/activity.js static/css/components.css
@@ -1126,7 +1126,7 @@ text via textContent."
 - Create: `static/js/activity-boot.js`
 - Modify: `main.py` to replace `/activity` placeholder with FileResponse
 
-- [ ] **Step 1: Create the boot**
+- [x] **Step 1: Create the boot**
 
 Create `static/js/activity-boot.js`:
 
@@ -1219,7 +1219,7 @@ Create `static/js/activity-boot.js`:
 })();
 ```
 
-- [ ] **Step 2: Replace `/activity` placeholder route**
+- [x] **Step 2: Replace `/activity` placeholder route**
 
 In `main.py`, find the `_activity_placeholder` route added in Plan 1A Task 6. Replace its body:
 
@@ -1233,7 +1233,7 @@ async def activity_page():
     return FileResponse("static/activity.html")
 ```
 
-- [ ] **Step 3: Smoke verify**
+- [x] **Step 3: Smoke verify**
 
 ```bash
 ENABLE_NEW_UX=true docker-compose up -d --force-recreate markflow
@@ -1250,7 +1250,7 @@ As a member user, visit `/activity` → redirects to `/` (the boot script catche
 
 `/pipeline` should still 301 to `/activity` (Plan 1A's alias is unchanged).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add static/js/activity-boot.js main.py
@@ -1275,13 +1275,13 @@ to static/activity.html (replaces Plan 1A placeholder)."
 
 The scaffold has served its purpose — components are now mounted on real pages (Search-home and Activity). Removing it eliminates a maintenance burden + a dead URL.
 
-- [ ] **Step 1: Delete the files**
+- [x] **Step 1: Delete the files**
 
 ```bash
 rm static/dev-chrome.html static/dev-chrome.js
 ```
 
-- [ ] **Step 2: Smoke verify nothing breaks**
+- [x] **Step 2: Smoke verify nothing breaks**
 
 ```bash
 docker-compose up -d --force-recreate markflow
@@ -1293,7 +1293,7 @@ Visit `http://localhost:8000/` (with `ENABLE_NEW_UX=true`) — expected: Search 
 
 Visit `http://localhost:8000/activity` (as admin) — expected: Activity page works.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add -u
@@ -1312,8 +1312,8 @@ Plans 1A through 3 incrementally)."
 
 ## Acceptance check (run before declaring this plan complete)
 
-- [ ] `pytest tests/test_me_endpoint.py tests/test_activity_endpoint.py -v` — 7 PASS
-- [ ] `grep -rn "innerHTML" static/js/pages/activity.js static/js/activity-boot.js static/js/index-new-boot.js` — zero matches
+- [x] `pytest tests/test_me_endpoint.py tests/test_activity_endpoint.py -v` — 7 PASS
+- [x] `grep -rn "innerHTML" static/js/pages/activity.js static/js/activity-boot.js static/js/index-new-boot.js` — zero matches
 - [ ] `docker-compose up -d --force-recreate markflow` succeeds, no console errors on either page
 - [ ] As admin: `/activity` loads with all 6 sections rendered from real data
 - [ ] As member: `/activity` redirects to `/`
@@ -1321,7 +1321,7 @@ Plans 1A through 3 incrementally)."
 - [ ] `/` (with flag on) renders Search-home with the user's real name + role pill from `/api/me`
 - [ ] Avatar dropdown's build strip shows real version + sha + date
 - [ ] `static/dev-chrome.html` returns 404
-- [ ] `git log --oneline | head -10` shows ~7 task commits in order
+- [x] `git log --oneline | head -10` shows ~7 task commits in order
 
 Once all green, **Plan 4 is done**. Next plan: `2026-04-28-ux-overhaul-settings-overview-and-storage.md` (Plan 5 — Settings overview card grid + Storage detail page).
 

@@ -341,7 +341,8 @@ async def get_health_summary() -> dict:
     """Return comprehensive DB health summary."""
     summary: dict = {}
 
-    # DB file stats
+    # DB path and file stats
+    summary["db_path"] = str(DB_PATH)
     try:
         if DB_PATH.exists():
             summary["db_size_bytes"] = DB_PATH.stat().st_size
@@ -349,6 +350,18 @@ async def get_health_summary() -> dict:
             summary["db_size_bytes"] = 0
     except OSError:
         summary["db_size_bytes"] = 0
+
+    # Connection pool metrics
+    try:
+        from core.db.pool import get_pool
+        pool = get_pool()
+        summary["pool_size"] = pool._read_pool_size + 1  # readers + 1 writer
+        wq = pool._write_queue
+        summary["write_queue_depth"] = wq._queue.qsize() if wq is not None else 0
+    except Exception as exc:
+        log.warning("get_health_summary.pool_metrics_failed", error=str(exc))
+        summary["pool_size"] = None
+        summary["write_queue_depth"] = None
 
     # SQLite page/freelist stats
     try:
@@ -359,7 +372,8 @@ async def get_health_summary() -> dict:
             summary["freelist_count"] = (await cursor.fetchone())[0]
             cursor = await conn.execute("PRAGMA journal_mode")
             summary["journal_mode"] = (await cursor.fetchone())[0]
-    except Exception:
+    except Exception as exc:
+        log.warning("get_health_summary.pragma_failed", error=str(exc))
         summary["page_count"] = 0
         summary["freelist_count"] = 0
         summary["journal_mode"] = "unknown"
@@ -386,12 +400,20 @@ async def get_health_summary() -> dict:
 
         summary["last_compaction"] = last_compaction
         summary["last_integrity_check"] = last_integrity
-        summary["last_integrity_result"] = last_integrity_result
+        summary["integrity_ok"] = (
+            True if last_integrity_result == "ok"
+            else (False if last_integrity_result is not None else None)
+        )
         summary["last_stale_check"] = last_stale
-    except Exception:
+    except Exception as exc:
+        log.warning("get_health_summary.maintenance_log_failed", error=str(exc))
         summary["last_compaction"] = None
         summary["last_integrity_check"] = None
-        summary["last_integrity_result"] = None
+        summary["integrity_ok"] = None
         summary["last_stale_check"] = None
+
+    # Backup fields — not tracked by the DB layer; callers use docker-compose volume config
+    summary["last_backup"] = None
+    summary["backup_path"] = None
 
     return summary

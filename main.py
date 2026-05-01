@@ -15,7 +15,7 @@ Routes mounted:
   /api/preferences  — User preferences endpoints
   /api/debug        — Debug dashboard
   /static           — Static HTML/CSS/JS files
-  /                 — Redirects to /search.html
+  /                 — Serves home page (new UX when ENABLE_NEW_UX=true)
 """
 
 import os
@@ -26,6 +26,7 @@ from core.version import __version__
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
+from core.feature_flags import is_new_ux_enabled
 from fastapi.staticfiles import StaticFiles
 
 from core.database import init_db
@@ -510,6 +511,95 @@ app.include_router(prproj_routes.router)
 from api.routes import active_ops as active_ops_routes
 app.include_router(active_ops_routes.router)
 
+# UX overhaul §10: per-user preferences (distinct from system-level /api/preferences)
+from api.routes import user_prefs as user_prefs_routes
+app.include_router(user_prefs_routes.router)
+
+# UX overhaul §13: UI telemetry sink (unauthenticated, ui.* events only)
+from api.routes import telemetry as telemetry_routes
+app.include_router(telemetry_routes.router)
+
+# UX overhaul Plan 4: /api/me — authenticated user identity + role + build info
+from api.routes import me as me_routes
+app.include_router(me_routes.router)
+
+# UX overhaul Plan 4: /api/activity/summary — operator-gated activity aggregator
+from api.routes import activity as activity_routes
+app.include_router(activity_routes.router)
+
+# /pipeline -> /activity 301 alias (one-release deprecation window).
+# Spec §1: route renamed during UX overhaul. Remove after Plan 4 ships
+# and confirm no internal links / bookmarks still hit /pipeline.
+@app.get("/pipeline", include_in_schema=False)
+@app.get("/pipeline/{rest:path}", include_in_schema=False)
+async def _pipeline_alias(rest: str = ""):
+    target = "/activity" + (("/" + rest) if rest else "")
+    return RedirectResponse(target, status_code=301)
+
+
+@app.get("/activity", include_in_schema=False)
+async def activity_page():
+    """Activity dashboard (admin/operator-only at the API layer; the
+    boot script redirects members to / on /api/me response).
+    """
+    return FileResponse("static/activity.html")
+
+
+# UX overhaul Plan 5: Settings overview + Storage detail
+@app.get("/settings", include_in_schema=False)
+async def settings_page():
+    """Settings overview card grid. New UX when ENABLE_NEW_UX=true."""
+    if is_new_ux_enabled():
+        return FileResponse("static/settings-new.html")
+    return FileResponse("static/settings.html")
+
+
+@app.get("/settings/storage", include_in_schema=False)
+async def settings_storage_page():
+    """Storage detail page — sidebar + mounts/output view."""
+    return FileResponse("static/settings-storage.html")
+
+
+@app.get("/settings/pipeline", include_in_schema=False)
+async def settings_pipeline_page():
+    return FileResponse("static/settings-pipeline.html")
+
+
+@app.get("/settings/ai-providers", include_in_schema=False)
+async def settings_ai_providers_page():
+    return FileResponse("static/settings-ai-providers.html")
+
+
+@app.get("/settings/auth", include_in_schema=False)
+async def settings_auth_page():
+    return FileResponse("static/settings-auth.html")
+
+
+@app.get("/settings/notifications", include_in_schema=False)
+async def settings_notifications_page():
+    return FileResponse("static/settings-notifications.html")
+
+
+@app.get("/settings/db-health", include_in_schema=False)
+async def settings_db_health_page():
+    return FileResponse("static/settings-db-health.html")
+
+
+@app.get("/settings/log-management", include_in_schema=False)
+async def settings_log_management_page():
+    return FileResponse("static/settings-log-mgmt.html")
+
+
+@app.get("/settings/ai-providers/cost", include_in_schema=False)
+async def settings_cost_cap_page():
+    return FileResponse("static/settings-cost-cap.html")
+
+
+@app.get("/settings/{section}", include_in_schema=False)
+async def settings_section_page(section: str):
+    """Future plans implement each section. Redirect to overview for now."""
+    return RedirectResponse("/settings", status_code=302)
+
 log.info("markflow.all_routes_registered")
 
 # ── Static files ──────────────────────────────────────────────────────────────
@@ -544,10 +634,13 @@ async def health_check():
     return await run_health_check()
 
 
-# ── Root — redirect to search page ────────────────────────────────────────────
+# ── Root ──────────────────────────────────────────────────────────────────────
 @app.get("/", include_in_schema=False)
-async def root():
-    return RedirectResponse(url="/search.html")
+async def root_index():
+    """Serve the home page. New UX rendered when ENABLE_NEW_UX=true."""
+    if is_new_ux_enabled():
+        return FileResponse("static/index-new.html")
+    return FileResponse("static/index.html")
 
 
 # ── Catch-all for SPA-style page navigation ───────────────────────────────────

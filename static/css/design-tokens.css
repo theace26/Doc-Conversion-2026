@@ -1,0 +1,117 @@
+/* MarkFlow design tokens — single source of truth for the visual system.
+   Spec: docs/superpowers/specs/2026-04-28-ux-overhaul-search-as-home-design.md §2
+
+   Naming convention: --mf-<category>-<role>-<variant>
+   All values reflect locked spec decisions; do not edit without updating the spec.
+*/
+
+:root {
+  /* === Color — primary accent (purple) === */
+  --mf-color-accent:           #5b3df5;
+  --mf-color-accent-soft:      #9d7bff;
+  --mf-color-accent-tint:      #f3f0ff;  /* hover backgrounds, soft chips */
+  --mf-color-accent-tint-2:    #f5f3ff;  /* extra-soft surfaces */
+  --mf-color-accent-border:    #d8ceff;  /* selected/recommended outlines */
+  --mf-color-accent-ring:      rgba(91, 61, 245, 0.18);  /* focus ring — hover */
+  --mf-color-accent-ring-on:   rgba(91, 61, 245, 0.35);  /* focus ring — open/active */
+
+  /* === Color — neutrals === */
+  --mf-color-text:             #0a0a0a;
+  --mf-color-text-soft:        #3a3a3a;
+  --mf-color-text-muted:       #5a5a5a;
+  --mf-color-text-faint:       #888888;
+  --mf-color-text-fainter:     #aaaaaa;
+
+  --mf-bg-page:                #f7f7f9;  /* page-level background */
+  --mf-surface:                #ffffff;
+  --mf-surface-soft:           #fafafa;
+  --mf-surface-paper:          #fefefb;  /* document-card body bg */
+  --mf-border:                 #ececec;
+  --mf-border-soft:            #f0f0f0;
+
+  /* === Color — status === */
+  --mf-color-success:          #0e7c5a;
+  --mf-color-success-bg:       #eafff5;
+  --mf-color-warn:             #a36a00;
+  --mf-color-warn-bg:          #fff5e0;
+  --mf-color-error:            #c92a2a;
+  --mf-color-error-bg:         #ffe7e7;
+
+  /* === Format-coded gradients (PDF, DOCX, PPTX, XLSX, EML, PSD, MP4, MD) === */
+  --mf-fmt-pdf:   linear-gradient(135deg, #ff6b6b 0%, #c92a2a 100%);
+  --mf-fmt-docx:  linear-gradient(135deg, #4dabf7 0%, #1864ab 100%);
+  --mf-fmt-pptx:  linear-gradient(135deg, #ffa94d 0%, #e8590c 100%);
+  --mf-fmt-xlsx:  linear-gradient(135deg, #51cf66 0%, #2b8a3e 100%);
+  --mf-fmt-eml:   linear-gradient(135deg, #cc5de8 0%, #862e9c 100%);
+  --mf-fmt-psd:   linear-gradient(135deg, #5c7cfa 0%, #364fc7 100%);
+  --mf-fmt-mp4:   linear-gradient(135deg, #22b8cf 0%, #0b7285 100%);
+  --mf-fmt-md:    linear-gradient(135deg, #0a0a0a 0%, #495057 100%);
+
+  /* === Type === */
+  --mf-font-sans:    -apple-system, "SF Pro Display", "Inter", system-ui, sans-serif;
+  --mf-font-serif:   "Iowan Old Style", "Charter", "Cambria", Georgia, serif;
+  --mf-font-mono:    ui-monospace, "SF Mono", Menlo, monospace;
+
+  --mf-text-display:    2.4rem;
+  --mf-text-display-sm: 2.0rem;
+  --mf-text-h1:         1.85rem;
+  --mf-text-h2:         1.4rem;
+  --mf-text-h3:         1.05rem;
+  --mf-text-body:       0.94rem;
+  --mf-text-sm:         0.86rem;
+  --mf-text-xs:         0.78rem;
+  --mf-text-micro:      0.7rem;
+
+  --mf-tracking-tight:  -0.025em;
+  --mf-tracking-wide:   0.07em;
+  --mf-leading-tight:   1.05;
+  --mf-leading-body:    1.45;
+
+  /* === Radius === */
+  --mf-radius-pill:     999px;
+  --mf-radius-card-lg:  14px;
+  --mf-radius-card:     12px;
+  --mf-radius-input:    10px;
+  --mf-radius-thumb:    8px;
+
+  /* === Shadows === */
+  --mf-shadow-card:     0 1px 0 rgba(0,0,0,0.05), 0 24px 48px -24px rgba(0,0,0,0.18);
+  --mf-shadow-popover:  0 16px 36px -8px rgba(0,0,0,0.2);
+  --mf-shadow-thumb:    0 1px 0 rgba(0,0,0,0.04), 0 8px 16px -10px rgba(0,0,0,0.1);
+  --mf-shadow-press:    0 1px 3px rgba(0,0,0,0.08);
+  --mf-shadow-bar:      0 4px 14px -6px rgba(0,0,0,0.08);    /* search bar resting */
+  --mf-shadow-bar-hover: 0 8px 28px -10px rgba(0,0,0,0.12); /* search bar hover */
+
+  /* === Spacing — 4px scale === */
+  --mf-space-1:  0.25rem;
+  --mf-space-2:  0.5rem;
+  --mf-space-3:  0.75rem;
+  --mf-space-4:  1rem;
+  --mf-space-5:  1.25rem;
+  --mf-space-6:  1.5rem;
+  --mf-space-8:  2rem;
+  --mf-space-10: 2.5rem;
+
+  /* === Layout === */
+  --mf-page-pad-x:   2rem;
+  --mf-page-pad-y:   2.2rem;
+  --mf-content-max:  1280px;
+
+  /* === Animation === */
+  --mf-transition-fast: 0.15s;
+  --mf-transition-med:  0.2s;
+
+  /* === Shorthand aliases (used by component CSS) === */
+  --mf-text-primary: var(--mf-color-text);
+  --mf-text-muted:   var(--mf-color-text-muted);
+  --mf-bg-card:      var(--mf-surface);
+
+  /* === Card surfaces === */
+  --mf-border-warm:         #e8e6df;                                                       /* warm thumbnail border */
+  --mf-surface-glass:       rgba(255, 255, 255, 0.92);                                     /* semi-transparent overlay */
+  --mf-gradient-paper-fade: linear-gradient(180deg, rgba(254,254,251,0) 0%, rgba(254,254,251,1) 92%); /* snippet fade */
+  --mf-shadow-text:         0 1px 2px rgba(0, 0, 0, 0.18);                                /* text on gradient band */
+}
+
+/* Production: hide the dev version chip (Plan 1B will style .mf-ver-chip). */
+body[data-env="prod"] .mf-ver-chip { display: none; }

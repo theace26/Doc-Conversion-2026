@@ -1,6 +1,6 @@
 # UX Overhaul — Search-as-Home Page Implementation Plan (Plan 3)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Land the new Search-as-home page with three layout modes (Maximal / Recent / Minimal). Wire to existing `/api/search`. Render Maximal-mode browse rows from mocks for v1 (real endpoints come in Plan 4 IA shift). Replace `static/index.html` behind the `ENABLE_NEW_UX` feature flag — old Convert page stays live when the flag is off.
 
@@ -67,7 +67,7 @@
 
 `760px` segmented bar: **Looking for** · **Format** · **When** · circular submit button. On submit, navigates to `/search?q=...` (existing endpoint).
 
-- [ ] **Step 1: Create the component**
+- [x] **Step 1: Create the component**
 
 Create `static/js/components/search-bar.js`:
 
@@ -148,7 +148,7 @@ Create `static/js/components/search-bar.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Append CSS to components.css**
+- [x] **Step 2: Append CSS to components.css**
 
 ```css
 /* === hero search bar === */
@@ -210,7 +210,7 @@ Create `static/js/components/search-bar.js`:
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add static/js/components/search-bar.js static/css/components.css
@@ -230,7 +230,7 @@ when}) with trimmed values. Safe DOM throughout."
 
 Generic horizontal-scroll row used by Maximal and Recent layouts. Structure: title (link to expanded view) + count + arrow controls + grid of items (cards or folder cards or tag pills).
 
-- [ ] **Step 1: Create the component**
+- [x] **Step 1: Create the component**
 
 Create `static/js/components/browse-row.js`:
 
@@ -319,7 +319,7 @@ Create `static/js/components/browse-row.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Append CSS to components.css**
+- [x] **Step 2: Append CSS to components.css**
 
 ```css
 /* === browse row === */
@@ -386,7 +386,7 @@ Create `static/js/components/browse-row.js`:
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add static/js/components/browse-row.js static/css/components.css
@@ -407,7 +407,7 @@ pre-built DOM (cards / folder cards / tag pills). Safe DOM."
 
 Flex-wrap of pill-shaped tags with name + count. Used in Maximal mode bottom row.
 
-- [ ] **Step 1: Create the component**
+- [x] **Step 1: Create the component**
 
 Create `static/js/components/topic-cloud.js`:
 
@@ -460,7 +460,7 @@ Create `static/js/components/topic-cloud.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Append CSS to components.css**
+- [x] **Step 2: Append CSS to components.css**
 
 ```css
 /* === topic cloud === */
@@ -494,7 +494,7 @@ Create `static/js/components/topic-cloud.js`:
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add static/js/components/topic-cloud.js static/css/components.css
@@ -514,7 +514,7 @@ DOM throughout."
 
 Mock data for Maximal-mode browse rows. Plan 4 replaces this with real `/api/folders/pinned`, `/api/files/recently-opened`, etc.
 
-- [ ] **Step 1: Create the fixture**
+- [x] **Step 1: Create the fixture**
 
 Create `static/js/sample-rows.js`:
 
@@ -571,7 +571,7 @@ Create `static/js/sample-rows.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add static/js/sample-rows.js
@@ -592,7 +592,7 @@ live /api/* endpoints; this fixture lives until then."
 
 The top-level page renderer. Reads `MFPrefs.layout`, swaps DOM accordingly. On layout change (via popover or `⌘\`), re-renders. Routes search submit to `/search?q=...`.
 
-- [ ] **Step 1: Create the page module**
+- [x] **Step 1: Create the page module**
 
 Create `static/js/pages/search-home.js`:
 
@@ -827,7 +827,7 @@ Create `static/js/pages/search-home.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Append CSS to components.css**
+- [x] **Step 2: Append CSS to components.css**
 
 ```css
 /* === search home (layouts + supporting bits) === */
@@ -927,7 +927,7 @@ Create `static/js/pages/search-home.js`:
 .mf-folder-card__meta { font-size: 0.76rem; color: var(--mf-color-text-faint); }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add static/js/pages/search-home.js static/css/components.css
@@ -960,7 +960,7 @@ Sample data from sample-rows.js. Plan 4 wires live API endpoints."
 - Modify: `main.py` — flag-aware index route
 - Create: `tests/test_search_home_flag.py`
 
-- [ ] **Step 1: Create the new home page template**
+- [x] **Step 1: Create the new home page template**
 
 Create `static/index-new.html`:
 
@@ -1008,7 +1008,7 @@ Create `static/index-new.html`:
 </html>
 ```
 
-- [ ] **Step 2: Create the boot script**
+- [x] **Step 2: Create the boot script**
 
 Create `static/js/index-new-boot.js`:
 
@@ -1106,7 +1106,7 @@ Create `static/js/index-new-boot.js`:
 })();
 ```
 
-- [ ] **Step 3: Add the flag-aware route to `main.py`**
+- [x] **Step 3: Add the flag-aware route to `main.py`**
 
 Find the existing `/` route in `main.py` (likely a `FileResponse('static/index.html')`-style handler). Modify to check the flag:
 
@@ -1125,7 +1125,7 @@ async def root_index():
 
 If the existing route already does something more elaborate (auth check, role lookup), preserve that and only swap the file path.
 
-- [ ] **Step 4: Write the test**
+- [x] **Step 4: Write the test**
 
 Create `tests/test_search_home_flag.py`:
 
@@ -1165,7 +1165,7 @@ def test_root_default_serves_legacy(monkeypatch, client):
     assert b'id="mf-home"' not in r.content
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ```bash
 pytest tests/test_search_home_flag.py -v
@@ -1173,7 +1173,7 @@ pytest tests/test_search_home_flag.py -v
 
 Expected: 3 PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add static/index-new.html static/js/index-new-boot.js main.py tests/test_search_home_flag.py
@@ -1200,7 +1200,7 @@ Plan 4 wires the real /api/me role lookup."
 - Modify: `static/dev-chrome.html` — load new scripts (most are already loaded from earlier plans)
 - Modify: `static/dev-chrome.js` — add a Search-home preview section
 
-- [ ] **Step 1: Update dev-chrome.html script tags**
+- [x] **Step 1: Update dev-chrome.html script tags**
 
 Add these before `dev-chrome.js`:
 
@@ -1222,7 +1222,7 @@ Append a Search-home demo section after the folder-browse demo:
   </div>
 ```
 
-- [ ] **Step 2: Append to dev-chrome.js**
+- [x] **Step 2: Append to dev-chrome.js**
 
 Append (inside the existing IIFE, before `})();`):
 
@@ -1234,7 +1234,7 @@ Append (inside the existing IIFE, before `})();`):
   });
 ```
 
-- [ ] **Step 3: Smoke verify**
+- [x] **Step 3: Smoke verify**
 
 ```bash
 docker-compose up -d
@@ -1269,7 +1269,7 @@ ENABLE_NEW_UX=false docker-compose up -d --force-recreate markflow
 
 Visit `http://localhost:8000/`. Expected: legacy Convert page back (production-safe default).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add static/dev-chrome.html static/dev-chrome.js
@@ -1285,14 +1285,14 @@ target before flipping ENABLE_NEW_UX in production."
 
 ## Acceptance check (run before declaring this plan complete)
 
-- [ ] `pytest tests/test_search_home_flag.py -v` — 3 PASS
-- [ ] `grep -rn "innerHTML" static/js/components/search-bar.js static/js/components/browse-row.js static/js/components/topic-cloud.js static/js/pages/search-home.js static/js/index-new-boot.js` — zero matches
-- [ ] `docker-compose up -d` succeeds, no console errors
-- [ ] All 10 smoke checks from Task 7 Step 3 pass
-- [ ] `ENABLE_NEW_UX=true` flag flip serves the new page at `/`
-- [ ] `ENABLE_NEW_UX=false` flag flip serves the legacy page at `/`
-- [ ] Layout preference round-trips (set Minimal, reload, still Minimal)
-- [ ] `git log --oneline | head -10` shows ~7 task commits in order
+- [x] `pytest tests/test_search_home_flag.py -v` — 3 PASS
+- [x] `grep -rn "innerHTML" static/js/components/search-bar.js static/js/components/browse-row.js static/js/components/topic-cloud.js static/js/pages/search-home.js static/js/index-new-boot.js` — zero matches
+- [x] `docker-compose up -d` succeeds, no console errors
+- [x] All 10 smoke checks from Task 7 Step 3 pass
+- [x] `ENABLE_NEW_UX=true` flag flip serves the new page at `/`
+- [x] `ENABLE_NEW_UX=false` flag flip serves the legacy page at `/`
+- [x] Layout preference round-trips (set Minimal, reload, still Minimal)
+- [x] `git log --oneline | head -10` shows ~7 task commits in order
 
 Once all green, **Plan 3 is done**. Next plan: `2026-04-28-ux-overhaul-ia-shift.md` (Plan 4 — IA shift: Activity rename, role-gated nav, real /api/me, real /api/folders, real recently-opened, removes dev-chrome scaffold once components have a real home).
 

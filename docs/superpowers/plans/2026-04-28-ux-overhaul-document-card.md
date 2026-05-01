@@ -1,6 +1,6 @@
 # UX Overhaul — Document Card + Density Modes Implementation Plan (Plan 2A)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Land the document card component (gradient top-band + paper snippet body), the linear list-row variant, the card-grid container that renders any density mode, and the density toggle UI that switches between **Cards** (6/row), **Compact** (8/row), and **List** (linear). Density persists via `MFPrefs` (Plan 1C). The dev-chrome page demonstrates all three densities switchable via the toggle, with a sample of 12 IBEW Local 46 documents.
 
@@ -73,7 +73,7 @@ The card consumes a `doc` record with shape:
 }
 ```
 
-- [ ] **Step 1: Create the component**
+- [x] **Step 1: Create the component**
 
 Create `static/js/components/doc-card.js`:
 
@@ -215,7 +215,7 @@ Create `static/js/components/doc-card.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Append base CSS to components.css**
+- [x] **Step 2: Append base CSS to components.css**
 
 Append to `static/css/components.css`:
 
@@ -299,7 +299,7 @@ Append to `static/css/components.css`:
 }
 ```
 
-- [ ] **Step 3: Append List-row CSS**
+- [x] **Step 3: Append List-row CSS**
 
 Append to `static/css/components.css`:
 
@@ -367,13 +367,13 @@ Append to `static/css/components.css`:
 }
 ```
 
-- [ ] **Step 4: Verify safe DOM**
+- [x] **Step 4: Verify safe DOM**
 
 Run: `grep -n "innerHTML" static/js/components/doc-card.js`
 
 Expected: zero matches.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add static/js/components/doc-card.js static/css/components.css
@@ -395,7 +395,7 @@ design-tokens.css. Safe DOM throughout. Spec §4."
 
 The grid takes a list of doc records and a density mode and renders the appropriate variant. Density-specific styling lives in CSS (next task).
 
-- [ ] **Step 1: Create the component**
+- [x] **Step 1: Create the component**
 
 Create `static/js/components/card-grid.js`:
 
@@ -448,7 +448,7 @@ Create `static/js/components/card-grid.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Append density-specific CSS to components.css**
+- [x] **Step 2: Append density-specific CSS to components.css**
 
 Append to `static/css/components.css`:
 
@@ -477,7 +477,7 @@ Append to `static/css/components.css`:
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add static/js/components/card-grid.js static/css/components.css
@@ -498,7 +498,7 @@ compact tunes via descendant selectors. List uses the linear-row DOM."
 
 A segmented control with Cards / Compact / List. Reads the current density from `MFPrefs`, writes back on click, fires telemetry.
 
-- [ ] **Step 1: Create the component**
+- [x] **Step 1: Create the component**
 
 Create `static/js/components/density-toggle.js`:
 
@@ -580,13 +580,13 @@ Create `static/js/components/density-toggle.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Verify safe DOM**
+- [x] **Step 2: Verify safe DOM**
 
 Run: `grep -n "innerHTML" static/js/components/density-toggle.js`
 
 Expected: zero matches.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add static/js/components/density-toggle.js
@@ -607,7 +607,7 @@ from Plan 1A."
 
 A small dataset of realistic IBEW Local 46 documents for visual verification on the dev-chrome page. Twelve docs, mixing all eight formats.
 
-- [ ] **Step 1: Create the fixture**
+- [x] **Step 1: Create the fixture**
 
 Create `static/js/sample-docs.js`:
 
@@ -710,7 +710,7 @@ Create `static/js/sample-docs.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add static/js/sample-docs.js
@@ -729,7 +729,7 @@ this with live /api/search results."
 - Modify: `static/dev-chrome.html` to load new scripts and add a card-demo section
 - Modify: `static/dev-chrome.js` to mount the toggle + grid + subscribe to density changes
 
-- [ ] **Step 1: Update dev-chrome.html**
+- [x] **Step 1: Update dev-chrome.html**
 
 Add the new script tags before `dev-chrome.js`:
 
@@ -754,7 +754,7 @@ Append a card-demo section to the body, after the existing `.dev-banner`:
   </div>
 ```
 
-- [ ] **Step 2: Update dev-chrome.js**
+- [x] **Step 2: Update dev-chrome.js**
 
 Append to `static/dev-chrome.js` (inside the same IIFE — find the closing `})();` and add this BEFORE it):
 
@@ -776,7 +776,7 @@ Append to `static/dev-chrome.js` (inside the same IIFE — find the closing `})(
   renderCardGrid();
 ```
 
-- [ ] **Step 3: Smoke verify**
+- [x] **Step 3: Smoke verify**
 
 ```bash
 docker-compose up -d
@@ -795,7 +795,7 @@ Visit `http://localhost:8000/static/dev-chrome.html`. Expected:
 
 If anything reads wrong visually, cross-check against `docs/superpowers/specs/2026-04-28-ux-overhaul-mockups/home-search-v3.html`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add static/dev-chrome.html static/dev-chrome.js
@@ -812,13 +812,13 @@ the full card-grid-density flow before mounting on real pages
 
 ## Acceptance check (run before declaring this plan complete)
 
-- [ ] `git log --oneline | head -10` shows 5 task commits in order, on top of Plan 1C
-- [ ] `grep -rn "innerHTML" static/js/components/doc-card.js static/js/components/card-grid.js static/js/components/density-toggle.js` — zero matches
-- [ ] `docker-compose up -d` succeeds, no console errors
-- [ ] Visit `/static/dev-chrome.html` — full chrome flow still works AND card grid demo renders correctly in all three densities
-- [ ] Density preference persists across page reloads
-- [ ] All 8 format gradients render distinctly (PDF red, DOCX blue, PPTX orange, XLSX green, EML purple, MD dark, PSD indigo, MP4 teal)
-- [ ] `ui.density_toggle` telemetry events visible in `docker-compose logs app`
+- [x] `git log --oneline | head -10` shows 5 task commits in order, on top of Plan 1C
+- [x] `grep -rn "innerHTML" static/js/components/doc-card.js static/js/components/card-grid.js static/js/components/density-toggle.js` — zero matches
+- [x] `docker-compose up -d` succeeds, no console errors
+- [x] Visit `/static/dev-chrome.html` — full chrome flow still works AND card grid demo renders correctly in all three densities
+- [x] Density preference persists across page reloads
+- [x] All 8 format gradients render distinctly (PDF red, DOCX blue, PPTX orange, XLSX green, EML purple, MD dark, PSD indigo, MP4 teal)
+- [x] `ui.density_toggle` telemetry events visible in `docker-compose logs app`
 
 Once all green, **Plan 2A is done**. Next plan: `2026-04-28-ux-overhaul-card-interactions.md` (Plan 2B — hover preview popover, right-click context menu with Advanced expander, multi-select state, bulk action bar, folder browse).
 

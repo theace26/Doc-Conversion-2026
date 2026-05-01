@@ -1,6 +1,6 @@
 # UX Overhaul — Stateful Chrome Implementation Plan (Plan 1C)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Land the stateful pieces of the chrome — preferences client (localStorage cache + debounced server sync), telemetry helper, avatar menu popover (role-gated content), layout-mode popover (three options with `⌘\` cycle), and wire them into the static chrome's `onClick` stubs from Plan 1B. End state: `static/dev-chrome.html` is a fully-functional preview of every chrome interaction.
 
@@ -63,7 +63,7 @@
 
 Manual smoke verification (no JS test runner). The module exposes load / get / set / setMany / subscribe and handles localStorage caching and debounced server sync.
 
-- [ ] **Step 1: Create the module**
+- [x] **Step 1: Create the module**
 
 Create `static/js/preferences.js`:
 
@@ -209,7 +209,7 @@ Create `static/js/preferences.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Smoke verify in dev-chrome**
+- [x] **Step 2: Smoke verify in dev-chrome**
 
 This will be wired into `dev-chrome.js` in Task 7. For now, manually load the script and exercise it:
 
@@ -229,7 +229,7 @@ await MFPrefs.set('layout', 'recent');
 
 If unauthenticated GET 401s, the localStorage fallback should still work and the console shouldn't throw — just a warning.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add static/js/preferences.js static/dev-chrome.html
@@ -253,7 +253,7 @@ No DOM touches. Spec §10."
 
 Spec §13 lists at minimum these events: `ui.layout_mode_selected`, `ui.density_toggle`, `ui.advanced_toggle`, `ui.hover_preview_shown`, `ui.context_menu_action`. This task ships the helper and endpoint; consumers (avatar-menu, layout-popover, document card later) emit events via `MFTelemetry.emit('event', {...})`.
 
-- [ ] **Step 1: Write the failing endpoint test**
+- [x] **Step 1: Write the failing endpoint test**
 
 Create `tests/test_telemetry_endpoint.py`:
 
@@ -300,13 +300,13 @@ def test_telemetry_post_no_auth_required(client):
     assert r.status_code == 204
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_telemetry_endpoint.py -v`
 
 Expected: FAIL — endpoint doesn't exist.
 
-- [ ] **Step 3: Implement the endpoint**
+- [x] **Step 3: Implement the endpoint**
 
 Create `api/routes/telemetry.py`:
 
@@ -349,7 +349,7 @@ async def emit(payload: TelemetryEvent, request: Request) -> Response:
     return Response(status_code=204)
 ```
 
-- [ ] **Step 4: Wire into `main.py`**
+- [x] **Step 4: Wire into `main.py`**
 
 Add to `main.py`:
 
@@ -358,13 +358,13 @@ from api.routes import telemetry as telemetry_routes
 app.include_router(telemetry_routes.router)
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `pytest tests/test_telemetry_endpoint.py -v`
 
 Expected: 4 PASS.
 
-- [ ] **Step 6: Create the client helper**
+- [x] **Step 6: Create the client helper**
 
 Create `static/js/telemetry.js`:
 
@@ -411,7 +411,7 @@ Create `static/js/telemetry.js`:
 })(window);
 ```
 
-- [ ] **Step 7: Smoke check the client**
+- [x] **Step 7: Smoke check the client**
 
 Open DevTools console at `/static/dev-chrome.html`:
 
@@ -421,7 +421,7 @@ MFTelemetry.emit('ui.density_toggle', { to: 'compact' });
 // Check docker-compose logs app | grep ui_telemetry -> structlog line
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add static/js/telemetry.js api/routes/telemetry.py main.py tests/test_telemetry_endpoint.py
@@ -444,7 +444,7 @@ The big one. Builds the role-gated dropdown menu. **All construction via createE
 
 The menu is a single popover instance per page, attached to `document.body` to escape any `overflow:hidden` ancestors. It re-anchors to the trigger button on each open.
 
-- [ ] **Step 1: Create the component scaffold (header + render functions)**
+- [x] **Step 1: Create the component scaffold (header + render functions)**
 
 Create `static/js/components/avatar-menu.js`:
 
@@ -672,7 +672,7 @@ Create `static/js/components/avatar-menu.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Append CSS to components.css**
+- [x] **Step 2: Append CSS to components.css**
 
 Append to `static/css/components.css`:
 
@@ -770,13 +770,13 @@ Append to `static/css/components.css`:
 .mf-av-menu__build-b { color: var(--mf-color-accent); }
 ```
 
-- [ ] **Step 3: Verify safe DOM — no innerHTML**
+- [x] **Step 3: Verify safe DOM — no innerHTML**
 
 Run: `grep -n "innerHTML" static/js/components/avatar-menu.js`
 
 Expected: zero matches. If any appear, replace with createElement / textContent / appendChild equivalents.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add static/js/components/avatar-menu.js static/css/components.css
@@ -798,7 +798,7 @@ Safe DOM throughout — verified zero innerHTML usages. Spec §6."
 
 The three-mode chooser (Maximal / Recent / Minimal) with checkmark on the current mode.
 
-- [ ] **Step 1: Create the component**
+- [x] **Step 1: Create the component**
 
 Create `static/js/components/layout-popover.js`:
 
@@ -944,7 +944,7 @@ Create `static/js/components/layout-popover.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Append CSS to components.css**
+- [x] **Step 2: Append CSS to components.css**
 
 Append to `static/css/components.css`:
 
@@ -990,7 +990,7 @@ Append to `static/css/components.css`:
 .mf-layout-pop__foot strong { color: var(--mf-color-text); }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add static/js/components/layout-popover.js static/css/components.css
@@ -1011,7 +1011,7 @@ Safe DOM throughout. Spec §3."
 
 Single global keyboard handler. For now just registers `⌘\` for layout cycling; future plans append more shortcuts.
 
-- [ ] **Step 1: Create the module**
+- [x] **Step 1: Create the module**
 
 Create `static/js/keybinds.js`:
 
@@ -1069,7 +1069,7 @@ Create `static/js/keybinds.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add static/js/keybinds.js
@@ -1089,7 +1089,7 @@ more shortcuts."
 - Modify: `static/dev-chrome.html` to load the new scripts
 - Modify: `static/dev-chrome.js` to wire avatar/layout-icon onClick to popovers + register keybind
 
-- [ ] **Step 1: Update dev-chrome.html script tags**
+- [x] **Step 1: Update dev-chrome.html script tags**
 
 In `static/dev-chrome.html`, add the new script tags before `dev-chrome.js`:
 
@@ -1106,7 +1106,7 @@ In `static/dev-chrome.html`, add the new script tags before `dev-chrome.js`:
   <script src="/static/dev-chrome.js"></script>
 ```
 
-- [ ] **Step 2: Replace dev-chrome.js wiring**
+- [x] **Step 2: Replace dev-chrome.js wiring**
 
 Replace `static/dev-chrome.js` with:
 
@@ -1211,7 +1211,7 @@ Replace `static/dev-chrome.js` with:
 })();
 ```
 
-- [ ] **Step 3: Smoke verify the full chrome flow**
+- [x] **Step 3: Smoke verify the full chrome flow**
 
 ```bash
 docker-compose up -d
@@ -1231,7 +1231,7 @@ Visit `http://localhost:8000/static/dev-chrome.html`. Expected:
 
 If any of those fail, fix before committing.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add static/dev-chrome.html static/dev-chrome.js
@@ -1254,11 +1254,11 @@ removes this scaffold once the chrome mounts on real pages."
 
 ## Acceptance check (run before declaring this plan complete)
 
-- [ ] `pytest tests/test_telemetry_endpoint.py -v` — 4 PASS
-- [ ] `grep -rn "innerHTML" static/js/` — zero matches in any of our component files
-- [ ] `docker-compose up -d` — app starts, `docker-compose logs app | grep ui_telemetry` shows events arriving
-- [ ] Visit `/static/dev-chrome.html` and walk through all 9 smoke checks from Task 6 Step 3
-- [ ] `git log --oneline | head -10` — 6 task commits, in order
+- [x] `pytest tests/test_telemetry_endpoint.py -v` — 4 PASS
+- [x] `grep -rn "innerHTML" static/js/` — zero matches in any of our component files
+- [x] `docker-compose up -d` — app starts, `docker-compose logs app | grep ui_telemetry` shows events arriving
+- [x] Visit `/static/dev-chrome.html` and walk through all 9 smoke checks from Task 6 Step 3
+- [x] `git log --oneline | head -10` — 6 task commits, in order
 
 Once all green, **Plan 1C is done** — all chrome (static + stateful + persistence + telemetry) is implemented and demonstrated on the dev page. Next plan: `2026-04-28-ux-overhaul-document-card.md` (Plan 2 — document card component family).
 
