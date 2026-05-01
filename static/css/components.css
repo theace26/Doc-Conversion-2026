@@ -1673,3 +1673,45 @@
 .mf-auth__mapping-table td { padding: 0.5rem 0.75rem 0.5rem 0; border-bottom: 1px solid var(--mf-border); color: var(--mf-text-primary); }
 .mf-auth__note { font-size: 0.82rem; color: var(--mf-text-muted); margin-top: 0.75rem; }
 .mf-ai__cost-link:hover { text-decoration: underline; }
+
+/* ── Notifications detail ──────────────────── */
+.mf-notif__channel-card {
+  border: 1.5px solid var(--mf-border);
+  border-radius: 10px;
+  padding: 1.25rem 1.4rem;
+  margin-bottom: 1rem;
+}
+.mf-notif__channel-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin-bottom: 0.85rem;
+  color: var(--mf-text-primary);
+}
+.mf-notif__trigger-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--mf-border);
+  font-size: 0.9rem;
+  color: var(--mf-text-primary);
+}
+.mf-notif__trigger-row:last-of-type { border-bottom: none; }
+.mf-notif__time-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 0.6rem;
+}
+.mf-notif__test-note {
+  font-size: 0.82rem;
+  color: var(--mf-text-muted);
+  margin-top: 0.6rem;
+}
+.mf-notif__stub-msg {
+  font-size: 0.88rem;
+  color: var(--mf-color-accent);
+  margin-top: 0.6rem;
+  min-height: 1.2em;
+}
