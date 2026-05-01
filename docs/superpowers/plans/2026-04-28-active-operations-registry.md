@@ -1,6 +1,6 @@
 # Active Operations Registry Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Unify every long-running file-related operation in MarkFlow under a single in-memory + DB-backed registry; surface progress on each operation's originating page (inline widget) and on the Status page (index hub) with click-through navigation.
 
@@ -37,21 +37,21 @@ Per-phase reasoning sits at each `## Phase N` header below.
 
 Before starting Task 1, verify the environment:
 
-- [ ] **Verify v0.34.2 has shipped (or skip if working on the v0.35.0 branch ahead of the hotfix).**
+- [x] **Verify v0.34.2 has shipped (or skip if working on the v0.35.0 branch ahead of the hotfix).**
 
 ```bash
 git log --oneline | grep "v0.34.2" | head -1
 ```
 If empty: stop. v0.34.2 must ship first per spec §14. If proceeding ahead of v0.34.2 by design, note it in the eventual release commit.
 
-- [ ] **Verify baseline tests pass.**
+- [x] **Verify baseline tests pass.**
 
 ```bash
 docker-compose exec markflow pytest tests/ -q
 ```
 Expected: all green. If any pre-existing failure, capture the count so post-feature comparison is meaningful.
 
-- [ ] **Verify current scheduler job count is 19.**
+- [x] **Verify current scheduler job count is 19.**
 
 ```bash
 docker-compose exec markflow python -c "from core.scheduler import _SCHEDULED_JOBS; print(len(_SCHEDULED_JOBS))"
@@ -60,7 +60,7 @@ Expected: `19` (per spec §10; we add the 20th in Task 9).
 
 If the count differs, investigate before continuing — the spec assumed 19.
 
-- [ ] **Verify current migration version.**
+- [x] **Verify current migration version.**
 
 ```bash
 docker-compose exec markflow python -c "from core.db.migrations import LATEST_VERSION; print(LATEST_VERSION)"
@@ -126,7 +126,7 @@ the affected plan task number(s) and the corrected instruction.
 
 **Output:** §A of recon doc.
 
-- [ ] **Step 1: Capture `db_write_with_retry` signature.**
+- [x] **Step 1: Capture `db_write_with_retry` signature.**
 
 ```bash
 grep -n "def db_write_with_retry\|db_write_with_retry(" core/db/connection.py | head -10
@@ -137,7 +137,7 @@ Read the function body. Document:
 - Concurrency model (queue, lock)
 - Existing call sites — pick 2 representative examples to quote.
 
-- [ ] **Step 2: Capture `_async_execute` (or equivalent low-level exec helper).**
+- [x] **Step 2: Capture `_async_execute` (or equivalent low-level exec helper).**
 
 ```bash
 grep -n "async def _async_execute\|async def _execute\|async def execute" core/db/*.py core/database.py | head -10
@@ -145,7 +145,7 @@ grep -n "async def _async_execute\|async def _execute\|async def execute" core/d
 
 Document the actual exported name and signature. If it doesn't exist as a public symbol, document the project's convention for raw INSERT/UPDATE (might be `aiosqlite.connect(...).execute()` inline).
 
-- [ ] **Step 3: Capture `Migration` class + `MIGRATIONS` list + `LATEST_VERSION`.**
+- [x] **Step 3: Capture `Migration` class + `MIGRATIONS` list + `LATEST_VERSION`.**
 
 ```bash
 grep -n "class Migration\|MIGRATIONS\|LATEST_VERSION" core/db/migrations.py
@@ -153,7 +153,7 @@ grep -n "class Migration\|MIGRATIONS\|LATEST_VERSION" core/db/migrations.py
 
 Document constructor signature, list location, current LATEST_VERSION value.
 
-- [ ] **Step 4: Inventory all 19 scheduler jobs.**
+- [x] **Step 4: Inventory all 19 scheduler jobs.**
 
 ```bash
 grep -n "scheduler.add_job\|@scheduler.scheduled_job\|trigger=.cron" core/scheduler.py
@@ -161,7 +161,7 @@ grep -n "scheduler.add_job\|@scheduler.scheduled_job\|trigger=.cron" core/schedu
 
 Capture each job's id, cron slot (HH:MM), and a one-line description from the surrounding context. This populates the time-slot table in Task 37 directly — no second discovery pass.
 
-- [ ] **Step 5: Capture lifespan structure in `main.py`.**
+- [x] **Step 5: Capture lifespan structure in `main.py`.**
 
 ```bash
 grep -n "lifespan\|asynccontextmanager\|init_db\|scheduler.start\|include_router" main.py | head -30
@@ -173,7 +173,7 @@ Document:
 - Block where `app.include_router(...)` calls happen
 - Confirm hydration insertion point (after `init_db`, before `scheduler.start`)
 
-- [ ] **Step 6: Capture test fixtures.**
+- [x] **Step 6: Capture test fixtures.**
 
 ```bash
 ls tests/conftest.py tests/test_*_endpoint.py 2>/dev/null
@@ -185,11 +185,11 @@ Pick one `tests/test_*_endpoint.py` (e.g. `test_pipeline.py` or whatever exists)
 - How it constructs an authenticated AsyncClient
 - Whether `authed_operator` / `authed_manager` / `authed_admin` fixtures already exist (if not, document the inline pattern to copy)
 
-- [ ] **Step 7: Append §A to the recon doc.**
+- [x] **Step 7: Append §A to the recon doc.**
 
 Write the recon notes file with the §A section filled in. Include verbatim code snippets (signatures, key lines) so implementation tasks have copy-pasteable content.
 
-- [ ] **Step 8: Commit.**
+- [x] **Step 8: Commit.**
 
 ```bash
 git add docs/superpowers/plans/2026-04-28-active-operations-registry-recon.md
@@ -209,7 +209,7 @@ git commit -m "plan(active_ops): pre-flight recon §A (DB + scheduler + lifespan
 
 **Output:** §B of recon doc.
 
-- [ ] **Step 1: Capture `require_role` signature.**
+- [x] **Step 1: Capture `require_role` signature.**
 
 ```bash
 grep -n "def require_role\|UserRole\.\|class UserRole" core/auth.py | head -20
@@ -220,7 +220,7 @@ Document:
 - All `UserRole` enum values (OPERATOR, MANAGER, ADMIN, others?)
 - `AuthenticatedUser` shape (email, role, … any other fields used)
 
-- [ ] **Step 2: Pick a "model" route file to copy patterns from.**
+- [x] **Step 2: Pick a "model" route file to copy patterns from.**
 
 `api/routes/pipeline.py` is a strong candidate (already explored in this planning session). Document:
 - Router prefix + tags pattern
@@ -229,7 +229,7 @@ Document:
 - Response shape conventions (plain dict; `Response` injection for headers; `HTTPException` raising)
 - structlog usage at module top + per-event log calls
 
-- [ ] **Step 3: AsyncClient + auth fixture.**
+- [x] **Step 3: AsyncClient + auth fixture.**
 
 In one existing `tests/test_*_endpoint.py`:
 - How does it import `app`? (`from main import app` likely)
@@ -238,7 +238,7 @@ In one existing `tests/test_*_endpoint.py`:
 
 Document the **exact fixture code** that the engineer should copy into `tests/conftest.py` for `authed_operator` / `authed_manager` / `authed_admin` if they don't already exist.
 
-- [ ] **Step 4: Append §B to recon doc + commit.**
+- [x] **Step 4: Append §B to recon doc + commit.**
 
 ```bash
 git add docs/superpowers/plans/2026-04-28-active-operations-registry-recon.md
@@ -257,7 +257,7 @@ git commit -m "plan(active_ops): pre-flight recon §B (auth + endpoint + fixture
 
 **Output:** §C of recon doc.
 
-- [ ] **Step 1: Locate `run_pipeline_now` and its `_run` inner function.**
+- [x] **Step 1: Locate `run_pipeline_now` and its `_run` inner function.**
 
 ```bash
 grep -n "run_pipeline_now\|def _run\b\|register_run_now_scan" api/routes/pipeline.py
@@ -271,7 +271,7 @@ Capture:
 
 Document the **exact pre-edit and post-edit forms** of `_run` so Task 14's Step 4 becomes pure transcription.
 
-- [ ] **Step 2: Locate `_run_convert_selected_batch` and `_convert_one_pending_file`.**
+- [x] **Step 2: Locate `_run_convert_selected_batch` and `_convert_one_pending_file`.**
 
 ```bash
 grep -n "def _run_convert_selected_batch\|def _convert_one_pending_file" api/routes/pipeline.py
@@ -282,7 +282,7 @@ Capture:
 - Existing semaphore / asyncio.gather pattern
 - The exact loop variable name (`f` vs `file_dict` etc.)
 
-- [ ] **Step 3: Locate cancel primitives in `scan_coordinator.py`.**
+- [x] **Step 3: Locate cancel primitives in `scan_coordinator.py`.**
 
 ```bash
 grep -n "notify_run_now_cancelled\|is_run_now_cancelled\|run_now_cancel" core/scan_coordinator.py
@@ -290,7 +290,7 @@ grep -n "notify_run_now_cancelled\|is_run_now_cancelled\|run_now_cancel" core/sc
 
 Document the function signatures and the in-process flag they manipulate. Confirm `notify_run_now_cancelled()` is the right hook to wire into the cancel-hook bridge.
 
-- [ ] **Step 4: Locate scan_runs column names.**
+- [x] **Step 4: Locate scan_runs column names.**
 
 ```bash
 grep -n "files_scanned\|files_total\|files_errored\|files_new\|files_modified" core/db/scan_runs.py core/lifecycle_scanner.py | head -10
@@ -298,11 +298,11 @@ grep -n "files_scanned\|files_total\|files_errored\|files_new\|files_modified" c
 
 Document the actual columns. Spec assumed `files_total` / `files_errored` — these may or may not exist. Update Task 14's progress mirror code to use real names. If `files_total` doesn't exist, the mirror runs without total (UI shows indeterminate).
 
-- [ ] **Step 5: Append §C + flag amendments.**
+- [x] **Step 5: Append §C + flag amendments.**
 
 If column names diverge from spec, write into §G (Plan amendments) which Task 14 step needs the substitution.
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ```bash
 git add docs/superpowers/plans/2026-04-28-active-operations-registry-recon.md
@@ -323,7 +323,7 @@ git commit -m "plan(active_ops): pre-flight recon §C (pipeline.py + scan_coordi
 
 **Output:** §D of recon doc.
 
-- [ ] **Step 1: Locate the `_empty_trash_status` worker and dict.**
+- [x] **Step 1: Locate the `_empty_trash_status` worker and dict.**
 
 ```bash
 grep -n "_empty_trash_status\|_empty_trash_cancel\|empty_trash_worker\|@router.post.*empty" api/routes/trash.py
@@ -338,7 +338,7 @@ Capture the **complete current worker function** (likely 30–60 lines). Identif
 
 Document the side-by-side: existing worker (verbatim) ↔ planned retrofit (from Task 17 Step 2) so the engineer can do a structural diff.
 
-- [ ] **Step 2: Same for `_restore_all_status`.**
+- [x] **Step 2: Same for `_restore_all_status`.**
 
 ```bash
 grep -n "_restore_all_status\|_restore_all_cancel\|restore_all_worker\|@router.post.*restore" api/routes/trash.py
@@ -346,7 +346,7 @@ grep -n "_restore_all_status\|_restore_all_cancel\|restore_all_worker\|@router.p
 
 Capture worker + cancel; confirm symmetric to empty.
 
-- [ ] **Step 3: Locate the bulk re-analyze handler in `api/routes/analysis.py`.**
+- [x] **Step 3: Locate the bulk re-analyze handler in `api/routes/analysis.py`.**
 
 ```bash
 grep -n "re_analyze\|reanalyze\|rebuild_analysis\|@router.post.*re-analyze" api/routes/analysis.py
@@ -354,7 +354,7 @@ grep -n "re_analyze\|reanalyze\|rebuild_analysis\|@router.post.*re-analyze" api/
 
 Document the URL path (e.g., `/api/analysis/batches/{id}/re-analyze` — the spec assumed this; verify), the worker function name, and where per-file iteration happens.
 
-- [ ] **Step 4: Locate db.backup and db.restore handlers.**
+- [x] **Step 4: Locate db.backup and db.restore handlers.**
 
 ```bash
 grep -rn "db.backup\|db_backup\|/db/backup\|@router.post.*backup\|@router.post.*restore" api/routes/admin.py core/db_backup.py
@@ -368,7 +368,7 @@ Document:
 
 If backup is synchronous (no background task), the registry pattern needs adjusting — `register_op` happens inline, `finish_op` happens before the response is returned. Document this in §G if so.
 
-- [ ] **Step 5: Locate the search rebuild handler.**
+- [x] **Step 5: Locate the search rebuild handler.**
 
 ```bash
 grep -rn "rebuild.index\|rebuild_index\|@router.post.*rebuild" api/ core/ | head -10
@@ -376,7 +376,7 @@ grep -rn "rebuild.index\|rebuild_index\|@router.post.*rebuild" api/ core/ | head
 
 Document file path + function name + dispatch pattern. Spec assumes `/api/pipeline/rebuild-index` — verify. Also note whether the Meili rebuild emits any progress signal (per-document iteration) or runs as one atomic block. If atomic, Task 19's `update_op` call is a no-op and the widget shows indeterminate — document this so the implementation doesn't waste time hunting for nonexistent progress hooks.
 
-- [ ] **Step 6: Append §D + commit.**
+- [x] **Step 6: Append §D + commit.**
 
 ```bash
 git add docs/superpowers/plans/2026-04-28-active-operations-registry-recon.md
@@ -397,7 +397,7 @@ git commit -m "plan(active_ops): pre-flight recon §D (trash + analysis + admin 
 
 This is the most important recon task. These two files are the largest in the project (likely 1,000–2,000 lines each), and the spec made several assumptions about their internal shape that need verification.
 
-- [ ] **Step 1: Map `lifecycle_scanner.py` structure.**
+- [x] **Step 1: Map `lifecycle_scanner.py` structure.**
 
 ```bash
 grep -n "^async def\|^def\|^class" core/lifecycle_scanner.py
@@ -410,13 +410,13 @@ Document the top-level function/class inventory. Identify:
 - The cooperative cancel point(s)
 - Any shutdown handling (`asyncio.CancelledError` per the v0.32.0 fix mentioned in CLAUDE.md)
 
-- [ ] **Step 2: Capture exact `run_lifecycle_scan` signature + body anatomy.**
+- [x] **Step 2: Capture exact `run_lifecycle_scan` signature + body anatomy.**
 
 Read enough of the function to identify the right wrap-with-register/finish location. Quote the function header + first 20 + last 20 lines verbatim into recon §E.
 
 If the scanner has multiple entry points (e.g., `run_lifecycle_scan` AND `run_periodic_scan`), document both and decide which gets the registry hook. Likely the lower-level one — but verify.
 
-- [ ] **Step 3: Map `bulk_worker.py` structure.**
+- [x] **Step 3: Map `bulk_worker.py` structure.**
 
 ```bash
 grep -n "^async def\|^def\|^class\|self\.processed\|self\.failed\|self\.total\|self\.cancel" core/bulk_worker.py
@@ -430,7 +430,7 @@ Document:
 - Pause / resume handling
 - The terminal state attribute (`self.terminal_error` or similar) — for the `error_msg` mirror
 
-- [ ] **Step 4: Identify the right tick-mirror insertion points in BulkJob.**
+- [x] **Step 4: Identify the right tick-mirror insertion points in BulkJob.**
 
 For Task 23 to land cleanly, we need to know the **exact methods/lines** where:
 - The job starts (register_op call site)
@@ -439,7 +439,7 @@ For Task 23 to land cleanly, we need to know the **exact methods/lines** where:
 
 Quote each candidate insertion point. If "paused" is a quasi-terminal state in BulkJob, document how the registry should handle it (treat as still-running, per spec §17 P3 — but verify the BulkJob's actual paused-state semantics support this).
 
-- [ ] **Step 5: Look for the BulkJob cancel mechanism.**
+- [x] **Step 5: Look for the BulkJob cancel mechanism.**
 
 ```bash
 grep -n "def cancel\|self.cancelled\|self._cancel\|cancel_event\|cancel_pending" core/bulk_worker.py
@@ -447,13 +447,13 @@ grep -n "def cancel\|self.cancelled\|self._cancel\|cancel_event\|cancel_pending"
 
 Document the actual cancel API. Spec assumed `BulkJob.cancel(job_id)` as classmethod. If it's an instance method or a module-level function, update Task 23's hook code in §G.
 
-- [ ] **Step 6: Append §E + flag amendments.**
+- [x] **Step 6: Append §E + flag amendments.**
 
 §E will likely be the longest section in the recon doc — that's expected. Bulk_worker is the most entangled subsystem in v0.35.0's retrofit footprint.
 
 If anything in §E contradicts the plan's Task 23 code, write specific replacement instructions in §G (Plan amendments) before committing.
 
-- [ ] **Step 7: Commit.**
+- [x] **Step 7: Commit.**
 
 ```bash
 git add docs/superpowers/plans/2026-04-28-active-operations-registry-recon.md
@@ -475,7 +475,7 @@ git commit -m "plan(active_ops): pre-flight recon §E (lifecycle_scanner + bulk_
 
 **Output:** §F of recon doc.
 
-- [ ] **Step 1: Inventory CSS variables.**
+- [x] **Step 1: Inventory CSS variables.**
 
 ```bash
 grep -n "^[[:space:]]*--[a-z]" static/markflow.css | head -40
@@ -485,15 +485,15 @@ Document every CSS custom property defined: `--surface`, `--surface-alt`, `--tex
 
 If a variable referenced by the plan's widget code doesn't exist, choose a fallback that does (e.g., `var(--ok)` if `--accent` is missing) and update Tasks 25, 26, 27 in §G.
 
-- [ ] **Step 2: DOM helper conventions.**
+- [x] **Step 2: DOM helper conventions.**
 
 Read `static/js/pipeline-card.js` lines 71–95 (the `el()` helper). Confirm Tasks 25, 26 use the same helper signature. If pipeline-card's helper differs (different opt names like `text` vs `textContent`), align the new modules.
 
-- [ ] **Step 3: Visibility-aware polling pattern.**
+- [x] **Step 3: Visibility-aware polling pattern.**
 
 Read `static/js/auto-refresh.js`. Confirm the visibility-pause pattern. Verify Task 24's poller uses the same approach.
 
-- [ ] **Step 4: Mount-anchor inventory per page.**
+- [x] **Step 4: Mount-anchor inventory per page.**
 
 For each origin page, find where the active-op-widget mount anchor should go:
 
@@ -508,7 +508,7 @@ For each origin page, find where the active-op-widget mount anchor should go:
 
 For each, document the exact line number where the anchor `<div>` should be inserted. Implementation Tasks 28–33 then become "insert at line N" instead of "find Pending Files section."
 
-- [ ] **Step 5: Cache-bust inventory.**
+- [x] **Step 5: Cache-bust inventory.**
 
 ```bash
 grep -rn '\?v=0\.[0-9]' static/*.html | head -40
@@ -516,7 +516,7 @@ grep -rn '\?v=0\.[0-9]' static/*.html | head -40
 
 Capture every existing `?v=…` and target version. Task 34 (cache-bust pass) becomes a deterministic edit list.
 
-- [ ] **Step 6: Append §F + commit.**
+- [x] **Step 6: Append §F + commit.**
 
 ```bash
 git add docs/superpowers/plans/2026-04-28-active-operations-registry-recon.md
@@ -535,13 +535,13 @@ git commit -m "plan(active_ops): pre-flight recon §F (frontend conventions)"
 
 **Output:** plan inline edits where recon contradicted assumptions; final recon-doc commit; quick spot-check.
 
-- [ ] **Step 1: Read §G and decide which amendments to apply now vs at task time.**
+- [x] **Step 1: Read §G and decide which amendments to apply now vs at task time.**
 
 For each amendment in §G:
 - If the change is **mechanical and uncontested** (a column rename, a method-name fix, a CSS-var fallback): apply directly to the affected plan task via `Edit` tool. Mark the §G entry "applied to plan."
 - If the change is **architectural** (e.g., backup is synchronous so the register/finish flow needs restructuring): leave §G as the explicit instruction; flag in the plan task with a `**§G amendment applies**` note pointing at the recon entry.
 
-- [ ] **Step 2: Spot-check sanity of the amended plan.**
+- [x] **Step 2: Spot-check sanity of the amended plan.**
 
 ```bash
 grep -n "TODO\|TBD\|placeholder\|<.*verify.*>\|grep to find" docs/superpowers/plans/2026-04-28-active-operations-registry.md
@@ -549,11 +549,11 @@ grep -n "TODO\|TBD\|placeholder\|<.*verify.*>\|grep to find" docs/superpowers/pl
 
 Any leftover placeholder language from the original plan that recon now resolves should be replaced. e.g., if Task 19 had "grep to find rebuild-index handler," after recon §D the file path is known, so swap the grep instruction for the actual path.
 
-- [ ] **Step 3: Update §A.5 scheduler-job inventory into Task 37's table.**
+- [x] **Step 3: Update §A.5 scheduler-job inventory into Task 37's table.**
 
 Task 37 was the "create scheduler-time-slots.md" task. With recon §A.5 already capturing all 19 existing jobs, Task 37 becomes pure transcription. Update Task 37 inline to embed the table directly from §A.5.
 
-- [ ] **Step 4: Commit any plan amendments.**
+- [x] **Step 4: Commit any plan amendments.**
 
 ```bash
 git add docs/superpowers/plans/2026-04-28-active-operations-registry.md
@@ -562,7 +562,7 @@ git commit -m "plan(active_ops): amendments from pre-flight recon (§G applied)"
 
 (If no amendments needed, skip the commit. Recon was clean — that's the best outcome.)
 
-- [ ] **Step 5: Verify recon doc is committed and present.**
+- [x] **Step 5: Verify recon doc is committed and present.**
 
 ```bash
 git log --oneline | grep "pre-flight recon" | head -10
@@ -585,11 +585,13 @@ This phase ships the registry module with full unit-test coverage, the migration
 
 ### Task 1: Migration v29 — `active_operations` table
 
+**§G amendment applies** (recon §A.3, lines 2672-2685): no `LATEST_VERSION` constant exists; no `Migration` class exists. Versioned migrations live as `(version, description, [SQL statements])` tuples in `_MIGRATIONS` (a `list[tuple[int, str, list[str]]]`) inside `core/db/schema.py`. Latest applied version is **28** so this migration uses version **29**. The migration runner picks up the new tuple automatically — no constant to bump.
+
 **Files:**
-- Modify: `core/db/migrations.py` (add migration v29)
+- Modify: `core/db/schema.py` (append to `_MIGRATIONS` list)
 - Test: `tests/test_active_ops.py` (NEW)
 
-- [ ] **Step 1: Create the test file with the migration test.**
+- [x] **Step 1: Create the test file with the migration test.**
 
 Write `tests/test_active_ops.py`:
 
@@ -656,24 +658,25 @@ async def test_migration_v29_creates_active_operations_table():
     assert "idx_active_ops_finished_at" in idx_names
 ```
 
-- [ ] **Step 2: Run the test to confirm it fails.**
+- [x] **Step 2: Run the test to confirm it fails.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py::test_migration_v29_creates_active_operations_table -v
 ```
 Expected: FAIL with `assert row is not None` (table doesn't exist yet).
 
-- [ ] **Step 3: Add migration v29 to `core/db/migrations.py`.**
+- [x] **Step 3: Add migration v29 to `core/db/schema.py` `_MIGRATIONS` list.**
 
-Locate the `MIGRATIONS` list (at the bottom of the module, ordered by version). Append:
+Locate the `_MIGRATIONS` list (a `list[tuple[int, str, list[str]]]`) in `core/db/schema.py`, ordered by version. Append a new tuple with version **29**. Each migration is a 3-tuple: `(version: int, description: str, statements: list[str])`. The runner executes each statement via `db.execute(...)` in order and records the version in `schema_migrations`.
 
 ```python
 # v29 — Active Operations Registry (v0.35.0). Spec:
 # docs/superpowers/specs/2026-04-28-active-operations-registry-design.md
-MIGRATIONS.append(Migration(
-    version=29,
-    description="Active operations registry table",
-    sql="""
+_MIGRATIONS.append((
+    29,
+    "Active operations registry table",
+    [
+        """
         CREATE TABLE IF NOT EXISTS active_operations (
             op_id TEXT PRIMARY KEY,
             op_type TEXT NOT NULL,
@@ -692,20 +695,25 @@ MIGRATIONS.append(Migration(
             cancellable INTEGER NOT NULL DEFAULT 0,
             cancel_url TEXT,
             extra_json TEXT NOT NULL DEFAULT '{}'
-        );
+        )
+        """,
+        """
         CREATE INDEX IF NOT EXISTS idx_active_ops_running
             ON active_operations (finished_at_epoch)
-            WHERE finished_at_epoch IS NULL;
+            WHERE finished_at_epoch IS NULL
+        """,
+        """
         CREATE INDEX IF NOT EXISTS idx_active_ops_finished_at
             ON active_operations (finished_at_epoch DESC)
-            WHERE finished_at_epoch IS NOT NULL;
-    """,
+            WHERE finished_at_epoch IS NOT NULL
+        """,
+    ],
 ))
 ```
 
-Update `LATEST_VERSION = 29` at the top of `core/db/migrations.py`.
+No `LATEST_VERSION` constant to bump — the runner picks up the new tuple from `_MIGRATIONS` automatically.
 
-- [ ] **Step 4: Run the migration and re-run the test.**
+- [x] **Step 4: Run the migration and re-run the test.**
 
 ```bash
 docker-compose restart markflow
@@ -714,10 +722,10 @@ docker-compose exec markflow pytest tests/test_active_ops.py::test_migration_v29
 ```
 Expected: PASS.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
-git add core/db/migrations.py tests/test_active_ops.py
+git add core/db/schema.py tests/test_active_ops.py
 git commit -m "feat(active_ops): migration v29 — active_operations table"
 ```
 
@@ -729,7 +737,7 @@ git commit -m "feat(active_ops): migration v29 — active_operations table"
 - Create: `core/active_ops.py`
 - Modify: `tests/test_active_ops.py` (append)
 
-- [ ] **Step 1: Write failing tests for the dataclass + whitelist.**
+- [x] **Step 1: Write failing tests for the dataclass + whitelist.**
 
 Append to `tests/test_active_ops.py`:
 
@@ -775,14 +783,14 @@ def test_op_type_whitelist_rejects_unknown():
     assert "bogus.op" not in OP_TYPES
 ```
 
-- [ ] **Step 2: Run to confirm failure.**
+- [x] **Step 2: Run to confirm failure.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py::test_active_operation_dataclass_round_trip tests/test_active_ops.py::test_op_type_whitelist_rejects_unknown -v
 ```
 Expected: FAIL — `core.active_ops` module not found.
 
-- [ ] **Step 3: Create `core/active_ops.py` with the dataclass + whitelist.**
+- [x] **Step 3: Create `core/active_ops.py` with the dataclass + whitelist.**
 
 ```python
 """Active Operations Registry (v0.35.0).
@@ -913,14 +921,14 @@ class ActiveOperation:
         }
 ```
 
-- [ ] **Step 4: Run tests; confirm pass.**
+- [x] **Step 4: Run tests; confirm pass.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py::test_active_operation_dataclass_round_trip tests/test_active_ops.py::test_op_type_whitelist_rejects_unknown -v
 ```
 Expected: PASS.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add core/active_ops.py tests/test_active_ops.py
@@ -935,7 +943,7 @@ git commit -m "feat(active_ops): ActiveOperation dataclass + op_type whitelist"
 - Modify: `core/active_ops.py` (append registry state + register_op)
 - Modify: `tests/test_active_ops.py` (append)
 
-- [ ] **Step 1: Write failing test.**
+- [x] **Step 1: Write failing test.**
 
 Append to `tests/test_active_ops.py`:
 
@@ -1010,14 +1018,14 @@ async def test_register_op_cancellable_without_hook_raises():
         )
 ```
 
-- [ ] **Step 2: Run; confirm failure.**
+- [x] **Step 2: Run; confirm failure.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py -k "register_op" -v
 ```
 Expected: FAIL — `register_op` not defined.
 
-- [ ] **Step 3: Implement registry state + register_op in `core/active_ops.py`.**
+- [x] **Step 3: Implement registry state + register_op in `core/active_ops.py`.**
 
 Append to `core/active_ops.py`:
 
@@ -1135,7 +1143,7 @@ async def _persist_row(row: dict[str, Any]) -> None:
 
 Inspect `core/db/connection.py` first to confirm the right pattern. If unsure, prefer the lambda form used elsewhere in the codebase.
 
-- [ ] **Step 4: Set _hydration_complete in conftest so tests don't hang.**
+- [x] **Step 4: Set _hydration_complete in conftest so tests don't hang.**
 
 Tests that call `register_op` will block forever waiting for hydration. Add to `tests/conftest.py` (create if missing):
 
@@ -1152,14 +1160,14 @@ async def _set_hydration_event():
     # Don't clear — once set, leave set for the rest of the suite
 ```
 
-- [ ] **Step 5: Run tests; confirm pass.**
+- [x] **Step 5: Run tests; confirm pass.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py -k "register_op" -v
 ```
 Expected: PASS for all three.
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ```bash
 git add core/active_ops.py tests/test_active_ops.py tests/conftest.py
@@ -1174,7 +1182,7 @@ git commit -m "feat(active_ops): register_op() — persist + whitelist + cancel-
 - Modify: `core/active_ops.py`
 - Modify: `tests/test_active_ops.py`
 
-- [ ] **Step 1: Write failing tests.**
+- [x] **Step 1: Write failing tests.**
 
 Append to `tests/test_active_ops.py`:
 
@@ -1269,14 +1277,14 @@ async def test_update_op_first_error_forces_immediate_flush():
     )
 ```
 
-- [ ] **Step 2: Run tests; confirm failure.**
+- [x] **Step 2: Run tests; confirm failure.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py -k "update_op" -v
 ```
 Expected: FAIL — `update_op` not defined.
 
-- [ ] **Step 3: Implement update_op + debouncer.**
+- [x] **Step 3: Implement update_op + debouncer.**
 
 Append to `core/active_ops.py`:
 
@@ -1345,14 +1353,14 @@ async def update_op(
         await _persist_op_update(snapshot)
 ```
 
-- [ ] **Step 4: Run tests; confirm pass.**
+- [x] **Step 4: Run tests; confirm pass.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py -k "update_op" -v
 ```
 Expected: PASS for all three.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add core/active_ops.py tests/test_active_ops.py
@@ -1367,7 +1375,7 @@ git commit -m "feat(active_ops): update_op() with 1.5s debouncing + first-error 
 - Modify: `core/active_ops.py`
 - Modify: `tests/test_active_ops.py`
 
-- [ ] **Step 1: Write failing tests.**
+- [x] **Step 1: Write failing tests.**
 
 Append:
 
@@ -1431,14 +1439,14 @@ async def test_update_after_finish_is_noop():
     assert op.finished_at_epoch == finished_at   # not reopened
 ```
 
-- [ ] **Step 2: Run; confirm failure.**
+- [x] **Step 2: Run; confirm failure.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py -k "finish_op or update_after_finish" -v
 ```
 Expected: FAIL — `finish_op` not defined.
 
-- [ ] **Step 3: Implement finish_op + get_op.**
+- [x] **Step 3: Implement finish_op + get_op.**
 
 Append to `core/active_ops.py`:
 
@@ -1484,14 +1492,14 @@ async def get_op(op_id: str) -> ActiveOperation | None:
         return ActiveOperation(**op.__dict__)
 ```
 
-- [ ] **Step 4: Run tests; confirm pass.**
+- [x] **Step 4: Run tests; confirm pass.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py -k "finish_op or update_after_finish" -v
 ```
 Expected: PASS.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add core/active_ops.py tests/test_active_ops.py
@@ -1506,7 +1514,7 @@ git commit -m "feat(active_ops): finish_op() + get_op() with no-op-on-finished g
 - Modify: `core/active_ops.py`
 - Modify: `tests/test_active_ops.py`
 
-- [ ] **Step 1: Write failing tests.**
+- [x] **Step 1: Write failing tests.**
 
 ```python
 @pytest.mark.asyncio
@@ -1587,13 +1595,13 @@ def test_is_cancelled_synchronous():
     assert not inspect.iscoroutinefunction(active_ops.is_cancelled)
 ```
 
-- [ ] **Step 2: Run; confirm failure.**
+- [x] **Step 2: Run; confirm failure.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py -k "cancel" -v
 ```
 
-- [ ] **Step 3: Implement cancel_op + is_cancelled.**
+- [x] **Step 3: Implement cancel_op + is_cancelled.**
 
 Append:
 
@@ -1653,13 +1661,13 @@ async def cancel_op(op_id: str) -> bool:
         return False
 ```
 
-- [ ] **Step 4: Run; confirm pass.**
+- [x] **Step 4: Run; confirm pass.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py -k "cancel or is_cancelled" -v
 ```
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add core/active_ops.py tests/test_active_ops.py
@@ -1674,7 +1682,7 @@ git commit -m "feat(active_ops): cancel_op() + is_cancelled() + hook bridge"
 - Modify: `core/active_ops.py`
 - Modify: `tests/test_active_ops.py`
 
-- [ ] **Step 1: Write failing tests.**
+- [x] **Step 1: Write failing tests.**
 
 ```python
 @pytest.mark.asyncio
@@ -1727,13 +1735,13 @@ async def test_list_ops_excludes_finished_older_than_30s():
     assert op_id not in op_ids
 ```
 
-- [ ] **Step 2: Run; confirm failure.**
+- [x] **Step 2: Run; confirm failure.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py -k "list_ops" -v
 ```
 
-- [ ] **Step 3: Implement list_ops.**
+- [x] **Step 3: Implement list_ops.**
 
 Append:
 
@@ -1763,9 +1771,9 @@ async def list_ops(include_finished: bool = True) -> list[ActiveOperation]:
     return result
 ```
 
-- [ ] **Step 4: Run; confirm pass.**
+- [x] **Step 4: Run; confirm pass.**
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add core/active_ops.py tests/test_active_ops.py
@@ -1780,7 +1788,7 @@ git commit -m "feat(active_ops): list_ops() with 30s grace window"
 - Modify: `core/active_ops.py`
 - Modify: `tests/test_active_ops.py`
 
-- [ ] **Step 1: Write failing tests.**
+- [x] **Step 1: Write failing tests.**
 
 ```python
 @pytest.mark.asyncio
@@ -1879,13 +1887,13 @@ async def test_hydrate_failure_does_not_crash():
     assert active_ops._hydration_complete.is_set()
 ```
 
-- [ ] **Step 2: Run; confirm failure.**
+- [x] **Step 2: Run; confirm failure.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py -k "hydrate" -v
 ```
 
-- [ ] **Step 3: Implement hydrate_on_startup.**
+- [x] **Step 3: Implement hydrate_on_startup.**
 
 Append:
 
@@ -1952,13 +1960,13 @@ async def hydrate_on_startup() -> None:
     _hydration_complete.set()
 ```
 
-- [ ] **Step 4: Run tests; confirm pass.**
+- [x] **Step 4: Run tests; confirm pass.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops.py -k "hydrate" -v
 ```
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add core/active_ops.py tests/test_active_ops.py
@@ -1969,11 +1977,13 @@ git commit -m "feat(active_ops): hydrate_on_startup() — terminate-by-restart w
 
 ### Task 9: Daily auto-purge job (scheduler 03:50, 7-day retention)
 
+**§G amendment applies** (recon §A.4): no `_SCHEDULED_JOBS` symbol exists. Jobs are registered via inline `scheduler.add_job(...)` calls inside `start_scheduler()` in `core/scheduler.py:659-906` (21 calls, contrary to the stale `jobs=19` log literal at line 906). The new auto-purge job is added by appending a 22nd `scheduler.add_job(...)` call just before `scheduler.start()` at line 905. Slot **03:50** is free between `check_llm_costs_staleness` (03:30) and `purge_aged_trash` (04:00).
+
 **Files:**
 - Modify: `core/scheduler.py`
 - Modify: `tests/test_active_ops.py`
 
-- [ ] **Step 1: Write failing test.**
+- [x] **Step 1: Write failing test.**
 
 ```python
 @pytest.mark.asyncio
@@ -2015,9 +2025,9 @@ async def test_purge_deletes_rows_older_than_7d_excludes_running():
     assert op_ids == {"purge-recent", "purge-running"}
 ```
 
-- [ ] **Step 2: Run; confirm failure.**
+- [x] **Step 2: Run; confirm failure.**
 
-- [ ] **Step 3: Implement purge function.**
+- [x] **Step 3: Implement purge function.**
 
 Append to `core/active_ops.py`:
 
@@ -2063,35 +2073,38 @@ async def purge_old_active_ops() -> int:
     return deleted_holder[0]
 ```
 
-- [ ] **Step 4: Register the scheduler job.**
+- [x] **Step 4: Register the scheduler job.**
 
-In `core/scheduler.py`, locate the `_register_jobs()` function (or wherever existing jobs are registered — search for an existing `add_job` call to find the pattern, e.g. the `_purge_old_logs` registration). Add:
+In `core/scheduler.py`, locate `start_scheduler()` (line 659). All 21 existing jobs are registered as inline `scheduler.add_job(...)` calls inside this function. Append a 22nd call immediately before `scheduler.start()` at line 905, modeled on the existing `purge_aged_trash` block (line 724) which is the closest pattern (cron daily):
 
 ```python
 # Active Operations Registry — daily auto-purge of finished rows
 # older than 7 days (spec §10). Slot 03:50 is 10 min after the 03:30
-# DB backup to avoid contention (spec P7).
+# llm_costs check and 10 min before 04:00 trash purge — avoids
+# contention with both (spec P7).
 from core.active_ops import purge_old_active_ops
 
 scheduler.add_job(
     purge_old_active_ops,
-    trigger="cron",
-    hour=3, minute=50,
+    trigger=CronTrigger(hour=3, minute=50),
     id="purge_old_active_ops",
     replace_existing=True,
+    max_instances=1,
+    coalesce=True,
+    misfire_grace_time=300,
 )
 ```
 
-Then bump the count expectation: if `core/scheduler.py` keeps a `_SCHEDULED_JOBS` list or similar, append `"purge_old_active_ops"`.
+While editing, also fix the stale `log.info("scheduler.started", jobs=19)` literal at `core/scheduler.py:906` — replace `jobs=19` with `jobs=len(scheduler.get_jobs())` so the count is self-correcting and never goes stale again. (Per recon §A.4: the literal was already off-by-2 before this task; the safer fix is making it self-counting rather than bumping to 22.)
 
-- [ ] **Step 5: Run; confirm pass.**
+- [x] **Step 5: Run; confirm pass.**
 
 ```bash
 docker-compose restart markflow   # picks up scheduler change
 docker-compose exec markflow pytest tests/test_active_ops.py -k "purge" -v
 ```
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ```bash
 git add core/active_ops.py core/scheduler.py tests/test_active_ops.py
@@ -2105,14 +2118,14 @@ git commit -m "feat(active_ops): daily 03:50 auto-purge job (7d retention)"
 **Files:**
 - Modify: `main.py`
 
-- [ ] **Step 1: Inspect lifespan, find the right point.**
+- [x] **Step 1: Inspect lifespan, find the right point.**
 
 ```bash
 grep -n "lifespan\|asynccontextmanager\|init_db" main.py | head -20
 ```
 Expected: a `@asynccontextmanager` function near the top, with calls to `init_db()` then scheduler startup. Hydration must run AFTER `init_db()` (table must exist) and BEFORE scheduler/router accepts traffic.
 
-- [ ] **Step 2: Add the hydration call.**
+- [x] **Step 2: Add the hydration call.**
 
 In the lifespan function, immediately after the existing `await init_db()` (or equivalent migration runner) and BEFORE `scheduler.start()`:
 
@@ -2124,7 +2137,7 @@ In the lifespan function, immediately after the existing `await init_db()` (or e
     await hydrate_on_startup()
 ```
 
-- [ ] **Step 3: Restart and watch the log.**
+- [x] **Step 3: Restart and watch the log.**
 
 ```bash
 docker-compose restart markflow
@@ -2132,7 +2145,7 @@ docker-compose logs --tail=50 markflow | grep active_ops
 ```
 Expected: at least `active_ops.hydrate_complete` log line on a clean DB.
 
-- [ ] **Step 4: Manual sanity check via shell.**
+- [x] **Step 4: Manual sanity check via shell.**
 
 ```bash
 docker-compose exec markflow python -c "
@@ -2156,7 +2169,7 @@ asyncio.run(go())
 ```
 Expected: `registered: <uuid>`, `finished`, `list_ops: 1 rows` (the one we just made — visible because finish was within 30s).
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add main.py
@@ -2181,7 +2194,7 @@ Three tasks: GET endpoint, POST cancel endpoint, router registration.
 - Create: `api/routes/active_ops.py`
 - Create: `tests/test_active_ops_endpoint.py`
 
-- [ ] **Step 1: Write failing tests.**
+- [x] **Step 1: Write failing tests.**
 
 Create `tests/test_active_ops_endpoint.py`:
 
@@ -2274,14 +2287,14 @@ async def test_get_active_ops_no_cache_header(authed_operator):
 
 If `authed_operator` fixture doesn't exist, look at any existing `tests/test_*_endpoint.py` to copy the pattern. Likely it builds an `AsyncClient` with a test JWT or with `DEV_BYPASS_AUTH=true`.
 
-- [ ] **Step 2: Run; confirm failure.**
+- [x] **Step 2: Run; confirm failure.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops_endpoint.py -v
 ```
 Expected: FAIL — endpoints don't exist.
 
-- [ ] **Step 3: Implement the GET endpoint.**
+- [x] **Step 3: Implement the GET endpoint.**
 
 Create `api/routes/active_ops.py`:
 
@@ -2321,7 +2334,7 @@ async def list_active_ops(
     return {"ops": [op.to_api_dict() for op in ops]}
 ```
 
-- [ ] **Step 4: Register the router in `main.py`.**
+- [x] **Step 4: Register the router in `main.py`.**
 
 In `main.py`, find existing `app.include_router(...)` calls and add:
 
@@ -2332,7 +2345,7 @@ app.include_router(active_ops_routes.router)
 
 (Do this near the other router registrations to keep them grouped.)
 
-- [ ] **Step 5: Restart and run tests.**
+- [x] **Step 5: Restart and run tests.**
 
 ```bash
 docker-compose restart markflow
@@ -2340,7 +2353,7 @@ docker-compose exec markflow pytest tests/test_active_ops_endpoint.py -k "get_ac
 ```
 Expected: PASS.
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ```bash
 git add api/routes/active_ops.py main.py tests/test_active_ops_endpoint.py
@@ -2355,7 +2368,7 @@ git commit -m "feat(active_ops): GET /api/active-ops endpoint"
 - Modify: `api/routes/active_ops.py`
 - Modify: `tests/test_active_ops_endpoint.py`
 
-- [ ] **Step 1: Write failing tests.**
+- [x] **Step 1: Write failing tests.**
 
 Append to `tests/test_active_ops_endpoint.py`:
 
@@ -2430,13 +2443,13 @@ async def test_cancel_400_on_uncancellable(authed_manager):
         await active_ops.finish_op(op_id)
 ```
 
-- [ ] **Step 2: Run; confirm failure.**
+- [x] **Step 2: Run; confirm failure.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops_endpoint.py -k "cancel" -v
 ```
 
-- [ ] **Step 3: Implement the cancel endpoint.**
+- [x] **Step 3: Implement the cancel endpoint.**
 
 Append to `api/routes/active_ops.py`:
 
@@ -2478,14 +2491,14 @@ async def cancel_active_op(
     }
 ```
 
-- [ ] **Step 4: Run; confirm pass.**
+- [x] **Step 4: Run; confirm pass.**
 
 ```bash
 docker-compose restart markflow
 docker-compose exec markflow pytest tests/test_active_ops_endpoint.py -v
 ```
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add api/routes/active_ops.py tests/test_active_ops_endpoint.py
@@ -2498,7 +2511,7 @@ git commit -m "feat(active_ops): POST /api/active-ops/{id}/cancel"
 
 **Files:** none (manual verification)
 
-- [ ] **Step 1: Trigger a real op via the registry shell.**
+- [x] **Step 1: Trigger a real op via the registry shell.**
 
 ```bash
 docker-compose exec markflow python -c "
@@ -2529,14 +2542,14 @@ docker-compose exec markflow curl -s http://localhost:8000/api/active-ops | pyth
 ```
 Expected: JSON with `ops` array containing the smoke op.
 
-- [ ] **Step 2: Confirm cache-control header.**
+- [x] **Step 2: Confirm cache-control header.**
 
 ```bash
 docker-compose exec markflow curl -sI http://localhost:8000/api/active-ops | grep -i cache-control
 ```
 Expected: `Cache-Control: no-cache, no-store, must-revalidate`.
 
-- [ ] **Step 3: No commit needed (manual check).**
+- [x] **Step 3: No commit needed (manual check).**
 
 **End of Phase 2.** HTTP surface ready. Next: workers register through Phase 3.
 
@@ -2559,12 +2572,14 @@ A new test file `tests/test_active_ops_integration.py` collects the end-to-end v
 
 ### Task 14: Retrofit `pipeline.run_now`
 
+**§G amendment applies** (recon §C): `notify_run_now_cancelled()` does NOT exist; the actual symbol is `cancel_run_now_scan(reason: str = "")` at `core/scan_coordinator.py:118`. The `scan_runs` columns `files_total` and `files_errored` likewise do not exist — substitute `total_files_counted` (NULL until counter completes) and `errors` (singular). CRUD helpers are in `core/db/lifecycle.py:316-345` (NOT a non-existent `core/db/scan_runs.py`); column list is in `core/db/schema.py:266-279` and `:563-567`.
+
 **Files:**
 - Modify: `api/routes/pipeline.py` (`_run` background task in `run_pipeline_now`)
-- Modify: `core/scan_coordinator.py` (register cancel hook + add `is_run_now_cancelled_via_active_ops`)
+- Modify: `core/scan_coordinator.py` (register cancel hook calling `cancel_run_now_scan`)
 - Create: `tests/test_active_ops_integration.py`
 
-- [ ] **Step 1: Write the integration test.**
+- [x] **Step 1: Write the integration test.**
 
 Create `tests/test_active_ops_integration.py`:
 
@@ -2601,33 +2616,33 @@ async def test_pipeline_run_now_registers_op(authed_manager):
     await active_ops.cancel_op(op.op_id)
 ```
 
-- [ ] **Step 2: Run; confirm failure.**
+- [x] **Step 2: Run; confirm failure.**
 
 ```bash
 docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_pipeline_run_now_registers_op -v
 ```
 Expected: FAIL — no pipeline.run_now op registered.
 
-- [ ] **Step 3: Register the cancel hook in `core/scan_coordinator.py`.**
+- [x] **Step 3: Register the cancel hook in `core/scan_coordinator.py`.**
 
-At the bottom of `core/scan_coordinator.py`, add:
+At the bottom of `core/scan_coordinator.py`, add. The actual cancel primitive exposed by scan_coordinator is `cancel_run_now_scan(reason: str = "")` at line 118 — NOT a non-existent `notify_run_now_cancelled()`:
 
 ```python
 # Active Operations Registry — cancel hook for pipeline.run_now (v0.35.0).
 # When operator clicks Cancel on the active-ops widget, registry calls
-# this hook which translates to the existing notify_run_now_cancelled
-# primitive that scan_coordinator already exposes.
+# this hook which translates to the existing cancel_run_now_scan
+# primitive at core/scan_coordinator.py:118.
 from core.active_ops import register_cancel_hook
 
 
 async def _cancel_run_now_via_active_ops(op_id: str) -> None:
-    notify_run_now_cancelled()
+    cancel_run_now_scan(reason="active_ops_registry")
 
 
 register_cancel_hook("pipeline.run_now", _cancel_run_now_via_active_ops)
 ```
 
-- [ ] **Step 4: Wire `register_op` / `finish_op` into `_run` in `api/routes/pipeline.py`.**
+- [x] **Step 4: Wire `register_op` / `finish_op` into `_run` in `api/routes/pipeline.py`.**
 
 Replace the existing `_run` inner function in `run_pipeline_now()` (around line 203). Current shape:
 
@@ -2690,7 +2705,7 @@ Replace with:
 
 (`None` means "frontend computes the URL from op_id"; non-None would mean "use this exact URL". For all our op_types in v1, frontend computes from op_id.)
 
-- [ ] **Step 5: Add per-tick progress updates.**
+- [x] **Step 5: Add per-tick progress updates.**
 
 `run_lifecycle_scan` already updates the `scan_runs` row as it goes. To bridge that into active_ops without changing the scanner internals, add a lightweight progress poller in `_run`. Insert before `await run_lifecycle_scan(force=True)`:
 
@@ -2699,20 +2714,26 @@ Replace with:
             # active_ops. Spec §17 P3: scan_runs is source of truth;
             # active_ops is derived. The poller exits when run_lifecycle_scan
             # returns.
+            #
+            # Column names confirmed against core/db/schema.py:266-279,
+            # :563-567 (recon §C.4):
+            #   - total_files_counted (NULL until counter completes)
+            #   - files_scanned (running count)
+            #   - errors (singular, NOT files_errored)
             async def _mirror_progress() -> None:
                 while True:
                     await asyncio.sleep(2)
                     if active_ops.is_cancelled(op_id):
                         return
                     try:
-                        from core.database import get_latest_scan_run
+                        from core.db.lifecycle import get_latest_scan_run
                         scan = await get_latest_scan_run()
                         if scan and scan.get("status") == "running":
                             await active_ops.update_op(
                                 op_id,
-                                total=scan.get("files_total") or 0,
+                                total=scan.get("total_files_counted") or 0,
                                 done=scan.get("files_scanned") or 0,
-                                errors=scan.get("files_errored") or 0,
+                                errors=scan.get("errors") or 0,
                             )
                     except Exception:
                         pass
@@ -2724,16 +2745,16 @@ Replace with:
                 mirror_task.cancel()
 ```
 
-`files_total`/`files_errored` may not exist as columns; use whatever the actual scan_runs schema provides. Inspect `core/db/scan_runs.py` (or whichever module) to confirm column names before writing.
+CRUD helpers (`get_latest_scan_run`, `create_scan_run`, `update_scan_run`, `get_scan_run`) live in `core/db/lifecycle.py:316-345` — there is no `core/db/scan_runs.py`. While `total_files_counted` may be NULL until the pre-walk counter finishes, the `or 0` fallback handles that case for `update_op` (where `total=0` falls back to indeterminate UI).
 
-- [ ] **Step 6: Run integration test; confirm pass.**
+- [x] **Step 6: Run integration test; confirm pass.**
 
 ```bash
 docker-compose restart markflow
 docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_pipeline_run_now_registers_op -v
 ```
 
-- [ ] **Step 7: Commit.**
+- [x] **Step 7: Commit.**
 
 ```bash
 git add api/routes/pipeline.py core/scan_coordinator.py tests/test_active_ops_integration.py
@@ -2748,7 +2769,7 @@ git commit -m "feat(active_ops): retrofit pipeline.run_now + cancel hook"
 - Modify: `api/routes/pipeline.py` (`_convert_one_pending_file`, `_run_convert_selected_batch`, `convert_selected_files`)
 - Modify: `tests/test_active_ops_integration.py`
 
-- [ ] **Step 1: Append integration test.**
+- [x] **Step 1: Append integration test.**
 
 ```python
 @pytest.mark.asyncio
@@ -2789,7 +2810,7 @@ async def sample_pending_file_id():
     ))
 ```
 
-- [ ] **Step 2: Register cancel hook for `pipeline.convert_selected`.**
+- [x] **Step 2: Register cancel hook for `pipeline.convert_selected`.**
 
 At the bottom of `api/routes/pipeline.py`:
 
@@ -2809,7 +2830,7 @@ _register_cancel_hook("pipeline.convert_selected",
                       _cancel_convert_selected_via_active_ops)
 ```
 
-- [ ] **Step 3: Wire register/update/finish into `_run_convert_selected_batch`.**
+- [x] **Step 3: Wire register/update/finish into `_run_convert_selected_batch`.**
 
 Replace the body of `_run_convert_selected_batch`:
 
@@ -2874,14 +2895,14 @@ async def _run_convert_selected_batch(files: list[dict], user_email: str) -> Non
     )
 ```
 
-- [ ] **Step 4: Run integration test; confirm pass.**
+- [x] **Step 4: Run integration test; confirm pass.**
 
 ```bash
 docker-compose restart markflow
 docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_convert_selected_registers_op -v
 ```
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add api/routes/pipeline.py tests/test_active_ops_integration.py tests/conftest.py
@@ -2892,11 +2913,19 @@ git commit -m "feat(active_ops): retrofit pipeline.convert_selected + cancel"
 
 ### Task 16: Retrofit `pipeline.scan` (lifecycle scanner)
 
+**§G amendment applies** (recon §E): two `run_lifecycle_scan` symbols exist — `core.scheduler.run_lifecycle_scan(force=False)` is a thin gating wrapper that returns `None`; `core.lifecycle_scanner.run_lifecycle_scan(source_path=None, job_id=None)` is the actual worker that returns `scan_run_id`. **Hook the inner worker** (in `lifecycle_scanner.py`), not the wrapper:
+- (a) wrapper sometimes returns without doing work (gating layers);
+- (b) wrapper does not know `scan_run_id`;
+- (c) `api/routes/scanner.py` bypasses the wrapper and calls the inner directly.
+
+`register_op` goes after `scan_run_id = uuid.uuid4().hex` at line 185. `finish_op` MUST live in a `try/finally` block (the inner does NOT catch `CancelledError` — without `finally` a shutdown leaks `running` rows for `hydrate_on_startup` to reconcile). The cleanest tick-mirror site is inside `_flush_counters_to_db` at line 1099 (called every ~500 files by both serial and parallel walkers); thread `op_id` through. **Skip** the 25-file `_update_scan_progress` ticks at lines 980/1067 — too fine-grained for the registry's 1.5s debounce. Total = `_scan_state["total"]` (pre-walk result; pass `None` on the 30s timeout case at line 261 so UI shows indeterminate). Cancel hook calls `cancel_lifecycle_scan(reason="active_ops_registry")` from `core/scan_coordinator.py:83` — same bridge pattern as Task 14, no monkey-patching of `_should_cancel`.
+
 **Files:**
-- Modify: `core/lifecycle_scanner.py` (`run_lifecycle_scan` and tick paths)
+- Modify: `core/lifecycle_scanner.py` (inner `run_lifecycle_scan` + tick site at `_flush_counters_to_db`)
+- Modify: `core/scan_coordinator.py` (cancel hook bridge)
 - Modify: `tests/test_active_ops_integration.py`
 
-- [ ] **Step 1: Append integration test.**
+- [x] **Step 1: Append integration test.**
 
 ```python
 @pytest.mark.asyncio
@@ -2925,76 +2954,103 @@ async def test_pipeline_scan_registers_op_when_running(authed_manager):
             await active_ops.cancel_op(op.op_id)
 ```
 
-- [ ] **Step 2: Register cancel hook in `core/lifecycle_scanner.py`.**
+- [x] **Step 2: Register cancel hook in `core/scan_coordinator.py`.**
+
+Match Task 14's bridge pattern. The lifecycle scanner already has `_should_cancel()` at `core/lifecycle_scanner.py:60` that combines `should_stop()` (global) + `is_lifecycle_cancelled()` (scan_coordinator). The bridge wires the registry's `cancel_op()` to the scan_coordinator's existing `cancel_lifecycle_scan(reason)` primitive at line 83 — no monkey-patching, no second cancel mechanism.
 
 ```python
-# Active Operations Registry — cancel hook for pipeline.scan.
-# Scanner observes active_ops.is_cancelled(op_id) at the top of each
-# batch loop. No extra subsystem signal needed.
-from core.active_ops import register_cancel_hook as _register_cancel_hook
+# Active Operations Registry — cancel hook for pipeline.scan (v0.35.0).
+# Same bridge pattern as pipeline.run_now: registry cancel_op() →
+# scan_coordinator.cancel_lifecycle_scan(reason). The scanner's
+# existing _should_cancel() at core/lifecycle_scanner.py:60 already
+# polls is_lifecycle_cancelled(), so no scanner-side change needed
+# beyond the optional active_ops.is_cancelled(op_id) sanity poll.
+from core.active_ops import register_cancel_hook
 
 
 async def _cancel_scan_via_active_ops(op_id: str) -> None:
-    pass
+    cancel_lifecycle_scan(reason="active_ops_registry")
 
 
-_register_cancel_hook("pipeline.scan", _cancel_scan_via_active_ops)
+register_cancel_hook("pipeline.scan", _cancel_scan_via_active_ops)
 ```
 
-- [ ] **Step 3: Wrap `run_lifecycle_scan` body with register/finish.**
+- [x] **Step 3: Wrap inner `run_lifecycle_scan` body with register/finish.**
 
-In `run_lifecycle_scan(force: bool = False)` (or the public scan entry point), wrap the existing body:
+Edit the **inner** worker at `core/lifecycle_scanner.py:run_lifecycle_scan(source_path=None, job_id=None)` (NOT the wrapper at `core/scheduler.py:108-114`). The inner is also called directly by `api/routes/scanner.py` so retrofitting only the wrapper would skip the manual-scan path.
+
+Insert `register_op` immediately after `scan_run_id = uuid.uuid4().hex` (line 185). Total comes from `_scan_state["total"]` set by the pre-walk at line 263 — pass `None` (not `0`) when the pre-walk hit its 30s timeout (line 261, `_scan_state["total"] == 0`) so the UI shows indeterminate progress.
+
+Wrap the entire body in `try/finally`. The 4 distinct return paths (line 205 no source path, line 227 no valid roots, line 531 cancelled before auto-conversion, line 550 full success) all need `finish_op` — easiest by moving terminal status determination into the `finally:` block. The inner does NOT explicitly catch `CancelledError`; the `finally:` MUST also handle that case, otherwise a shutdown leaks `running` rows.
 
 ```python
-async def run_lifecycle_scan(force: bool = False) -> None:
+async def run_lifecycle_scan(source_path=None, job_id=None):
     """... existing docstring ..."""
     from core import active_ops
+    import uuid
 
+    scan_run_id = uuid.uuid4().hex
+
+    pre_walk_total = _scan_state.get("total") or None
     op_id = await active_ops.register_op(
         op_type="pipeline.scan",
-        label="Pipeline scan" + (" (manual)" if force else ""),
+        label="Pipeline scan" + (" (manual)" if job_id else ""),
         icon="\U0001F50D",   # 🔍
         origin_url="/status.html",
-        started_by="scheduler" if not force else "operator",
+        started_by="scheduler" if not job_id else "operator",
         cancellable=True,
-        extra={"trigger": "manual" if force else "scheduled"},
+        total=pre_walk_total,   # None → indeterminate UI
+        extra={"trigger": "manual" if job_id else "scheduled",
+               "scan_run_id": scan_run_id},
     )
     error_msg = None
+    op_status = "complete"
     try:
-        # ... existing scan body, with periodic active_ops.update_op
-        # calls and is_cancelled() checks as below ...
-
-        # Inside the file-iteration loop, around the existing
-        # progress / counter updates, add:
-        #
-        #     if active_ops.is_cancelled(op_id):
-        #         log.info("lifecycle_scanner.cancelled_by_active_ops")
-        #         break
-        #     await active_ops.update_op(
-        #         op_id,
-        #         total=total_files_estimate,
-        #         done=files_processed_so_far,
-        #         errors=files_errored_so_far,
-        #     )
+        # ... existing scan body, all 4 return paths reachable ...
+        # (no inline ticks here — _flush_counters_to_db handles them)
+    except asyncio.CancelledError:
+        op_status = "cancelled"
+        error_msg = "Cancelled by shutdown"
+        raise
     except Exception as exc:
+        op_status = "error"
         error_msg = f"{type(exc).__name__}: {exc}"
         raise
     finally:
-        if active_ops.is_cancelled(op_id) and error_msg is None:
-            error_msg = "Cancelled by operator"
+        # Determine terminal status from local flags if not already set
+        if op_status == "complete":
+            if active_ops.is_cancelled(op_id):
+                op_status = "cancelled"
+                error_msg = error_msg or "Cancelled by operator"
         await active_ops.finish_op(op_id, error_msg=error_msg)
 ```
 
-The exact tick locations depend on the scanner's existing loop — find every existing place where the `scan_runs` row is updated (via `update_scan_run` or similar) and add an `await active_ops.update_op(op_id, ...)` immediately after, mirroring the same counters.
+- [x] **Step 3a: Tick site — thread `op_id` through `_flush_counters_to_db`.**
 
-- [ ] **Step 4: Run integration test; confirm pass.**
+Add `op_id: str | None = None` kwarg to `_flush_counters_to_db` at `core/lifecycle_scanner.py:1099` and to its two callers in the serial walker (line 766) and parallel walker (line 989). Inside `_flush_counters_to_db`, after the existing DB flush, mirror to active_ops:
+
+```python
+async def _flush_counters_to_db(scan_run_id, ..., op_id=None):
+    # ... existing DB flush ...
+    if op_id is not None:
+        from core import active_ops
+        await active_ops.update_op(
+            op_id,
+            done=processed_count,
+            errors=errors_count,
+        )
+```
+
+Both walkers call `_flush_counters_to_db` every ~500 files which lines up well with the registry's 1.5s debounce. **Skip** the 25-file `_update_scan_progress` calls at lines 980 and 1067 — they're too fine-grained and would compete with the debounce for no benefit.
+
+- [x] **Step 4: Run integration test; confirm pass.**
 
 ```bash
 docker-compose restart markflow
 docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_pipeline_scan_registers_op_when_running -v
 ```
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add core/lifecycle_scanner.py tests/test_active_ops_integration.py
@@ -3005,11 +3061,16 @@ git commit -m "feat(active_ops): retrofit pipeline.scan + cancel"
 
 ### Task 17: Retrofit `trash.empty` + deprecated facade endpoint
 
+**§G amendment applies** (recon §D.1): the empty-trash worker does NOT live in `api/routes/trash.py` — it lives in `core/lifecycle_manager.py:274-476` (`purge_all_trash`). The `trash.py` route handlers are 4-line `asyncio.create_task(...)` shims; the in-memory `_empty_trash_status` dict and the worker function `purge_all_trash` are both in `lifecycle_manager.py`. **Edit there.**
+
+Additionally: there is **NO existing cancel mechanism** for `purge_all_trash`. Recon §D.1 confirms neither `purge_all_trash` nor `restore_all_trash` checks any cancel flag during their per-row loops. Introduce cooperative cancel via `active_ops.is_cancelled(op_id)` polling at the top of each per-row loop iteration — do NOT introduce a second cancel-bridge surface in `lifecycle_manager`. Let the registry's polled flag be the only signal.
+
 **Files:**
-- Modify: `api/routes/trash.py` (replace `_empty_trash_status` worker with registry calls)
+- Modify: `core/lifecycle_manager.py` (`purge_all_trash` worker — register/update/finish + per-row cancel poll)
+- Modify: `api/routes/trash.py` (only the deprecated `/empty/status` facade — read from registry)
 - Modify: `tests/test_active_ops_integration.py`
 
-- [ ] **Step 1: Append integration test.**
+- [x] **Step 1: Append integration test.**
 
 ```python
 @pytest.mark.asyncio
@@ -3034,7 +3095,7 @@ async def test_trash_empty_registers_op_replacing_old_dict(authed_manager):
     assert resp_facade.headers.get("Deprecation", "").lower() == "true"
 ```
 
-- [ ] **Step 2: Register cancel hook + retrofit worker in `api/routes/trash.py`.**
+- [x] **Step 2: Register cancel hook + retrofit worker in `api/routes/trash.py`.**
 
 Find the existing `_empty_trash_status` module-level dict and the worker that mutates it (likely an async function called from a background task). Replace.
 
@@ -3044,27 +3105,32 @@ At module top of `api/routes/trash.py`:
 # Active Operations Registry retrofit (v0.35.0). Replaces the legacy
 # _empty_trash_status / _restore_all_status module dicts. The legacy
 # /api/trash/empty/status and /api/trash/restore-all/status endpoints
-# remain as deprecated facades for one release (BUG-011, slated for
-# removal in v0.36.x).
+# remain as deprecated facades for one release (slated for removal
+# in v0.36.x — track follow-up by creating a new BUG-NNN row at
+# v0.36.0 release time).
 from core import active_ops
 from core.active_ops import register_cancel_hook as _register_cancel_hook
 
 _empty_trash_op_id: str | None = None
-_empty_trash_cancel_event = asyncio.Event()
 
 
 async def _cancel_empty_trash_via_active_ops(op_id: str) -> None:
-    _empty_trash_cancel_event.set()
+    """No-op bridge — cancel is observed cooperatively via
+    active_ops.is_cancelled(op_id) polling inside purge_all_trash.
+    See recon §D.1: there was no pre-existing cancel mechanism, and
+    we deliberately don't introduce a second one here."""
+    pass
 
 
 _register_cancel_hook("trash.empty", _cancel_empty_trash_via_active_ops)
 ```
 
-In the existing worker function (find the function that processes trash files and mutates `_empty_trash_status`), replace dict mutations with registry calls:
+The actual worker is `purge_all_trash` in `core/lifecycle_manager.py:274-476`. Edit that function to register/update/finish and to poll `active_ops.is_cancelled(op_id)` at the top of each per-row loop iteration:
 
 ```python
-async def _empty_trash_worker(user_email: str) -> None:
-    global _empty_trash_op_id
+async def purge_all_trash(user_email: str) -> None:
+    from core import active_ops
+    from api.routes import trash as _trash_module
 
     op_id = await active_ops.register_op(
         op_type="trash.empty",
@@ -3074,24 +3140,22 @@ async def _empty_trash_worker(user_email: str) -> None:
         started_by=user_email,
         cancellable=True,
     )
-    _empty_trash_op_id = op_id
-    _empty_trash_cancel_event.clear()
+    _trash_module._empty_trash_op_id = op_id
 
     error_msg = None
     try:
-        files_to_purge = await _list_trash_files()
+        files_to_purge = await _list_trash_files()   # actual helper name
         total = len(files_to_purge)
         await active_ops.update_op(op_id, total=total)
 
         done = 0
         errors = 0
         for f in files_to_purge:
-            if (active_ops.is_cancelled(op_id)
-                    or _empty_trash_cancel_event.is_set()):
+            if active_ops.is_cancelled(op_id):
                 error_msg = "Cancelled by operator"
                 break
             try:
-                await _delete_trash_file(f)
+                await _delete_trash_file(f)   # actual helper name
             except Exception as exc:
                 errors += 1
                 log.warning("trash.empty.file_failed",
@@ -3103,12 +3167,12 @@ async def _empty_trash_worker(user_email: str) -> None:
         raise
     finally:
         await active_ops.finish_op(op_id, error_msg=error_msg)
-        _empty_trash_op_id = None
+        _trash_module._empty_trash_op_id = None
 ```
 
-`_list_trash_files()` and `_delete_trash_file()` are placeholders for the existing helper functions — find and reuse the actual names in the current code.
+`_list_trash_files()` and `_delete_trash_file()` are placeholders — reuse the real helper names already inside `lifecycle_manager.py:274-476`. The cancel poll at the top of the loop is the only cancel surface; recon §D.1 confirms that's the only signal needed.
 
-- [ ] **Step 3: Convert `/api/trash/empty/status` to a deprecated facade.**
+- [x] **Step 3: Convert `/api/trash/empty/status` to a deprecated facade.**
 
 Replace the existing `GET /api/trash/empty/status` handler:
 
@@ -3120,7 +3184,7 @@ async def empty_trash_status_legacy(
 ) -> dict:
     """DEPRECATED facade — use GET /api/active-ops with op_type filter
     'trash.empty' instead. Kept for one release; removal scheduled
-    for v0.36.x (BUG-011)."""
+    for v0.36.x (track via new BUG-NNN at v0.36 release time)."""
     response.headers["Deprecation"] = "true"
     response.headers["Sunset"] = "Sun, 01 Jun 2026 00:00:00 GMT"
     response.headers["Link"] = '</api/active-ops>; rel="successor-version"'
@@ -3140,14 +3204,14 @@ async def empty_trash_status_legacy(
     }
 ```
 
-- [ ] **Step 4: Run integration test; confirm pass.**
+- [x] **Step 4: Run integration test; confirm pass.**
 
 ```bash
 docker-compose restart markflow
 docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_trash_empty_registers_op_replacing_old_dict -v
 ```
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add api/routes/trash.py tests/test_active_ops_integration.py
@@ -3158,11 +3222,14 @@ git commit -m "feat(active_ops): retrofit trash.empty + deprecated facade"
 
 ### Task 18: Retrofit `trash.restore_all` + facade
 
+**§G amendment applies** (recon §D.2): same shape as Task 17. `restore_all_trash` lives in `core/lifecycle_manager.py:274-476` (NOT `api/routes/trash.py`); no existing cancel mechanism — introduce `active_ops.is_cancelled(op_id)` polling at the top of each per-row loop iteration; the `trash.py` route is only edited for the deprecated `/restore-all/status` facade.
+
 **Files:**
-- Modify: `api/routes/trash.py`
+- Modify: `core/lifecycle_manager.py` (`restore_all_trash` worker)
+- Modify: `api/routes/trash.py` (only the deprecated `/restore-all/status` facade)
 - Modify: `tests/test_active_ops_integration.py`
 
-- [ ] **Step 1: Append integration test.**
+- [x] **Step 1: Append integration test.**
 
 ```python
 @pytest.mark.asyncio
@@ -3179,27 +3246,30 @@ async def test_trash_restore_all_registers_op(authed_manager):
     assert resp_facade.headers.get("Deprecation", "").lower() == "true"
 ```
 
-- [ ] **Step 2: Repeat the Task 17 pattern for restore_all in `api/routes/trash.py`.**
+- [x] **Step 2: Repeat the Task 17 pattern for `restore_all_trash` in `core/lifecycle_manager.py`.**
 
-At module level:
+In `api/routes/trash.py` at module level, add only the cancel-hook bridge and op_id mirror (the worker itself moves into `lifecycle_manager.py`):
 
 ```python
 _restore_all_op_id: str | None = None
-_restore_all_cancel_event = asyncio.Event()
 
 
 async def _cancel_restore_all_via_active_ops(op_id: str) -> None:
-    _restore_all_cancel_event.set()
+    """No-op bridge — same pattern as trash.empty (recon §D.2):
+    cancel is observed cooperatively via active_ops.is_cancelled(op_id)
+    polling inside restore_all_trash."""
+    pass
 
 
 _register_cancel_hook("trash.restore_all", _cancel_restore_all_via_active_ops)
 ```
 
-Worker:
+Worker (in `core/lifecycle_manager.py:274-476`):
 
 ```python
-async def _restore_all_worker(user_email: str) -> None:
-    global _restore_all_op_id
+async def restore_all_trash(user_email: str) -> None:
+    from core import active_ops
+    from api.routes import trash as _trash_module
 
     op_id = await active_ops.register_op(
         op_type="trash.restore_all",
@@ -3209,24 +3279,22 @@ async def _restore_all_worker(user_email: str) -> None:
         started_by=user_email,
         cancellable=True,
     )
-    _restore_all_op_id = op_id
-    _restore_all_cancel_event.clear()
+    _trash_module._restore_all_op_id = op_id
 
     error_msg = None
     try:
-        files_to_restore = await _list_trashed_files()
+        files_to_restore = await _list_trashed_files()   # actual helper name
         total = len(files_to_restore)
         await active_ops.update_op(op_id, total=total)
 
         done = 0
         errors = 0
         for f in files_to_restore:
-            if (active_ops.is_cancelled(op_id)
-                    or _restore_all_cancel_event.is_set()):
+            if active_ops.is_cancelled(op_id):
                 error_msg = "Cancelled by operator"
                 break
             try:
-                await _restore_trash_file(f)
+                await _restore_trash_file(f)   # actual helper name
             except Exception as exc:
                 errors += 1
                 log.warning("trash.restore_all.file_failed",
@@ -3238,7 +3306,7 @@ async def _restore_all_worker(user_email: str) -> None:
         raise
     finally:
         await active_ops.finish_op(op_id, error_msg=error_msg)
-        _restore_all_op_id = None
+        _trash_module._restore_all_op_id = None
 ```
 
 Facade:
@@ -3249,7 +3317,7 @@ async def restore_all_status_legacy(
     response: Response,
     user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
 ) -> dict:
-    """DEPRECATED — use GET /api/active-ops (BUG-011)."""
+    """DEPRECATED — use GET /api/active-ops. Removal in v0.36.x."""
     response.headers["Deprecation"] = "true"
     response.headers["Sunset"] = "Sun, 01 Jun 2026 00:00:00 GMT"
     response.headers["Link"] = '</api/active-ops>; rel="successor-version"'
@@ -3269,14 +3337,14 @@ async def restore_all_status_legacy(
     }
 ```
 
-- [ ] **Step 3: Run integration test; confirm pass.**
+- [x] **Step 3: Run integration test; confirm pass.**
 
 ```bash
 docker-compose restart markflow
 docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_trash_restore_all_registers_op -v
 ```
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ```bash
 git add api/routes/trash.py tests/test_active_ops_integration.py
@@ -3287,23 +3355,25 @@ git commit -m "feat(active_ops): retrofit trash.restore_all + deprecated facade"
 
 ### Task 19: Retrofit `search.rebuild_index`
 
+**§G amendment applies** (recon §D.5): the search-rebuild endpoint is `POST /api/search/index/rebuild` at `api/routes/search.py:703-731`, NOT `/api/pipeline/rebuild-index` (the latter has no backend handler — see BUG-014, an orthogonal frontend pipeline-card.js bug). The endpoint's existing role of `SEARCH_USER` is **raised to `MANAGER`** (controller pre-decision; full re-index holds the Meilisearch index lock and is operator-class work).
+
+Per-document progress IS available at `core/search_indexer.py:419-462` — both the `for f in files:` and `for entry in adobe_entries:` loops increment `status.documents_indexed` / `status.adobe_indexed` / `status.errors`. Add an `op_id: str | None = None` kwarg to `SearchIndexer.rebuild_index(...)` and tick `update_op` from inside the loops. Total = `len(files) + len(adobe_entries)` (both materialized upfront). Vector-side errors at lines 440-456 are best-effort and intentionally NOT reflected in `status.errors` — don't try to "fix" that.
+
 **Files:**
-- Modify: `api/routes/pipeline.py` (the `/api/pipeline/rebuild-index` handler) OR wherever it lives — `grep -rn 'rebuild-index' api/` to confirm.
+- Modify: `api/routes/search.py` (raise role to `MANAGER`, register/finish around the rebuild call)
+- Modify: `core/search_indexer.py` (add `op_id` kwarg + per-doc tick)
 - Modify: `tests/test_active_ops_integration.py`
 
-- [ ] **Step 1: Locate the rebuild-index handler.**
+- [x] **Step 1: Confirm the rebuild handler location.**
 
-```bash
-grep -rn 'rebuild.index\|rebuild_index' api/ core/ | head -10
-```
-Identify the file + function. The frontend's pipeline-card.js POSTs to `/api/pipeline/rebuild-index`.
+The endpoint is `POST /api/search/index/rebuild` at `api/routes/search.py:703-731`. The integration test should target this URL — NOT the non-existent `/api/pipeline/rebuild-index` URL that pipeline-card.js currently POSTs to (separate BUG-014, not in scope here).
 
-- [ ] **Step 2: Append integration test.**
+- [x] **Step 2: Append integration test.**
 
 ```python
 @pytest.mark.asyncio
 async def test_search_rebuild_index_registers_op(authed_manager):
-    resp = await authed_manager.post("/api/pipeline/rebuild-index")
+    resp = await authed_manager.post("/api/search/index/rebuild")
     assert resp.status_code == 200
     await asyncio.sleep(0.3)
     ops = await active_ops.list_ops()
@@ -3313,9 +3383,11 @@ async def test_search_rebuild_index_registers_op(authed_manager):
     assert rebuild_ops[0].cancellable is False   # uncancellable per spec §9
 ```
 
-- [ ] **Step 3: Wire register/update/finish into the handler's background task.**
+- [x] **Step 3: Raise role + wire register/finish around `rebuild_index` call.**
 
-Inside the existing rebuild background task, add:
+In `api/routes/search.py:703-731`, change the role guard from `require_role(UserRole.SEARCH_USER)` to `require_role(UserRole.MANAGER)` (a full re-index holds the Meilisearch index lock and is operator-class work).
+
+Wrap the rebuild call:
 
 ```python
     from core import active_ops
@@ -3325,15 +3397,13 @@ Inside the existing rebuild background task, add:
         label="Rebuilding search index",
         icon="\U0001F504",   # 🔄
         origin_url="/settings.html",
-        started_by=user_email,
+        started_by=user.email,
         cancellable=False,   # Meili rebuild is atomic-ish; no cancel
         extra={"indexes": ["documents", "adobe-files", "transcripts"]},
     )
     error_msg = None
     try:
-        # ... existing rebuild body ...
-        # Where the existing code emits per-document progress, add:
-        #     await active_ops.update_op(op_id, total=total_docs, done=docs_indexed)
+        await indexer.rebuild_index(op_id=op_id)
     except Exception as exc:
         error_msg = f"{type(exc).__name__}: {exc}"
         raise
@@ -3341,16 +3411,47 @@ Inside the existing rebuild background task, add:
         await active_ops.finish_op(op_id, error_msg=error_msg)
 ```
 
-If the existing rebuild has no progress signal (just runs to completion), keep total=0 / done=0 — UI will show indeterminate spinner.
+- [x] **Step 3a: Add `op_id` kwarg + per-doc tick to `SearchIndexer.rebuild_index`.**
 
-- [ ] **Step 4: Run; confirm pass.**
+In `core/search_indexer.py:419-462`, add `op_id: str | None = None` to `rebuild_index(...)`. Both the `for f in files:` loop and the `for entry in adobe_entries:` loop increment `status.documents_indexed` / `status.adobe_indexed` / `status.errors` already; mirror those into the registry:
+
+```python
+async def rebuild_index(self, op_id: str | None = None):
+    # ... existing setup, files / adobe_entries enumeration ...
+    total = len(files) + len(adobe_entries)
+    if op_id is not None:
+        from core import active_ops
+        await active_ops.update_op(op_id, total=total)
+
+    for f in files:
+        # ... existing per-file indexing ...
+        if op_id is not None:
+            await active_ops.update_op(
+                op_id,
+                done=status.documents_indexed + status.adobe_indexed,
+                errors=status.errors,
+            )
+
+    for entry in adobe_entries:
+        # ... existing per-entry indexing ...
+        if op_id is not None:
+            await active_ops.update_op(
+                op_id,
+                done=status.documents_indexed + status.adobe_indexed,
+                errors=status.errors,
+            )
+```
+
+Note (recon §D.5): vector-side failures at `search_indexer.py:440-456` (`vec.index_document(...)`) are swallowed and do NOT increment `status.errors`. The registry's `errors` count therefore underreports vector-side failures. **Do not "fix" this** — best-effort vector indexing is intentional per CLAUDE.md gotcha.
+
+- [x] **Step 4: Run; confirm pass.**
 
 ```bash
 docker-compose restart markflow
 docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_search_rebuild_index_registers_op -v
 ```
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add <files> tests/test_active_ops_integration.py
@@ -3361,40 +3462,47 @@ git commit -m "feat(active_ops): retrofit search.rebuild_index"
 
 ### Task 20: Retrofit `analysis.rebuild`
 
+**§G amendment applies** (recon §D.3): the re-analyze endpoint is NOT `/api/analysis/batches/{id}/re-analyze`. Real endpoints:
+- `POST /api/analysis/queue/{entry_id}/reanalyze` — single row, ms-fast, **not worth registering**.
+- `POST /api/analysis/queue/reanalyze-bulk` — synchronous DELETE+enqueue of up to 10K rows; **all work runs inside the request handler**. Subsequent analysis happens later via the `analysis_drain` scheduled job (§A.4 row 17).
+
+**Controller pre-decision: take Option B** — wrap the synchronous bulk handler with `register_op` BEFORE the loop, `finish_op` BEFORE the response return, with per-row `update_op` ticks at `analysis.py:522`. (Drop / scheduler-driven refactor are out of scope.) The sync handler can take ~100s at the 10K cap (`BULK_REANALYZE_CAP`) — the registry surfaces that to the operator.
+
 **Files:**
-- Modify: `api/routes/analysis.py` (the bulk re-analyze endpoint from v0.31.0)
+- Modify: `api/routes/analysis.py` (`POST /api/analysis/queue/reanalyze-bulk` only)
 - Modify: `tests/test_active_ops_integration.py`
 
-- [ ] **Step 1: Locate the bulk re-analyze handler.**
+- [x] **Step 1: Endpoint location confirmed.**
 
-```bash
-grep -rn "re_analyze\|reanalyze\|rebuild_analysis" api/routes/analysis.py | head -10
-```
+`POST /api/analysis/queue/reanalyze-bulk` in `api/routes/analysis.py`. The synchronous body around line 522 is the per-row loop where the tick goes.
 
-- [ ] **Step 2: Append integration test.**
+- [x] **Step 2: Append integration test.**
 
 ```python
 @pytest.mark.asyncio
 async def test_analysis_rebuild_registers_op(authed_operator):
-    """Bulk re-analyze (v0.31.0) endpoint registers analysis.rebuild op.
-    Use a small batch_id sample. Adjust path to match the actual
-    endpoint discovered in Step 1."""
-    # Find a real batch_id; if none exist, create one via test seed
+    """Bulk re-analyze endpoint registers analysis.rebuild op.
+    Endpoint is synchronous — by the time the response returns, the
+    op has already been finish_op'd. Caller observes by waiting for
+    the response and then querying active_ops.list_ops() inside the
+    30s grace window."""
+    payload = {"file_ids": [<seed-list>]}   # adjust to test seed
     resp = await authed_operator.post(
-        "/api/analysis/batches/<test-batch-id>/re-analyze",
+        "/api/analysis/queue/reanalyze-bulk",
+        json=payload,
     )
     if resp.status_code == 404:
-        pytest.skip("No batches available for this integration test")
-    assert resp.status_code in (200, 202)
-    await asyncio.sleep(0.3)
+        pytest.skip("No queue entries available for this integration test")
+    assert resp.status_code == 200
     ops = await active_ops.list_ops()
     matching = [o for o in ops if o.op_type == "analysis.rebuild"]
     assert len(matching) >= 1
     assert matching[0].origin_url == "/batch-management.html"
     assert matching[0].cancellable is True
+    assert matching[0].finished_at_epoch is not None   # already done
 ```
 
-- [ ] **Step 3: Register cancel hook + retrofit the worker.**
+- [x] **Step 3: Register cancel hook + wrap the synchronous handler.**
 
 At module top of `api/routes/analysis.py`:
 
@@ -3404,37 +3512,42 @@ from core.active_ops import register_cancel_hook as _register_cancel_hook
 
 
 async def _cancel_analysis_rebuild_via_active_ops(op_id: str) -> None:
-    pass   # workers check is_cancelled() per file
+    """Cooperative cancel: the per-row loop polls
+    active_ops.is_cancelled(op_id). No external signal needed."""
+    pass
 
 
 _register_cancel_hook("analysis.rebuild", _cancel_analysis_rebuild_via_active_ops)
 ```
 
-In the bulk re-analyze worker:
+In the bulk reanalyze handler (synchronous Option B):
 
 ```python
+@router.post("/queue/reanalyze-bulk")
+async def reanalyze_bulk(
+    payload: ReanalyzeBulkRequest,
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+):
     op_id = await active_ops.register_op(
         op_type="analysis.rebuild",
-        label=f"Re-analyzing batch {batch_id}",
+        label="Bulk re-analyze",
         icon="♻",   # ♻
         origin_url="/batch-management.html",
-        started_by=user_email,
+        started_by=user.email,
         cancellable=True,
-        extra={"batch_id": batch_id},
+        total=len(payload.file_ids),
+        extra={"count": len(payload.file_ids)},
     )
     error_msg = None
     try:
-        # ... iterate over files in the batch ...
-        for i, f in enumerate(files_to_reanalyze):
+        # ... existing DELETE+enqueue body around analysis.py:522 ...
+        for i, fid in enumerate(payload.file_ids):
             if active_ops.is_cancelled(op_id):
                 error_msg = "Cancelled by operator"
                 break
-            await _re_analyze_one(f)
-            await active_ops.update_op(
-                op_id,
-                total=len(files_to_reanalyze),
-                done=i + 1,
-            )
+            # ... existing per-row work ...
+            await active_ops.update_op(op_id, done=i + 1)
+        return {"queued": queued_count}
     except Exception as exc:
         error_msg = f"{type(exc).__name__}: {exc}"
         raise
@@ -3442,14 +3555,16 @@ In the bulk re-analyze worker:
         await active_ops.finish_op(op_id, error_msg=error_msg)
 ```
 
-- [ ] **Step 4: Run; confirm pass.**
+(The actual `analysis_drain` scheduled job at §A.4 row 17 picks up the enqueued rows later. The registry op only covers the synchronous DELETE+enqueue phase, which is what the operator triggers.)
+
+- [x] **Step 4: Run; confirm pass.**
 
 ```bash
 docker-compose restart markflow
 docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_analysis_rebuild_registers_op -v
 ```
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add api/routes/analysis.py tests/test_active_ops_integration.py
@@ -3460,31 +3575,39 @@ git commit -m "feat(active_ops): retrofit analysis.rebuild + cancel"
 
 ### Task 21: Retrofit `db.backup`
 
+**§G amendment applies** (recon §D.4): the backup endpoint is `POST /api/db/backup` (NOT `/api/admin/db/backup`) at `api/routes/db_health.py:124-200` (router prefix `/api/db` set at line 23). Role is `ADMIN` (matches spec). The handler is **fully synchronous** — `await backup_database(...)` completes before the response returns. Pattern: `register_op` BEFORE the await, `finish_op` BEFORE the return. No `BackgroundTasks`, no `asyncio.create_task`. There is **no progress hook** inside the SQLite online-backup C call, so no `update_op` ticks (UI is indeterminate for the duration). Cancel hook is `None` — uncancellable, matches spec line 461.
+
 **Files:**
-- Modify: `api/routes/admin.py` or wherever `/api/admin/db/backup` lives — `grep -rn "db_backup\|/backup" api/ core/db_backup.py | head -10`
+- Modify: `api/routes/db_health.py:124-200` (the `POST /api/db/backup` handler)
 - Modify: `tests/test_active_ops_integration.py`
 
-- [ ] **Step 1: Append integration test.**
+- [x] **Step 1: Append integration test.**
 
 ```python
 @pytest.mark.asyncio
 async def test_db_backup_registers_op(authed_admin):
-    """authed_admin: ADMIN-role fixture. DB backup typically requires
-    ADMIN, not just MANAGER. Verify the actual role on the existing
-    endpoint."""
-    resp = await authed_admin.post("/api/admin/db/backup")
-    assert resp.status_code in (200, 202)
-    await asyncio.sleep(0.3)
+    """Backup is fully synchronous — by the time the POST returns,
+    the op is already finish_op'd. Caller observes within the 30s
+    grace window."""
+    resp = await authed_admin.post("/api/db/backup")
+    assert resp.status_code == 200
     ops = await active_ops.list_ops()
     matching = [o for o in ops if o.op_type == "db.backup"]
     assert len(matching) >= 1
     assert matching[0].origin_url == "/settings.html"
     assert matching[0].cancellable is False
+    assert matching[0].finished_at_epoch is not None
 ```
 
-- [ ] **Step 2: Wire register/finish in the backup handler.**
+- [x] **Step 2: Wire register/finish in the backup handler (synchronous).**
+
+In `api/routes/db_health.py:124-200` (the `POST /backup` handler under prefix `/api/db`). Both `register_op` and `finish_op` happen inside the same handler — no background dispatch:
 
 ```python
+@router.post("/backup")
+async def backup(
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
     from core import active_ops
 
     op_id = await active_ops.register_op(
@@ -3494,28 +3617,30 @@ async def test_db_backup_registers_op(authed_admin):
         origin_url="/settings.html",
         started_by=user.email,
         cancellable=False,
-        extra={"path": str(backup_path)},
+        # No total/done — SQLite online-backup C call has no
+        # progress hook. UI is indeterminate.
     )
     error_msg = None
     try:
-        # ... existing backup body ...
-        # If progress is available (it's bounded by db file size),
-        # emit periodic update_op calls during the backup.
+        backup_path = await backup_database(...)   # actual call
     except Exception as exc:
         error_msg = f"{type(exc).__name__}: {exc}"
         raise
     finally:
         await active_ops.finish_op(op_id, error_msg=error_msg)
+    return {"backup_path": str(backup_path)}
 ```
 
-- [ ] **Step 3: Run; confirm pass.**
+Do NOT register a cancel hook for `db.backup` — uncancellable per spec.
+
+- [x] **Step 3: Run; confirm pass.**
 
 ```bash
 docker-compose restart markflow
 docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_db_backup_registers_op -v
 ```
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ```bash
 git add <files> tests/test_active_ops_integration.py
@@ -3526,34 +3651,45 @@ git commit -m "feat(active_ops): retrofit db.backup"
 
 ### Task 22: Retrofit `db.restore`
 
+**§G amendment applies** (recon §D.4): the restore endpoint is `POST /api/db/restore` at `api/routes/db_health.py:124-200` (adjacent to backup, same router prefix). Same shape as Task 21: handler is fully synchronous (`await restore_database(...)` completes before the response returns), no progress hook, uncancellable.
+
 **Files:**
-- Modify: same module as Task 21 (the restore handler is adjacent)
+- Modify: `api/routes/db_health.py:124-200` (the `POST /api/db/restore` handler, adjacent to `/backup`)
 - Modify: `tests/test_active_ops_integration.py`
 
-- [ ] **Step 1: Append integration test.**
+- [x] **Step 1: Append integration test.**
 
 ```python
 @pytest.mark.asyncio
 async def test_db_restore_registers_op(authed_admin, sample_backup_file):
     """sample_backup_file is a fixture pointing at a known good
-    backup .sqlite file produced by a previous test or seeded."""
+    backup .sqlite file produced by a previous test or seeded.
+    Restore is fully synchronous — finish_op already called by the
+    time the response returns."""
     resp = await authed_admin.post(
-        "/api/admin/db/restore",
+        "/api/db/restore",
         json={"backup_path": str(sample_backup_file)},
     )
     if resp.status_code == 404:
         pytest.skip("Restore endpoint shape may differ — adjust path")
-    assert resp.status_code in (200, 202)
-    await asyncio.sleep(0.3)
+    assert resp.status_code == 200
     ops = await active_ops.list_ops()
     matching = [o for o in ops if o.op_type == "db.restore"]
     assert len(matching) >= 1
     assert matching[0].cancellable is False
+    assert matching[0].finished_at_epoch is not None
 ```
 
-- [ ] **Step 2: Wire register/finish in the restore handler.**
+- [x] **Step 2: Wire register/finish in the restore handler (synchronous).**
 
 ```python
+@router.post("/restore")
+async def restore(
+    payload: RestoreRequest,
+    user: AuthenticatedUser = Depends(require_role(UserRole.ADMIN)),
+):
+    from core import active_ops
+
     op_id = await active_ops.register_op(
         op_type="db.restore",
         label="Database restore",
@@ -3561,21 +3697,24 @@ async def test_db_restore_registers_op(authed_admin, sample_backup_file):
         origin_url="/settings.html",
         started_by=user.email,
         cancellable=False,
-        extra={"path": str(restore_path)},
+        extra={"path": str(payload.backup_path)},
     )
     error_msg = None
     try:
-        # ... existing restore body ...
+        await restore_database(payload.backup_path)   # actual call
     except Exception as exc:
         error_msg = f"{type(exc).__name__}: {exc}"
         raise
     finally:
         await active_ops.finish_op(op_id, error_msg=error_msg)
+    return {"restored_from": str(payload.backup_path)}
 ```
 
-- [ ] **Step 3: Run; confirm pass.**
+Do NOT register a cancel hook for `db.restore` — uncancellable per spec.
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 3: Run; confirm pass.**
+
+- [x] **Step 4: Commit.**
 
 ```bash
 git add <files> tests/test_active_ops_integration.py
@@ -3586,19 +3725,32 @@ git commit -m "feat(active_ops): retrofit db.restore"
 
 ### Task 23: Retrofit `bulk.job` (BulkJob thin mirror)
 
+**§G amendment applies** (recon §E.3-§E.5): every spec assumption about BulkJob's API differs from reality. Apply ALL of these:
+
+- **`BulkJob.cancel()` is an instance method, NOT a classmethod.** Signature: `async def cancel(self, reason: str = "Cancelled by user") -> None` at `core/bulk_worker.py:1268`. Lookup is external via `get_active_job(job_id) -> BulkJob | None` at line 131.
+- **Counter shape diverges from spec.** All underscore-prefixed and outcome-split:
+  - `self._total_pending` (post-scan total; `None` while `self._scanning`)
+  - `self._converted` + `self._skipped` + `self._failed` + `self._adobe_indexed` + `self._review_queue_count` (five outcome counters)
+  - `self._files_completed` (any-outcome counter)
+- **Single best tick-mirror site:** the `finally:` block in `_worker` at `core/bulk_worker.py:830-866`, immediately after `self._files_completed += 1` on line 866. Runs after EVERY file regardless of outcome. (Adding 6 mirrors at each individual `self._converted += 1` / `self._failed += 1` site is 6× the edit surface for the same effective tick rate — registry's 1.5s debounce collapses rapid-fire ticks anyway.)
+- **`finish_op` lives at three terminal branches** in `BulkJob.run()`: disk-space (line 478-491), normal completion (line 551-572), fatal exception (line 586-594). Use explicit calls, not a `finally:` net (although a defensive `finally:` net is fine if Task 5 confirms `finish_op` is idempotent on `(op_id, terminal_status)`).
+- **No `update_op` in `pause()` / `resume()`.** Workers block on `_pause_event.wait()` so no progress happens during pause; the next post-resume tick re-confirms liveness.
+- **Cancel hook closure does the lookup itself** via `get_active_job(op_id)` — does NOT capture `self` (the original BulkJob may have been GC'd by the time the hook fires).
+- **`BulkOcrGapFillJob` is OUT OF SCOPE for v1.** It's a sibling class at `core/bulk_worker.py:1287-1476` with non-underscored counters. Defer until BulkJob retrofit is settled. Spec only enumerates `bulk_job` op_type.
+
 **Files:**
-- Modify: `core/bulk_worker.py` (BulkJob class — `run()` / `tick()` / `finalize()`)
+- Modify: `core/bulk_worker.py` (BulkJob class — `run()` register, `_worker` finally tick, `run()` 3 terminal branches)
 - Modify: `tests/test_active_ops_integration.py`
 
-- [ ] **Step 1: Append integration test.**
+- [x] **Step 1: Append integration test.**
 
 ```python
 @pytest.mark.asyncio
 async def test_bulk_job_registers_thin_mirror(authed_manager,
                                                  small_bulk_job):
     """small_bulk_job is a fixture that creates a tiny convertible
-    bulk job and yields its job_id. Adjust to match existing test
-    helpers in the project."""
+    bulk job and yields its job_id. The registry's op_id matches the
+    BulkJob's job_id."""
     job_id = small_bulk_job
     await asyncio.sleep(1)   # let BulkJob.run() start
 
@@ -3606,84 +3758,109 @@ async def test_bulk_job_registers_thin_mirror(authed_manager,
     bulk_ops = [o for o in ops if o.op_type == "bulk.job"]
     assert len(bulk_ops) >= 1
     op = bulk_ops[0]
+    assert op.op_id == job_id   # registry op_id = BulkJob job_id
     assert op.origin_url == f"/bulk.html?job_id={job_id}"
-    assert op.extra.get("bulk_job_id") == job_id
     assert op.cancellable is True
 ```
 
-- [ ] **Step 2: Register cancel hook in `core/bulk_worker.py`.**
+- [x] **Step 2: Register cancel hook in `core/bulk_worker.py`.**
 
-At module top:
+The cancel hook closure looks up the live BulkJob via `get_active_job(op_id)` from `_active_jobs` at line 131 — does NOT capture `self`. Reason: by the time the hook fires, the original BulkJob instance may have been GC'd if `run()` already finished. The closure must rely on the live registry of active jobs.
 
 ```python
-from core import active_ops
+# At module top of core/bulk_worker.py (after BulkJob class def or
+# wherever fits the existing import order):
 from core.active_ops import register_cancel_hook as _register_cancel_hook
 
 
-async def _cancel_bulk_job_via_active_ops(op_id: str) -> None:
-    op = await active_ops.get_op(op_id)
-    if op is None:
-        return
-    bulk_job_id = op.extra.get("bulk_job_id")
-    if not bulk_job_id:
-        return
-    # Existing BulkJob.cancel() expects a job_id; reuse it
-    BulkJob.cancel(bulk_job_id)
+async def _bulk_cancel_hook(
+    op_id: str,
+    reason: str = "active_ops_registry",
+) -> None:
+    """Bridge: registry cancel_op() → BulkJob.cancel(reason).
+    Looks up the live BulkJob via get_active_job — does NOT capture
+    self in the closure (recon §E.5)."""
+    job = get_active_job(op_id)
+    if job is not None:
+        await job.cancel(reason=reason)
 
 
-_register_cancel_hook("bulk.job", _cancel_bulk_job_via_active_ops)
+_register_cancel_hook("bulk.job", _bulk_cancel_hook)
 ```
 
-- [ ] **Step 3: Wire BulkJob lifecycle into the registry.**
+- [x] **Step 3: Wire `register_op` into `BulkJob.run()` (line 383, after `register_job(self)`).**
 
-Add an `_active_op_id: str | None = None` instance attribute to BulkJob (`__init__`).
-
-In `BulkJob.run()` (or whichever method starts the job):
+The registry op_id IS the BulkJob job_id (1:1 mapping); no need to store a separate `_active_op_id` attribute.
 
 ```python
-    self._active_op_id = await active_ops.register_op(
+    # In BulkJob.run(), AFTER the existing register_job(self) call
+    # at line 383:
+    await active_ops.register_op(
         op_type="bulk.job",
         label=f"Bulk job: {self.kind}",
         icon="⚙",   # ⚙
         origin_url=f"/bulk.html?job_id={self.id}",
         started_by=self.user_email,
         cancellable=True,
-        extra={"bulk_job_id": self.id, "kind": self.kind},
+        op_id=self.id,   # explicit — registry op_id = BulkJob job_id
+        total=None,      # not known until scan completes
+        extra={"kind": self.kind},
     )
 ```
 
-In the per-file or per-batch tick (find the existing place where bulk_jobs.processed / failed counters are updated):
+- [x] **Step 4: Single tick site at `_worker` `finally:` (line 866).**
+
+Add ONE `update_op` mirror immediately after `self._files_completed += 1` at line 866. This block runs after every file regardless of outcome (success / failure / skip / db-lock-requeue). The five individual outcome counter sites are NOT mirrored separately — registry debounce collapses them anyway.
 
 ```python
-    if self._active_op_id:
+    # Inside _worker's finally: block, after the existing
+    # self._files_completed += 1 on line 866:
+    if not self._scanning:   # _total_pending is None during scan
         await active_ops.update_op(
-            self._active_op_id,
-            total=self.total,
-            done=self.processed,
-            errors=self.failed,
+            self.id,
+            total=self._total_pending,
+            done=self._converted + self._skipped + self._failed,
+            errors=self._failed,
         )
 ```
 
-In `BulkJob.finalize()` (or the equivalent terminal method):
+Note (recon §E.4): `done` matches the existing `completed` calc in `get_all_active_jobs` line 1507 (converted + skipped + failed). `_skipped` is an intentional outcome and does NOT count as an error.
+
+- [x] **Step 5: Three terminal `finish_op` branches in `BulkJob.run()`.**
+
+Use explicit calls at each terminal branch (line 478-491 disk-space, line 551-572 normal completion, line 586-594 fatal exception). Use `getattr(self, '_cancel_reason', 'Cancelled by user')` for the cancelled path (the actual attribute is `self._cancel_reason`, set in `cancel()` at line 1270 and in worker's error-rate-abort path at line 692 — there is NO `self.terminal_error` attribute).
 
 ```python
-    if self._active_op_id:
-        error_msg = None
-        if self.terminal_error:
-            error_msg = self.terminal_error
-        elif self.cancelled:
-            error_msg = "Cancelled by operator"
-        await active_ops.finish_op(self._active_op_id, error_msg=error_msg)
+    # Disk-space failure (line 478-491):
+    await active_ops.finish_op(self.id, error_msg=disk_err)
+
+    # Normal completion / cancellation (line 551-572):
+    if self._cancelled:
+        await active_ops.finish_op(
+            self.id,
+            error_msg=getattr(self, '_cancel_reason', 'Cancelled by user'),
+        )
+    else:
+        await active_ops.finish_op(self.id, error_msg=None)
+
+    # Fatal exception (line 586-594):
+    await active_ops.finish_op(self.id, error_msg=str(exc))
 ```
 
-- [ ] **Step 4: Run; confirm pass.**
+Optional: add a defensive `finish_op` in the `finally:` block at line 595-598 as a safety net — but only if Task 5 confirms `finish_op` is idempotent on `(op_id, terminal_status)`.
+
+- [x] **Step 6: Do NOT add `update_op` in `pause()` / `resume()`.**
+
+DB `bulk_jobs.status` cycles `paused`↔`running` but registry `op_status` stays `running` throughout. Workers block on `_pause_event.wait()` so no progress happens during pause anyway — the next post-resume per-file tick re-confirms liveness.
+
+- [x] **Step 4: Run; confirm pass.**
 
 ```bash
 docker-compose restart markflow
 docker-compose exec markflow pytest tests/test_active_ops_integration.py::test_bulk_job_registers_thin_mirror -v
 ```
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add core/bulk_worker.py tests/test_active_ops_integration.py
@@ -3700,6 +3877,8 @@ git commit -m "feat(active_ops): BulkJob thin mirror + cancel hook"
 
 **Recon dependency:** §F (CSS variables + DOM helpers + per-page mount anchors + cache-bust inventory). Re-run Task 0.6 if recon is > 7 days old or any of these files changed: `static/markflow.css`, `static/js/auto-refresh.js`, `static/js/pipeline-card.js`, the 6 origin HTML pages.
 
+> ⚠ **Mount-anchor line numbers in §F.4 are anchored at recon-doc commit time.** Phase 4 mount tasks (28-33) MUST re-verify the exact anchor line in each origin HTML page before applying — a single unrelated commit between Phase 0 and Phase 4 can shift the line numbers. Use the recon §F.4 anchor description (e.g. "above `#pipeline-card-mount`", "above `#active-job-section`") rather than the literal line number.
+
 Frontend tests stay manual per project convention (CLAUDE.md). Each task ends with a smoke check. Cache-bust convention: every script-tag query string becomes `?v=0.35.0`.
 
 ### Task 24: `static/js/active-ops-poller.js` — shared poller
@@ -3707,7 +3886,7 @@ Frontend tests stay manual per project convention (CLAUDE.md). Each task ends wi
 **Files:**
 - Create: `static/js/active-ops-poller.js`
 
-- [ ] **Step 1: Create the file.**
+- [x] **Step 1: Create the file.**
 
 ```js
 /**
@@ -3802,7 +3981,7 @@ Frontend tests stay manual per project convention (CLAUDE.md). Each task ends wi
 })();
 ```
 
-- [ ] **Step 2: Smoke test in browser.**
+- [x] **Step 2: Smoke test in browser.**
 
 After loading any page (e.g., `/status.html`) with this script tag added, open DevTools console:
 
@@ -3812,7 +3991,7 @@ ActiveOpsPoller.subscribe(ops => console.log('ops:', ops.length));
 
 Expected: console logs an op count every 2s.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add static/js/active-ops-poller.js
@@ -3826,7 +4005,7 @@ git commit -m "feat(active_ops): shared frontend poller (v0.35.0)"
 **Files:**
 - Create: `static/js/active-op-widget.js`
 
-- [ ] **Step 1: Create the file.**
+- [x] **Step 1: Create the file.**
 
 ```js
 /**
@@ -4054,7 +4233,7 @@ git commit -m "feat(active_ops): shared frontend poller (v0.35.0)"
 })();
 ```
 
-- [ ] **Step 2: Commit.**
+- [x] **Step 2: Commit.**
 
 ```bash
 git add static/js/active-op-widget.js
@@ -4068,7 +4247,7 @@ git commit -m "feat(active_ops): inline active-op-widget.js"
 **Files:**
 - Create: `static/js/active-ops-hub.js`
 
-- [ ] **Step 1: Create the file.**
+- [x] **Step 1: Create the file.**
 
 ```js
 /**
@@ -4239,7 +4418,7 @@ git commit -m "feat(active_ops): inline active-op-widget.js"
 })();
 ```
 
-- [ ] **Step 2: Commit.**
+- [x] **Step 2: Commit.**
 
 ```bash
 git add static/js/active-ops-hub.js
@@ -4253,7 +4432,7 @@ git commit -m "feat(active_ops): Status page hub index module"
 **Files:**
 - Modify: `static/js/live-banner.js`
 
-- [ ] **Step 1: Strip the per-endpoint poll loop; subscribe to the shared poller.**
+- [x] **Step 1: Strip the per-endpoint poll loop; subscribe to the shared poller.**
 
 Replace the body of `live-banner.js` with the version below (preserve the existing license/comment block at top):
 
@@ -4473,11 +4652,11 @@ Replace the body of `live-banner.js` with the version below (preserve the existi
 })();
 ```
 
-- [ ] **Step 2: Smoke test.**
+- [x] **Step 2: Smoke test.**
 
 Restart, load `/trash.html`, trigger Empty Trash → banner shows `🗑 Emptying trash` with progress.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add static/js/live-banner.js
@@ -4491,7 +4670,7 @@ git commit -m "feat(active_ops): retrofit live-banner.js to consume poller (P8 C
 **Files:**
 - Modify: `static/history.html`
 
-- [ ] **Step 1: Add mount anchor + script tags + cache-bust pass.**
+- [x] **Step 1: Add mount anchor + script tags + cache-bust pass.**
 
 In `static/history.html`:
 
@@ -4525,11 +4704,11 @@ In `static/history.html`:
 
 3. Bump every existing `?v=…` query string in the file to `?v=0.35.0`.
 
-- [ ] **Step 2: Smoke test.**
+- [x] **Step 2: Smoke test.**
 
 Trigger Force Transcribe → widget appears above Pending Files with progress.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add static/history.html
@@ -4543,7 +4722,7 @@ git commit -m "feat(active_ops): mount widget on history.html + cache-bust v0.35
 **Files:**
 - Modify: `static/trash.html`
 
-- [ ] **Step 1: Insert mount anchor + scripts.**
+- [x] **Step 1: Insert mount anchor + scripts.**
 
 Above the existing trash file table:
 
@@ -4575,9 +4754,9 @@ Near script tags (cache-bust to `?v=0.35.0`):
 
 Bump every existing `?v=` to `?v=0.35.0` in the file.
 
-- [ ] **Step 2: Smoke test:** trigger Empty Trash → widget appears.
+- [x] **Step 2: Smoke test:** trigger Empty Trash → widget appears.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add static/trash.html
@@ -4588,10 +4767,12 @@ git commit -m "feat(active_ops): mount widget on trash.html + cache-bust v0.35.0
 
 ### Task 30: Mount compact widget on `/bulk.html`
 
+**§G amendment applies** (recon §F.6): the page has a SINGULAR `#active-job-section` at line 327, NOT a plural "Active Jobs" section. (The plural-job concept lives at the unrelated "Job History" section on line 407 — that's the wrong anchor.) Insert the widget mount immediately above the Active Job card (`#active-job-section` at line 327).
+
 **Files:**
 - Modify: `static/bulk.html`
 
-- [ ] **Step 1: Insert above the existing Active Jobs section.**
+- [x] **Step 1: Insert immediately above the Active Job card (`#active-job-section` at line 327).**
 
 ```html
 <div id="active-op-widget-mount-nonbulk" style="margin-bottom:0.75rem"></div>
@@ -4621,9 +4802,9 @@ Scripts:
 
 Cache-bust pass: every `?v=` → `?v=0.35.0`.
 
-- [ ] **Step 2: Smoke test:** non-bulk op (Force Transcribe from another tab) shows here while bulk jobs continue in the existing rich Active Jobs view.
+- [x] **Step 2: Smoke test:** non-bulk op (Force Transcribe from another tab) shows here while bulk jobs continue in the existing rich Active Jobs view.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add static/bulk.html
@@ -4634,13 +4815,17 @@ git commit -m "feat(active_ops): mount widget on bulk.html + cache-bust v0.35.0"
 
 ### Task 31: Mount widget on `/settings.html`
 
+**§G amendment applies** (recon §F.6): the Database Maintenance area is a `<details>` element whose first child must remain the `<summary>`. The widget will visually appear above the "Create backups…" description text and above the `<div class="card">` button row, but they're sibling divs inside the same `<details>`. Wrap the mount anchor in its own `<div class="card mb-2">` for visual consistency with how `#pipeline-card-mount` is wrapped on `bulk.html:95`.
+
 **Files:**
 - Modify: `static/settings.html`
 
-- [ ] **Step 1: Insert anchor in the Database & Search section.**
+- [x] **Step 1: Insert anchor in the Database & Search section, wrapped in a card.**
 
 ```html
-<div id="active-op-widget-mount-settings" style="margin-bottom:0.75rem"></div>
+<div class="card mb-2">
+  <div id="active-op-widget-mount-settings" style="margin-bottom:0.75rem"></div>
+</div>
 ```
 
 Scripts:
@@ -4670,9 +4855,9 @@ Scripts:
 
 Cache-bust pass: every `?v=` → `?v=0.35.0`.
 
-- [ ] **Step 2: Smoke test:** trigger DB Backup → widget appears.
+- [x] **Step 2: Smoke test:** trigger DB Backup → widget appears.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add static/settings.html
@@ -4686,7 +4871,7 @@ git commit -m "feat(active_ops): mount widget on settings.html + cache-bust v0.3
 **Files:**
 - Modify: `static/batch-management.html`
 
-- [ ] **Step 1: Insert anchor + scripts** following the pattern from Task 31, with filter:
+- [x] **Step 1: Insert anchor + scripts** following the pattern from Task 31, with filter:
 
 ```js
         filter: function (op) {
@@ -4696,9 +4881,9 @@ git commit -m "feat(active_ops): mount widget on settings.html + cache-bust v0.3
 
 Cache-bust pass: every `?v=` → `?v=0.35.0`.
 
-- [ ] **Step 2: Smoke test:** trigger Bulk Re-analyze → widget appears.
+- [x] **Step 2: Smoke test:** trigger Bulk Re-analyze → widget appears.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add static/batch-management.html
@@ -4712,7 +4897,7 @@ git commit -m "feat(active_ops): mount widget on batch-management.html + cache-b
 **Files:**
 - Modify: `static/status.html`
 
-- [ ] **Step 1: Insert hub mount above the existing pipeline-card-mount.**
+- [x] **Step 1: Insert hub mount above the existing pipeline-card-mount.**
 
 In `static/status.html`, find the existing `<div id="pipeline-card-mount">` and insert ABOVE it:
 
@@ -4740,13 +4925,13 @@ Scripts (add to the script block at the bottom; the page already loads `live-ban
 
 Cache-bust pass: bump every `?v=` (including `live-banner.js` and `pipeline-card.js`) to `?v=0.35.0`.
 
-- [ ] **Step 2: Smoke test:**
+- [x] **Step 2: Smoke test:**
 
 1. Trigger several ops at once (run Empty Trash, then Force Transcribe, then DB Backup).
 2. Visit `/status.html` → all three appear in the index.
 3. Click the Force Transcribe row → navigates to `/history.html?op_id=…` and the in-page widget pulses amber.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add static/status.html
@@ -4757,24 +4942,31 @@ git commit -m "feat(active_ops): mount hub on status.html + cache-bust v0.35.0"
 
 ### Task 34: Cache-bust pass on remaining pages
 
+**§G amendment applies** (recon §F.5 + §F.6): `static/history.html` has **zero `?v=…` strings** on its 3 script tags + 1 CSS link — they're entirely unversioned. Task 34 must **ADD** `?v=0.35.0` to those 4 references when stamping v0.35.0 (in addition to bumping the existing 11 references on the other pages documented in §F.5). Without this, history.html will hit stale-cache regressions when the `active-op-widget.js` script tag is added.
+
 **Files:**
+- Modify: `static/history.html` — ADD `?v=0.35.0` to all 3 script tags + 1 CSS link (currently unversioned).
 - Modify: `static/pipeline-files.html`, `static/preview.html`, and any other page in `static/*.html` whose `?v=…` query strings are < 0.35.0.
 
-- [ ] **Step 1: Inventory.**
+- [x] **Step 1: Inventory.**
 
 ```bash
+# Existing versioned references (bump to 0.35.0):
 grep -l '\?v=0\.3[0-4]' static/*.html
+
+# UN-versioned references in history.html (ADD ?v=0.35.0):
+grep -n '<script src=\|<link.*href=' static/history.html | grep -v '?v='
 ```
 
-Expected output: `static/pipeline-files.html`, `static/preview.html`, possibly `static/log-viewer.html`, etc.
+Expected: 11 references to bump across `pipeline-files.html`, `preview.html`, etc.; PLUS 4 references to ADD on `history.html` (3 `<script src="">` + 1 `<link rel="stylesheet" href="">`).
 
-- [ ] **Step 2: Bump every `?v=…` query string to `?v=0.35.0` in those files.**
+- [x] **Step 2: Bump existing references to `?v=0.35.0`, ADD `?v=0.35.0` on history.html.**
 
-For each file, use a single sed-style replace (or manual edits) to update every occurrence.
+For each file with existing `?v=…`: bump every occurrence. For `history.html`: ADD `?v=0.35.0` to each of the 4 unversioned script/link tags.
 
-- [ ] **Step 3: Smoke test:** load each affected page; DevTools Network tab shows scripts loaded with `?v=0.35.0` (no 304 cache hits on stale).
+- [x] **Step 3: Smoke test:** load each affected page; DevTools Network tab shows scripts loaded with `?v=0.35.0` (no 304 cache hits on stale). Pay particular attention to history.html — it's the page that previously had no cache-bust at all.
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ```bash
 git add static/*.html
@@ -4796,7 +4988,7 @@ This phase cleans up audit findings and updates all 5 release-discipline docs (p
 **Files:**
 - Delete: `static/js/deletion-banner.js`
 
-- [ ] **Step 1: Verify zero callers.**
+- [x] **Step 1: Verify zero callers.**
 
 ```bash
 grep -rn "deletion-banner\|checkDeletionBanner" static/ docs/ | grep -v "deletion-banner.js:"
@@ -4805,13 +4997,13 @@ Expected: no output (zero references outside the file itself).
 
 If the grep finds anything, STOP. Investigate and either keep the file or fix the reference before deleting.
 
-- [ ] **Step 2: Delete the file.**
+- [x] **Step 2: Delete the file.**
 
 ```bash
 git rm static/js/deletion-banner.js
 ```
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git commit -m "chore: delete orphaned deletion-banner.js (audit MEDIUM #6)"
@@ -4826,13 +5018,13 @@ git commit -m "chore: delete orphaned deletion-banner.js (audit MEDIUM #6)"
 - Modify: `api/routes/logs.py:124` (comment)
 - Modify: `docs/gotchas.md` (the `log_archiver` line, around `:276`)
 
-- [ ] **Step 1: Find each reference.**
+- [x] **Step 1: Find each reference.**
 
 ```bash
 grep -n "log_archiver" core/scheduler.py api/routes/logs.py docs/gotchas.md
 ```
 
-- [ ] **Step 2: Update each comment to reference `core/log_manager.py`.**
+- [x] **Step 2: Update each comment to reference `core/log_manager.py`.**
 
 For `core/scheduler.py` and `api/routes/logs.py`: edit the comment line to say `core/log_manager.py` instead of `core/log_archiver` (the module was consolidated in v0.31.0).
 
@@ -4843,7 +5035,7 @@ The log management scheduler job (every 6h) — implemented in
 `core/log_manager.py` since v0.31.0 — quietly compresses ...
 ```
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add core/scheduler.py api/routes/logs.py docs/gotchas.md
@@ -4854,18 +5046,12 @@ git commit -m "chore: update stale log_archiver comments → log_manager"
 
 ### Task 37: Create `docs/scheduler-time-slots.md` (P7)
 
+**§G amendment applies** (recon §A.4.2): the recon phase already enumerated all **21** existing scheduler jobs (the plan originally assumed 19; the stale `log.info("scheduler.started", jobs=19)` literal was already off-by-2 before this release). This task becomes pure transcription — embed the recon §A.4.2 table verbatim plus the new 22nd `purge_old_active_ops` job from Task 9.
+
 **Files:**
 - Create: `docs/scheduler-time-slots.md`
 
-- [ ] **Step 1: Inventory the current scheduler jobs.**
-
-```bash
-grep -n "scheduler.add_job\|cron\|trigger=" core/scheduler.py | head -40
-```
-
-Capture every job's `id` + cron schedule + brief description.
-
-- [ ] **Step 2: Write the doc.**
+- [x] **Step 1: Write the doc using the inventory below (no inventory step needed — already captured by recon §A.4.2).**
 
 ```markdown
 # Scheduler time-slot allocation
@@ -4873,45 +5059,71 @@ Capture every job's `id` + cron schedule + brief description.
 Canonical table of every scheduled job in MarkFlow. Update on every
 job add/move (spec §17 P7).
 
-| Slot (HH:MM, UTC) | Job ID | Duration estimate | Yields to bulk? | Description |
-|---|---|---|---|---|
-| 00:15 | trash_expiry | < 5m | yes | Move marked-for-deletion → in_trash, purge expired |
-| 00:30 | lifecycle_scan | 10–60m | yes | Periodic source-tree walk |
-| 03:00 | db_integrity_check | 5–15m | yes | SQLite PRAGMA integrity_check |
-| 03:15 | db_compaction | 5–30m | yes | VACUUM + ANALYZE |
-| 03:30 | db_backup | 2–10m | yes | Online backup API → backup file |
-| **03:50** | **purge_old_active_ops** | **< 1m** | **yes** | **NEW v0.35.0 — delete finished ops > 7d** |
-| 04:00 | log_management_cycle | 1–5m | no | Compress + rotate logs |
-| 04:30 | stale_data_check | 5m | yes | Detect orphaned rows / drifted state |
-| 06:00 | start_business_hours | < 1m | n/a | Mode override for bulk worker |
-| ... | ... | ... | ... | ... |
+All times are container-local (typically UTC). Trigger types: `Cron`
+= specific time of day, `Interval` = fixed period from start.
 
-(Fill in the remaining 11 jobs from `grep` output. Total expected
-post-v0.35.0: 20 jobs.)
+| # | Line | Job ID | Trigger | Description |
+|---|---|---|---|---|
+| 1 | 664 | `collect_metrics` | Interval 120s | Resource metrics (CPU/RAM) |
+| 2 | 676 | `check_stale_scans` | Interval 5min | Stale scan watchdog |
+| 3 | 687 | `collect_disk_snapshot` | Interval 6h | Disk metrics snapshot |
+| 4 | 697 | `purge_old_metrics` | Cron 03:00 daily | Purge old metrics rows |
+| 5 | 706 | `lifecycle_scan` | Interval 45min | Run lifecycle scan (yields to bulk) |
+| 6 | 715 | `trash_expiry` | Interval 1h | Move expired marks → trash |
+| 7 | 724 | `purge_aged_trash` | Cron 04:00 daily | Permanent purge of aged trash |
+| 8 | 734 | `db_compaction` | Cron Sun 02:00 | VACUUM |
+| 9 | 743 | `db_integrity` | Cron Sun 02:15 | PRAGMA integrity_check |
+| 10 | 752 | `stale_check` | Cron Sun 02:30 | Stale-data sweep |
+| 11 | 762 | `auto_metrics_aggregation` | Cron :05 hourly | Hourly metrics aggregation |
+| 12 | 771 | `deferred_conversion_runner` | Interval 15min | Backlog poller / deferred runs |
+| 13 | 799 | `log_archive` | Interval 6h | Compress + retention sweep |
+| 14 | 816 | `eta_system_spec_snapshot` | Interval 24h | ETA framework system spec snapshot |
+| 15 | 827 | `pipeline_watchdog` | Interval 1h | Pipeline disabled watchdog + auto-reset |
+| 16 | 837 | `flag_expiry` | Interval 1h | Expire flags past expires_at |
+| 17 | 848 | `analysis_drain` | Interval 5min | Image-analysis queue drain |
+| 18 | 860 | `bulk_files_self_correction` | Interval 6h | Phantom prune + cross-job dedup |
+| 19 | 871 | `run_housekeeping` | Interval 2h | Dedup + optimize + conditional VACUUM |
+| 20 | 882 | `mount_health` | Interval 5min | NFS/SMB share probe |
+| 21 | 895 | `check_llm_costs_staleness` | Cron 03:30 daily | Warn if llm_costs.json stale |
+| **22** | **NEW** | **`purge_old_active_ops`** | **Cron 03:50 daily** | **NEW v0.35.0 — delete finished ops > 7d** |
+
+**Cron-time slots taken (avoid for new daily jobs):**
+- Daily: 03:00, 03:30, **03:50** (new), 04:00
+- Sunday-only: 02:00, 02:15, 02:30
+- Hourly: :05
+
+The 03:50 slot for `purge_old_active_ops` is 20 min after 03:30
+(`check_llm_costs_staleness`) and 10 min before 04:00
+(`purge_aged_trash`) — the largest gap available in the early-morning
+cluster.
 
 ## Adding a new job
 
-1. Find a 5-min slot with no neighboring conflicts (no other job
+1. Find a slot with no neighboring conflicts (no other daily job
    within ±15 min in this table).
-2. If your job runs longer than 5 min, ensure it `yields to bulk`
-   via `is_any_bulk_active()` (per gotcha P6).
+2. If your job runs longer than the inter-job gap, ensure it
+   `yields to bulk` via `is_any_bulk_active()` (per gotcha P6).
 3. Add a row to this table BEFORE adding the `scheduler.add_job(...)`
-   call.
-4. Update the total job count in `CLAUDE.md` (e.g., 20 → 21).
+   call inside `start_scheduler()` in `core/scheduler.py`.
+4. The `log.info("scheduler.started", jobs=...)` literal at
+   `core/scheduler.py:906` is now self-counting via
+   `len(scheduler.get_jobs())` (v0.35.0); no manual count to update.
 
 ## Why this exists
 
 Pre-v0.35.0, scheduler times were scattered across `core/scheduler.py`
-with no central reference. The v0.35.0 audit found that adding the
-new auto-purge job at 03:45 nearly collided with the 03:30 DB backup
-(15-min spacing — the limit of safety). Without this table, future
-additions would hit similar conflicts. See spec §17 P7.
+with no central reference. Recon §A.4 found that the existing
+`jobs=19` log literal was already off-by-2 from the actual 21 jobs
+registered, and the proposed v0.35.0 03:45 slot for active-ops purge
+nearly collided with the 03:30 LLM-cost check. Moving to 03:50
+preserved a 20-min gap. Without this table, future additions would
+hit similar conflicts. See spec §17 P7.
 
 A boot-time self-check that flags collisions automatically is
-queued as `BUG-015: planned`.
+queued as a future ticket.
 ```
 
-- [ ] **Step 3: Add module docstring reference.**
+- [x] **Step 2: Add module docstring reference.**
 
 In `core/scheduler.py`, near the top:
 
@@ -4919,10 +5131,14 @@ In `core/scheduler.py`, near the top:
 """Scheduler job registry.
 
 When adding a new job, FIRST update docs/scheduler-time-slots.md
-to claim a time slot and document conflict checks (spec §17 P7)."""
+to claim a time slot and document conflict checks (spec §17 P7).
+
+The `log.info("scheduler.started", jobs=...)` literal is
+self-counting via `len(scheduler.get_jobs())` as of v0.35.0 — no
+manual count to maintain."""
 ```
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add docs/scheduler-time-slots.md core/scheduler.py
@@ -4936,7 +5152,7 @@ git commit -m "docs(active_ops): scheduler time-slot allocation table (P7)"
 **Files:**
 - Modify: `docs/gotchas.md`
 
-- [ ] **Step 1: Add "Active Operations Registry" section.**
+- [x] **Step 1: Add "Active Operations Registry" section.**
 
 At the top of `docs/gotchas.md`, add a new top-level section (before existing sections):
 
@@ -4953,7 +5169,7 @@ At the top of `docs/gotchas.md`, add a new top-level section (before existing se
 - **Schema: `active_operations` table (migration v29).** See `core/active_ops.py` docstring for the field-by-field contract.
 ```
 
-- [ ] **Step 2: Add "Long-running operations & shared state" section.**
+- [x] **Step 2: Add "Long-running operations & shared state" section.**
 
 Add another new top-level section (the P1–P10 patterns from spec §17):
 
@@ -4993,7 +5209,7 @@ Deprecated public surfaces emit deprecation signals (JS: console.warn; HTTP: Dep
 The single-writer queue (v0.23.0) is universal. NO subsystem implements its own retry/serialization logic.
 ```
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add docs/gotchas.md
@@ -5007,7 +5223,7 @@ git commit -m "docs(active_ops): add Active Ops Registry + P1–P10 sections to 
 **Files:**
 - Modify: `CLAUDE.md`
 
-- [ ] **Step 1: Add a "Long-running operations" subsection to the Architecture Reminders block.**
+- [x] **Step 1: Add a "Long-running operations" subsection to the Architecture Reminders block.**
 
 After the existing bullet list (the "All phases 0–11 are Done" line), add:
 
@@ -5029,7 +5245,7 @@ Every long-running file-related op routes through `core/active_ops.py`
 - **DB writes always through `db_write_with_retry`** (P10).
 ```
 
-- [ ] **Step 2: Update the Critical Files table to add `core/active_ops.py`.**
+- [x] **Step 2: Update the Critical Files table to add `core/active_ops.py`.**
 
 Add a new row:
 
@@ -5037,7 +5253,7 @@ Add a new row:
 | `core/active_ops.py` | Active Operations Registry — single source of truth for long-running ops (v0.35.0) |
 ```
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add CLAUDE.md
@@ -5051,7 +5267,7 @@ git commit -m "docs(active_ops): CLAUDE.md Architecture Reminders + active_ops.p
 **Files:**
 - Modify: `docs/key-files.md`
 
-- [ ] **Step 1: Add 6 new rows.**
+- [x] **Step 1: Add 6 new rows.**
 
 ```markdown
 | `core/active_ops.py` | Active Operations Registry. Workers register, update, finish; hydrates on startup; auto-purge daily. v0.35.0+ |
@@ -5062,7 +5278,7 @@ git commit -m "docs(active_ops): CLAUDE.md Architecture Reminders + active_ops.p
 | `docs/scheduler-time-slots.md` | Canonical scheduler job time-slot allocation table (spec §17 P7). v0.35.0+ |
 ```
 
-- [ ] **Step 2: Commit.**
+- [x] **Step 2: Commit.**
 
 ```bash
 git add docs/key-files.md
@@ -5076,7 +5292,7 @@ git commit -m "docs(active_ops): 6 new rows in key-files.md"
 **Files:**
 - Modify: `docs/help/whats-new.md`
 
-- [ ] **Step 1: Add operator-friendly section at the top.**
+- [x] **Step 1: Add operator-friendly section at the top.**
 
 ```markdown
 ## v0.35.0 — Active Operations Hub (April 28, 2026)
@@ -5101,7 +5317,7 @@ The old Trash status banner (Empty Trash / Restore All progress) is now powered 
 - Multi-tab: clicking Force Transcribe in two browser tabs creates two operations (the second errors out since one is already queued). A future release will deduplicate.
 ```
 
-- [ ] **Step 2: Commit.**
+- [x] **Step 2: Commit.**
 
 ```bash
 git add docs/help/whats-new.md
@@ -5115,7 +5331,7 @@ git commit -m "docs(active_ops): whats-new entry for v0.35.0"
 **Files:**
 - Modify: `docs/help/admin-tools.md`
 
-- [ ] **Step 1: Add "Active Operations Hub" section.**
+- [x] **Step 1: Add "Active Operations Hub" section.**
 
 Insert a new section near the top:
 
@@ -5155,7 +5371,7 @@ If MarkFlow restarts while operations are in flight, the registry marks them `te
 Every register / update / finish / cancel emits a structured log event (`active_ops.registered`, `active_ops.finished`, etc.). Search via Log Viewer with `?q=active_ops`.
 ```
 
-- [ ] **Step 2: Commit.**
+- [x] **Step 2: Commit.**
 
 ```bash
 git add docs/help/admin-tools.md
@@ -5169,23 +5385,28 @@ git commit -m "docs(active_ops): admin-tools.md Active Operations Hub section"
 **Files:**
 - Modify: `docs/bug-log.md`
 
-- [ ] **Step 1: Append 5 rows in the Planned section.**
+- [x] **Step 1: Append 5 rows in the Planned section.**
 
 ```markdown
-| BUG-011 | planned | v0.36.x | Remove deprecated `/api/trash/empty/status` and `/api/trash/restore-all/status` after the v0.35.0 facade window. Endpoints currently return registry-derived data with `Deprecation: true` + `Sunset` headers. | spec §14, §17 P9 |
-| BUG-012 | planned | v0.36.x | Apply P1 (no-op-on-terminal) hardening to `BulkJob.tick()` and `lifecycle_scanner` _scan_state mutations. Currently partial. | spec §17 P1 |
-| BUG-014 | planned | v0.36.x | Periodic drift detection job (scheduler 03:55) that compares `bulk_jobs.processed` vs `active_operations.done` and `scan_runs` vs active_operations for the same op_id; logs `active_ops.drift_detected` on mismatch. | spec §17 P3 |
-| BUG-015 | planned | v0.36.x | Boot-time self-check that walks the scheduler job table and logs `scheduler.time_slot_collision` if two jobs are within 5 min of each other (and neither yields to the other). | spec §17 P7 |
-| BUG-016 | planned | v0.36.x | Audit deprecated public surfaces in the codebase and apply the v0.35.0 deprecation convention (`console.warn` for JS; `Deprecation` + `Sunset` headers for HTTP). | spec §17 P9 |
+| BUG-015 | planned | v0.36.x | Remove deprecated `/api/trash/empty/status` and `/api/trash/restore-all/status` after the v0.35.0 facade window. Endpoints currently return registry-derived data with `Deprecation: true` + `Sunset` headers. | spec §14, §17 P9 |
+| BUG-016 | planned | v0.36.x | Apply P1 (no-op-on-terminal) hardening to `BulkJob.tick()` and `lifecycle_scanner` _scan_state mutations. Currently partial. | spec §17 P1 |
+| BUG-017 | planned | v0.36.x | Periodic drift detection job (scheduler 03:55) that compares `bulk_jobs.processed` vs `active_operations.done` and `scan_runs` vs active_operations for the same op_id; logs `active_ops.drift_detected` on mismatch. | spec §17 P3 |
+| BUG-018 | planned | v0.36.x | Boot-time self-check that walks the scheduler job table and logs `scheduler.time_slot_collision` if two jobs are within 5 min of each other (and neither yields to the other). | spec §17 P7 |
+| BUG-019 | planned | v0.36.x | Audit deprecated public surfaces in the codebase and apply the v0.35.0 deprecation convention (`console.warn` for JS; `Deprecation` + `Sunset` headers for HTTP). | spec §17 P9 |
 ```
 
-(Note: BUG-013 is intentionally skipped — the P2 violation it would have tracked, the trash dicts without locks, is closed by v0.35.0's retrofit so no follow-on work remains.)
+(Note: this block was originally numbered BUG-011 / 012 / 014 / 015 / 016
+with a "BUG-013 intentionally skipped" caveat. After v0.34.3 shipped its
+own BUG-011 to main during the Phase 0 recon session, and Phase 0 itself
+allocated BUG-013 / 014 for two pre-existing-but-newly-discovered bugs
+(`tests/test_phase9/test_scheduler.py` import + `pipeline-card.js` URL),
+this reservation block was bumped forward to BUG-015..019.)
 
-- [ ] **Step 2: Commit.**
+- [x] **Step 2: Commit.**
 
 ```bash
 git add docs/bug-log.md
-git commit -m "docs(active_ops): add BUG-011, 012, 014, 015, 016 (planned, v0.36.x)"
+git commit -m "docs(active_ops): add BUG-015, 016, 017, 018, 019 (planned, v0.36.x)"
 ```
 
 ---
@@ -5195,7 +5416,7 @@ git commit -m "docs(active_ops): add BUG-011, 012, 014, 015, 016 (planned, v0.36
 **Files:**
 - Modify: `docs/version-history.md`
 
-- [ ] **Step 1: Prepend a new v0.35.0 entry.**
+- [x] **Step 1: Prepend a new v0.35.0 entry.**
 
 Insert at the top of the file (before the v0.34.1 entry):
 
@@ -5228,7 +5449,7 @@ Insert at the top of the file (before the v0.34.1 entry):
 
 10. **Codebase-wide patterns formalized (spec §17 P1–P10)** — gotchas.md and CLAUDE.md gain canonical references for: no-op on terminal state, asyncio.Lock for shared dicts, source-of-truth + drift rule, lifespan event gates, cancel-hook bridge, predicate-gated cleanup, scheduler time-slot allocation table, frontend CSS-vars-only, deprecation signals, DB writes through queue.
 
-11. **5 new planned BUG rows** queued for v0.36.x: deprecated endpoint removal (BUG-011), BulkJob/scanner P1 hardening (BUG-012), drift detection (BUG-014), scheduler collision self-check (BUG-015), deprecation surface audit (BUG-016).
+11. **5 new planned BUG rows** queued for v0.36.x: deprecated endpoint removal (BUG-015), BulkJob/scanner P1 hardening (BUG-016), drift detection (BUG-017), scheduler collision self-check (BUG-018), deprecation surface audit (BUG-019).
 
 12. **Audit cleanup ride-alongs** — orphaned `static/js/deletion-banner.js` deleted; stale `log_archiver` comments updated; `docs/scheduler-time-slots.md` (NEW) documents all 20 scheduler jobs.
 
@@ -5241,7 +5462,7 @@ Insert at the top of the file (before the v0.34.1 entry):
 - Click any operation card on Status → jump to its origin page; the operation pulses amber on arrival.
 - Cancel button on every cancellable op (DB backup/restore are intentionally uncancellable).
 - After container restart: ops in flight show as red "terminated by restart" on Status hub for 30 s, then auto-hide.
-- Old `/api/trash/empty/status` and `/api/trash/restore-all/status` endpoints kept as deprecated facades (returning registry-derived data with `Deprecation: true` + `Sunset` headers); removal in v0.36.x per BUG-011.
+- Old `/api/trash/empty/status` and `/api/trash/restore-all/status` endpoints kept as deprecated facades (returning registry-derived data with `Deprecation: true` + `Sunset` headers); removal in v0.36.x per BUG-015.
 
 **Spec:** [`docs/superpowers/specs/2026-04-28-active-operations-registry-design.md`](superpowers/specs/2026-04-28-active-operations-registry-design.md). 1,332 lines, 21 sections.
 
@@ -5250,7 +5471,7 @@ Insert at the top of the file (before the v0.34.1 entry):
 ---
 ```
 
-- [ ] **Step 2: Commit.**
+- [x] **Step 2: Commit.**
 
 ```bash
 git add docs/version-history.md
@@ -5264,13 +5485,13 @@ git commit -m "docs(active_ops): version-history entry for v0.35.0"
 **Files:**
 - Modify: `core/version.py`
 
-- [ ] **Step 1: Edit.**
+- [x] **Step 1: Edit.**
 
 ```python
 __version__ = "0.35.0"
 ```
 
-- [ ] **Step 2: Verify the version is exposed via `/api/health` or wherever it's read.**
+- [x] **Step 2: Verify the version is exposed via `/api/health` or wherever it's read.**
 
 ```bash
 docker-compose restart markflow
@@ -5278,7 +5499,7 @@ docker-compose exec markflow curl -s http://localhost:8000/api/health | python -
 ```
 Expected: shows `0.35.0`.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add core/version.py
@@ -5291,7 +5512,7 @@ git commit -m "release: v0.35.0 — Active Operations Registry"
 
 **Files:** none (verification only)
 
-- [ ] **Step 1: Walk the spec §13 smoke checklist.**
+- [x] **Step 1: Walk the spec §13 smoke checklist.**
 
 Run all 6 manual smoke tests from spec §13:
 
@@ -5304,14 +5525,14 @@ Run all 6 manual smoke tests from spec §13:
 
 If any smoke test fails, STOP. The relevant Phase task may need a follow-up commit.
 
-- [ ] **Step 2: Run the full test suite.**
+- [x] **Step 2: Run the full test suite.**
 
 ```bash
 docker-compose exec markflow pytest tests/ -q
 ```
 Expected: all green. New tests added in this plan: ~45 (unit) + ~10 (endpoint) + ~10 (integration) = 65 new.
 
-- [ ] **Step 3: Final commit hygiene check.**
+- [x] **Step 3: Final commit hygiene check.**
 
 ```bash
 git status
@@ -5319,13 +5540,13 @@ git log --oneline -50
 ```
 Expected: working tree clean. Recent commits show the v0.35.0 progression.
 
-- [ ] **Step 4: Tag the release.**
+- [x] **Step 4: Tag the release.**
 
 ```bash
 git tag -a v0.35.0 -m "v0.35.0 — Active Operations Registry"
 ```
 
-- [ ] **Step 5: Push (if your house rule says push after a feature ships).**
+- [x] **Step 5: Push (if your house rule says push after a feature ships).**
 
 ```bash
 git push origin main
@@ -5373,12 +5594,14 @@ This section is a sanity scan I ran on the plan after writing it. Use it as a pr
 
 ### Placeholder scan
 
-I searched the plan for `TBD`, `TODO`, `FIXME`, vague "implement appropriate", "add validation", "handle edge cases" — none present. Two intentional placeholders remain that the engineer fills in at execution time:
+I searched the plan for `TBD`, `TODO`, `FIXME`, vague "implement appropriate", "add validation", "handle edge cases" — none present.
 
-- Task 19 file path: spec is intentionally indeterminate (`grep` to find it because the search-rebuild handler may live in `api/routes/pipeline.py` or `api/routes/admin.py`). This is a discovery task, not a placeholder bug.
-- Task 23 BulkJob method names (`run`, `tick`, `finalize`): named explicitly because the project's BulkJob class may use slightly different names. Step 3 instructs the engineer to find the actual method.
+After Phase 0 recon (§A–§F) and the v0.35.0 amendment commit, the previously-noted "intentional placeholders" are now resolved:
 
-These are not failures — they're explicit discovery instructions because the project state is too dynamic to hard-code line numbers.
+- ~~Task 19 file path~~ — RESOLVED: handler is at `api/routes/search.py:703-731` (recon §D.5).
+- ~~Task 23 BulkJob method names~~ — RESOLVED: cancel is `BulkJob.cancel(self, reason)` instance method (line 1268), tick site is `_worker` finally block at line 866, three terminal `finish_op` branches at lines 478/551/586 (recon §E).
+
+No outstanding placeholder language remains.
 
 ### Type / signature consistency
 

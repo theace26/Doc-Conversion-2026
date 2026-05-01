@@ -31,6 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from core.database import init_db
 from core.health import HealthChecker, run_health_check
 from core.logging_config import configure_logging
+from core.active_ops import hydrate_on_startup as hydrate_active_ops_on_startup
 from api.routes import convert, batch, history, preferences, review, debug as debug_routes
 from api.routes import bulk, search as search_routes, cowork, locations, browse
 from api.routes import llm_providers as llm_providers_routes
@@ -311,6 +312,14 @@ async def lifespan(app: FastAPI):
     except Exception as exc:  # noqa: BLE001 — best-effort
         log.warning("markflow.scan_state_hydration_failed", error=str(exc))
 
+    # Active Operations Registry — hydrate from DB to mark
+    # any in-flight ops as terminated-by-restart (spec §10).
+    # Runs BEFORE scheduler / routers so workers can register safely.
+    try:
+        await hydrate_active_ops_on_startup()
+    except Exception as exc:  # noqa: BLE001 — best-effort
+        log.warning("markflow.active_ops_hydration_failed", error=str(exc))
+
     try:
         start_scheduler()
 
@@ -496,6 +505,10 @@ app.include_router(preview_routes.router)
 # v0.34.0: Premiere project (.prproj) cross-reference API
 from api.routes import prproj as prproj_routes
 app.include_router(prproj_routes.router)
+
+# v0.35.0: Active Operations Registry
+from api.routes import active_ops as active_ops_routes
+app.include_router(active_ops_routes.router)
 
 log.info("markflow.all_routes_registered")
 

@@ -121,7 +121,7 @@ async def archive_stats(
     """Return summary statistics about the log archive.
 
     v0.31.0: now sources from `core.log_manager` (the legacy
-    `core.log_archiver` module was deleted). Retention days are
+    `core/log_archiver.py` was consolidated into `core/log_manager.py`). Retention days are
     read from DB prefs instead of env var, so the value here
     matches what the Settings page shows.
     """

@@ -25,6 +25,7 @@
       "articles": [
         {"slug": "password-recovery", "title": "Password-Protected Documents", "description": "Handling encrypted and restricted files"},
         {"slug": "adobe-files", "title": "Adobe File Indexing", "description": "Metadata and text extraction from creative files"},
+        {"slug": "database-files", "title": "Database File Extraction", "description": "Schema + sample-data extraction from SQLite, Access, dBase, and QuickBooks files"},
         {"slug": "unrecognized-files", "title": "Unrecognized Files", "description": "What happens with unsupported file types"},
         {"slug": "llm-providers", "title": "LLM Provider Setup", "description": "AI-powered OCR correction and summaries"},
         {"slug": "gpu-setup", "title": "GPU Acceleration Setup", "description": "NVIDIA, AMD, and Intel GPU configuration"},
@@ -35,8 +36,9 @@
       "name": "Configuration",
       "articles": [
         {"slug": "storage", "title": "Storage", "description": "Source folders, output directory, network shares, and first-run wizard"},
+        {"slug": "nfs-setup", "title": "NFS Mounts", "description": "Switching from SMB/CIFS to NFSv3 / NFSv4 (with optional Kerberos) for source shares"},
         {"slug": "settings-guide", "title": "Settings Reference", "description": "Every setting explained"},
-        {"slug": "status-page", "title": "Status & Active Jobs", "description": "Monitoring running jobs and system state"},
+        {"slug": "status-page", "title": "Status & Active Jobs", "description": "Active Operations Hub, bulk job cards, pipeline card, and STOP ALL"},
         {"slug": "admin-tools", "title": "Administration", "description": "Admin panel, API keys, and database tools"},
         {"slug": "resources-monitoring", "title": "Resources & Monitoring", "description": "System metrics, charts, and activity log"}
       ]

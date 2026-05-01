@@ -5,6 +5,53 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 ---
 
+## Active Operations Registry
+
+- **Every long-running op MUST call `register_op()` at start and `finish_op()` at end.** Otherwise restart hydration marks it as `terminated_by_restart` (cosmetic noise on the next page load).
+- **`is_cancelled(op_id)` is synchronous** — call it from worker hot loops without `await`. The cancelled flag is a write-once bool; readers seeing a stale False miss one tick at most.
+- **`bulk_jobs` and `scan_runs` are sources of truth for `'bulk.job'` and `'pipeline.scan'` op_types; `active_operations` is derived state.** On drift, source wins (spec §17 P3).
+- **A cancellable op_type MUST register a cancel hook at module import via `register_cancel_hook()`.** Failing to register raises `RuntimeError` at first `register_op()` — caught at import in tests, never at runtime.
+- **`op_id` is uuid4** (36 chars). Never reuse; never embed in path-traversal-sensitive paths without quoting.
+- **Cancel hook is invoked OUTSIDE the registry lock** — the hook may call back into the registry safely.
+- **DB writes are debounced at 1.5s.** A worker emitting 100 ticks/sec produces ~1 DB write/sec. `finish_op()` always synchronously flushes (terminal state must persist).
+- **Schema: `active_operations` table (migration v29).** See `core/active_ops.py` docstring for the field-by-field contract.
+
+## Long-running operations & shared state
+
+These are project-wide conventions adopted in v0.35.0. New code MUST follow.
+
+### P1 — No-op on already-terminal state
+Any function that mutates a "running" entity (counter, state-machine row, in-flight op) MUST no-op + WARN log on terminal-state inputs. Don't reopen finished work.
+
+### P2 — `asyncio.Lock` for shared in-process mutable state
+Any in-process dict / list mutated by multiple async tasks needs a lock. Counters can be intentional last-writer-wins (the lock just serializes the read-modify-write); structural state must serialize.
+
+### P3 — Single source of truth + drift rule
+Thin mirrors must explicitly name the source and document the drift-resolution rule. Examples: `source_files` is source for file intrinsics; `bulk_files` is derived. `bulk_jobs` is source for bulk job state; active_operations row with `op_type='bulk.job'` is derived.
+
+### P4 — Lifespan ordering with `asyncio.Event` gates
+Any subsystem that needs to "be ready" before workers can use it MUST expose an `asyncio.Event` that gates dependent operations.
+
+### P5 — Cancel-hook bridge for cross-subsystem cancellation
+When a generic surface (registry, API, UI) accepts cancel but the actual mechanism lives elsewhere, register an explicit hook. Hook absence on a cancellable entity is a registration-time error.
+
+### P6 — Predicate-gated cleanup
+Any scheduled cleanup job MUST gate on a predicate that excludes running entities. Time windows alone are not enough.
+
+### P7 — Scheduler time-slot allocation table
+Scheduled jobs declare their time slots in `docs/scheduler-time-slots.md`. Adding a new job requires checking the table for conflicts.
+
+### P8 — Frontend: CSS variables only, named anchor mounts
+New `static/js/*.js` modules use CSS custom properties exclusively. Any element a JS module mounts into MUST have a stable ID anchor; deleting/moving the anchor degrades silently.
+
+### P9 — Deprecation with `console.warn` + `Sunset` header
+Deprecated public surfaces emit deprecation signals (JS: console.warn; HTTP: Deprecation/Sunset headers per RFC 8594).
+
+### P10 — DB writes always go through `db_write_with_retry`
+The single-writer queue (v0.23.0) is universal. NO subsystem implements its own retry/serialization logic.
+
+---
+
 ## Re-analyze (v0.31.0)
 
 - **`analysis_queue.id` is no longer stable across re-analyze.** Both the
@@ -273,8 +320,9 @@ the relevant subsystem. Referenced from CLAUDE.md.
 - **Never use TimedRotatingFileHandler or bare FileHandler**: A single day's debug log
   can grow to 4 GB+. Always use size-based `RotatingFileHandler` to cap file growth.
 
-- **Log archives preserve rotated content**: The `log_archiver` scheduler job (every 6h)
-  compresses rotated `.log.N` files into `logs/archive/*.gz` (~10:1 compression).
+- **Log archives preserve rotated content**: The log management scheduler job (every 6h)
+  — implemented in `core/log_manager.py` since v0.31.0 — quietly compresses rotated
+  `.log.N` files into `logs/archive/*.gz` (~10:1 compression).
   Archives retained for 90 days (configurable via `LOG_ARCHIVE_RETENTION_DAYS`).
   This is interim — planned migration to Grafana Loki / ELK for external aggregation.
 

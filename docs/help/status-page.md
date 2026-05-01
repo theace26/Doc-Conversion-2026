@@ -39,6 +39,38 @@ After stopping, you need to click **Reset** before starting new jobs.
 
 > **Warning:** STOP ALL affects every running job. Use the per-job Stop button if you only want to cancel one.
 
+## Active Operations Hub (since v0.35.0)
+
+At the top of the Status page, above the bulk job cards, is the **Active Operations Hub** — a unified index of every long-running operation MarkFlow is currently running, not just bulk jobs.
+
+Each row shows:
+- **Operation type** — e.g. "Force Transcribe", "Pipeline scan", "Empty Trash"
+- **Progress** — done / total files with a live progress bar
+- **Duration** — how long the operation has been running
+- **Cancel button** — where the operation supports cancellation
+
+Click any row to jump to the page where the operation was started. The per-page progress widget pulses amber to confirm which operation was highlighted.
+
+### What appears here
+
+| Operation | Originating page |
+|-----------|-----------------|
+| Force Transcribe / Convert Pending | History |
+| Convert Selected | History (bulk-action bar) |
+| Pipeline scan | Status (Run Now button) |
+| Empty Trash | Trash |
+| Restore All from Trash | Trash |
+| Rebuild Search Index | Settings |
+| Bulk Re-analyze | Batch Management |
+| Database Backup / Restore | Settings |
+| Bulk conversion job | Status (links to Active Jobs below) |
+
+### Restart behavior
+
+If MarkFlow restarts while operations are in flight, they appear in a **Terminated** section marked in red. These auto-hide after 30 seconds. The hub shows up to 20 terminated ops with a "Show all" expansion button.
+
+---
+
 ## Pipeline Card (since v0.33.0)
 
 Below the active jobs, the Status page shows a single **Pipeline** card —

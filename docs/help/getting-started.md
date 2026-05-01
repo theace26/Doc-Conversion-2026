@@ -98,6 +98,12 @@ The navigation bar runs along the top of every page. Depending on your account p
 
 > **Tip:** The Status link shows a small number badge when jobs are actively running. This lets you keep an eye on progress from any page.
 
+> **Tip *(v0.35.0)*:** The top of the Status page is the **Active
+> Operations Hub** — a single live list of every long-running thing
+> MarkFlow is currently doing (bulk jobs, pipeline scans, trash empty,
+> search-index rebuild, database backup, etc.). It's the one place
+> to look when you want to know "what's MarkFlow up to right now?".
+
 ### Pages You Might Not See
 
 Not every link appears for every user. MarkFlow uses roles to control who can do what:

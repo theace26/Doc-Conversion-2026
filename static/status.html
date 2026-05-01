@@ -8,7 +8,7 @@
        shared Pipeline card via static/js/pipeline-card.js (which
        carries its own ?v=0.33.0). Bump on every release that
        adds CSS rules used by status.html. -->
-  <link rel="stylesheet" href="/static/markflow.css?v=0.33.0">
+  <link rel="stylesheet" href="/static/markflow.css?v=0.35.0">
   <style>
     /* Clickable counter values (inline file list) */
     .job-card__counts .flp-counter { cursor: pointer; transition: opacity 0.15s; }
@@ -85,6 +85,12 @@
          the fields plus Pause / Rebuild Index / Run Now controls.
          The Active Jobs section above keeps its per-file live
          scan progress for granular operator-watching. -->
+
+    <!-- v0.35.0: Active Operations index — single-pane view of every
+         long-running op. Each row click navigates to the op's
+         originating page with ?op_id=… for highlight on arrival. -->
+    <div id="active-ops-hub-mount" style="margin-top:1rem"></div>
+
     <div id="pipeline-card-mount" style="margin-top:1.5rem"></div>
 
     <!-- Auto-Conversion override card -->
@@ -132,12 +138,19 @@
     </div>
   </main>
 
-  <script src="/static/app.js"></script>
-  <!-- v0.33.0: cache-bust by version. Bump the ?v= when these JS
-       modules change — operators on the prior cached version would
-       miss the new pipeline-card on the Status page otherwise. -->
-  <script src="/static/js/live-banner.js?v=0.33.0"></script>
-  <script src="/static/js/pipeline-card.js?v=0.33.0"></script>
+  <script src="/static/app.js?v=0.35.0"></script>
+  <script src="/static/js/active-ops-poller.js?v=0.35.0"></script>
+  <script src="/static/js/live-banner.js?v=0.35.0"></script>
+  <script src="/static/js/pipeline-card.js?v=0.35.0"></script>
+  <script src="/static/js/active-ops-hub.js?v=0.35.0"></script>
+  <script>
+  (function () {
+    var mount = document.getElementById('active-ops-hub-mount');
+    if (mount && typeof window.mountActiveOpsHub === 'function') {
+      window.mountActiveOpsHub(mount);
+    }
+  })();
+  </script>
   <script>
     // v0.33.0: mount the canonical Pipeline card on Status. The
     // module owns its own polling (30s) so we don't have to wire

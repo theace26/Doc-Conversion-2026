@@ -129,21 +129,55 @@ async def db_backup(
     """Create a DB backup. With download=True, streams the file to the caller.
 
     Otherwise saves into BACKUPS_DIR and returns a metadata dict.
+
+    Active-ops registry (Task 21, v0.35.0): registers a ``db.backup`` op
+    around the synchronous ``backup_database()`` call.  ``cancellable=False``
+    — the SQLite online-backup C call has no progress hook and cannot be
+    interrupted mid-flight per spec.  No update_op ticks (UI shows
+    indeterminate progress for the duration).  finish_op fires in a
+    try/finally so HTTPException paths (raised on result['ok']=False)
+    still finalise the op cleanly.
     """
+    from core import active_ops
     from core.db_backup import backup_database
 
-    result = await backup_database(download=download)
+    op_id = await active_ops.register_op(
+        op_type="db.backup",
+        label="Database backup" + (" (download)" if download else ""),
+        icon="\U0001F4BE",  # 💾
+        origin_url="/settings.html",
+        started_by=user.email,
+        cancellable=False,
+        extra={"download": download},
+    )
 
-    # download=True returns a FileResponse on success
+    error_msg: str | None = None
+    try:
+        result = await backup_database(download=download)
+    except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {exc}"
+        await active_ops.finish_op(op_id, error_msg=error_msg)
+        raise
+
+    # download=True returns a FileResponse on success.  Note: we MUST
+    # finish_op BEFORE returning the FileResponse because FastAPI streams
+    # the body lazily — a finally on the outer scope wouldn't fire until
+    # the client finishes reading, which can be many seconds for large
+    # backups.
     if isinstance(result, FileResponse):
         log.info("db_backup.requested", user=user.email, download=download, ok=True)
+        await active_ops.finish_op(op_id, error_msg=None)
         return result
 
     # Otherwise result is a dict
     log.info("db_backup.requested", user=user.email, download=download, ok=result.get("ok"))
     if not result.get("ok", False):
         err = result.get("error", "Backup failed")
+        error_msg = err
+        await active_ops.finish_op(op_id, error_msg=error_msg)
         raise HTTPException(status_code=_error_to_http_status(result), detail=err)
+
+    await active_ops.finish_op(op_id, error_msg=None)
     return result
 
 
@@ -157,6 +191,13 @@ async def db_restore(
 
     Exactly one of ``file`` (multipart upload) or ``backup_path`` (form field
     naming a file under BACKUPS_DIR) must be supplied.
+
+    Active-ops registry (Task 22, v0.35.0): registers a ``db.restore`` op
+    after the format guard (so malformed requests don't clutter the registry).
+    ``cancellable=False`` — restore is atomic; no progress hook exists in
+    restore_database.  finish_op fires explicitly at each exit path (same
+    pattern as db.backup — no try/finally because each branch needs its own
+    error_msg).
     """
     if (file is None) == (backup_path is None):
         raise HTTPException(
@@ -164,8 +205,21 @@ async def db_restore(
             detail="Provide exactly one of 'file' (upload) or 'backup_path' (server-side path)",
         )
 
+    from core import active_ops
     from core.db_backup import restore_database
 
+    via = "upload" if file is not None else "server"
+    op_id = await active_ops.register_op(
+        op_type="db.restore",
+        label=f"Database restore ({via})",
+        icon="↩",  # ↩
+        origin_url="/settings.html",
+        started_by=user.email,
+        cancellable=False,
+        extra={"via": via, "backup_path": backup_path},
+    )
+
+    error_msg: str | None = None
     try:
         if file is not None:
             uploaded = await file.read()
@@ -174,18 +228,28 @@ async def db_restore(
             result = await restore_database(source_path=Path(backup_path))  # type: ignore[arg-type]
     except ValueError as exc:
         # Path-traversal / "exactly one" guard from restore_database
+        error_msg = str(exc)
+        await active_ops.finish_op(op_id, error_msg=error_msg)
         raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {exc}"
+        await active_ops.finish_op(op_id, error_msg=error_msg)
+        raise
 
     log.info(
         "db_restore.requested",
         user=user.email,
-        via="upload" if file is not None else "server",
+        via=via,
         backup_path=backup_path,
         ok=result.get("ok"),
     )
     if not result.get("ok", False):
         err = result.get("error", "Restore failed")
+        error_msg = err
+        await active_ops.finish_op(op_id, error_msg=error_msg)
         raise HTTPException(status_code=_error_to_http_status(result), detail=err)
+
+    await active_ops.finish_op(op_id, error_msg=None)
     return result
 
 

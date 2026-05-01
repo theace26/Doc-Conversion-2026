@@ -4,6 +4,55 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.35.0 — Active Operations Registry (2026-04-28)
+
+**Goal:** Single source of truth for every long-running file-related op in MarkFlow. Workers register at start, update on tick, finish at end. One unified frontend surface (sticky banner, inline per-page widget, Status hub) consumes one polling endpoint. Replaces the v0.32.6 ad-hoc trash status dicts with a generic registry that 10 op_types route through.
+
+**Why this matters:** Operators triggered Force Transcribe (and most other long-running actions) and got a toast — then nothing. No progress, no cancel, no idea whether the action was still running. The Status page showed bulk jobs and pipeline scan but nothing else. v0.35.0 closes the gap with a unified hub.
+
+**What changed:**
+
+1. **`core/active_ops.py` (NEW)** — registry: register / update / finish / cancel / list / get, in-memory dict + DB write-through, hydrate on startup, daily auto-purge. ~300 LOC.
+
+2. **Migration v29** — `active_operations` table (idempotent CREATE).
+
+3. **`api/routes/active_ops.py` (NEW)** — `GET /api/active-ops` (OPERATOR+), `POST /api/active-ops/{op_id}/cancel` (MANAGER+).
+
+4. **10 op_type retrofits** — `pipeline.run_now`, `pipeline.convert_selected`, `pipeline.scan`, `trash.empty`, `trash.restore_all`, `search.rebuild_index`, `analysis.rebuild`, `db.backup`, `db.restore`, `bulk.job` (thin mirror).
+
+5. **5 cancel hooks** registered in scan_coordinator, pipeline routes (×2), lifecycle_scanner, trash routes, analysis routes, bulk_worker — bridging registry cancel to each subsystem's native primitive.
+
+6. **3 new frontend modules** — `active-ops-poller.js` (shared poller), `active-op-widget.js` (inline widget), `active-ops-hub.js` (Status index). Consume `/api/active-ops` with `ActiveOpsPoller.subscribe()`.
+
+7. **`live-banner.js` retrofitted** — drops endpoint list; subscribes to poller; hardcoded RGBA colors migrated to CSS variables (P8).
+
+8. **6 origin pages mounted** — history, trash, bulk, settings, batch-management mount the inline widget; status mounts the hub.
+
+9. **Cache-bust convention pass** — every JS script-tag query string bumped to `?v=0.35.0` across all `static/*.html`.
+
+10. **Codebase-wide patterns formalized (spec §17 P1–P10)** — gotchas.md and CLAUDE.md gain canonical references for: no-op on terminal state, asyncio.Lock for shared dicts, source-of-truth + drift rule, lifespan event gates, cancel-hook bridge, predicate-gated cleanup, scheduler time-slot allocation table, frontend CSS-vars-only, deprecation signals, DB writes through queue.
+
+11. **5 new planned BUG rows** queued for v0.36.x: deprecated endpoint removal (BUG-019), BulkJob/scanner P1 hardening (BUG-020), drift detection (BUG-021), scheduler collision self-check (BUG-022), deprecation surface audit (BUG-023).
+
+12. **Audit cleanup ride-alongs** — orphaned `static/js/deletion-banner.js` deleted; stale `log_archiver` comments updated; `docs/scheduler-time-slots.md` (NEW) documents all 20 scheduler jobs.
+
+**Files:** ~9 new + ~20 modified + 1 deleted. ~1,400 LOC new, ~500 LOC modified. Migration v29 idempotent. No new dependencies.
+
+**Order:** Shipped after v0.34.9 (BUG-018 abort persistence fix).
+
+**Operator-visible:**
+- Click Force Transcribe → progress widget appears above Pending Files; same widget visible on Status hub.
+- Click any operation card on Status → jump to its origin page; the operation pulses amber on arrival.
+- Cancel button on every cancellable op (DB backup/restore are intentionally uncancellable).
+- After container restart: ops in flight show as red "terminated by restart" on Status hub for 30 s, then auto-hide.
+- Old `/api/trash/empty/status` and `/api/trash/restore-all/status` endpoints kept as deprecated facades (returning registry-derived data with `Deprecation: true` + `Sunset` headers); removal in v0.36.x per BUG-019.
+
+**Spec:** [`docs/superpowers/specs/2026-04-28-active-operations-registry-design.md`](superpowers/specs/2026-04-28-active-operations-registry-design.md). 1,332 lines, 21 sections.
+
+**Plan:** [`docs/superpowers/plans/2026-04-28-active-operations-registry.md`](superpowers/plans/2026-04-28-active-operations-registry.md). 46 tasks across 5 phases.
+
+---
+
 ## v0.34.9 — Bulk-worker abort persists immediately even with stuck workers (BUG-018) (2026-04-30)
 
 **Closes the "abort safeguard didn't fire" mystery from the v0.34.7

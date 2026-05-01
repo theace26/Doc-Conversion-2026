@@ -505,76 +505,122 @@ async def reanalyze_bulk(
 
     row_ids = [r["id"] for r in rows]
 
-    async def _delete_all():
-        return await delete_rows_by_ids(row_ids)
-    deleted = await db_write_with_retry(_delete_all)
+    # Active-ops registry (v0.35.0): register a `analysis.rebuild` op
+    # only when committed to actual work — past the dry_run, cap, and
+    # 0-rows fast paths.  Cooperatively cancellable via
+    # active_ops.is_cancelled(op_id) inside the per-row enqueue loop.
+    from core import active_ops
 
-    # Re-enqueue resilience (v0.31.0 hardening): each row's enqueue is
-    # wrapped in its own try so a single failure (e.g. a concurrent
-    # scan racing the DELETE → INSERT window and re-inserting the same
-    # source_path) doesn't abort the whole bulk pass. Counts and the
-    # first ~5 failure reasons are surfaced in the response so
-    # operators can investigate.
+    op_id = await active_ops.register_op(
+        op_type="analysis.rebuild",
+        label=f"Bulk re-analyze ({matched} rows)",
+        icon="♻",  # ♻
+        origin_url="/batch-management.html",
+        started_by=user.email,
+        cancellable=True,
+        extra={
+            "matched": matched,
+            "filters": {
+                "analyzed_before_iso": body.analyzed_before_iso,
+                "analyzed_after_iso": body.analyzed_after_iso,
+                "provider_id": body.provider_id,
+                "model": body.model,
+                "status": body.status,
+            },
+        },
+    )
+    await active_ops.update_op(op_id, total=matched)
+
+    error_msg: str | None = None
     new_entry_ids: list[str] = []
     dropped = 0
     failed = 0
     failure_samples: list[str] = []
-    for r in rows:
-        try:
-            new_id = await enqueue_for_analysis(
-                source_path=r["source_path"],
-                content_hash=r["content_hash"],
-                job_id=r["job_id"],
-                scan_run_id=r["scan_run_id"],
-                file_category=r["file_category"] or "image",
-            )
-        except Exception as exc:
-            failed += 1
-            if len(failure_samples) < 5:
-                failure_samples.append(
-                    f"{r['source_path']}: {type(exc).__name__}: {exc}"
+
+    try:
+        async def _delete_all():
+            return await delete_rows_by_ids(row_ids)
+        deleted = await db_write_with_retry(_delete_all)
+
+        # Re-enqueue resilience (v0.31.0 hardening): each row's enqueue
+        # is wrapped in its own try so a single failure (e.g. a
+        # concurrent scan racing the DELETE → INSERT window and
+        # re-inserting the same source_path) doesn't abort the whole
+        # bulk pass. Counts and the first ~5 failure reasons are
+        # surfaced in the response so operators can investigate.
+        for i, r in enumerate(rows):
+            if active_ops.is_cancelled(op_id):
+                error_msg = "Cancelled by operator"
+                break
+            try:
+                new_id = await enqueue_for_analysis(
+                    source_path=r["source_path"],
+                    content_hash=r["content_hash"],
+                    job_id=r["job_id"],
+                    scan_run_id=r["scan_run_id"],
+                    file_category=r["file_category"] or "image",
                 )
-            log.warning(
-                "analysis.reanalyze_bulk_enqueue_failed",
-                source_path=r["source_path"],
-                error=f"{type(exc).__name__}: {exc}",
-            )
-            continue
-        if new_id is None:
-            # `enqueue_for_analysis` returns None when the same content
-            # is already completed elsewhere — shouldn't happen since
-            # we just deleted the row, but be defensive.
-            dropped += 1
-        else:
-            new_entry_ids.append(new_id)
+            except Exception as exc:
+                failed += 1
+                if len(failure_samples) < 5:
+                    failure_samples.append(
+                        f"{r['source_path']}: {type(exc).__name__}: {exc}"
+                    )
+                log.warning(
+                    "analysis.reanalyze_bulk_enqueue_failed",
+                    source_path=r["source_path"],
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+                # Mirror the increment to the registry — ``failed`` is
+                # what the operator-facing UI calls "errors".
+                await active_ops.update_op(
+                    op_id, done=i + 1, errors=failed,
+                )
+                continue
+            if new_id is None:
+                # `enqueue_for_analysis` returns None when the same
+                # content is already completed elsewhere — shouldn't
+                # happen since we just deleted the row, but be
+                # defensive.
+                dropped += 1
+            else:
+                new_entry_ids.append(new_id)
+            await active_ops.update_op(op_id, done=i + 1, errors=failed)
 
-    log.info(
-        "analysis.reanalyze_bulk",
-        user=user.email,
-        matched=matched,
-        deleted=deleted,
-        re_enqueued=len(new_entry_ids),
-        dropped=dropped,
-        failed=failed,
-        filters={
-            "analyzed_before_iso": body.analyzed_before_iso,
-            "analyzed_after_iso": body.analyzed_after_iso,
-            "provider_id": body.provider_id,
-            "model": body.model,
-            "status": body.status,
-        },
-    )
+        log.info(
+            "analysis.reanalyze_bulk",
+            user=user.email,
+            matched=matched,
+            deleted=deleted,
+            re_enqueued=len(new_entry_ids),
+            dropped=dropped,
+            failed=failed,
+            cancelled=(error_msg is not None),
+            filters={
+                "analyzed_before_iso": body.analyzed_before_iso,
+                "analyzed_after_iso": body.analyzed_after_iso,
+                "provider_id": body.provider_id,
+                "model": body.model,
+                "status": body.status,
+            },
+        )
 
-    return {
-        "dry_run": False,
-        "matched": matched,
-        "deleted": deleted,
-        "re_enqueued": len(new_entry_ids),
-        "new_entry_ids": new_entry_ids,
-        "dropped": dropped,
-        "failed": failed,
-        "failure_samples": failure_samples,
-    }
+        return {
+            "dry_run": False,
+            "matched": matched,
+            "deleted": deleted,
+            "re_enqueued": len(new_entry_ids),
+            "new_entry_ids": new_entry_ids,
+            "dropped": dropped,
+            "failed": failed,
+            "failure_samples": failure_samples,
+            "cancelled": error_msg is not None,
+        }
+    except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        await active_ops.finish_op(op_id, error_msg=error_msg)
 
 
 @router.get("/queue/reanalyze-filters")
@@ -934,3 +980,24 @@ async def preview_file(
         path=str(path),
         media_type=media_type or "application/octet-stream",
     )
+
+
+# ── Active Operations Registry: cancel hook for analysis.rebuild ────────────
+#
+# The bulk re-analyze handler (POST /api/analysis/queue/reanalyze-bulk)
+# polls active_ops.is_cancelled(op_id) at the top of each per-row
+# enqueue iteration; the registry's flag is the only signal.  The hook
+# is a no-op — registration is required only because register_op()
+# validates at module-import time that every cancellable=True op_type
+# has a hook bound.
+from core.active_ops import register_cancel_hook  # noqa: E402
+
+
+async def _cancel_analysis_rebuild_via_active_ops(op_id: str) -> None:
+    """No-op: reanalyze_bulk polls ``active_ops.is_cancelled`` per row."""
+    return None
+
+
+register_cancel_hook(
+    "analysis.rebuild", _cancel_analysis_rebuild_via_active_ops,
+)

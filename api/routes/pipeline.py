@@ -201,22 +201,57 @@ async def run_pipeline_now(
     """
 
     async def _run():
+        from core import active_ops
+        op_id = await active_ops.register_op(
+            op_type="pipeline.run_now",
+            label="Force Transcribe / Convert Pending",
+            icon="⚙",
+            origin_url="/history.html",
+            started_by=user.email,
+            cancellable=True,
+            cancel_url=None,
+        )
         register_run_now_scan()
+        error_msg = None
         try:
-            # Signal coordinator — cancels any active lifecycle scan
             notify_run_now_started()
-
-            # If a bulk job is active, wait for it to finish before scanning
             if is_any_bulk_active():
                 log.info("pipeline.run_now_waiting_for_bulk")
                 await wait_if_run_now_paused()
                 if is_run_now_cancelled():
                     log.info("pipeline.run_now_cancelled_while_waiting")
+                    error_msg = "Cancelled while waiting for bulk job"
                     return
+            async def _mirror_progress() -> None:
+                while True:
+                    await asyncio.sleep(2)
+                    if active_ops.is_cancelled(op_id):
+                        return
+                    try:
+                        from core.db.lifecycle import get_latest_scan_run
+                        scan = await get_latest_scan_run()
+                        if scan and scan.get("status") == "running":
+                            await active_ops.update_op(
+                                op_id,
+                                total=scan.get("total_files_counted") or 0,
+                                done=scan.get("files_scanned") or 0,
+                                errors=scan.get("errors") or 0,
+                            )
+                    except Exception:
+                        pass
 
-            await run_lifecycle_scan(force=True)
+            mirror_task = asyncio.create_task(_mirror_progress())
+            try:
+                await run_lifecycle_scan(force=True)
+            finally:
+                mirror_task.cancel()
+        except Exception as exc:
+            error_msg = f"{type(exc).__name__}: {exc}"
+            log.error("pipeline.run_now_failed", error=error_msg)
+            raise
         finally:
             unregister_run_now_scan()
+            await active_ops.finish_op(op_id, error_msg=error_msg)
 
     background_tasks.add_task(_run)
     log.info("pipeline.run_now_triggered")
@@ -410,17 +445,78 @@ async def _convert_one_pending_file(file_dict: dict, user_email: str) -> None:
 async def _run_convert_selected_batch(files: list[dict], user_email: str) -> None:
     """Spawn per-file conversion tasks with a concurrency cap so a
     100-file selection doesn't melt the worker pool. Caps at 4
-    concurrent conversions to match the default BULK_WORKER_COUNT."""
+    concurrent conversions to match the default BULK_WORKER_COUNT.
+
+    Active-ops registry (v0.35.0): registers a ``pipeline.convert_selected``
+    op at start, mirrors progress (total/done/errors) after each file,
+    and finalises in a try/finally so a cancelled or crashed batch
+    cannot leak a ``running`` row into the registry's DB.  The cancel
+    hook for this op_type is a no-op — workers check
+    ``active_ops.is_cancelled(op_id)`` per file (both before and inside
+    the concurrency semaphore), so the registry's cancelled flag IS
+    the signal.
+    """
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="pipeline.convert_selected",
+        label=f"Convert Selected ({len(files)} files)",
+        icon="⚙",
+        origin_url="/history.html",
+        started_by=user_email,
+        cancellable=True,
+        extra={"file_count": len(files)},
+    )
+
     sem = asyncio.Semaphore(4)
+    done_count = [0]
+    error_count = [0]
+    error_msg_holder: list[str | None] = [None]
 
     async def _bound(f: dict) -> None:
+        # Two cancel checks: one before queueing for the semaphore,
+        # one after acquiring it — covers both "cancel before any
+        # work started" and "cancel arrived while waiting for a slot".
+        if active_ops.is_cancelled(op_id):
+            return
         async with sem:
-            await _convert_one_pending_file(f, user_email)
+            if active_ops.is_cancelled(op_id):
+                return
+            try:
+                await _convert_one_pending_file(f, user_email)
+            except Exception as exc:
+                error_count[0] += 1
+                log.error(
+                    "convert_selected.file_failed",
+                    file_id=f.get("id"),
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+            done_count[0] += 1
+            await active_ops.update_op(
+                op_id,
+                total=len(files),
+                done=done_count[0],
+                errors=error_count[0],
+            )
 
-    await asyncio.gather(*(_bound(f) for f in files), return_exceptions=False)
+    try:
+        await asyncio.gather(
+            *(_bound(f) for f in files), return_exceptions=False,
+        )
+        if active_ops.is_cancelled(op_id):
+            error_msg_holder[0] = "Cancelled by operator"
+    except Exception as exc:
+        error_msg_holder[0] = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        await active_ops.finish_op(op_id, error_msg=error_msg_holder[0])
+
     log.info(
         "convert_selected.batch_complete",
-        count=len(files), user=user_email,
+        count=len(files),
+        errors=error_count[0],
+        cancelled=active_ops.is_cancelled(op_id),
+        user=user_email,
     )
 
 
@@ -735,3 +831,23 @@ async def _browse_search_index(
             continue
 
     return files, total
+
+
+# ── Active Operations Registry: cancel hook for pipeline.convert_selected ────
+#
+# Workers in _run_convert_selected_batch check active_ops.is_cancelled(op_id)
+# per file (before and inside the semaphore) — the registry's cancelled flag
+# IS the signal, so this hook is a no-op.  It is still required because
+# register_op() validates that every cancellable=True op_type has a hook
+# registered at module-import time.
+from core.active_ops import register_cancel_hook  # noqa: E402
+
+
+async def _cancel_convert_selected_via_active_ops(op_id: str) -> None:
+    """No-op: workers check active_ops.is_cancelled(op_id) per file."""
+    return None
+
+
+register_cancel_hook(
+    "pipeline.convert_selected", _cancel_convert_selected_via_active_ops,
+)

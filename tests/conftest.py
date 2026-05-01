@@ -5,13 +5,23 @@ Provides: async test client, temporary directory fixtures, SQLite DB fixtures,
 and runs generate_fixtures.py to ensure test files exist before any test runs.
 """
 
+import contextvars as _cv
 import os
+import socket
 import tempfile
+import threading
+import time
 from pathlib import Path
 
+import httpx
 import pytest
 import pytest_asyncio
+import uvicorn
 from httpx import ASGITransport, AsyncClient
+
+_test_user_role: "_cv.ContextVar[object | None]" = _cv.ContextVar(
+    "_test_user_role", default=None
+)
 
 # ── Set env vars before any app module is imported ───────────────────────────
 # aiosqlite :memory: creates a new DB per connection and won't persist across
@@ -295,3 +305,454 @@ def document_model_with_all_elements():
         attributes={"id": "1"},
     ))
     return model
+
+
+# ── Active Operations Registry test fixtures (v0.35.0) ──────────────────────
+
+@pytest_asyncio.fixture(autouse=True)
+async def _set_hydration_event():
+    """Tests don't run lifespan hydration — fake the event so register_op
+    doesn't block. Also register a stub cancel hook for the op_types that
+    Task 3's tests exercise as cancellable=True. Real hooks are registered
+    by their owning subsystems at module import (Tasks 14, 16, 17, 18, 19,
+    20, 23); until those land, tests that need cancellable=True for a
+    given op_type must wire it up here.
+
+    Caveat: this fixture leaves `_cancel_hooks["pipeline.run_now"]`
+    populated for the entire suite (no teardown — `setdefault` is
+    idempotent). Any future test that needs to assert "no real hook
+    is registered for pipeline.run_now" must explicitly
+    `_cancel_hooks.pop("pipeline.run_now", None)` inside the test
+    body — or this fixture should be reshaped to yield-then-clear."""
+    from core import active_ops
+    active_ops._hydration_complete.set()
+
+    # Stub hook for pipeline.run_now so test_register_op_returns_unique_uuid_and_persists
+    # (which passes cancellable=True) succeeds. Intentionally NOT registering
+    # for db.backup so test_register_op_cancellable_without_hook_raises still raises.
+    #
+    # Also stubs pipeline.convert_selected (Task 15) — the real hook is
+    # registered at module import in api/routes/pipeline.py, but
+    # tests/test_active_ops_endpoint.py's autouse fixture *clears* the
+    # dict before and after every test in that file.  When integration
+    # tests run after that file in the same suite, the real hook is gone
+    # (Python doesn't re-execute module-level code), so the integration
+    # test's cancellable=True call would raise without this re-seed.
+    async def _stub_cancel(op_id: str) -> None:
+        return None
+
+    active_ops._cancel_hooks.setdefault("pipeline.run_now", _stub_cancel)
+    active_ops._cancel_hooks.setdefault("pipeline.convert_selected", _stub_cancel)
+    active_ops._cancel_hooks.setdefault("pipeline.scan", _stub_cancel)
+    active_ops._cancel_hooks.setdefault("trash.empty", _stub_cancel)
+    active_ops._cancel_hooks.setdefault("trash.restore_all", _stub_cancel)
+    active_ops._cancel_hooks.setdefault("analysis.rebuild", _stub_cancel)
+    active_ops._cancel_hooks.setdefault("bulk.job", _stub_cancel)
+
+    yield
+    # Don't clear — once set, leave set for the rest of the suite
+
+
+# ── authed_operator / authed_manager: role-scoped AsyncClients (v0.35.0) ─────
+#
+# Both fixtures inject a concrete role via dependency_overrides[get_current_user].
+# When a test uses BOTH fixtures simultaneously (e.g. test_cancel_requires_manager_role),
+# the overrides would conflict if stored globally. We solve this with a ContextVar:
+# the override function reads the desired role from a ContextVar, and each client
+# sets the ContextVar before each request via an httpx event hook. This ensures
+# role isolation even when both clients are live concurrently.
+
+def _make_role_scoped_client(app, role):
+    """Build an AsyncClient that injects `role` into every request via ContextVar."""
+    from core.auth import AuthenticatedUser, UserRole, get_current_user
+
+    # Install (or replace) the override that reads the ContextVar
+    async def _role_from_contextvar():
+        _role = _test_user_role.get()
+        if _role is None:
+            _role = role  # fallback for single-fixture tests
+        return AuthenticatedUser(
+            sub=f"test-{_role.value}",
+            email=f"{_role.value}@test",
+            role=_role,
+            is_service_account=False,
+        )
+
+    app.dependency_overrides[get_current_user] = _role_from_contextvar
+
+    # httpx event hook: set the ContextVar to this fixture's role before each request
+    async def _set_role(request):  # noqa: ARG001
+        _test_user_role.set(role)
+
+    transport = ASGITransport(app=app)
+    return AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        event_hooks={"request": [_set_role]},
+    )
+
+
+@pytest_asyncio.fixture
+async def authed_operator(client):
+    """Per-test AsyncClient with exactly OPERATOR role.
+
+    Injects UserRole.OPERATOR via a ContextVar-backed dependency override so
+    that endpoints guarded by require_role(UserRole.MANAGER) return 403, while
+    endpoints guarded by require_role(UserRole.OPERATOR) return 200.
+    Safe to use alongside authed_manager in the same test.
+
+    Depends on the session-scoped ``client`` fixture only to ensure
+    ``init_db()`` has run (which applies all _MIGRATIONS, including v29's
+    ``active_operations`` table) before this fixture yields. Without this
+    dependency, running endpoint tests in isolation skips migrations and
+    DB-touching tests fail with ``no such table``."""
+    from core.auth import UserRole
+    from main import app
+
+    ac = _make_role_scoped_client(app, UserRole.OPERATOR)
+    async with ac:
+        yield ac
+
+
+@pytest_asyncio.fixture
+async def authed_manager(client):
+    """Per-test AsyncClient with exactly MANAGER role.
+
+    Injects UserRole.MANAGER via a ContextVar-backed dependency override so
+    that endpoints guarded by require_role(UserRole.MANAGER) return 200.
+    Safe to use alongside authed_operator in the same test.
+
+    Depends on the session-scoped ``client`` fixture only to ensure
+    ``init_db()`` has run (which applies all _MIGRATIONS, including v29's
+    ``active_operations`` table) before this fixture yields. Without this
+    dependency, running endpoint tests in isolation skips migrations and
+    DB-touching tests fail with ``no such table``."""
+    from core.auth import UserRole
+    from main import app
+
+    ac = _make_role_scoped_client(app, UserRole.MANAGER)
+    async with ac:
+        yield ac
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _reset_role_overrides():
+    """Clean up role-scoped dependency overrides + ContextVar after each test.
+
+    Centralizes cleanup that authed_operator/manager fixtures used to do
+    in their finally blocks. With two role fixtures coexisting, fixture-
+    local pop() races against the still-live partner; this autouse
+    fixture runs once per test, guaranteeing a clean slate."""
+    yield
+    from main import app
+    from core.auth import get_current_user
+    app.dependency_overrides.pop(get_current_user, None)
+    _test_user_role.set(None)
+
+
+# ── Real-uvicorn integration fixtures (Phase 3 Path B) ───────────────────────
+#
+# ASGITransport runs BackgroundTasks inside the test's event loop, which
+# causes pytest teardown to stall when a background task doesn't honor a
+# cancel flag promptly.  Running a real uvicorn server in a background
+# thread gives BackgroundTasks a separate event loop that is fully
+# independent of the test loop — clean startup, clean shutdown.
+#
+# Both fixtures below modify app.dependency_overrides on the module-level
+# app object.  Because pytest runs tests sequentially there is no race;
+# no locking is needed.
+
+@pytest.fixture(scope="session")
+def real_server(client):  # `client` dep ensures init_db() has run
+    """Start a real uvicorn server in a background thread.
+
+    Yields the base URL string, e.g. ``"http://127.0.0.1:54321"``.
+    Session-scoped: one server for the whole test session.
+
+    The ``client`` dependency is declared only to guarantee that
+    ``init_db()`` has run (and the DB schema exists) before the first
+    request hits the real server.
+    """
+    from main import app as _app  # noqa: F401 — ensures app is imported
+
+    # Pick a free port
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+
+    # Build and start the server
+    config = uvicorn.Config(
+        "main:app",
+        host="127.0.0.1",
+        port=port,
+        log_level="warning",
+        lifespan="on",
+    )
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+
+    # Wait for uvicorn to signal startup (server.started is set by uvicorn ≥0.18).
+    # This app has a heavy lifespan (DB pool, Meilisearch, scheduler, etc.)
+    # that takes up to ~15s on first start; 30s gives comfortable headroom.
+    deadline = time.time() + 30
+    while not server.started:
+        if time.time() > deadline:
+            server.should_exit = True
+            thread.join(timeout=5)
+            pytest.fail("real_server: uvicorn did not start within 30 seconds")
+        time.sleep(0.1)
+
+    base_url = f"http://127.0.0.1:{port}"
+    yield base_url
+
+    # Teardown
+    server.should_exit = True
+    thread.join(timeout=5)
+
+
+@pytest_asyncio.fixture
+async def authed_operator_real(real_server):
+    """Per-test AsyncClient aimed at the real uvicorn server with OPERATOR role.
+
+    Installs a dependency override on the module-level app object so the
+    running server returns OPERATOR-scoped responses.  Pops the override
+    on teardown (``_reset_role_overrides`` autouse fixture also covers this).
+    """
+    from core.auth import AuthenticatedUser, UserRole, get_current_user
+    from main import app
+
+    async def _operator():
+        return AuthenticatedUser(
+            sub="test-operator",
+            email="operator@test",
+            role=UserRole.OPERATOR,
+            is_service_account=False,
+        )
+
+    app.dependency_overrides[get_current_user] = _operator
+    try:
+        async with httpx.AsyncClient(base_url=real_server) as ac:
+            yield ac
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest_asyncio.fixture
+async def authed_manager_real(real_server):
+    """Per-test AsyncClient aimed at the real uvicorn server with MANAGER role.
+
+    Installs a dependency override on the module-level app object so the
+    running server returns MANAGER-scoped responses.  Pops the override
+    on teardown (``_reset_role_overrides`` autouse fixture also covers this).
+    """
+    from core.auth import AuthenticatedUser, UserRole, get_current_user
+    from main import app
+
+    async def _manager():
+        return AuthenticatedUser(
+            sub="test-manager",
+            email="manager@test",
+            role=UserRole.MANAGER,
+            is_service_account=False,
+        )
+
+    app.dependency_overrides[get_current_user] = _manager
+    try:
+        async with httpx.AsyncClient(base_url=real_server) as ac:
+            yield ac
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest_asyncio.fixture
+async def authed_admin_real(real_server):
+    """Per-test AsyncClient aimed at the real uvicorn server with ADMIN role.
+
+    Same shape as ``authed_manager_real`` but for endpoints that require
+    ADMIN (e.g. POST /api/db/backup, POST /api/db/restore — Tasks 21, 22).
+    """
+    from core.auth import AuthenticatedUser, UserRole, get_current_user
+    from main import app
+
+    async def _admin():
+        return AuthenticatedUser(
+            sub="test-admin",
+            email="admin@test",
+            role=UserRole.ADMIN,
+            is_service_account=False,
+        )
+
+    app.dependency_overrides[get_current_user] = _admin
+    try:
+        async with httpx.AsyncClient(base_url=real_server) as ac:
+            yield ac
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+# ── Seed fixtures for integration tests (Phase 3 retrofits) ──────────────────
+
+@pytest_asyncio.fixture
+async def sample_pending_file_id(client):
+    """Insert a parent ``bulk_jobs`` row + a ``bulk_files`` row with
+    ``status='pending'`` and yield the file id.
+
+    Drives integration tests that exercise endpoints requiring a real
+    pending bulk_files row (e.g. ``POST /api/pipeline/convert-selected``).
+    The conversion worker will fail to actually process the file (the
+    source path doesn't exist on disk) but that's irrelevant — the test
+    asserts on op registration, which happens before the worker runs.
+
+    Uses **direct synchronous sqlite3** (not the async pool).  Tests
+    that combine ``client`` and ``real_server`` have two event loops;
+    the connection pool's single-writer task is bound to whichever
+    loop called ``init_db()`` first — writing through the pool from
+    the *other* loop deadlocks.  WAL is enabled, so a sync commit
+    here is visible to the real server's pool on its next read.
+
+    The ``client`` dep guarantees ``init_db()`` has applied all
+    migrations (including v29's ``active_operations``) before the
+    seed inserts run.
+    """
+    import os
+    import sqlite3
+    import uuid
+
+    file_id = "test-pending-" + uuid.uuid4().hex[:8]
+    job_id = "test-job-" + uuid.uuid4().hex[:8]
+    db_path = os.environ["DB_PATH"]
+
+    # bulk_jobs: id + source_path + output_path are NOT NULL; the rest
+    # have defaults. bulk_files needs a real bulk_jobs row to satisfy
+    # the FK on bulk_files.job_id.
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO bulk_jobs (id, source_path, output_path) "
+            "VALUES (?, '/tmp', '/tmp/output')",
+            (job_id,),
+        )
+        # bulk_files: id, job_id, source_path, file_ext are NOT NULL.
+        # source_path has UNIQUE — embed file_id so parallel/repeated
+        # runs don't collide.
+        conn.execute(
+            "INSERT INTO bulk_files (id, job_id, source_path, file_ext, status) "
+            "VALUES (?, ?, ?, 'pdf', 'pending')",
+            (file_id, job_id, f"/tmp/fake-{file_id}.pdf"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    yield file_id
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("DELETE FROM bulk_files WHERE id=?", (file_id,))
+        conn.execute("DELETE FROM bulk_jobs WHERE id=?", (job_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@pytest_asyncio.fixture
+async def sample_in_trash_source_file_id(client):
+    """Seed a ``source_files`` row with ``lifecycle_status='in_trash'``
+    and yield its id.
+
+    Used by Task 17 / 18 integration tests because POST /api/trash/empty
+    and POST /api/trash/restore-all both short-circuit with "status:
+    done" when ``count_source_files_by_lifecycle_status('in_trash')``
+    returns 0 — bypassing the worker entirely, so no op ever registers
+    in the active-ops registry.
+
+    Same sync-sqlite3 pattern as ``sample_pending_file_id`` — bypasses
+    the async pool to avoid cross-loop deadlock when combined with the
+    ``real_server`` fixture.
+    """
+    import os
+    import sqlite3
+    import uuid
+
+    sf_id = "test-trash-" + uuid.uuid4().hex[:8]
+    db_path = os.environ["DB_PATH"]
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO source_files (id, source_path, file_ext, lifecycle_status) "
+            "VALUES (?, ?, 'pdf', 'in_trash')",
+            (sf_id, f"/tmp/fake-trash-{sf_id}.pdf"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    yield sf_id
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("DELETE FROM source_files WHERE id=?", (sf_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@pytest_asyncio.fixture
+async def sample_analysis_queue_row(client):
+    """Seed an ``analysis_queue`` row with status='completed' and a
+    unique ``provider_id``, yielding ``(provider_id, row_id)``.
+
+    Used by the Task 20 integration test.  POST
+    /api/analysis/queue/reanalyze-bulk requires at least one filter
+    (status default 'completed' alone is rejected as "match every
+    row"); seeding a row with a unique provider_id lets the test
+    filter on that provider_id without affecting other queue contents.
+
+    Cleanup deletes by ``source_path`` (which is preserved through the
+    handler's DELETE+re-INSERT cycle) rather than ``id`` (which is
+    regenerated by enqueue_for_analysis).
+
+    Same sync-sqlite3 pattern as the other seed fixtures to avoid the
+    cross-loop pool deadlock when combined with ``real_server``.
+    """
+    import os
+    import sqlite3
+    import uuid
+    from datetime import datetime, timezone
+
+    row_id = "test-analq-" + uuid.uuid4().hex[:8]
+    provider_id = "test-provider-" + uuid.uuid4().hex[:8]
+    source_path = f"/tmp/fake-analq-{row_id}.png"
+    db_path = os.environ["DB_PATH"]
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO analysis_queue "
+            "(id, source_path, file_category, enqueued_at, status, provider_id, content_hash) "
+            "VALUES (?, ?, 'image', ?, 'completed', ?, ?)",
+            (
+                row_id,
+                source_path,
+                datetime.now(timezone.utc).isoformat(),
+                provider_id,
+                "fake-hash-" + row_id,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    yield (provider_id, row_id, source_path)
+
+    conn = sqlite3.connect(db_path)
+    try:
+        # Delete by source_path (preserved through DELETE+re-INSERT).
+        conn.execute(
+            "DELETE FROM analysis_queue WHERE source_path=?", (source_path,),
+        )
+        conn.commit()
+    finally:
+        conn.close()

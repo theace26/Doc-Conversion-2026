@@ -1,0 +1,457 @@
+"""End-to-end integration tests for each op_type retrofit (v0.35.0)."""
+from __future__ import annotations
+
+import asyncio
+import time
+
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_pipeline_run_now_registers_op(authed_manager_real):
+    """POST /api/pipeline/run-now should result in a pipeline.run_now
+    op visible in /api/active-ops, and cancel should finish it cleanly.
+
+    Uses HTTP throughout — no direct active_ops module calls — so all
+    DB writes stay on the real server's event loop and never cross
+    asyncio.Queue boundaries.
+
+    The real lifecycle scan runs; cancel is sent after the op appears,
+    and the scan honors the cancel signal via cancel_lifecycle_scan()
+    bridged from the active_ops cancel hook.
+    """
+    resp = await authed_manager_real.post("/api/pipeline/run-now")
+    assert resp.status_code == 200
+
+    # Slightly longer wait — real uvicorn dispatches BackgroundTasks
+    # asynchronously in its own event loop; give it time to register.
+    await asyncio.sleep(1.2)
+
+    # Poll active-ops via HTTP (all ops run in the server's loop)
+    ops_resp = await authed_manager_real.get("/api/active-ops")
+    assert ops_resp.status_code == 200
+    ops = ops_resp.json()["ops"]
+    pipeline_ops = [o for o in ops if o["op_type"] == "pipeline.run_now"]
+    assert len(pipeline_ops) >= 1, f"Expected pipeline.run_now op, got: {ops}"
+    op = pipeline_ops[0]
+    assert op["origin_url"] == "/history.html"
+    assert op["cancellable"] is True
+    assert op["icon"] != ""
+
+    op_id = op["op_id"]
+
+    # The scan may already be done — only cancel if still running
+    if op.get("finished_at_epoch") is None:
+        cancel_resp = await authed_manager_real.post(f"/api/active-ops/{op_id}/cancel")
+        # 200 = cancel sent; 400 = already finished (race, also acceptable)
+        assert cancel_resp.status_code in (200, 400)
+
+    # Wait for the background _run to actually finish by polling via HTTP.
+    # Real lifecycle scan against /mnt/source may take several seconds even
+    # when honoring cancel — allow 20s.
+    deadline = time.time() + 20
+    while time.time() < deadline:
+        poll_resp = await authed_manager_real.get("/api/active-ops")
+        if poll_resp.status_code == 200:
+            current_ops = poll_resp.json()["ops"]
+            matching = [o for o in current_ops if o["op_id"] == op_id]
+            if not matching or matching[0].get("finished_at_epoch") is not None:
+                break
+        await asyncio.sleep(0.2)
+    else:
+        pytest.fail(f"op {op_id} did not finish within 20s of cancel")
+
+
+@pytest.mark.asyncio
+async def test_convert_selected_registers_op(
+    authed_operator_real, sample_pending_file_id,
+):
+    """POST /api/pipeline/convert-selected with a valid pending file_id
+    registers a pipeline.convert_selected op in /api/active-ops with
+    cancellable=True.
+
+    Uses HTTP throughout — no direct active_ops module calls — so all
+    DB writes stay on the real server's event loop and never cross
+    asyncio.Queue boundaries. Same pattern as
+    test_pipeline_run_now_registers_op.
+
+    The conversion worker will fail (source file doesn't exist) but
+    that's fine — the op is registered before the worker runs and
+    list_ops() returns finished ops within the 30s grace window, so
+    the assertion holds either way.
+    """
+    resp = await authed_operator_real.post(
+        "/api/pipeline/convert-selected",
+        json={"file_ids": [sample_pending_file_id]},
+    )
+    assert resp.status_code == 200, f"convert-selected returned {resp.status_code}: {resp.text}"
+
+    # Real uvicorn dispatches BackgroundTasks asynchronously in its
+    # own event loop; same 1.2s wait as Task 14's run-now test.
+    await asyncio.sleep(1.2)
+
+    ops_resp = await authed_operator_real.get("/api/active-ops")
+    assert ops_resp.status_code == 200
+    ops = ops_resp.json()["ops"]
+    cs_ops = [o for o in ops if o["op_type"] == "pipeline.convert_selected"]
+    assert len(cs_ops) >= 1, f"Expected pipeline.convert_selected op, got: {ops}"
+    op = cs_ops[0]
+    assert op["origin_url"] == "/history.html"
+    assert op["cancellable"] is True
+    assert op["icon"] != ""
+
+
+@pytest.mark.asyncio
+async def test_pipeline_scan_registers_op(authed_manager_real):
+    """Triggering /api/pipeline/run-now results in BOTH a pipeline.run_now
+    op AND a pipeline.scan op being registered in /api/active-ops.
+    pipeline.run_now is the orchestration shell; pipeline.scan is the
+    actual scanner work, registered from inside
+    core.lifecycle_scanner.run_lifecycle_scan.
+
+    Uses HTTP only — same cross-loop safety as
+    test_pipeline_run_now_registers_op.
+
+    On dev machines without configured source paths, the scan exits
+    very quickly (returns at the no-source-path / no-valid-roots paths
+    of run_lifecycle_scan), but list_ops()'s 30s grace window means
+    the op is still visible to this test either way.
+    """
+    resp = await authed_manager_real.post("/api/pipeline/run-now")
+    assert resp.status_code == 200
+
+    # Wait long enough for run_now's BackgroundTask to invoke
+    # run_lifecycle_scan, which is where pipeline.scan registers.
+    await asyncio.sleep(2.0)
+
+    ops_resp = await authed_manager_real.get("/api/active-ops")
+    assert ops_resp.status_code == 200
+    ops = ops_resp.json()["ops"]
+    op_types = {o["op_type"] for o in ops}
+    assert "pipeline.scan" in op_types, (
+        f"Expected pipeline.scan op, got types: {sorted(op_types)} (ops: {ops})"
+    )
+
+    scan_op = next(o for o in ops if o["op_type"] == "pipeline.scan")
+    assert scan_op["origin_url"] == "/status.html"
+    assert scan_op["cancellable"] is True
+    assert scan_op["icon"] != ""
+
+
+@pytest.mark.asyncio
+async def test_trash_empty_registers_op_replacing_old_dict(
+    authed_manager_real, sample_in_trash_source_file_id,
+):
+    """POST /api/trash/empty registers a trash.empty op visible in
+    /api/active-ops, AND the deprecated /api/trash/empty/status facade
+    still returns the legacy shape with a ``Deprecation: true`` header.
+
+    Uses HTTP only via authed_manager_real because the endpoint spawns
+    work via ``asyncio.create_task`` — under ASGITransport that runs
+    in the test loop and risks the same teardown stall the real-server
+    fixture was created to avoid.
+
+    The ``sample_in_trash_source_file_id`` fixture seeds one trashed
+    row so the endpoint actually invokes ``purge_all_trash`` (and thus
+    registers the op).  Without it, the endpoint short-circuits with
+    "status: done" when count_source_files_by_lifecycle_status returns
+    0, and no op ever registers.
+    """
+    resp = await authed_manager_real.post("/api/trash/empty")
+    assert resp.status_code == 200, f"POST /empty -> {resp.status_code}: {resp.text}"
+
+    # Wait for asyncio.create_task to actually run + register the op
+    await asyncio.sleep(0.8)
+
+    ops_resp = await authed_manager_real.get("/api/active-ops")
+    assert ops_resp.status_code == 200
+    ops = ops_resp.json()["ops"]
+    trash_ops = [o for o in ops if o["op_type"] == "trash.empty"]
+    assert len(trash_ops) >= 1, (
+        f"Expected trash.empty op, got types: "
+        f"{sorted({o['op_type'] for o in ops})} (ops: {ops})"
+    )
+    op = trash_ops[0]
+    assert op["origin_url"] == "/trash.html"
+    assert op["cancellable"] is True
+    assert op["icon"] != ""
+
+    # Deprecated facade still works + carries Deprecation header
+    facade = await authed_manager_real.get("/api/trash/empty/status")
+    assert facade.status_code == 200
+    body = facade.json()
+    assert {"running", "total", "done", "errors"}.issubset(body.keys()), (
+        f"Facade missing legacy keys, got: {sorted(body.keys())}"
+    )
+    assert facade.headers.get("Deprecation", "").lower() == "true"
+
+
+@pytest.mark.asyncio
+async def test_trash_restore_all_registers_op(
+    authed_manager_real, sample_in_trash_source_file_id,
+):
+    """POST /api/trash/restore-all registers a trash.restore_all op
+    visible in /api/active-ops, AND the deprecated
+    /api/trash/restore-all/status facade still returns the legacy shape
+    with a ``Deprecation: true`` header.
+
+    Same shape as test_trash_empty_registers_op_replacing_old_dict
+    (recon §D.2 — restore-all has the same chunk/loop semantics, no
+    pre-existing cancel mechanism, and the same legacy dict pattern
+    as empty-trash).
+    """
+    resp = await authed_manager_real.post("/api/trash/restore-all")
+    assert resp.status_code == 200, f"POST /restore-all -> {resp.status_code}: {resp.text}"
+
+    await asyncio.sleep(0.8)
+
+    ops_resp = await authed_manager_real.get("/api/active-ops")
+    assert ops_resp.status_code == 200
+    ops = ops_resp.json()["ops"]
+    matching = [o for o in ops if o["op_type"] == "trash.restore_all"]
+    assert len(matching) >= 1, (
+        f"Expected trash.restore_all op, got types: "
+        f"{sorted({o['op_type'] for o in ops})} (ops: {ops})"
+    )
+    op = matching[0]
+    assert op["origin_url"] == "/trash.html"
+    assert op["cancellable"] is True
+    assert op["icon"] != ""
+
+    facade = await authed_manager_real.get("/api/trash/restore-all/status")
+    assert facade.status_code == 200
+    body = facade.json()
+    assert {"running", "total", "done", "errors"}.issubset(body.keys()), (
+        f"Facade missing legacy keys, got: {sorted(body.keys())}"
+    )
+    assert facade.headers.get("Deprecation", "").lower() == "true"
+
+
+@pytest.mark.asyncio
+async def test_search_rebuild_index_registers_op(authed_manager_real):
+    """POST /api/search/index/rebuild registers a search.rebuild_index op
+    visible in /api/active-ops with cancellable=False (Meili rebuild is
+    atomic-ish; the existing ErrorRateMonitor inside SearchIndexer
+    handles abort-on-failure internally).
+
+    Uses authed_manager_real because the endpoint spawns the rebuild via
+    asyncio.create_task; under ASGITransport that runs in the test loop.
+
+    On dev machines with no converted files the worker exits very
+    quickly (zero files + zero adobe entries), but list_ops()'s 30s
+    grace window keeps the op visible to this test either way.
+
+    Note: the role guard was raised from SEARCH_USER to MANAGER in Task
+    19 (full re-index holds the Meilisearch index lock and is
+    operator-class work) — authed_manager_real has the right role.
+    """
+    resp = await authed_manager_real.post("/api/search/index/rebuild")
+    assert resp.status_code == 200, (
+        f"POST /api/search/index/rebuild -> {resp.status_code}: {resp.text}"
+    )
+
+    await asyncio.sleep(0.6)
+
+    ops_resp = await authed_manager_real.get("/api/active-ops")
+    assert ops_resp.status_code == 200
+    ops = ops_resp.json()["ops"]
+    rebuild_ops = [o for o in ops if o["op_type"] == "search.rebuild_index"]
+    assert len(rebuild_ops) >= 1, (
+        f"Expected search.rebuild_index op, got types: "
+        f"{sorted({o['op_type'] for o in ops})}"
+    )
+    op = rebuild_ops[0]
+    assert op["origin_url"] == "/settings.html"
+    assert op["cancellable"] is False
+    assert op["icon"] != ""
+
+
+@pytest.mark.asyncio
+async def test_analysis_rebuild_registers_op(
+    authed_operator_real, sample_analysis_queue_row,
+):
+    """POST /api/analysis/queue/reanalyze-bulk with dry_run=False
+    registers an analysis.rebuild op visible in /api/active-ops with
+    cancellable=True.
+
+    The handler is synchronous — by the time the response returns, the
+    op has already been finalised.  list_ops()'s 30s grace window keeps
+    finished ops visible to this poll.
+
+    Uses authed_operator_real for parity with the other integration
+    tests (the handler is fully synchronous so authed_operator would
+    also work here, but real is the safer default).
+
+    The fixture seeds one analysis_queue row with a unique provider_id
+    so the bulk filter has at least one match (otherwise the endpoint
+    short-circuits with matched=0 and never registers an op).
+    """
+    provider_id, _row_id, _source_path = sample_analysis_queue_row
+
+    resp = await authed_operator_real.post(
+        "/api/analysis/queue/reanalyze-bulk",
+        json={
+            "provider_id": provider_id,
+            "status": "completed",
+            "dry_run": False,
+        },
+    )
+    assert resp.status_code == 200, (
+        f"reanalyze-bulk -> {resp.status_code}: {resp.text}"
+    )
+    body = resp.json()
+    assert body["matched"] >= 1, f"Expected at least 1 matched row, got: {body}"
+
+    await asyncio.sleep(0.3)
+
+    ops_resp = await authed_operator_real.get("/api/active-ops")
+    assert ops_resp.status_code == 200
+    ops = ops_resp.json()["ops"]
+    matching = [o for o in ops if o["op_type"] == "analysis.rebuild"]
+    assert len(matching) >= 1, (
+        f"Expected analysis.rebuild op, got types: "
+        f"{sorted({o['op_type'] for o in ops})}"
+    )
+    op = matching[0]
+    assert op["origin_url"] == "/batch-management.html"
+    assert op["cancellable"] is True
+    assert op["icon"] != ""
+
+
+@pytest.mark.asyncio
+async def test_db_backup_registers_op(authed_admin_real):
+    """POST /api/db/backup registers a db.backup op visible in
+    /api/active-ops with cancellable=False.
+
+    The handler is fully synchronous — by the time the response returns
+    the op is already finalised.  list_ops()'s 30s grace window keeps
+    the finished op visible to this poll.
+
+    Note: this test actually performs a real backup against the test DB
+    (it's a temp file under /tmp, very fast).  If the backup fails for
+    any reason on a dev environment (BACKUPS_DIR misconfigured, disk
+    space, etc.) the endpoint returns a 4xx and the op is still
+    registered+finished — the assertions below check op presence, not
+    a 200 response, so the test is robust to either outcome.
+    """
+    resp = await authed_admin_real.post("/api/db/backup")
+    # Either 200 (backup succeeded) or 4xx (backup failed but op still
+    # registered+finished). 5xx would be a real bug.
+    assert resp.status_code < 500, (
+        f"POST /api/db/backup -> {resp.status_code}: {resp.text}"
+    )
+
+    ops_resp = await authed_admin_real.get("/api/active-ops")
+    assert ops_resp.status_code == 200
+    ops = ops_resp.json()["ops"]
+    backup_ops = [o for o in ops if o["op_type"] == "db.backup"]
+    assert len(backup_ops) >= 1, (
+        f"Expected db.backup op, got types: "
+        f"{sorted({o['op_type'] for o in ops})}"
+    )
+    op = backup_ops[0]
+    assert op["origin_url"] == "/settings.html"
+    assert op["cancellable"] is False
+    assert op["icon"] != ""
+    # Synchronous handler — by the time we polled, op should have
+    # finish_at_epoch populated.
+    assert op["finished_at_epoch"] is not None
+
+
+@pytest.mark.asyncio
+async def test_db_restore_registers_op(authed_admin_real):
+    """POST /api/db/restore registers a db.restore op visible in
+    /api/active-ops with cancellable=False.
+
+    The handler is fully synchronous — by the time the response returns
+    the op is already finalised.  list_ops()'s 30s grace window keeps
+    the finished op visible to this poll.
+
+    We upload an invalid SQLite file (random bytes) so restore_database
+    fails its integrity check and returns {"ok": False} without touching
+    the live DB.  The op still registers and finishes, which is what this
+    test verifies.  The expected response is 4xx (integrity_check_failed),
+    not 5xx — same robustness contract as test_db_backup_registers_op.
+    """
+    import io
+
+    invalid_db_bytes = b"not a valid sqlite database file"
+
+    resp = await authed_admin_real.post(
+        "/api/db/restore",
+        files={"file": ("test_backup.db", io.BytesIO(invalid_db_bytes), "application/octet-stream")},
+    )
+    # Integrity check fails → 400; 5xx would be a real bug.
+    assert resp.status_code < 500, (
+        f"POST /api/db/restore -> {resp.status_code}: {resp.text}"
+    )
+
+    ops_resp = await authed_admin_real.get("/api/active-ops")
+    assert ops_resp.status_code == 200
+    ops = ops_resp.json()["ops"]
+    restore_ops = [o for o in ops if o["op_type"] == "db.restore"]
+    assert len(restore_ops) >= 1, (
+        f"Expected db.restore op, got types: "
+        f"{sorted({o['op_type'] for o in ops})}"
+    )
+    op = restore_ops[0]
+    assert op["origin_url"] == "/settings.html"
+    assert op["cancellable"] is False
+    assert op["icon"] != ""
+    # Synchronous handler — finished_at_epoch should be populated.
+    assert op["finished_at_epoch"] is not None
+
+
+@pytest.mark.asyncio
+async def test_bulk_job_registers_thin_mirror(authed_manager_real, tmp_path):
+    """POST /api/bulk/jobs with an empty source directory registers a
+    bulk.job op in /api/active-ops with cancellable=True.
+
+    The empty source directory causes the bulk scan to find zero convertible
+    files; the job completes almost immediately.  list_ops()'s 30s grace
+    window keeps the finished op visible to this poll.
+
+    Uses authed_manager_real because BulkJob.run() is dispatched via
+    asyncio.create_task — under ASGITransport that task runs in the test
+    loop and can stall pytest teardown if the job doesn't finish promptly.
+
+    op["extra"]["job_id"] identifies the originating BulkJob for the cancel
+    hook (register_op always generates a fresh UUID as op_id; it does NOT
+    equal the job_id).
+    """
+    source_dir = tmp_path / "bulk_source"
+    source_dir.mkdir()
+    output_dir = tmp_path / "bulk_output"
+    output_dir.mkdir()
+
+    resp = await authed_manager_real.post(
+        "/api/bulk/jobs",
+        json={
+            "source_path": str(source_dir),
+            "output_path": str(output_dir),
+            "worker_count": 1,
+        },
+    )
+    if resp.status_code == 409:
+        pytest.skip("Another bulk job is already running — skipping thin-mirror test")
+    assert resp.status_code == 200, f"POST /api/bulk/jobs -> {resp.status_code}: {resp.text}"
+    job_id = resp.json()["job_id"]
+
+    # Wait for BulkJob.run() to register_op and (since the source is
+    # empty) complete the full scan + worker phase.
+    await asyncio.sleep(2.0)
+
+    ops_resp = await authed_manager_real.get("/api/active-ops")
+    assert ops_resp.status_code == 200
+    ops = ops_resp.json()["ops"]
+    bulk_ops = [o for o in ops if o["op_type"] == "bulk.job"]
+    assert len(bulk_ops) >= 1, (
+        f"Expected bulk.job op, got types: "
+        f"{sorted({o['op_type'] for o in ops})}"
+    )
+    op = bulk_ops[0]
+    assert op["origin_url"] == f"/bulk.html?job_id={job_id}"
+    assert op["cancellable"] is True
+    assert op["icon"] != ""
+    # extra["job_id"] is how the cancel hook finds the live BulkJob instance
+    assert op.get("extra", {}).get("job_id") == job_id

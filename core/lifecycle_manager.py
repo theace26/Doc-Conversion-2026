@@ -271,24 +271,40 @@ async def purge_file(bulk_file_id: str) -> None:
 # the user happened to click into the page. Both are unix-epoch
 # floats (seconds since 1970, server clock); the frontend
 # multiplies by 1000 to compare against `Date.now()`.
-_empty_trash_status: dict = {
-    "running": False,
-    "total": 0,
-    "done": 0,
-    "errors": 0,
-    "started_at_epoch": 0.0,
-    "last_progress_at_epoch": 0.0,
-}
+# ── Active-ops registry-backed empty-trash state (Task 17, v0.35.0) ────────
+# Replaces the legacy `_empty_trash_status` dict.  The op_id is the only
+# in-process state tracked here; `get_empty_trash_status()` (now async)
+# reads total/done/errors/timestamps from the registry via
+# `active_ops.get_op()`.  The legacy GET /api/trash/empty/status route
+# stays as a deprecated facade.
+_empty_trash_op_id: str | None = None
 
 
-def get_empty_trash_status() -> dict:
-    return dict(_empty_trash_status)
-
-
-def _bump_empty_progress() -> None:
-    """Stamp `last_progress_at_epoch` whenever total or done changes.
-    Called by the worker; safe to call from any phase."""
-    _empty_trash_status["last_progress_at_epoch"] = time.time()
+async def get_empty_trash_status() -> dict:
+    """Return the legacy progress dict for the running (or most-recent)
+    empty-trash op.  Backed by the active-ops registry as of v0.35.0;
+    served via the deprecated GET /api/trash/empty/status facade.
+    """
+    if _empty_trash_op_id is None:
+        return {
+            "running": False, "total": 0, "done": 0, "errors": 0,
+            "started_at_epoch": 0.0, "last_progress_at_epoch": 0.0,
+        }
+    from core import active_ops as _active_ops
+    op = await _active_ops.get_op(_empty_trash_op_id)
+    if op is None:
+        return {
+            "running": False, "total": 0, "done": 0, "errors": 0,
+            "started_at_epoch": 0.0, "last_progress_at_epoch": 0.0,
+        }
+    return {
+        "running": op.finished_at_epoch is None,
+        "total": op.total or 0,
+        "done": op.done or 0,
+        "errors": op.errors or 0,
+        "started_at_epoch": op.started_at_epoch,
+        "last_progress_at_epoch": op.last_progress_at_epoch,
+    }
 
 
 async def purge_all_trash() -> int:
@@ -297,22 +313,34 @@ async def purge_all_trash() -> int:
     Strategy: batch DB updates in chunks of 200 to keep the write-queue
     responsive, interleaving with asyncio.sleep(0) to yield to the event
     loop between batches. Disk deletions run in a thread pool.
-    """
-    global _empty_trash_status
 
-    if _empty_trash_status["running"]:
+    Active-ops registry (v0.35.0): registers a ``trash.empty`` op so
+    progress is visible in /api/active-ops; cooperatively cancellable
+    via ``active_ops.is_cancelled(op_id)`` polled at the top of each
+    chunk loop iteration.  No second cancel surface is introduced
+    (recon §D.1) — the registry's flag is the only signal.
+    """
+    global _empty_trash_op_id
+
+    if _empty_trash_op_id is not None:
         log.warning("empty_trash.already_running")
         return 0
 
-    started = time.time()
-    _empty_trash_status = {
-        "running": True,
-        "total": 0,
-        "done": 0,
-        "errors": 0,
-        "started_at_epoch": started,
-        "last_progress_at_epoch": started,
-    }
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="trash.empty",
+        label="Emptying trash",
+        icon="\U0001F5D1",  # 🗑
+        origin_url="/trash.html",
+        started_by="operator",
+        cancellable=True,
+    )
+    _empty_trash_op_id = op_id
+
+    error_msg: str | None = None
+    done = 0
+    errors = 0
 
     try:
         from core.database import get_source_files_by_lifecycle_status
@@ -345,8 +373,7 @@ async def purge_all_trash() -> int:
                     if tp.exists():
                         trash_paths.append(tp)
 
-        _empty_trash_status["total"] = len(bf_ids)
-        _bump_empty_progress()
+        await active_ops.update_op(op_id, total=len(bf_ids))
         log.info("empty_trash.starting", total_bf=len(bf_ids), total_sf=len(sf_ids),
                  trash_files=len(trash_paths))
 
@@ -359,121 +386,173 @@ async def purge_all_trash() -> int:
 
         # Delete in parallel batches of 50
         for i in range(0, len(trash_paths), 50):
+            if active_ops.is_cancelled(op_id):
+                error_msg = "Cancelled by operator"
+                break
             batch = trash_paths[i:i + 50]
             await asyncio.gather(*[_delete_file(p) for p in batch])
             await asyncio.sleep(0)
 
         # Phase 2: Batch UPDATE bulk_files in chunks of 200
-        now = datetime.now(timezone.utc).isoformat()
-        chunk_size = 200
-        for i in range(0, len(bf_ids), chunk_size):
-            chunk = bf_ids[i:i + chunk_size]
-            placeholders = ",".join("?" for _ in chunk)
-            await db_execute(
-                f"UPDATE bulk_files SET lifecycle_status='purged', purged_at=? "
-                f"WHERE id IN ({placeholders})",
-                (now, *chunk),
-            )
-            _empty_trash_status["done"] += len(chunk)
-            _bump_empty_progress()
-            await asyncio.sleep(0)  # yield to event loop
+        if error_msg is None:
+            now = datetime.now(timezone.utc).isoformat()
+            chunk_size = 200
+            for i in range(0, len(bf_ids), chunk_size):
+                if active_ops.is_cancelled(op_id):
+                    error_msg = "Cancelled by operator"
+                    break
+                chunk = bf_ids[i:i + chunk_size]
+                placeholders = ",".join("?" for _ in chunk)
+                await db_execute(
+                    f"UPDATE bulk_files SET lifecycle_status='purged', purged_at=? "
+                    f"WHERE id IN ({placeholders})",
+                    (now, *chunk),
+                )
+                done += len(chunk)
+                await active_ops.update_op(op_id, done=done, errors=errors)
+                await asyncio.sleep(0)  # yield to event loop
 
-        # Phase 3: Batch UPDATE source_files in chunks of 200
-        for i in range(0, len(sf_ids), chunk_size):
-            chunk = sf_ids[i:i + chunk_size]
-            placeholders = ",".join("?" for _ in chunk)
-            await db_execute(
-                f"UPDATE source_files SET lifecycle_status='purged', purged_at=? "
-                f"WHERE id IN ({placeholders})",
-                (now, *chunk),
-            )
-            _bump_empty_progress()
-            await asyncio.sleep(0)
+            # Phase 3: Batch UPDATE source_files in chunks of 200
+            for i in range(0, len(sf_ids), chunk_size):
+                if active_ops.is_cancelled(op_id):
+                    error_msg = "Cancelled by operator"
+                    break
+                chunk = sf_ids[i:i + chunk_size]
+                placeholders = ",".join("?" for _ in chunk)
+                await db_execute(
+                    f"UPDATE source_files SET lifecycle_status='purged', purged_at=? "
+                    f"WHERE id IN ({placeholders})",
+                    (now, *chunk),
+                )
+                await asyncio.sleep(0)
 
-        log.info("empty_trash.complete", purged=len(bf_ids))
-        return len(bf_ids)
+        log.info("empty_trash.complete", purged=done,
+                 cancelled=(error_msg is not None))
+        return done
 
     except Exception as exc:
+        errors += 1
+        error_msg = f"{type(exc).__name__}: {exc}"
         log.error("empty_trash.failed", error=str(exc))
-        _empty_trash_status["errors"] += 1
-        return _empty_trash_status["done"]
+        return done
     finally:
-        _empty_trash_status["running"] = False
-        # Don't reset started_at / last_progress on exit — leaving
-        # them in place lets the post-finish "Done" frame still
-        # show the true elapsed time the operation took.
+        # Reflect any incremental error count we accumulated
+        if errors > 0:
+            try:
+                await active_ops.update_op(op_id, errors=errors)
+            except Exception:
+                pass
+        await active_ops.finish_op(op_id, error_msg=error_msg)
+        _empty_trash_op_id = None
 
 
-# ── In-memory progress for restore-all background task ─────────────────────
-# v0.32.6: same started_at / last_progress_at treatment as empty-trash above.
-_restore_all_status: dict = {
-    "running": False,
-    "total": 0,
-    "done": 0,
-    "errors": 0,
-    "started_at_epoch": 0.0,
-    "last_progress_at_epoch": 0.0,
-}
+# ── Active-ops registry-backed restore-all state (Task 18, v0.35.0) ─────────
+# Mirrors the empty-trash pattern in Task 17.  The op_id is the only
+# in-process state tracked here; `get_restore_all_status()` (now async)
+# reads total/done/errors/timestamps from the registry via
+# `active_ops.get_op()`.  The legacy GET /api/trash/restore-all/status
+# route stays as a deprecated facade.
+_restore_all_op_id: str | None = None
 
 
-def get_restore_all_status() -> dict:
-    return dict(_restore_all_status)
-
-
-def _bump_restore_progress() -> None:
-    _restore_all_status["last_progress_at_epoch"] = time.time()
+async def get_restore_all_status() -> dict:
+    """Return the legacy progress dict for the running (or most-recent)
+    restore-all op.  Backed by the active-ops registry as of v0.35.0;
+    served via the deprecated GET /api/trash/restore-all/status facade.
+    """
+    if _restore_all_op_id is None:
+        return {
+            "running": False, "total": 0, "done": 0, "errors": 0,
+            "started_at_epoch": 0.0, "last_progress_at_epoch": 0.0,
+        }
+    from core import active_ops as _active_ops
+    op = await _active_ops.get_op(_restore_all_op_id)
+    if op is None:
+        return {
+            "running": False, "total": 0, "done": 0, "errors": 0,
+            "started_at_epoch": 0.0, "last_progress_at_epoch": 0.0,
+        }
+    return {
+        "running": op.finished_at_epoch is None,
+        "total": op.total or 0,
+        "done": op.done or 0,
+        "errors": op.errors or 0,
+        "started_at_epoch": op.started_at_epoch,
+        "last_progress_at_epoch": op.last_progress_at_epoch,
+    }
 
 
 async def restore_all_trash() -> int:
-    """Restore all trashed files back to active. Runs as background task."""
-    global _restore_all_status
-    if _restore_all_status["running"]:
+    """Restore all trashed files back to active. Runs as background task.
+
+    Active-ops registry (v0.35.0): registers a ``trash.restore_all`` op
+    so progress is visible in /api/active-ops; cooperatively cancellable
+    via ``active_ops.is_cancelled(op_id)`` polled at the top of each
+    per-row loop iteration.  No second cancel surface is introduced
+    (recon §D.2) — the registry's flag is the only signal.
+    """
+    global _restore_all_op_id
+
+    if _restore_all_op_id is not None:
+        log.warning("restore_all.already_running")
         return 0
-    started = time.time()
-    _restore_all_status = {
-        "running": True,
-        "total": 0,
-        "done": 0,
-        "errors": 0,
-        "started_at_epoch": started,
-        "last_progress_at_epoch": started,
-    }
+
+    from core import active_ops
+
+    op_id = await active_ops.register_op(
+        op_type="trash.restore_all",
+        label="Restoring all from trash",
+        icon="♻",  # ♻
+        origin_url="/trash.html",
+        started_by="operator",
+        cancellable=True,
+    )
+    _restore_all_op_id = op_id
+
+    error_msg: str | None = None
+    done = 0
+    errors = 0
+
     try:
         from core.database import get_source_files_by_lifecycle_status
         # v0.32.3: ALL rows in one call (was capped at 500).
         source_files = await get_source_files_by_lifecycle_status(
             "in_trash", limit=None,
         )
-        bf_ids = []
+        bf_ids: list[str] = []
         for sf in source_files:
             rows = await db_fetch_all(
                 "SELECT id FROM bulk_files WHERE source_file_id = ?", (sf["id"],),
             )
             bf_ids.extend(r["id"] for r in rows)
-        _restore_all_status["total"] = len(bf_ids)
-        _bump_restore_progress()
+
+        await active_ops.update_op(op_id, total=len(bf_ids))
         log.info("restore_all.starting", total=len(bf_ids))
+
         for i, bf_id in enumerate(bf_ids):
+            if active_ops.is_cancelled(op_id):
+                error_msg = "Cancelled by operator"
+                break
             try:
                 await restore_file(bf_id, scan_run_id="bulk_restore")
-                _restore_all_status["done"] += 1
+                done += 1
             except Exception:
-                _restore_all_status["errors"] += 1
-            # Bump on every increment so the "last update" timer
-            # tracks per-row progress, not just every-50-row syncs.
-            _bump_restore_progress()
+                errors += 1
+            await active_ops.update_op(op_id, done=done, errors=errors)
             if (i + 1) % 50 == 0:
                 await asyncio.sleep(0)
-        log.info("restore_all.complete", restored=_restore_all_status["done"],
-                 errors=_restore_all_status["errors"])
-        return _restore_all_status["done"]
+
+        log.info("restore_all.complete", restored=done, errors=errors,
+                 cancelled=(error_msg is not None))
+        return done
+
     except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {exc}"
         log.error("restore_all.failed", error=str(exc))
-        return _restore_all_status["done"]
+        return done
     finally:
-        _restore_all_status["running"] = False
-        # Keep started_at / last_progress in place for the
-        # post-finish "Done" frame (see empty-trash counterpart).
+        await active_ops.finish_op(op_id, error_msg=error_msg)
+        _restore_all_op_id = None
 
 
 async def record_file_move(

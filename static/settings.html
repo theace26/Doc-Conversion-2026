@@ -238,6 +238,9 @@
       <!-- Database Maintenance section -->
       <details class="settings-section">
       <summary>Database Maintenance</summary>
+      <div class="card mb-2">
+        <div id="active-op-widget-mount-settings" style="margin-bottom:0.75rem"></div>
+      </div>
       <div class="card">
         <p class="text-sm text-muted" style="margin:0 0 1rem">
           Create backups of the application database or restore from a previous backup.
@@ -1071,8 +1074,28 @@
     </div>
   </div>
 
-  <script src="/static/app.js"></script>
-  <script src="/static/js/db-backup.js"></script>
+  <script src="/static/app.js?v=0.35.0"></script>
+  <script src="/static/js/db-backup.js?v=0.35.0"></script>
+  <script src="/static/js/active-ops-poller.js?v=0.35.0"></script>
+  <script src="/static/js/active-op-widget.js?v=0.35.0"></script>
+  <script>
+  (function () {
+    var params = new URLSearchParams(window.location.search);
+    var hl = params.get('op_id');
+    var mount = document.getElementById('active-op-widget-mount-settings');
+    if (mount && typeof window.mountActiveOpWidget === 'function') {
+      window.mountActiveOpWidget(mount, {
+        filter: function (op) {
+          return op.op_type && (
+            op.op_type.indexOf('db.') === 0 ||
+            op.op_type === 'search.rebuild_index'
+          );
+        },
+        highlightOpId: hl,
+      });
+    }
+  })();
+  </script>
   <script>
   // ── Expand / Collapse All ──────────────────────────────────────────────
   document.getElementById('toggle-all-btn').addEventListener('click', function() {

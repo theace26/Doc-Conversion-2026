@@ -37,87 +37,11 @@
   if (window.__liveBannerInstalled) return;
   window.__liveBannerInstalled = true;
 
-  // Tunables
-  var POLL_MS = 2000;
-  var FINISHED_GRACE_MS = 4000;  // Keep showing finished state for 4s
-  var EWMA_ALPHA = 0.3;          // Smoothing for rate-of-progress
+  var FINISHED_GRACE_MS = 4000;
 
-  // Endpoint registry — add new long-running ops here. Each entry
-  // describes: how to fetch the status, how to label it, and which
-  // fields carry done/total. Banner picks the first running entry
-  // each tick (single-banner UX; if two ops run concurrently we show
-  // the most recently started one — rare in practice).
-  var endpoints = [
-    {
-      key: 'trash-empty',
-      url: '/api/trash/empty/status',
-      label: 'Emptying trash',
-      icon: '\u{1F5D1}',  // 🗑
-      noun: 'files',
-    },
-    {
-      key: 'trash-restore-all',
-      url: '/api/trash/restore-all/status',
-      label: 'Restoring all from trash',
-      icon: '♻',  // ♻
-      noun: 'files',
-    },
-  ];
-
-  // Per-endpoint state for ETA computation. Tracks the last (done,
-  // timestamp) snapshot and a smoothed rate (files / sec).
-  var rateState = {};
-
-  function getRateState(key) {
-    if (!rateState[key]) {
-      rateState[key] = { last: null, rate: 0 };
-    }
-    return rateState[key];
-  }
-
-  function updateRate(key, done) {
-    var s = getRateState(key);
-    var now = Date.now();
-    if (s.last) {
-      var dt = (now - s.last.t) / 1000;
-      var dd = done - s.last.done;
-      if (dt > 0 && dd >= 0) {
-        var instant = dd / dt;
-        s.rate = (s.rate === 0)
-          ? instant
-          : (EWMA_ALPHA * instant + (1 - EWMA_ALPHA) * s.rate);
-      }
-    }
-    s.last = { t: now, done: done };
-    return s.rate;
-  }
-
-  function fmtDuration(seconds) {
-    if (!isFinite(seconds) || seconds < 0) return '?';
-    seconds = Math.round(seconds);
-    if (seconds < 60) return seconds + 's';
-    var m = Math.floor(seconds / 60);
-    var s = seconds % 60;
-    if (m < 60) return m + 'm ' + s + 's';
-    var h = Math.floor(m / 60);
-    return h + 'h ' + (m % 60) + 'm';
-  }
-
-  function fmtNum(n) {
-    if (n == null) return '?';
-    return Number(n).toLocaleString();
-  }
-
-  // ── Banner DOM (built entirely via createElement / textContent) ──
-  // Refs to inner span elements so we update them without rebuilding
-  // the banner each tick.
-  var bannerEl = null;
-  var iconEl = null;
-  var labelEl = null;
-  var barFillEl = null;
-  var counterEl = null;
-  var rateEl = null;
-  var etaEl = null;
+  // ── Banner DOM (CSS-vars only — spec §17 P8) ──────────────────────
+  var bannerEl = null, iconEl = null, labelEl = null,
+      barFillEl = null, counterEl = null, rateEl = null, etaEl = null;
 
   function makeSpan(opts) {
     var s = document.createElement('span');
@@ -133,98 +57,86 @@
     el.id = 'live-status-banner';
     el.setAttribute('role', 'status');
     el.setAttribute('aria-live', 'polite');
-    // v0.32.3: position the banner BELOW the nav bar, not on top of
-    // it. The nav-bar in markflow.css is `position: sticky; top: 0;
-    // z-index: 100; height: 56px`. The banner sits at `top: 56px`
-    // with `z-index: 90` — so the nav bar is always supreme at the
-    // viewport top, and the banner pins just below it. As the page
-    // scrolls, both stay anchored: nav at the top, banner under
-    // it. (This is the layout the user requested: "the menu bar
-    // should always be supreme, it should always be at the top".)
     el.style.cssText = [
       'position: fixed',
       'top: 56px',
-      'left: 0',
-      'right: 0',
-      'z-index: 90',
-      'background: linear-gradient(90deg, rgba(99,102,241,0.18), rgba(96,165,250,0.18))',
-      'border-bottom: 1px solid rgba(96,165,250,0.45)',
-      'color: #e0e7ff',
+      'left: 0', 'right: 0', 'z-index: 90',
+      'background: var(--surface-alt, var(--surface))',
+      'border-bottom: 1px solid var(--border)',
+      'color: var(--text)',
       'font-family: system-ui, sans-serif',
       'font-size: 0.85rem',
       'padding: 0.5rem 1rem',
-      'display: none',
-      'gap: 1rem',
-      'align-items: center',
+      'display: none', 'gap: 1rem', 'align-items: center',
       'box-shadow: 0 2px 6px rgba(0,0,0,0.3)',
-      'backdrop-filter: blur(4px)',
     ].join(';');
 
-    iconEl = makeSpan({ cls: 'lb-icon', style: 'font-size:1.05rem;', text: '⏳' });
-    labelEl = makeSpan({ cls: 'lb-label', style: 'font-weight:600;', text: 'Working' });
-
-    var progressWrap = makeSpan({
-      cls: 'lb-progress-wrap',
-      style: 'flex:1; min-width:8rem; max-width:24rem;',
-    });
+    iconEl = makeSpan({ style: 'font-size:1.05rem;', text: '⏳' });
+    labelEl = makeSpan({ style: 'font-weight:600;', text: 'Working' });
+    var progressWrap = makeSpan({ style: 'flex:1; min-width:8rem; max-width:24rem;' });
     var barTrack = document.createElement('div');
-    barTrack.className = 'lb-bar-track';
-    barTrack.style.cssText = 'height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden;';
+    barTrack.style.cssText = 'height:6px; background:var(--surface); border-radius:3px; overflow:hidden;';
     barFillEl = document.createElement('div');
-    barFillEl.className = 'lb-bar-fill';
-    barFillEl.style.cssText = 'height:100%;background:linear-gradient(90deg,#6366f1,#3b82f6);width:0%;transition:width 0.4s ease-out;';
+    barFillEl.style.cssText = 'height:100%; background:var(--accent, var(--ok)); width:0%; transition:width 0.4s ease-out;';
     barTrack.appendChild(barFillEl);
     progressWrap.appendChild(barTrack);
-
-    counterEl = makeSpan({
-      cls: 'lb-counter',
-      style: 'font-family:ui-monospace,monospace;font-size:0.78rem;white-space:nowrap;',
-      text: '0 / 0',
-    });
-    rateEl = makeSpan({
-      cls: 'lb-rate',
-      style: 'font-family:ui-monospace,monospace;font-size:0.78rem;color:rgba(224,231,255,0.75);white-space:nowrap;',
-      text: '— files/s',
-    });
-    etaEl = makeSpan({
-      cls: 'lb-eta',
-      style: 'font-family:ui-monospace,monospace;font-size:0.78rem;color:rgba(224,231,255,0.85);white-space:nowrap;',
-      text: 'ETA —',
-    });
-
+    counterEl = makeSpan({ style: 'font-family:ui-monospace,monospace; font-size:0.78rem; white-space:nowrap;', text: '0 / 0' });
+    rateEl = makeSpan({ style: 'font-family:ui-monospace,monospace; font-size:0.78rem; color:var(--text-muted); white-space:nowrap;', text: '— /s' });
+    etaEl = makeSpan({ style: 'font-family:ui-monospace,monospace; font-size:0.78rem; color:var(--text-muted); white-space:nowrap;', text: 'ETA —' });
     var closeBtn = document.createElement('button');
-    closeBtn.className = 'lb-close';
     closeBtn.type = 'button';
     closeBtn.title = 'Hide banner (operation continues)';
-    closeBtn.textContent = '×';  // ×
-    closeBtn.style.cssText = 'background:transparent;border:0;color:rgba(224,231,255,0.7);font-size:1.1rem;cursor:pointer;padding:0 0.25rem;line-height:1;';
-    closeBtn.addEventListener('click', function () {
-      el.style.display = 'none';
-      bannerDismissed = true;
-    });
+    closeBtn.textContent = '×';
+    closeBtn.style.cssText = 'background:transparent; border:0; color:var(--text-muted); font-size:1.1rem; cursor:pointer; padding:0 0.25rem; line-height:1;';
+    closeBtn.addEventListener('click', function () { el.style.display = 'none'; bannerDismissed = true; });
 
-    el.appendChild(iconEl);
-    el.appendChild(labelEl);
+    el.appendChild(iconEl); el.appendChild(labelEl);
     el.appendChild(progressWrap);
-    el.appendChild(counterEl);
-    el.appendChild(rateEl);
-    el.appendChild(etaEl);
+    el.appendChild(counterEl); el.appendChild(rateEl); el.appendChild(etaEl);
     el.appendChild(closeBtn);
-
     document.body.appendChild(el);
     bannerEl = el;
     return el;
   }
 
+  // ── Rate / ETA ────────────────────────────────────────────────────
+  function makeRateTracker() {
+    var lastDone = null, lastT = null, rate = 0, ALPHA = 0.3;
+    return function update(done) {
+      var now = Date.now();
+      if (lastDone != null && lastT != null) {
+        var dt = (now - lastT) / 1000, dd = done - lastDone;
+        if (dt > 0 && dd >= 0) {
+          var instant = dd / dt;
+          rate = (rate === 0) ? instant : ALPHA * instant + (1 - ALPHA) * rate;
+        }
+      }
+      lastDone = done; lastT = now;
+      return rate;
+    };
+  }
+  var rateTrackers = {};
+  function getRate(opId, done) {
+    if (!rateTrackers[opId]) rateTrackers[opId] = makeRateTracker();
+    return rateTrackers[opId](done);
+  }
+  function fmtDuration(seconds) {
+    if (!isFinite(seconds) || seconds < 0) return '?';
+    seconds = Math.round(seconds);
+    if (seconds < 60) return seconds + 's';
+    var m = Math.floor(seconds / 60), s = seconds % 60;
+    if (m < 60) return m + 'm ' + s + 's';
+    return Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+  }
+  function fmtNum(n) { return n == null ? '?' : Number(n).toLocaleString(); }
+
+  var bannerDismissed = false;
+  var lastShownKey = null;
+  var finishedAt = null;
+
   function showBanner(state) {
     var el = ensureBanner();
     el.style.display = 'flex';
-    // Reserve the banner's vertical space in the document flow so
-    // page content isn't hidden under it. The banner is `position:
-    // fixed` so it doesn't take flow space on its own — we add
-    // matching padding to <body> when visible, remove it when
-    // hidden. Banner height is ~38 px (0.5rem padding × 2 + ~22 px
-    // content); use 44 px as a small buffer.
     document.body.classList.add('live-banner-visible');
     if (!document.getElementById('live-banner-spacer-style')) {
       var s = document.createElement('style');
@@ -235,38 +147,23 @@
     iconEl.textContent = state.icon || '⏳';
     labelEl.textContent = state.label || 'Working';
 
-    // v0.32.3: when the worker is running but total hasn't been set
-    // yet (it's still enumerating), show "Starting…" instead of
-    // confusing "0 / 0 files · ETA —". This is a real backend
-    // window — the in-memory status dict is initialized with
-    // total=0 before the SQL COUNT completes.
     var enumerating = state.running && (!state.total || state.total <= 0) && !state.finished;
-
-    var pct = state.total > 0
-      ? Math.min(100, Math.round((state.done / state.total) * 100))
-      : 0;
+    var pct = state.total > 0 ? Math.min(100, Math.round((state.done / state.total) * 100)) : 0;
     barFillEl.style.width = pct + '%';
-
     if (enumerating) {
       counterEl.textContent = 'Starting…';
-      rateEl.textContent = '';
-      etaEl.textContent = '';
+      rateEl.textContent = ''; etaEl.textContent = '';
     } else {
-      counterEl.textContent =
-        fmtNum(state.done) + ' / ' + fmtNum(state.total) + ' ' + (state.noun || '') +
+      counterEl.textContent = fmtNum(state.done) + ' / ' + fmtNum(state.total) +
         (state.errors ? ' (' + state.errors + ' errors)' : '');
-      rateEl.textContent =
-        (state.rate ? state.rate.toFixed(1) : '—') + ' ' + (state.noun || 'items') + '/s';
+      rateEl.textContent = (state.rate ? state.rate.toFixed(1) : '—') + ' /s';
       etaEl.textContent = 'ETA ' + (state.eta != null ? fmtDuration(state.eta) : '—');
     }
-
     if (state.finished) {
-      el.style.background = 'linear-gradient(90deg, rgba(34,197,94,0.18), rgba(22,163,74,0.18))';
-      el.style.borderBottomColor = 'rgba(34,197,94,0.45)';
-      etaEl.textContent = 'Done';
+      barFillEl.style.background = state.error_msg ? 'var(--error)' : 'var(--ok)';
+      etaEl.textContent = state.error_msg ? '✗' : 'Done';
     } else {
-      el.style.background = 'linear-gradient(90deg, rgba(99,102,241,0.18), rgba(96,165,250,0.18))';
-      el.style.borderBottomColor = 'rgba(96,165,250,0.45)';
+      barFillEl.style.background = 'var(--accent, var(--ok))';
     }
   }
 
@@ -275,131 +172,75 @@
     document.body.classList.remove('live-banner-visible');
   }
 
-  var bannerDismissed = false;
-  var lastShownKey = null;
-  var finishedAt = null;
-
-  // ── Polling ─────────────────────────────────────────────────────
-  async function fetchOne(ep) {
-    try {
-      var res = await fetch(ep.url, { credentials: 'same-origin' });
-      if (!res.ok) return null;
-      var data = await res.json();
-      return data || null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  async function tick() {
-    if (document.visibilityState !== 'visible') return;
-
-    // Fetch all endpoints in parallel — typically only one is live
-    // at any time, but the cost of polling 2-3 status endpoints in
-    // parallel is negligible (<5ms each on local backend).
-    var results = await Promise.all(endpoints.map(fetchOne));
-
-    // Pick the first running one; fall through to the last-shown
-    // one if it's now finished (so we display the green "Done"
-    // state for FINISHED_GRACE_MS before hiding the banner).
-    var active = null;
-    for (var i = 0; i < endpoints.length; i++) {
-      if (results[i] && results[i].running) {
-        active = { ep: endpoints[i], data: results[i] };
-        break;
+  // ── Subscribe to poller ──────────────────────────────────────────
+  function onOps(ops) {
+    var running = null;
+    for (var i = 0; i < ops.length; i++) {
+      if (!ops[i].finished_at_epoch) {
+        if (!running || ops[i].started_at_epoch > running.started_at_epoch) {
+          running = ops[i];
+        }
       }
     }
 
-    if (active) {
-      // A new operation started — clear any prior dismissal.
-      if (active.ep.key !== lastShownKey) {
+    if (running) {
+      if (running.op_id !== lastShownKey) {
         bannerDismissed = false;
-        lastShownKey = active.ep.key;
+        lastShownKey = running.op_id;
         finishedAt = null;
       }
       if (bannerDismissed) return;
-
-      var rate = updateRate(active.ep.key, active.data.done || 0);
-      var remaining = Math.max(0, (active.data.total || 0) - (active.data.done || 0));
+      var rate = getRate(running.op_id, running.done || 0);
+      var remaining = Math.max(0, (running.total || 0) - (running.done || 0));
       var eta = (rate > 0) ? remaining / rate : null;
-
       showBanner({
-        icon: active.ep.icon,
-        label: active.ep.label,
-        noun: active.ep.noun,
-        done: active.data.done || 0,
-        total: active.data.total || 0,
-        errors: active.data.errors || 0,
-        rate: rate,
-        eta: eta,
-        running: true,
-        finished: false,
+        icon: running.icon, label: running.label,
+        done: running.done, total: running.total,
+        errors: running.errors, rate: rate, eta: eta,
+        running: true, finished: false,
       });
       return;
     }
 
-    // Nothing running. If we were just showing one, freeze it on
-    // "Done" for a few seconds before hiding.
+    // Nothing running — was the last-shown op finished recently?
     if (lastShownKey) {
-      var lastEp = null, lastData = null;
-      for (var j = 0; j < endpoints.length; j++) {
-        if (endpoints[j].key === lastShownKey) {
-          lastEp = endpoints[j];
-          lastData = results[j];
-          break;
-        }
+      var lastFinished = null;
+      for (var j = 0; j < ops.length; j++) {
+        if (ops[j].op_id === lastShownKey) { lastFinished = ops[j]; break; }
       }
-      if (lastEp && lastData) {
+      if (lastFinished && lastFinished.finished_at_epoch) {
         if (!finishedAt) finishedAt = Date.now();
         if (Date.now() - finishedAt < FINISHED_GRACE_MS && !bannerDismissed) {
           showBanner({
-            icon: lastEp.icon,
-            label: lastEp.label,
-            noun: lastEp.noun,
-            done: lastData.done || 0,
-            total: lastData.total || 0,
-            errors: lastData.errors || 0,
-            rate: 0,
-            eta: 0,
-            finished: true,
+            icon: lastFinished.icon, label: lastFinished.label,
+            done: lastFinished.done, total: lastFinished.total,
+            errors: lastFinished.errors,
+            error_msg: lastFinished.error_msg,
+            rate: 0, eta: 0, finished: true,
           });
           return;
         }
       }
-      lastShownKey = null;
-      finishedAt = null;
-      rateState = {};
-      bannerDismissed = false;
+      lastShownKey = null; finishedAt = null;
+      rateTrackers = {}; bannerDismissed = false;
     }
     hideBanner();
   }
 
-  function startPolling() {
-    tick();
-    setInterval(tick, POLL_MS);
+  if (window.ActiveOpsPoller) {
+    window.ActiveOpsPoller.subscribe(onOps);
   }
 
-  document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible') tick();
-  });
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', startPolling);
-  } else {
-    startPolling();
-  }
-
-  // Public hook — pages can register additional long-running
-  // endpoints. Banner picks them up on the next tick.
+  // ── Deprecated legacy hook ───────────────────────────────────────
   window.LiveBanner = {
-    register: function (def) {
-      if (!def || !def.key || !def.url) return;
-      for (var i = 0; i < endpoints.length; i++) {
-        if (endpoints[i].key === def.key) return;
-      }
-      endpoints.push(def);
+    register: function () {
+      console.warn(
+        'LiveBanner.register() is deprecated since v0.35.0. ' +
+        'The /api/active-ops registry is the source of truth.'
+      );
     },
-    refresh: tick,
+    refresh: function () {
+      if (window.ActiveOpsPoller) window.ActiveOpsPoller.refresh();
+    },
   };
-
 })();
