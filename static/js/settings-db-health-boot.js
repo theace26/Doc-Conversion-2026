@@ -61,7 +61,14 @@
     var avatarMenu = MFAvatarMenu.create({
       user: user,
       build: build,
-      onSelectItem: function (id) { console.log('avatar item:', id); },
+      onSelectItem: function (id) {
+        if (id === 'display') {
+          var drawer = MFDisplayPrefsDrawer.create();
+          drawer.open();
+          return;
+        }
+        console.log('avatar item:', id);
+      },
       onSignOut: function () {
         fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' })
           .finally(function () { window.location.href = '/'; });
