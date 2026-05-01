@@ -1970,3 +1970,204 @@
   font-size: 0.86rem;
   color: var(--mf-color-error);
 }
+
+/* === mf-ob__* — First-run onboarding overlay (Plan 8) === */
+
+.mf-ob__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10,10,10,0.55);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mf-ob__card {
+  background: var(--mf-surface);
+  border-radius: 18px;
+  width: 100%;
+  max-width: 640px;
+  padding: 2.4rem 2.6rem;
+  box-shadow: 0 24px 80px -24px rgba(0,0,0,0.38);
+  position: relative;
+}
+
+.mf-ob__progress {
+  display: flex;
+  gap: 0.45rem;
+  justify-content: center;
+  margin-bottom: 1.8rem;
+}
+
+.mf-ob__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mf-border);
+  transition: background var(--mf-transition-fast);
+}
+
+.mf-ob__dot--active {
+  background: var(--mf-color-accent);
+}
+
+.mf-ob__step-icon {
+  font-size: 3rem;
+  line-height: 1;
+  margin-bottom: 1rem;
+  display: block;
+}
+
+.mf-ob__headline {
+  font-size: 1.8rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--mf-text-primary);
+  margin: 0 0 0.6rem;
+}
+
+.mf-ob__subtitle {
+  font-size: 0.95rem;
+  color: var(--mf-text-muted);
+  max-width: 40ch;
+  margin: 0 0 1.6rem;
+  line-height: 1.5;
+}
+
+.mf-ob__layout-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.85rem;
+  margin-bottom: 1.6rem;
+}
+
+.mf-ob__layout-card {
+  background: var(--mf-surface);
+  border: 1.5px solid var(--mf-border);
+  border-radius: 12px;
+  padding: 1rem;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--mf-font-sans);
+  transition: border-color var(--mf-transition-fast), box-shadow var(--mf-transition-fast);
+  position: relative;
+}
+
+.mf-ob__layout-card:hover {
+  border-color: var(--mf-color-accent);
+}
+
+.mf-ob__layout-card--selected {
+  border-color: var(--mf-color-accent);
+  box-shadow: 0 0 0 2px var(--mf-color-accent);
+}
+
+.mf-ob__recommended-badge {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  background: var(--mf-color-accent);
+  color: var(--mf-surface);
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--mf-radius-pill);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.mf-ob__layout-preview {
+  height: 90px;
+  background: var(--mf-surface-soft);
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+  overflow: hidden;
+  position: relative;
+}
+
+.mf-ob__card-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--mf-text-primary);
+  margin-bottom: 0.2rem;
+}
+
+.mf-ob__card-desc {
+  font-size: 0.78rem;
+  color: var(--mf-text-muted);
+  line-height: 1.4;
+}
+
+.mf-ob__folder-list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.mf-ob__folder-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--mf-border-soft);
+  cursor: pointer;
+  font-size: 0.88rem;
+  color: var(--mf-text-primary);
+  transition: color var(--mf-transition-fast);
+}
+
+.mf-ob__folder-item:last-child {
+  border-bottom: none;
+}
+
+.mf-ob__folder-item--pinned {
+  color: var(--mf-color-accent);
+}
+
+.mf-ob__folder-item--pinned input[type="checkbox"] {
+  accent-color: var(--mf-color-accent);
+}
+
+.mf-ob__pin-limit-note {
+  font-size: 0.82rem;
+  color: var(--mf-color-warn);
+  margin-bottom: 0.75rem;
+}
+
+.mf-ob__folder-empty {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: var(--mf-text-muted);
+  font-size: 0.88rem;
+  border: 1.5px dashed var(--mf-border);
+  border-radius: var(--mf-radius-card);
+}
+
+.mf-ob__loading {
+  color: var(--mf-text-muted);
+  font-size: 0.88rem;
+  padding: 1rem 0;
+}
+
+.mf-ob__show-more {
+  display: block;
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--mf-color-accent);
+  cursor: pointer;
+  margin-top: 0.5rem;
+  background: none;
+  border: none;
+  font-family: var(--mf-font-sans);
+}
+
+.mf-ob__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 2rem;
+  gap: 0.5rem;
+}

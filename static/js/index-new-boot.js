@@ -89,6 +89,24 @@
     var homeHandle = MFSearchHome.mount(homeRoot, {
       systemStatus: 'All systems running · 12,847 indexed',
     });
+
+    // Show onboarding overlay for first-time users
+    if (!MFPrefs.get('onboarding_done')) {
+      MFOnboarding.show({
+        fetchSources: function () {
+          return fetch('/api/storage/sources', { credentials: 'same-origin' })
+            .then(function (r) { return r.ok ? r.json() : { sources: [] }; })
+            .catch(function () { return { sources: [] }; });
+        },
+        onComplete: function () {
+          MFPrefs.set('onboarding_done', '1');
+        },
+        onSkip: function () {
+          MFPrefs.set('onboarding_done', '1');
+        },
+      });
+    }
+
     // Re-arm hover-preview after each render
     function rearm() {
       var cards = homeRoot.querySelectorAll('.mf-doc-card');
