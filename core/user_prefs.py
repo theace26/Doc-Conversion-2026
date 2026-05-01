@@ -23,7 +23,7 @@ import structlog
 log = structlog.get_logger(__name__)
 
 
-SCHEMA_VER = 1
+SCHEMA_VER = 2
 
 
 # Default values for every supported per-user preference. Reads return these
@@ -53,6 +53,12 @@ DEFAULT_USER_PREFS: dict = {
 
     # Onboarding (Plan 8 -- empty string = not yet completed)
     "onboarding_completed_at":   "",
+
+    # Display preferences (v0.37.0)
+    "theme":      "nebula",
+    "font":       "system",
+    "text_scale": "default",
+    "use_new_ux": True,
 }
 
 
@@ -63,8 +69,27 @@ _ENUMS = {
     "layout":         {"maximal", "recent", "minimal"},
     "density":        {"cards", "compact", "list"},
     "snippet_length": {"short", "medium", "long"},
+    "theme": {
+        "classic-light", "classic-dark", "cobalt", "sage", "slate",
+        "crimson", "sandstone", "graphite",
+        "nebula", "aurora", "cobalt-new", "rose-quartz", "midnight-slate",
+        "forest", "obsidian", "dusk",
+        "hc-light", "hc-dark", "hc-light-new", "hc-dark-new",
+        "pastel-lavender", "pastel-mint", "pastel-lavender-new", "pastel-mint-new",
+        "spring-orig", "summer-orig", "fall-orig", "winter-orig",
+        "spring-new", "summer-new", "fall-new", "winter-new",
+    },
+    "font": {
+        "system", "inter", "ibm-plex-sans", "roboto", "source-sans-3",
+        "lato", "merriweather", "jetbrains-mono", "nunito",
+        "playfair-display", "raleway", "poppins", "dm-sans", "crimson-pro",
+    },
+    "text_scale": {"small", "default", "large", "xl"},
 }
-_BOOLS = {"show_file_thumbnails", "advanced_actions_inline", "track_recent_searches"}
+_BOOLS = {
+    "show_file_thumbnails", "advanced_actions_inline",
+    "track_recent_searches", "use_new_ux",
+}
 _INTS  = {"items_per_page_cards", "items_per_page_compact", "items_per_page_list"}
 _LISTS = {"pinned_folders", "pinned_topics"}
 _STRS  = {"onboarding_completed_at"}

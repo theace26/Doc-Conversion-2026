@@ -96,3 +96,64 @@ async def test_default_list_values_not_shared(db):
     # user_b should be unaffected; DEFAULT_USER_PREFS should be unaffected
     assert prefs_b["pinned_folders"] == []
     assert DEFAULT_USER_PREFS["pinned_folders"] == []
+
+
+async def test_new_pref_defaults(db):
+    prefs = await get_user_prefs(db, "new@local46.org")
+    assert prefs["theme"] == "nebula"
+    assert prefs["font"] == "system"
+    assert prefs["text_scale"] == "default"
+    assert prefs["use_new_ux"] is True
+
+
+async def test_theme_enum_validated(db):
+    with pytest.raises(ValueError, match="invalid value"):
+        await set_user_pref(db, "alice@local46.org", "theme", "not-a-theme")
+
+
+async def test_theme_valid_accepted(db):
+    await set_user_pref(db, "alice@local46.org", "theme", "nebula")
+    prefs = await get_user_prefs(db, "alice@local46.org")
+    assert prefs["theme"] == "nebula"
+
+
+async def test_font_enum_validated(db):
+    with pytest.raises(ValueError, match="invalid value"):
+        await set_user_pref(db, "alice@local46.org", "font", "comic-sans")
+
+
+async def test_text_scale_enum_validated(db):
+    with pytest.raises(ValueError, match="invalid value"):
+        await set_user_pref(db, "alice@local46.org", "text_scale", "huge")
+
+
+async def test_use_new_ux_bool_validated(db):
+    with pytest.raises(ValueError, match="must be bool"):
+        await set_user_pref(db, "alice@local46.org", "use_new_ux", "yes")
+
+
+async def test_schema_ver_is_2(db):
+    await set_user_pref(db, "alice@local46.org", "theme", "aurora")
+    async with aiosqlite.connect(str(db)) as conn:
+        async with conn.execute(
+            "SELECT schema_ver FROM mf_user_prefs WHERE user_id = ?",
+            ("alice@local46.org",)
+        ) as cur:
+            row = await cur.fetchone()
+    assert row[0] == 2
+
+
+async def test_existing_row_gets_new_defaults(db):
+    """Rows written before v0.37.0 (SCHEMA_VER 1) must pick up new defaults on read."""
+    import json
+    old_blob = json.dumps({"layout": "minimal", "density": "cards"})
+    async with aiosqlite.connect(str(db)) as conn:
+        await conn.execute(
+            "INSERT INTO mf_user_prefs (user_id, value, schema_ver) VALUES (?, ?, 1)",
+            ("olduser@local46.org", old_blob)
+        )
+        await conn.commit()
+    prefs = await get_user_prefs(db, "olduser@local46.org")
+    assert prefs["theme"] == "nebula"
+    assert prefs["use_new_ux"] is True
+    assert prefs["layout"] == "minimal"   # old value preserved
