@@ -248,6 +248,75 @@ async function buildNav() {
     var helpScript = document.createElement('script');
     helpScript.src = '/static/js/help-link.js';
     document.head.appendChild(helpScript);
+
+    // Avatar menu with Display Preferences drawer (original UX)
+    _loadAvatarMenu();
+}
+
+function _loadAvatarMenu() {
+    const nav = document.getElementById('main-nav');
+    if (!nav || document.getElementById('mf-orig-avatar-slot')) return;
+
+    const slot = document.createElement('div');
+    slot.id = 'mf-orig-avatar-slot';
+    nav.appendChild(slot);
+
+    // Bring in component styles (mf-* tokens + avatar/menu CSS)
+    if (!document.querySelector('link[href*="components.css"]')) {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = '/static/css/components.css';
+        document.head.appendChild(link);
+    }
+
+    function _loadScript(src, cb) {
+        if (document.querySelector('script[src="' + src + '"]')) { cb(); return; }
+        const s = document.createElement('script');
+        s.src = src;
+        s.onload = cb;
+        document.head.appendChild(s);
+    }
+
+    _loadScript('/static/js/components/avatar.js', function () {
+        _loadScript('/static/js/components/avatar-menu.js', function () {
+            _loadScript('/static/js/components/display-prefs-drawer.js', function () {
+                fetch('/api/me', { credentials: 'same-origin' })
+                    .then(function (r) { return r.ok ? r.json() : null; })
+                    .catch(function () { return null; })
+                    .then(function (me) {
+                        const user = {
+                            name:  (me && me.name)  || '',
+                            role:  (me && me.role)  || 'member',
+                            scope: (me && me.scope) || '',
+                        };
+                        const build = (me && me.build) || null;
+
+                        const menu = MFAvatarMenu.create({
+                            user: user,
+                            build: build,
+                            onSelectItem: function (id) {
+                                if (id === 'display') {
+                                    const drawer = MFDisplayPrefsDrawer.create();
+                                    drawer.open();
+                                } else if (id === 'all-settings') {
+                                    window.location.href = '/settings.html';
+                                } else if (id === 'help') {
+                                    window.location.href = '/help.html';
+                                }
+                            },
+                            onSignOut: function () {
+                                fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' })
+                                    .finally(function () { window.location.href = '/'; });
+                            },
+                        });
+
+                        MFAvatar.mount(slot, {
+                            onClick: function (btn) { menu.openAt(btn); }
+                        });
+                    });
+            });
+        });
+    });
 }
 
 function _loadStatusBadge() {
