@@ -524,11 +524,12 @@ async def _pipeline_alias(rest: str = ""):
     return RedirectResponse(target, status_code=301)
 
 
-# Placeholder /activity handler — Plan 4 replaces this with the real
-# Activity dashboard. Redirects to home so the target exists.
 @app.get("/activity", include_in_schema=False)
-async def _activity_placeholder():
-    return RedirectResponse("/", status_code=302)
+async def activity_page():
+    """Activity dashboard (admin/operator-only at the API layer; the
+    boot script redirects members to / on /api/me response).
+    """
+    return FileResponse("static/activity.html")
 
 
 log.info("markflow.all_routes_registered")
