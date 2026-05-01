@@ -197,6 +197,7 @@
     frag.appendChild(saveBar);
 
     saveBtn.addEventListener('click', function () {
+      saveBtn.disabled = true;
       var timeoutVal = parseInt(timeoutInput.value, 10);
       var reauthVal2 = reauthCheck.checked ? 'true' : 'false';
 
@@ -217,8 +218,10 @@
         savedPrefs.reauth_for_system_settings = reauthVal2;
         savedMsg.style.opacity = '1';
         setTimeout(function () { savedMsg.style.opacity = '0'; }, 2000);
+        saveBtn.disabled = false;
       }).catch(function (e) {
         console.error('mf: failed to save session prefs', e);
+        saveBtn.disabled = false;
       });
     });
 
