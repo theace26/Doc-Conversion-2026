@@ -1,6 +1,6 @@
 # UX Overhaul — Card Interactions Implementation Plan (Plan 2B)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add the four interactions document cards need to feel like a real tool: hover preview popover (rich meta + AI summary + action buttons), right-click context menu (with the power-user `Advanced ▾` expander gating Markdown actions), multi-select state with hover-checkboxes, and a bulk action bar that surfaces when items are selected. Wrap with a folder browse page (breadcrumb + folder header + grid + bulk bar) that demonstrates the whole thing end-to-end on `dev-chrome.html`.
 
@@ -46,7 +46,7 @@
 
 `340px` floating popover anchored to a card's right side (or top if rightmost column). Triggered after **400ms** hover delay. Shows full title, full path, format/size, modified-by, indexed-status, AI summary block, and four action buttons (Preview / Download / Go to folder / `…` more).
 
-- [ ] **Step 1: Create the component using safe DOM construction**
+- [x] **Step 1: Create the component using safe DOM construction**
 
 Create `static/js/components/hover-preview.js`:
 
@@ -230,7 +230,7 @@ Create `static/js/components/hover-preview.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Append CSS to components.css**
+- [x] **Step 2: Append CSS to components.css**
 
 Append to `static/css/components.css`:
 
@@ -314,13 +314,13 @@ Append to `static/css/components.css`:
 }
 ```
 
-- [ ] **Step 3: Verify safe DOM**
+- [x] **Step 3: Verify safe DOM**
 
 Run: `grep -n "innerHTML" static/js/components/hover-preview.js`
 
 Expected: zero matches.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add static/js/components/hover-preview.js static/css/components.css
@@ -342,7 +342,7 @@ Safe DOM throughout — every text via textContent."
 
 `240px` menu with grouped items: View / Export / AI / Pin & Flag / Advanced. Advanced section honors the `advanced_actions_inline` preference (Plan 1C) — when ON the items render inline (de-emphasized); when OFF they hide behind an `Advanced ▾` expander row.
 
-- [ ] **Step 1: Create the component**
+- [x] **Step 1: Create the component**
 
 Create `static/js/components/context-menu.js`:
 
@@ -554,7 +554,7 @@ Create `static/js/components/context-menu.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Append CSS to components.css**
+- [x] **Step 2: Append CSS to components.css**
 
 Append to `static/css/components.css`:
 
@@ -632,7 +632,7 @@ Append to `static/css/components.css`:
 .mf-ctx__exp--open .mf-ctx__exp-chev { transform: rotate(180deg); }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add static/js/components/context-menu.js static/css/components.css
@@ -655,7 +655,7 @@ left or up if menu would overflow viewport. Safe DOM throughout."
 
 State manager (not a UI component — just a publish-subscribe store) tracking which doc IDs are currently selected. Other components (cards, bulk bar) subscribe to update their visuals.
 
-- [ ] **Step 1: Create the module**
+- [x] **Step 1: Create the module**
 
 Create `static/js/components/card-selection.js`:
 
@@ -721,7 +721,7 @@ Create `static/js/components/card-selection.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add static/js/components/card-selection.js
@@ -748,7 +748,7 @@ The card from Plan 2A is presentational only. Extend it to:
 
 This task is a small surgical edit to doc-card.js.
 
-- [ ] **Step 1: Modify doc-card.js — add checkbox slot to thumb**
+- [x] **Step 1: Modify doc-card.js — add checkbox slot to thumb**
 
 In `static/js/components/doc-card.js`, find the `function create(doc)` body. After the line that appends `band` and `fav` to `thumb`, add a checkbox before snippet:
 
@@ -760,7 +760,7 @@ In `static/js/components/doc-card.js`, find the `function create(doc)` body. Aft
     thumb.appendChild(cb);
 ```
 
-- [ ] **Step 2: Add a contextmenu event handler that emits a custom event**
+- [x] **Step 2: Add a contextmenu event handler that emits a custom event**
 
 In `MFDocCard.create()`, after the `card` element is fully built (before `return card`), add:
 
@@ -782,7 +782,7 @@ In `MFDocCard.create()`, after the `card` element is fully built (before `return
     });
 ```
 
-- [ ] **Step 3: Append CSS for the checkbox + selected state**
+- [x] **Step 3: Append CSS for the checkbox + selected state**
 
 Append to `static/css/components.css`:
 
@@ -822,7 +822,7 @@ Append to `static/css/components.css`:
 }
 ```
 
-- [ ] **Step 4: Subscribe to MFCardSelection from card-grid (post-mount)**
+- [x] **Step 4: Subscribe to MFCardSelection from card-grid (post-mount)**
 
 Modify `MFCardGrid.mount()` in `static/js/components/card-grid.js` — after the children are appended, register a one-time subscription that updates `mf-doc-card--selected` classes on selection change. (Avoid stacking subscriptions on each remount: keep a module-scoped unsubscribe and call it before resubscribing.)
 
@@ -854,13 +854,13 @@ In `static/js/components/card-grid.js`, modify the IIFE to include this state:
   }
 ```
 
-- [ ] **Step 5: Verify safe DOM on edits**
+- [x] **Step 5: Verify safe DOM on edits**
 
 Run: `grep -n "innerHTML" static/js/components/doc-card.js static/js/components/card-grid.js`
 
 Expected: zero matches.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add static/js/components/doc-card.js static/js/components/card-grid.js static/css/components.css
@@ -883,7 +883,7 @@ if needed)."
 
 Purple bar that appears at the top of a card grid when items are selected. Shows count + bulk actions: Download / Preview / Copy paths / Tag / Flag / Clear.
 
-- [ ] **Step 1: Create the component**
+- [x] **Step 1: Create the component**
 
 Create `static/js/components/bulk-bar.js`:
 
@@ -983,7 +983,7 @@ Create `static/js/components/bulk-bar.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Append CSS to components.css**
+- [x] **Step 2: Append CSS to components.css**
 
 Append to `static/css/components.css`:
 
@@ -1039,7 +1039,7 @@ Append to `static/css/components.css`:
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add static/js/components/bulk-bar.js static/css/components.css
@@ -1061,7 +1061,7 @@ callback with the ID list. Safe DOM throughout."
 
 Single-page mountable component that demonstrates all the interactions together: breadcrumb + folder header (icon + path + stats + Pin / Download-all + density toggle) + bulk-bar + card-grid. Plan 4 will mount this on a real `/folder/<path>` route; for now it lives on dev-chrome.
 
-- [ ] **Step 1: Create the component**
+- [x] **Step 1: Create the component**
 
 Create `static/js/components/folder-browse.js`:
 
@@ -1197,7 +1197,7 @@ Create `static/js/components/folder-browse.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Append CSS to components.css**
+- [x] **Step 2: Append CSS to components.css**
 
 Append to `static/css/components.css`:
 
@@ -1252,7 +1252,7 @@ Append to `static/css/components.css`:
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add static/js/components/folder-browse.js static/css/components.css
@@ -1276,7 +1276,7 @@ together. Safe DOM throughout."
 - Modify: `static/dev-chrome.html` — load new scripts, add a folder-browse demo section
 - Modify: `static/dev-chrome.js` — wire the hover preview, context menu, folder-browse demo
 
-- [ ] **Step 1: Update dev-chrome.html**
+- [x] **Step 1: Update dev-chrome.html**
 
 Add the new script tags before `dev-chrome.js`:
 
@@ -1298,7 +1298,7 @@ Append a folder-browse demo section after the existing card-grid demo:
   </div>
 ```
 
-- [ ] **Step 2: Append wiring to dev-chrome.js**
+- [x] **Step 2: Append wiring to dev-chrome.js**
 
 Append to `static/dev-chrome.js` (inside the existing IIFE, before the closing `})();`):
 
@@ -1341,7 +1341,7 @@ Append to `static/dev-chrome.js` (inside the existing IIFE, before the closing `
   });
 ```
 
-- [ ] **Step 3: Smoke verify the full integration**
+- [x] **Step 3: Smoke verify the full integration**
 
 ```bash
 docker-compose up -d
@@ -1362,7 +1362,7 @@ Visit `http://localhost:8000/static/dev-chrome.html`. Expected:
 
 If anything reads wrong visually, cross-check against `docs/superpowers/specs/2026-04-28-ux-overhaul-mockups/card-interactions.html`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add static/dev-chrome.html static/dev-chrome.js
@@ -1386,14 +1386,14 @@ and replace MFSampleDocs with /api/folders responses."
 
 ## Acceptance check (run before declaring this plan complete)
 
-- [ ] `git log --oneline | head -10` shows 6 task commits in order, on top of Plan 2A
-- [ ] `grep -rn "innerHTML" static/js/components/hover-preview.js static/js/components/context-menu.js static/js/components/card-selection.js static/js/components/bulk-bar.js static/js/components/folder-browse.js` — zero matches
-- [ ] `docker-compose up -d` succeeds, no console errors
-- [ ] All 10 smoke checks from Task 7 Step 3 pass
-- [ ] Hover preview appears after ~400ms (not instantly, not slower than ~600ms)
-- [ ] Context menu Advanced expander toggles inline section visibility
-- [ ] Setting `MFPrefs.set('advanced_actions_inline', true)` in console → next right-click shows Markdown items inline (no expander needed)
-- [ ] Selecting 3 cards → bulk bar reads "3 files selected"; Clear empties
+- [x] `git log --oneline | head -10` shows 6 task commits in order, on top of Plan 2A
+- [x] `grep -rn "innerHTML" static/js/components/hover-preview.js static/js/components/context-menu.js static/js/components/card-selection.js static/js/components/bulk-bar.js static/js/components/folder-browse.js` — zero matches
+- [x] `docker-compose up -d` succeeds, no console errors
+- [x] All 10 smoke checks from Task 7 Step 3 pass
+- [x] Hover preview appears after ~400ms (not instantly, not slower than ~600ms)
+- [x] Context menu Advanced expander toggles inline section visibility
+- [x] Setting `MFPrefs.set('advanced_actions_inline', true)` in console → next right-click shows Markdown items inline (no expander needed)
+- [x] Selecting 3 cards → bulk bar reads "3 files selected"; Clear empties
 
 Once all green, **Plan 2B is done**. Next plan: `2026-04-28-ux-overhaul-search-as-home.md` (Plan 3 — Search-as-home page with three layout modes).
 

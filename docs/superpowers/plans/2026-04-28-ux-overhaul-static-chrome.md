@@ -1,6 +1,6 @@
 # UX Overhaul — Static Chrome Implementation Plan (Plan 1B)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Land the four static (stateless, presentational) JS chrome components that build on Plan 1A's design tokens and components.css: top-nav, version-chip, avatar circle, layout-icon button. Plus a dev scaffold page (`static/dev-chrome.html`) that mounts them all for manual visual verification. No state, no popovers, no server interaction yet — Plan 1C adds those.
 
@@ -37,19 +37,19 @@
 
 ## Phase 0 — Branch setup (one-time, run before Task 1)
 
-- [ ] **Step 1: Confirm Plan 1A is committed**
+- [x] **Step 1: Confirm Plan 1A is committed**
 
 Run: `git log --oneline | head -5`
 
 Expected: see `f37e633 plan(ux): UX overhaul foundation setup — Plan 1A` (or whatever SHA Plan 1A landed at).
 
-- [ ] **Step 2: Confirm clean working tree**
+- [x] **Step 2: Confirm clean working tree**
 
 Run: `git status`
 
 Expected: `nothing to commit, working tree clean`. If not, stop and reconcile before starting.
 
-- [ ] **Step 3: Confirm Plan 1A's foundation actually shipped**
+- [x] **Step 3: Confirm Plan 1A's foundation actually shipped**
 
 ```bash
 ls static/css/design-tokens.css static/css/components.css
@@ -67,7 +67,7 @@ Expected: all three files exist. If they don't, this plan can't start — Plan 1
 
 Vanilla JS — no JS test runner in MarkFlow. Verification is manual smoke via the dev-chrome page (Task 5). This task only ships the component file; smoke happens in Task 5.
 
-- [ ] **Step 1: Create the component using safe DOM construction**
+- [x] **Step 1: Create the component using safe DOM construction**
 
 Create `static/js/components/top-nav.js`:
 
@@ -163,7 +163,7 @@ Create `static/js/components/top-nav.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Append nav-specific CSS to components.css**
+- [x] **Step 2: Append nav-specific CSS to components.css**
 
 Append to `static/css/components.css`:
 
@@ -207,11 +207,11 @@ Append to `static/css/components.css`:
 }
 ```
 
-- [ ] **Step 3: Smoke check — load via dev-chrome (deferred to Task 5)**
+- [x] **Step 3: Smoke check — load via dev-chrome (deferred to Task 5)**
 
 This component has no standalone smoke target until Task 5 builds the dev-chrome page. Move on to Task 2.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add static/js/components/top-nav.js static/css/components.css
@@ -232,7 +232,7 @@ Safe DOM construction throughout — no innerHTML."
 
 Trivial component — renders a single span with version text into a slot. The CSS class `.mf-ver-chip` was already defined in Plan 1A's `components.css`. Hidden in production via the `body[data-env="prod"]` selector in `design-tokens.css`.
 
-- [ ] **Step 1: Create the component**
+- [x] **Step 1: Create the component**
 
 Create `static/js/components/version-chip.js`:
 
@@ -265,13 +265,13 @@ Create `static/js/components/version-chip.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Confirm CSS exists from Plan 1A**
+- [x] **Step 2: Confirm CSS exists from Plan 1A**
 
 Run: `grep -n "mf-ver-chip" static/css/components.css`
 
 Expected: a class definition exists (added in Plan 1A Task 3). If missing, append it now using the spec values from `design-tokens.css` — but it should be there.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add static/js/components/version-chip.js
@@ -291,7 +291,7 @@ selector in design-tokens.css. Safe DOM — textContent only."
 
 Just the gradient circle button. ARIA wired so it's ready for Plan 1C's avatar menu to attach. The click handler is a hook — Plan 1C wires it to the menu open. For now it's a stub that calls back to `opts.onClick` if provided.
 
-- [ ] **Step 1: Create the component**
+- [x] **Step 1: Create the component**
 
 Create `static/js/components/avatar.js`:
 
@@ -332,7 +332,7 @@ Create `static/js/components/avatar.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Append CSS to components.css**
+- [x] **Step 2: Append CSS to components.css**
 
 Append to `static/css/components.css`:
 
@@ -360,7 +360,7 @@ Append to `static/css/components.css`:
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add static/js/components/avatar.js static/css/components.css
@@ -380,7 +380,7 @@ Plan 1C to attach the avatar menu. Safe DOM construction throughout."
 
 The four-square SVG button next to the avatar. Click stub for Plan 1C to wire into the layout-mode popover. The SVG is built with `createElementNS` to use the SVG namespace.
 
-- [ ] **Step 1: Create the component**
+- [x] **Step 1: Create the component**
 
 Create `static/js/components/layout-icon.js`:
 
@@ -449,7 +449,7 @@ Create `static/js/components/layout-icon.js`:
 })(window);
 ```
 
-- [ ] **Step 2: Append CSS to components.css**
+- [x] **Step 2: Append CSS to components.css**
 
 Append to `static/css/components.css`:
 
@@ -487,7 +487,7 @@ Append to `static/css/components.css`:
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add static/js/components/layout-icon.js static/css/components.css
@@ -507,7 +507,7 @@ onClick callback is a hook for Plan 1C to attach the layout popover."
 
 Single page that mounts all four components for manual visual verification across role variants. Removed at the end of Plan 1C once components have a real home (mounted via Plan 4 onto existing pages).
 
-- [ ] **Step 1: Create the page**
+- [x] **Step 1: Create the page**
 
 Create `static/dev-chrome.html`:
 
@@ -582,7 +582,7 @@ Create `static/dev-chrome.html`:
 </html>
 ```
 
-- [ ] **Step 2: Create the dev-chrome wiring script**
+- [x] **Step 2: Create the dev-chrome wiring script**
 
 Create `static/dev-chrome.js` (separate file so the HTML stays inert — no inline scripts):
 
@@ -626,7 +626,7 @@ Create `static/dev-chrome.js` (separate file so the HTML stays inert — no inli
 })();
 ```
 
-- [ ] **Step 3: Run docker-compose, smoke verify**
+- [x] **Step 3: Run docker-compose, smoke verify**
 
 ```bash
 docker-compose up -d
@@ -644,7 +644,7 @@ Expected:
 
 If anything reads wrong visually, cross-check against `docs/superpowers/specs/2026-04-28-ux-overhaul-mockups/avatar-menu.html` (the static nav portion).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add static/dev-chrome.html static/dev-chrome.js
@@ -661,15 +661,15 @@ pages via Plan 4."
 
 ## Acceptance check (run before declaring this plan complete)
 
-- [ ] `git log --oneline | head -10` shows 5 task commits in order, each on top of Plan 1A's foundation
-- [ ] `docker-compose up -d` succeeds, app starts, no console errors when loading `/static/dev-chrome.html`
-- [ ] Visit `http://localhost:8000/static/dev-chrome.html` — page renders without JS errors in browser console
-- [ ] Member role variant: nav shows `Search · Convert` only
-- [ ] Operator and admin role variants: nav shows `Search · Activity · Convert`
-- [ ] Version chip visible next to logo (amber pill, `v0.34.2-dev`)
-- [ ] Avatar click logs to console; aria-expanded transitions
-- [ ] Layout-icon click logs to console; hover/open visual states render
-- [ ] Verify file sizes — each component ≤ 100 lines:
+- [x] `git log --oneline | head -10` shows 5 task commits in order, each on top of Plan 1A's foundation
+- [x] `docker-compose up -d` succeeds, app starts, no console errors when loading `/static/dev-chrome.html`
+- [x] Visit `http://localhost:8000/static/dev-chrome.html` — page renders without JS errors in browser console
+- [x] Member role variant: nav shows `Search · Convert` only
+- [x] Operator and admin role variants: nav shows `Search · Activity · Convert`
+- [x] Version chip visible next to logo (amber pill, `v0.34.2-dev`)
+- [x] Avatar click logs to console; aria-expanded transitions
+- [x] Layout-icon click logs to console; hover/open visual states render
+- [x] Verify file sizes — each component ≤ 100 lines:
   ```
   wc -l static/js/components/top-nav.js static/js/components/version-chip.js static/js/components/avatar.js static/js/components/layout-icon.js
   ```

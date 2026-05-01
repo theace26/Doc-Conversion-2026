@@ -122,7 +122,7 @@
   }).catch(function (e) {
     console.error('mf: cost-cap-settings boot failed', e);
     var msg = document.createElement('div');
-    msg.style.cssText = 'padding:2rem;text-align:center;color:#888;font-family:sans-serif';
+    msg.style.cssText = 'padding:2rem;text-align:center;color:var(--mf-color-text-muted);font-family:sans-serif';
     msg.textContent = 'Cost settings unavailable. Check console.';
     if (costRoot) costRoot.appendChild(msg);
   });

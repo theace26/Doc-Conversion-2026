@@ -1,6 +1,6 @@
 # UX Overhaul — Foundation Setup Plan (Plan 1A)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Land all the *non-UI* foundation needed before any new chrome ships: feature flag, design-token CSS, shared component CSS scaffold, preferences DB migration, JWT role-claim parsing, `/pipeline → /activity` redirect, preferences server module + HTTP endpoints, mockup archive index, and `CLAUDE.md` cross-references.
 
@@ -55,13 +55,13 @@
 - Create: `tests/test_feature_flag.py`
 - Modify: `.env.example`
 
-- [ ] **Step 1: Confirm where existing feature flags live**
+- [x] **Step 1: Confirm where existing feature flags live**
 
 Run: `grep -rn "DEV_BYPASS_AUTH" core/ main.py`
 
 Read whichever file currently parses that flag. The new flag follows the same pattern. If MarkFlow already has a `core/feature_flags.py` or equivalent, append to it instead of creating a new file.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `tests/test_feature_flag.py`:
 
@@ -97,13 +97,13 @@ def test_new_ux_falsy_values(monkeypatch, val):
     assert is_new_ux_enabled() is False
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `pytest tests/test_feature_flag.py -v`
 
 Expected: FAIL with `ModuleNotFoundError: No module named 'core.feature_flags'`.
 
-- [ ] **Step 4: Implement the flag accessor**
+- [x] **Step 4: Implement the flag accessor**
 
 Create `core/feature_flags.py`:
 
@@ -130,13 +130,13 @@ def is_new_ux_enabled() -> bool:
     return _is_truthy(os.environ.get("ENABLE_NEW_UX"))
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `pytest tests/test_feature_flag.py -v`
 
 Expected: 9 PASS (5 tests with parametrize expansions).
 
-- [ ] **Step 6: Update `.env.example`**
+- [x] **Step 6: Update `.env.example`**
 
 Append to `.env.example`:
 
@@ -147,7 +147,7 @@ Append to `.env.example`:
 ENABLE_NEW_UX=false
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add core/feature_flags.py tests/test_feature_flag.py .env.example
@@ -167,7 +167,7 @@ plans ship. Spec §13."
 
 CSS-only — no test infrastructure required. Verification is a manual smoke check that the file loads and `:root` custom properties resolve in the browser.
 
-- [ ] **Step 1: Create the design tokens file**
+- [x] **Step 1: Create the design tokens file**
 
 Create `static/css/design-tokens.css`:
 
@@ -275,7 +275,7 @@ Create `static/css/design-tokens.css`:
 body[data-env="prod"] .mf-ver-chip { display: none; }
 ```
 
-- [ ] **Step 2: Smoke verify it loads**
+- [x] **Step 2: Smoke verify it loads**
 
 Add a temporary `<link rel="stylesheet" href="/static/css/design-tokens.css">` to `static/index.html` `<head>`, then:
 
@@ -287,7 +287,7 @@ Visit `http://localhost:8000/` in the browser, open DevTools → Elements → se
 
 Revert the temporary `<link>` change in `static/index.html` (it gets re-added properly during Plan 1B / 1C work).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add static/css/design-tokens.css
@@ -308,7 +308,7 @@ until each consumer is touched."
 
 Initial scaffold lays out shared component base styles. Plan 1B and later append component-specific styles to this file.
 
-- [ ] **Step 1: Create the file**
+- [x] **Step 1: Create the file**
 
 Create `static/css/components.css`:
 
@@ -458,7 +458,7 @@ Create `static/css/components.css`:
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add static/css/components.css
@@ -477,13 +477,13 @@ tokens. Plan 1B and later append component-specific styles here."
 - Create: `core/db/migrations/<NNN>_user_preferences.py` (next free integer)
 - Create: `tests/test_user_preferences_migration.py`
 
-- [ ] **Step 1: Confirm next migration number and the migration framework convention**
+- [x] **Step 1: Confirm next migration number and the migration framework convention**
 
 Run: `ls core/db/migrations/ | sort | tail -5`
 
 Pick the next integer. Then read the most recent migration file to confirm the function signatures and conventions (some projects use `upgrade(conn)`, some use raw SQL files, some use Alembic). The example below uses an `async upgrade(conn)` / `async downgrade(conn)` shape — adapt to whatever convention this repo uses.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `tests/test_user_preferences_migration.py`:
 
@@ -555,13 +555,13 @@ async def test_user_preferences_unique_per_user(tmp_path, run_migrations):
 
 The `run_migrations` fixture should already exist in `tests/conftest.py`. If not, create one that mirrors how the app applies migrations on startup.
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `pytest tests/test_user_preferences_migration.py -v`
 
 Expected: FAIL — table doesn't exist.
 
-- [ ] **Step 4: Write the migration**
+- [x] **Step 4: Write the migration**
 
 Create `core/db/migrations/<NNN>_user_preferences.py` (replace `<NNN>` with the actual next integer determined in Step 1):
 
@@ -598,13 +598,13 @@ async def downgrade(conn: aiosqlite.Connection) -> None:
 
 If the project's migration framework uses different signatures (raw SQL, Alembic, etc.), adapt — the schema (table + index) stays identical.
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `pytest tests/test_user_preferences_migration.py -v`
 
 Expected: 3 PASS.
 
-- [ ] **Step 6: Apply migration locally and confirm**
+- [x] **Step 6: Apply migration locally and confirm**
 
 ```bash
 docker-compose up -d
@@ -614,7 +614,7 @@ docker-compose exec app sqlite3 /app/markflow.db ".schema user_preferences"
 
 Expected: the table schema printed back.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add core/db/migrations/*user_preferences.py tests/test_user_preferences_migration.py
@@ -633,13 +633,13 @@ updated_at for housekeeping. Spec §10."
 - Modify: `core/auth.py`
 - Create: `tests/test_role_claim_extraction.py`
 
-- [ ] **Step 1: Read the existing auth module**
+- [x] **Step 1: Read the existing auth module**
 
 Run: `grep -n "decode\|verify_token\|claims\|jwt" core/auth.py | head -30`
 
 Locate the function that returns parsed JWT claims (likely a dict). The new helpers will sit alongside it.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `tests/test_role_claim_extraction.py`:
 
@@ -682,13 +682,13 @@ def test_role_hierarchy_comparison():
     assert not (Role.MEMBER >= Role.ADMIN)
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `pytest tests/test_role_claim_extraction.py -v`
 
 Expected: FAIL — `Role` and `extract_role` don't exist.
 
-- [ ] **Step 4: Add the helpers to `core/auth.py`**
+- [x] **Step 4: Add the helpers to `core/auth.py`**
 
 Append to `core/auth.py` (or insert near the existing claims-parsing section):
 
@@ -725,13 +725,13 @@ def extract_role(claims: dict) -> Role:
 
 If `core/auth.py` already imports `enum`, omit the duplicate import.
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `pytest tests/test_role_claim_extraction.py -v`
 
 Expected: 7 PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add core/auth.py tests/test_role_claim_extraction.py
@@ -750,7 +750,7 @@ Defensive: missing or unknown role defaults to MEMBER. Spec §11
 - Modify: `main.py`
 - Create: `tests/test_route_aliases.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/test_route_aliases.py`:
 
@@ -785,13 +785,13 @@ def test_activity_route_exists(client):
     assert r.status_code != 404
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_route_aliases.py -v`
 
 Expected: FAIL — `/pipeline` either doesn't exist or doesn't redirect.
 
-- [ ] **Step 3: Add the redirect to `main.py`**
+- [x] **Step 3: Add the redirect to `main.py`**
 
 Find the route registration section in `main.py`. Append:
 
@@ -820,13 +820,13 @@ async def _activity_placeholder():
 
 If a real `/activity` handler already exists, omit the placeholder block.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/test_route_aliases.py -v`
 
 Expected: 3 PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add main.py tests/test_route_aliases.py
@@ -846,7 +846,7 @@ the release after Plan 4."
 - Create: `core/preferences.py`
 - Create: `tests/test_preferences.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/test_preferences.py`:
 
@@ -942,13 +942,13 @@ async def test_items_per_page_bounds(tmp_path, run_migrations):
         await set_preference(db, "alice@local46.org", "items_per_page_cards", 99999)
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_preferences.py -v`
 
 Expected: FAIL — `core.preferences` doesn't exist.
 
-- [ ] **Step 3: Implement the module**
+- [x] **Step 3: Implement the module**
 
 Create `core/preferences.py`:
 
@@ -1091,13 +1091,13 @@ async def _write_all(db_path: Path | str, user_id: str, prefs: dict) -> None:
     log.info("user_prefs_saved", user_id=user_id, keys=sorted(prefs.keys()))
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/test_preferences.py -v`
 
 Expected: 8 PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add core/preferences.py tests/test_preferences.py
@@ -1118,13 +1118,13 @@ per user. Spec §10."
 - Modify: `main.py`
 - Create: `tests/test_preferences_api.py`
 
-- [ ] **Step 1: Confirm the project's auth dependency**
+- [x] **Step 1: Confirm the project's auth dependency**
 
 Run: `grep -rn "Depends\|require_user\|current_user\|get_current_user" api/routes/*.py | head -10`
 
 Pick whichever existing dependency yields an authenticated user with at least a `user_id` (or equivalent) attribute. Adapt the import below.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `tests/test_preferences_api.py`:
 
@@ -1181,13 +1181,13 @@ def test_unauthenticated_returns_401():
     assert r.status_code == 401
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 Run: `pytest tests/test_preferences_api.py -v`
 
 Expected: FAIL — endpoints don't exist.
 
-- [ ] **Step 4: Implement the routes**
+- [x] **Step 4: Implement the routes**
 
 Create `api/routes/preferences.py`:
 
@@ -1225,7 +1225,7 @@ async def write_preferences(
 
 If your project's auth dependency or DB-path helper has different names, adapt the imports. The dependency should yield an object with a `user_id` attribute (or equivalent) populated from the JWT `sub` claim.
 
-- [ ] **Step 5: Wire the router into `main.py`**
+- [x] **Step 5: Wire the router into `main.py`**
 
 Add to `main.py` (with the other `app.include_router` calls):
 
@@ -1234,13 +1234,13 @@ from api.routes import preferences as preferences_routes
 app.include_router(preferences_routes.router)
 ```
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 6: Run tests to verify they pass**
 
 Run: `pytest tests/test_preferences_api.py -v`
 
 Expected: 5 PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add api/routes/preferences.py main.py tests/test_preferences_api.py
@@ -1260,7 +1260,7 @@ with defaults filled in. Spec §10."
 
 Static HTML, no scripts. Devs/designers open one URL to browse all 16 mocks instead of guessing filenames.
 
-- [ ] **Step 1: Generate the index**
+- [x] **Step 1: Generate the index**
 
 Create `docs/superpowers/specs/2026-04-28-ux-overhaul-mockups/index.html`:
 
@@ -1335,11 +1335,11 @@ Create `docs/superpowers/specs/2026-04-28-ux-overhaul-mockups/index.html`:
 </html>
 ```
 
-- [ ] **Step 2: Smoke check**
+- [x] **Step 2: Smoke check**
 
 Open `docs/superpowers/specs/2026-04-28-ux-overhaul-mockups/index.html` directly in a browser (file:// is fine for static HTML). All 16 links resolve to existing files in the same directory.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-04-28-ux-overhaul-mockups/index.html
@@ -1357,7 +1357,7 @@ v1 spec."
 **Files:**
 - Modify: `CLAUDE.md`
 
-- [ ] **Step 1: Append architecture reminders**
+- [x] **Step 1: Append architecture reminders**
 
 In `CLAUDE.md`, find the `## Architecture Reminders` section. Append (preserve existing items):
 
@@ -1368,7 +1368,7 @@ In `CLAUDE.md`, find the `## Architecture Reminders` section. Append (preserve e
 - **Design tokens are CSS variables** — `static/css/design-tokens.css` is the single source of truth for colors, type, spacing, shadows. Never hardcode hex outside that file. Component CSS in `static/css/components.css` consumes tokens via `var(--mf-*)`.
 ```
 
-- [ ] **Step 2: Append critical files**
+- [x] **Step 2: Append critical files**
 
 Find the `## Critical Files` table. Append rows (preserve existing rows):
 
@@ -1379,7 +1379,7 @@ Find the `## Critical Files` table. Append rows (preserve existing rows):
 | `static/css/components.css` | Shared component classes (pills, toggles, segmented, pulse, role pill, version chip) |
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add CLAUDE.md
@@ -1394,12 +1394,12 @@ the v1 spec for deeper context."
 
 ## Acceptance check (run before declaring this plan complete)
 
-- [ ] `pytest tests/test_feature_flag.py tests/test_user_preferences_migration.py tests/test_role_claim_extraction.py tests/test_route_aliases.py tests/test_preferences.py tests/test_preferences_api.py -v` — all pass
-- [ ] `docker-compose up -d` succeeds, app starts, no migration errors in logs
-- [ ] `docker-compose exec app sqlite3 /app/markflow.db ".schema user_preferences"` returns the table schema
-- [ ] `curl -i http://localhost:8000/pipeline` shows `301` to `/activity`
-- [ ] `curl -i http://localhost:8000/static/css/design-tokens.css` returns 200 + CSS body
-- [ ] `git log --oneline | head -12` shows ~10 task commits in order
+- [x] `pytest tests/test_feature_flag.py tests/test_user_preferences_migration.py tests/test_role_claim_extraction.py tests/test_route_aliases.py tests/test_preferences.py tests/test_preferences_api.py -v` — all pass
+- [x] `docker-compose up -d` succeeds, app starts, no migration errors in logs
+- [x] `docker-compose exec app sqlite3 /app/markflow.db ".schema user_preferences"` returns the table schema
+- [x] `curl -i http://localhost:8000/pipeline` shows `301` to `/activity`
+- [x] `curl -i http://localhost:8000/static/css/design-tokens.css` returns 200 + CSS body
+- [x] `git log --oneline | head -12` shows ~10 task commits in order
 
 Once all green, **Plan 1A is done**. The next plan in the sequence is `2026-04-28-ux-overhaul-shared-chrome.md` (Plan 1B — JS components for top nav, version chip, avatar menu, layout icon, preferences client). Plan 1B explicitly uses safe DOM construction (`document.createElement` + `textContent`) to avoid XSS — no `innerHTML` with template literals.
 

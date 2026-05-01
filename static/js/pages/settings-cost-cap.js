@@ -120,7 +120,7 @@
       noDataText.setAttribute('y', '44');
       noDataText.setAttribute('text-anchor', 'middle');
       noDataText.setAttribute('font-size', '12');
-      noDataText.setAttribute('fill', '#888888');
+      noDataText.setAttribute('fill', 'var(--mf-color-text-muted)');
       noDataText.textContent = 'No chart data available';
       svg.appendChild(noDataText);
       wrap.appendChild(svg);
@@ -169,7 +169,7 @@
       noDataText.setAttribute('y', '44');
       noDataText.setAttribute('text-anchor', 'middle');
       noDataText.setAttribute('font-size', '12');
-      noDataText.setAttribute('fill', '#888888');
+      noDataText.setAttribute('fill', 'var(--mf-color-text-muted)');
       noDataText.textContent = 'No chart data available';
       svg.appendChild(noDataText);
       wrap.appendChild(svg);
@@ -211,7 +211,7 @@
       var chip = el('span', 'mf-cost__legend-chip');
       chip.textContent = providers[li];
       chip.style.background = CHART_COLORS[li % CHART_COLORS.length];
-      chip.style.color = '#ffffff';
+      chip.style.color = 'var(--mf-surface)';
       legend.appendChild(chip);
     }
     wrap.appendChild(legend);
@@ -581,7 +581,7 @@
 
         if (hi < headers.length - 1) {
           var comma = el('span');
-          comma.style.color = '#888';
+          comma.style.color = 'var(--mf-color-text-muted)';
           comma.textContent = ',';
           p.appendChild(comma);
         }
