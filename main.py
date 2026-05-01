@@ -532,6 +532,27 @@ async def activity_page():
     return FileResponse("static/activity.html")
 
 
+# UX overhaul Plan 5: Settings overview + Storage detail
+@app.get("/settings", include_in_schema=False)
+async def settings_page():
+    """Settings overview card grid. New UX when ENABLE_NEW_UX=true."""
+    if is_new_ux_enabled():
+        return FileResponse("static/settings-new.html")
+    return FileResponse("static/settings.html")
+
+
+@app.get("/settings/storage", include_in_schema=False)
+async def settings_storage_page():
+    """Storage detail page — sidebar + mounts/output view."""
+    return FileResponse("static/settings-storage.html")
+
+
+@app.get("/settings/{section}", include_in_schema=False)
+async def settings_section_page(section: str):
+    """Future plans implement each section. Redirect to overview for now."""
+    return RedirectResponse("/settings", status_code=302)
+
+
 log.info("markflow.all_routes_registered")
 
 # ── Static files ──────────────────────────────────────────────────────────────

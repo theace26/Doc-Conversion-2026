@@ -1272,3 +1272,53 @@
 .mf-act__ctrl:hover { border-color: var(--mf-color-accent-border); }
 .mf-act__ctrl-name { font-size: 0.92rem; font-weight: 600; color: var(--mf-color-text); margin-bottom: 0.15rem; }
 .mf-act__ctrl-sub { font-size: 0.76rem; color: var(--mf-color-text-faint); line-height: 1.4; }
+
+/* === settings overview === */
+.mf-settings__body { padding: 2.2rem var(--mf-page-pad-x) 3rem; max-width: var(--mf-content-max); margin: 0 auto; }
+.mf-settings__headline { font-size: 2.3rem; line-height: 1.05; letter-spacing: -0.025em; font-weight: 700; color: var(--mf-color-text); margin: 0 0 0.55rem; }
+.mf-settings__subtitle { color: var(--mf-color-text-muted); font-size: 1rem; margin: 0 0 2rem; max-width: 42ch; }
+.mf-settings__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.mf-settings__card {
+  display: block;
+  position: relative;
+  background: var(--mf-surface);
+  border: 1px solid var(--mf-border);
+  border-radius: var(--mf-radius-card-lg);
+  padding: 1.4rem 1.3rem;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+}
+.mf-settings__card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px -12px rgba(91, 61, 245, 0.18);
+  border-color: var(--mf-color-accent-border);
+}
+.mf-settings__card-arrow {
+  position: absolute;
+  top: 1.4rem;
+  right: 1.3rem;
+  color: var(--mf-color-text-faint);
+  font-size: 1.1rem;
+  opacity: 0;
+  transition: opacity 0.15s, transform 0.15s;
+}
+.mf-settings__card:hover .mf-settings__card-arrow { opacity: 1; transform: translateX(2px); }
+.mf-settings__card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--mf-color-accent-tint), #e9e1ff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  margin-bottom: 0.85rem;
+}
+.mf-settings__card-title { margin: 0 0 0.3rem; font-size: 1rem; font-weight: 600; color: var(--mf-color-text); }
+.mf-settings__card-desc { margin: 0; font-size: 0.85rem; color: var(--mf-color-text-muted); line-height: 1.4; }
