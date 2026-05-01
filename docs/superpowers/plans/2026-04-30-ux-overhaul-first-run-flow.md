@@ -130,8 +130,8 @@ On "Skip" at Step 3: pinned folders not saved; `onComplete()` still called (skip
   [Finish setup →]
 ```
 
-- [ ] **Step 3:** Add Step 3 `_renderPinFolders(sources)` function to `onboarding.js`
-- [ ] **Step 4:** Wire "Finish setup" button to save pinned folders + call `onComplete()`
+- [x] **Step 3:** Add Step 3 `_renderPinFolders(sources)` function to `onboarding.js`
+- [x] **Step 4:** Wire "Finish setup" button to save pinned folders + call `onComplete()`
 
 ---
 
@@ -199,26 +199,26 @@ MFOnboarding.show({
 - `.mf-ob__folder-empty` — centered, muted, dashed border
 - `.mf-ob__footer` — flex row, justify-content space-between, margin-top 2rem
 
-- [ ] **Step 5:** Append `mf-ob__*` CSS to `components.css`
-- [ ] **Step 6:** Add `onboarding.js` script tag to `static/index-new.html` (before `index-new-boot.js`)
-- [ ] **Step 7:** Modify `static/js/index-new-boot.js` — add onboarding check after home mount
-- [ ] **Step 8:** Commit `feat(ux): First-run onboarding overlay — welcome, layout picker, pin folders (Plan 8)`
+- [x] **Step 5:** Append `mf-ob__*` CSS to `components.css`
+- [x] **Step 6:** Add `onboarding.js` script tag to `static/index-new.html` (before `index-new-boot.js`)
+- [x] **Step 7:** Modify `static/js/index-new-boot.js` — add onboarding check after home mount
+- [x] **Step 8:** Commit `feat(ux): First-run onboarding overlay — welcome, layout picker, pin folders (Plan 8)`
 
 ---
 
 ## Acceptance checks
 
-- [ ] `grep -n "innerHTML" static/js/components/onboarding.js` — zero matches
-- [ ] Fresh user (no `onboarding_done` in localStorage): overlay appears on home page load
-- [ ] Returning user (`onboarding_done` set): overlay does NOT appear
-- [ ] Step 1 → Step 2 → Step 3 navigation works (Next / Back)
-- [ ] "Skip setup" on Step 1 sets `onboarding_done` immediately and hides overlay
-- [ ] "Skip" on Step 3 still sets `onboarding_done`
-- [ ] Layout card selection: keyboard `←`/`→` cycles selection; Minimal pre-selected
-- [ ] Selecting Minimal on Step 2 and clicking Next: home page underneath reflects Minimal layout (MFPrefs.get('layout') === 'minimal')
-- [ ] Pin folder checkboxes correctly toggle pinned state; max-6 warning appears at 7th
-- [ ] "Finish setup" saves pinned_folders pref and sets onboarding_done
-- [ ] Empty-state renders when /api/storage/sources returns empty array
-- [ ] Overlay focus is trapped (Tab key stays within the overlay card)
-- [ ] Home page underneath is interactive after overlay is dismissed
-- [ ] `MFPrefs.get('onboarding_done')` is '1' after completion — verified in browser console
+- [x] `grep -n "innerHTML" static/js/components/onboarding.js` — zero matches
+- [x] Fresh user (no `onboarding_done` in localStorage): overlay appears on home page load
+- [x] Returning user (`onboarding_done` set): overlay does NOT appear
+- [x] Step 1 → Step 2 → Step 3 navigation works (Next / Back)
+- [x] "Skip setup" on Step 1 sets `onboarding_done` immediately and hides overlay
+- [x] "Skip" on Step 3 still sets `onboarding_done`
+- [x] Layout card selection: keyboard `←`/`→` cycles selection; Minimal pre-selected
+- [x] Selecting Minimal on Step 2 and clicking Next: home page underneath reflects Minimal layout (MFPrefs.get('layout') === 'minimal')
+- [x] Pin folder checkboxes correctly toggle pinned state; max-6 warning appears at 7th
+- [x] "Finish setup" saves pinned_folders pref and sets onboarding_done
+- [x] Empty-state renders when /api/storage/sources returns empty array
+- [x] Overlay focus is trapped (Tab key stays within the overlay card)
+- [x] Home page underneath is interactive after overlay is dismissed
+- [x] `MFPrefs.get('onboarding_done')` is '1' after completion — verified in browser console
