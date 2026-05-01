@@ -516,6 +516,56 @@ function Test-V034Endpoints {
 }
 
 # -----------------------------------------------------------------------------
+# Test-V037Endpoints
+#   v0.37.0 regression probes:
+#
+#   v0.37.0 added:
+#     - GET /api/user-prefs      (per-user display prefs: theme/font/scale/ux)
+#     - GET /settings/appearance (Appearance settings page route in main.py)
+#     - core/version.py bumped to "0.37.0"
+#
+#   Probes assert endpoints respond without 5xx and response shapes are
+#   correct. Does NOT assert specific pref values (user data varies).
+# -----------------------------------------------------------------------------
+function Test-V037Endpoints {
+    $ErrorActionPreference = "SilentlyContinue"
+
+    # 1) v0.37.0: /api/user-prefs (per-user display preferences)
+    $userPrefs = curl.exe -sf --max-time 5 http://localhost:8000/api/user-prefs 2>$null
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$userPrefs)) {
+        Write-Host "    Test-V037Endpoints: /api/user-prefs unreachable (v0.37.0 regression)" -ForegroundColor Red
+        return $false
+    }
+    if ($userPrefs -notmatch '"theme"' -or $userPrefs -notmatch '"font"' -or $userPrefs -notmatch '"use_new_ux"') {
+        Write-Host "    Test-V037Endpoints: /api/user-prefs response missing v0.37.0 keys (theme/font/use_new_ux)" -ForegroundColor Red
+        return $false
+    }
+    Write-Host "    Test-V037Endpoints: /api/user-prefs OK (v0.37.0 pref keys present)" -ForegroundColor Green
+
+    # 2) v0.37.0: /settings/appearance (operator Appearance page route)
+    $appearanceHtml = curl.exe -sf --max-time 5 -o /dev/null -w '%{http_code}' http://localhost:8000/settings/appearance 2>$null
+    if ($LASTEXITCODE -ne 0 -or [string]([string]$appearanceHtml).Trim() -ne "200") {
+        Write-Host "    Test-V037Endpoints: /settings/appearance did not return 200 (v0.37.0 regression)" -ForegroundColor Red
+        return $false
+    }
+    Write-Host "    Test-V037Endpoints: /settings/appearance OK (200)" -ForegroundColor Green
+
+    # 3) v0.37.0: /api/version must report 0.37.x
+    $versionJson = curl.exe -sf --max-time 5 http://localhost:8000/api/version 2>$null
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$versionJson)) {
+        Write-Host "    Test-V037Endpoints: /api/version unreachable" -ForegroundColor Red
+        return $false
+    }
+    if ($versionJson -notmatch '"version"\s*:\s*"0\.37\.') {
+        Write-Host "    Test-V037Endpoints: /api/version does not report 0.37.x (got: $versionJson)" -ForegroundColor Red
+        return $false
+    }
+    Write-Host "    Test-V037Endpoints: /api/version OK (0.37.x confirmed)" -ForegroundColor Green
+
+    return $true
+}
+
+# -----------------------------------------------------------------------------
 # Write-Diagnostics
 #   13-item diagnostic dump, emitted to the transcript on any non-success
 #   exit. Budget ~20s total. Every command wrapped in Invoke-Logged
@@ -1016,10 +1066,15 @@ try {
         if (-not $v034Ok) {
             throw "PHASE4_FAIL: Test-V034Endpoints (prproj API / migration v28 / storage output)"
         }
+        # v0.37.x regression probes (added 2026-04-30 alongside v0.37.0 theme/UX toggle release)
+        $v037Ok = Test-V037Endpoints
+        if (-not $v037Ok) {
+            throw "PHASE4_FAIL: Test-V037Endpoints (user-prefs API / appearance page / version 0.37.x)"
+        }
         Write-Host ""
         Write-Host "  Phase 4 verification: ALL CHECKS PASSED" -ForegroundColor Green
     } else {
-        Write-Host "    DRY RUN: would run Test-StackHealthy + Test-GpuExpectation + Test-McpHealth + Test-V034Endpoints"
+        Write-Host "    DRY RUN: would run Test-StackHealthy + Test-GpuExpectation + Test-McpHealth + Test-V034Endpoints + Test-V037Endpoints"
     }
 
     # -------------------------------------------------------------------------
