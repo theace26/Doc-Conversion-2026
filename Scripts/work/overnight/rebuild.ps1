@@ -543,7 +543,7 @@ function Test-V037Endpoints {
     Write-Host "    Test-V037Endpoints: /api/user-prefs OK (v0.37.0 pref keys present)" -ForegroundColor Green
 
     # 2) v0.37.0: /settings/appearance (operator Appearance page route)
-    $appearanceHtml = curl.exe -sf --max-time 5 -o /dev/null -w '%{http_code}' http://localhost:8000/settings/appearance 2>$null
+    $appearanceHtml = curl.exe -sf --max-time 5 -o NUL -w '%{http_code}' http://localhost:8000/settings/appearance 2>$null
     if ($LASTEXITCODE -ne 0 -or [string]([string]$appearanceHtml).Trim() -ne "200") {
         Write-Host "    Test-V037Endpoints: /settings/appearance did not return 200 (v0.37.0 regression)" -ForegroundColor Red
         return $false
