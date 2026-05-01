@@ -24,6 +24,32 @@
   var saveTimer = null;
   var subs = {};   // key -> array of callbacks
 
+  var COUNTERPART = {
+    'classic-light':'nebula','classic-dark':'nebula',
+    'cobalt':'cobalt-new','sage':'forest','slate':'midnight-slate',
+    'crimson':'rose-quartz','sandstone':'dusk','graphite':'obsidian',
+    'nebula':'classic-dark','aurora':'classic-light',
+    'cobalt-new':'cobalt','rose-quartz':'crimson','midnight-slate':'slate',
+    'forest':'sage','obsidian':'graphite','dusk':'sandstone',
+    'hc-light':'hc-light-new','hc-dark':'hc-dark-new',
+    'hc-light-new':'hc-light','hc-dark-new':'hc-dark',
+    'pastel-lavender':'pastel-lavender-new','pastel-mint':'pastel-mint-new',
+    'pastel-lavender-new':'pastel-lavender','pastel-mint-new':'pastel-mint',
+    'spring-orig':'spring-new','summer-orig':'summer-new',
+    'fall-orig':'fall-new','winter-orig':'winter-new',
+    'spring-new':'spring-orig','summer-new':'summer-orig',
+    'fall-new':'fall-orig','winter-new':'winter-orig'
+  };
+
+  function syncAttrs(updates) {
+    var h = document.documentElement;
+    if (!h) return;
+    if (updates.theme !== undefined)      h.setAttribute('data-theme',      updates.theme);
+    if (updates.font  !== undefined)      h.setAttribute('data-font',       updates.font);
+    if (updates.text_scale !== undefined) h.setAttribute('data-text-scale', updates.text_scale);
+    if (updates.use_new_ux !== undefined) h.setAttribute('data-ux',         updates.use_new_ux ? 'new' : 'orig');
+  }
+
   function readLocal() {
     try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}'); }
     catch (e) { return {}; }
@@ -86,6 +112,7 @@
       })
       .then(function (server) {
         prefs = server;     // server wins on conflict
+        syncAttrs(prefs);
         writeLocal();
         fireAll();
       })
@@ -99,6 +126,7 @@
   function set(key, value) {
     if (prefs[key] === value) return Promise.resolve();
     prefs[key] = value;
+    var u = {}; u[key] = value; syncAttrs(u);
     writeLocal();
     fire(key);
     schedulePut(makeOne(key, value));
@@ -116,6 +144,14 @@
       }
     }
     if (!changed) return Promise.resolve();
+    // Auto-migrate theme when use_new_ux flips
+    if (updates.use_new_ux !== undefined && updates.theme === undefined) {
+      var cur = prefs['theme'] || 'nebula';
+      var isNew = updates.use_new_ux;
+      var partner = COUNTERPART[cur];
+      if (partner) { prefs['theme'] = partner; }
+    }
+    syncAttrs(prefs);
     writeLocal();
     for (var j = 0; j < keys.length; j++) fire(keys[j]);
     schedulePut(updates);
