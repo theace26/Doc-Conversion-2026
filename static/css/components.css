@@ -1739,3 +1739,74 @@
 .mf-dbh__result-pill--err { background: var(--mf-color-error-bg); color: var(--mf-color-error); }
 .mf-dbh__result-pill--neutral { background: var(--mf-bg-card); color: var(--mf-text-muted); border: 1px solid var(--mf-border); }
 .mf-dbh__spinner { color: var(--mf-text-muted); font-size: 0.85rem; }
+
+/* ── Log management detail ─────────────────── */
+.mf-log__stub-notice {
+  font-size: 0.88rem;
+  color: var(--mf-text-muted);
+  background: var(--mf-surface-soft);
+  border: 1px solid var(--mf-border);
+  border-radius: var(--mf-radius-card);
+  padding: 1rem 1.25rem;
+  line-height: 1.5;
+}
+.mf-log__bundle-row {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+.mf-log__bundle-note {
+  font-size: 0.82rem;
+  color: var(--mf-text-muted);
+}
+.mf-log__file-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+.mf-log__file-table th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--mf-color-text-faint);
+  padding: 0 0.5rem 0.55rem;
+  border-bottom: 1.5px solid var(--mf-border);
+}
+.mf-log__file-table td {
+  padding: 0.65rem 0.5rem;
+  border-bottom: 1px solid var(--mf-border-soft);
+  vertical-align: middle;
+  color: var(--mf-text-primary);
+}
+.mf-log__file-name {
+  font-family: "SF Mono", "Cascadia Code", monospace;
+  font-size: 0.82rem;
+}
+.mf-log__compressed-badge {
+  display: inline-flex;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--mf-radius-pill);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--mf-color-accent-tint);
+  color: var(--mf-color-accent);
+}
+.mf-log__dl-btn {
+  background: var(--mf-surface);
+  border: 1px solid var(--mf-border);
+  border-radius: var(--mf-radius-thumb);
+  padding: 0.28rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--mf-color-text-soft);
+  transition: border-color 0.12s, color 0.12s;
+}
+.mf-log__dl-btn:hover { border-color: var(--mf-color-accent-border); color: var(--mf-color-accent); }
