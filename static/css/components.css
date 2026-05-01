@@ -1835,3 +1835,90 @@
   transition: border-color 0.12s, color 0.12s;
 }
 .mf-log__dl-btn:hover { border-color: var(--mf-color-accent-border); color: var(--mf-color-accent); }
+
+/* === mf-cost__* === */
+.mf-cost__tiles {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+.mf-cost__tiles--2up { grid-template-columns: repeat(2, 1fr); }
+.mf-cost__tiles--3up { grid-template-columns: repeat(3, 1fr); }
+.mf-cost__tile {
+  background: var(--mf-bg-card);
+  border: 1px solid var(--mf-border);
+  border-radius: var(--mf-radius-card);
+  padding: 1.1rem 1.3rem;
+}
+.mf-cost__tile-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--mf-text-muted);
+  margin-bottom: 0.4rem;
+}
+.mf-cost__tile-value {
+  font-size: 1.7rem;
+  font-weight: 700;
+  color: var(--mf-text-primary);
+  letter-spacing: -0.02em;
+}
+.mf-cost__stale-banner {
+  background: var(--mf-color-warn-bg);
+  color: var(--mf-color-warn);
+  border-left: 3px solid var(--mf-color-warn);
+  padding: 0.6rem 1rem;
+  border-radius: 0 var(--mf-radius-thumb) var(--mf-radius-thumb) 0;
+  font-size: 0.86rem;
+  margin-bottom: 1.25rem;
+}
+.mf-cost__chart-wrap {
+  position: relative;
+  margin-block: 1.5rem;
+}
+.mf-cost__chart-svg {
+  width: 100%;
+  height: 80px;
+  display: block;
+}
+.mf-cost__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.mf-cost__legend-chip {
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--mf-radius-pill);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.mf-cost__breakdown-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.mf-cost__breakdown-table th {
+  text-align: left;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--mf-text-muted);
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1.5px solid var(--mf-border);
+}
+.mf-cost__breakdown-table td {
+  font-size: 0.86rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--mf-border-soft);
+  color: var(--mf-text-primary);
+}
+.mf-cost__breakdown-table tbody tr:nth-child(even) td {
+  background: var(--mf-surface);
+}
+.mf-cost__source-note {
+  font-size: 0.82rem;
+  color: var(--mf-text-muted);
+  margin-top: 0.75rem;
+}
