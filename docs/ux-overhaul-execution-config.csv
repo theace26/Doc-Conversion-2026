@@ -1,0 +1,22 @@
+UX OVERHAUL,,,,
+Plan,Implementer effort,Reviewer effort,Model,Why
+1A foundation,medium,high,Sonnet,"Tasks 9, 1 are pure paste - skip code-quality review entirely"
+1B static chrome,medium,medium,Sonnet,All mechanical components
+1C stateful chrome,high,high,Sonnet,Real preferences-client logic
+2A document card,medium,high,Sonnet,Rendering  + Density modes are judgment calls
+2B card interactions,high,high,Sonnet,Hover/context menu-behavior
+3 search-as-home,high,high,Sonnet,Integrates 1a=2b together
+4 IA shift,high,high,Sonnet,Auth wiring + Activity dashboard
+5 settings + storage,max,max,Opus,Spend here. Pattern set in this plan is reused 6x by Plan 6 + once by Plan 7. Bugs compound.
+6 remaining details,medium,high,Sonnet,Patter is set; six near-identical pages. Reviewer catches drift.
+7 cost dashboard,high,high,Sonnet,Dynamic re-shape + CSV parser are real logic
+8 onboarding,medium,medium,Sonnet,"Small, scoped 3-step state machine"
+,,,,
+,,,,
+Code Unifier,,,,
+Phase,Task Count,Model,Effort,Why
+2 - HTTP API,3,Sonnet 4.6,Med,"Pattern-Match against api/route/admin.py (per recon §B). Add auth dep, return JSON. No novel reasoning"
+"3 - Retrofits (Mechanical subset): Tasks 14, 15, 19, 21, 22",5,Sonnet 4.6,Med,Plan-amended steps are mostly transcription. Recon §C/§D nailed down all the names + line numbers.
+"3 - Retrofits (judgment subset): Tasks 16, 17, 18, 20, 23",5,Opus 4.7,high (Not Max),"Novel cancel-mechanism wiring (17, 18 introduce cooperative polling), CancelledError leak risk (16), Option-B sync-rewrap (20), BulkJob counter shape + race windows (23). These benefit from deeper reasoning."
+4 - Frontend,11,Sonnet 4.6,Med,Mount-point insertions are pure transcription (recon §F gave exact line numbers). 3 new JS modules are creative but small (~150 LOC). UI testing needs a browser pass either way.
+5 - Cleanup + docs + release,12,Haiku 4.5,low,"Delete orphan file, update CLAUDE.md, bump version, write whats-new, tag release. Almost zero judgment. Haiku is fine"

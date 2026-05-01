@@ -790,7 +790,7 @@ Visit `http://localhost:8000/static/dev-chrome.html`. Expected:
 4. Click **Compact** → grid re-renders with 8 cards per row, smaller padding, smaller text. Cards still have gradient bands but more compressed.
 5. Click **List** → grid re-renders as 12 linear rows. Each row: tiny colored format icon · title · path · size · timestamp · heart icon. No gradient band.
 6. Reload page → density preference is preserved.
-7. Network tab: `PUT /api/preferences` 500ms after each toggle click; `POST /api/telemetry` immediately on each click with `event: ui.density_toggle`.
+7. Network tab: `PUT /api/user-prefs` 500ms after each toggle click; `POST /api/telemetry` immediately on each click with `event: ui.density_toggle`.
 8. Open Cards mode → verify gradient colors match the format (PDFs red, DOCX blue, PPTX orange, XLSX green, EML purple, MD charcoal, PSD indigo, MP4 teal).
 
 If anything reads wrong visually, cross-check against `docs/superpowers/specs/2026-04-28-ux-overhaul-mockups/home-search-v3.html`.

@@ -1343,7 +1343,7 @@ Once all green, **Plan 4 is done**. Next plan: `2026-04-28-ux-overhaul-settings-
 **Placeholder scan:** No TODOs in shipped code. Boot scripts have `console.log` placeholders for action handlers (avatar menu items / context menu actions / control buttons) — those wire to real endpoints in future plans where each action's destination exists.
 
 **Type / API consistency:**
-- `/api/me` and `/api/activity/summary` both follow the project's existing `prefix=/api/...` pattern from Plan 1A's `/api/preferences`
+- `/api/me` and `/api/activity/summary` both follow the project's existing `prefix=/api/...` pattern from Plan 1A's `/api/user-prefs`
 - `MFActivity.mount(slot, { summary, role })` consistent with `MFSearchHome.mount(slot, opts)` from Plan 3
 - `MFActivity.refresh(slot, summary)` is a separate method (not a re-mount) so polling doesn't tear down + rebuild the DOM
 - Role gating consistent across both endpoints + the activity-boot redirect (defense-in-depth)

@@ -467,9 +467,9 @@ All user-scoped preferences are stored against the user's identity (UnionCore su
 
 ### Storage
 
-- Server-side: persisted in the existing `core/db/` package, new table `user_preferences` keyed by `user_id` (UnionCore sub claim)
+- Server-side: persisted in the existing `core/db/` package, new table `mf_user_prefs` keyed by `user_id` (UnionCore sub claim). **Naming note:** the existing `user_preferences` table is system-level singletons (key/value, not per-user) and remains untouched; the new per-user prefs live under a distinct name.
 - Client-side: `localStorage` mirror for fast first paint; reconciled against server on login
-- Sync: on preference change, debounced 500ms, then `PUT /api/preferences/<key>`
+- Sync: on preference change, debounced 500ms, then `PUT /api/user-prefs` (whole-blob partial-update — body is a `{key: value, ...}` dict; server validates each key against `_VALID_KEYS` and merges into the user's stored blob)
 
 ### Privacy
 
@@ -525,7 +525,7 @@ Run through before phase 1 starts; revisit at each phase boundary. Items missed 
 
 - [ ] `ENABLE_NEW_UX` feature flag added — default `false` in prod, `true` in dev
 - [ ] `static/css/design-tokens.css` — all §2 tokens declared as `--mf-*` CSS variables; existing `markflow.css` migrated to consume them incrementally
-- [ ] `user_preferences` DB migration — JSON-valued, keyed by `user_id` (UnionCore `sub` claim); migration in `core/db/migrations/`
+- [ ] `mf_user_prefs` table DDL added to `core/db/schema.py:_SCHEMA_SQL` — JSON-valued, keyed by `user_id` (UnionCore `sub` claim). (Project convention: schema lives in `_SCHEMA_SQL`; one-time data fixups live in `core/db/migrations.py`. The repo has no `migrations/` subdirectory.)
 - [ ] UnionCore role claim parsed and exposed via `core/auth.py` request context — confirmed against staging UnionCore
 - [ ] Telemetry event taxonomy agreed: at minimum `ui.layout_mode_selected`, `ui.density_toggle`, `ui.advanced_toggle`, `ui.hover_preview_shown`, `ui.context_menu_action` — emitted via existing `structlog` to a dedicated subsystem
 - [ ] `/pipeline` → `/activity` 301 redirect added in `main.py`; old route slated for removal one release later

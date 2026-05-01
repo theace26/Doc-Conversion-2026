@@ -38,25 +38,27 @@
 
 ## File structure (this plan creates / modifies)
 
+**Naming context (read before any DB / API work):** the existing repo already has a table named `user_preferences`, a module `core/db/preferences.py`, and an API at `/api/preferences`. Those serve **system-level singleton preferences** (one row per key name; values like `pdf_engine`, `pipeline_enabled`, etc.). This plan introduces a **separate** per-user preferences store keyed by UnionCore `sub` — to avoid collision, all new artifacts use the `mf_user_prefs` / `user_prefs` / `/api/user-prefs` naming. **Do not modify the existing system prefs.**
+
 **Create:**
 - `core/feature_flags.py` — feature flag accessors
 - `static/css/design-tokens.css` — visual system as CSS custom properties
 - `static/css/components.css` — shared component classes (consumes tokens; no usage yet)
-- `core/db/migrations/<NNN>_user_preferences.py` — DB migration (use next free integer)
-- `core/preferences.py` — server-side preferences logic with validation
-- `api/routes/preferences.py` — GET/PUT preferences endpoints
+- `core/user_prefs.py` — server-side per-user preferences logic with validation (NOT `core/preferences.py` — would conflict with existing `core/db/preferences.py` semantics)
+- `api/routes/user_prefs.py` — GET/PUT `/api/user-prefs` endpoints
 - `tests/test_feature_flag.py`
-- `tests/test_user_preferences_migration.py`
+- `tests/test_mf_user_prefs_schema.py` — verifies `mf_user_prefs` table exists with expected columns
 - `tests/test_role_claim_extraction.py`
 - `tests/test_route_aliases.py`
-- `tests/test_preferences.py`
-- `tests/test_preferences_api.py`
+- `tests/test_user_prefs.py` — server-module unit tests (NOT `tests/test_preferences.py` — that file already exists and tests the system prefs API)
+- `tests/test_user_prefs_api.py` — HTTP endpoint tests
 - `docs/superpowers/specs/2026-04-28-ux-overhaul-mockups/index.html` — archive landing page
 
 **Modify:**
 - `.env.example` — add `ENABLE_NEW_UX` flag
 - `core/auth.py` — add `Role` enum + `extract_role()`
-- `main.py` — register `/api/preferences` router; add `/pipeline` → `/activity` 301
+- `core/db/schema.py` — append `mf_user_prefs` table DDL to `_SCHEMA_SQL` (existing convention; no separate migration file)
+- `main.py` — register `/api/user-prefs` router; add `/pipeline` → `/activity` 301
 - `CLAUDE.md` — append architecture reminders + critical files rows
 
 ---
@@ -486,59 +488,83 @@ tokens. Plan 1B and later append component-specific styles here."
 
 ---
 
-### Task 4: User preferences DB migration
+### Task 4: `mf_user_prefs` table — add to schema DDL
 
 **Files:**
-- Create: `core/db/migrations/<NNN>_user_preferences.py` (next free integer)
-- Create: `tests/test_user_preferences_migration.py`
+- Modify: `core/db/schema.py` — append table DDL to `_SCHEMA_SQL`
+- Create: `tests/test_mf_user_prefs_schema.py`
 
-- [ ] **Step 1: Confirm next migration number and the migration framework convention**
+**Critical context:** The repo does NOT have a `core/db/migrations/` subdirectory or an Alembic-style framework. Schema DDL lives in a single `_SCHEMA_SQL` constant inside `core/db/schema.py` (executed via `executescript()` on startup). One-time data fixups (idempotent, gated by preference flags) live in `core/db/migrations.py`. **Adding a new table = appending to `_SCHEMA_SQL`.** No `upgrade(conn)` / `downgrade(conn)` functions.
 
-Run: `ls core/db/migrations/ | sort | tail -5`
+**Naming:** the new table is `mf_user_prefs`, NOT `user_preferences`. The existing `user_preferences` table (system-level singleton prefs, columns `key, value, updated_at`) stays untouched.
 
-Pick the next integer. Then read the most recent migration file to confirm the function signatures and conventions (some projects use `upgrade(conn)`, some use raw SQL files, some use Alembic). The example below uses an `async upgrade(conn)` / `async downgrade(conn)` shape — adapt to whatever convention this repo uses.
+- [ ] **Step 1: Inspect the existing schema convention**
+
+```bash
+grep -n "CREATE TABLE" core/db/schema.py | head -10
+grep -n "_SCHEMA_SQL\|executescript" core/db/schema.py | head -10
+```
+
+Confirm: `_SCHEMA_SQL` is a module-level string constant containing every `CREATE TABLE IF NOT EXISTS …` statement, and there's an init function that executes it. The new DDL appends inside that string.
 
 - [ ] **Step 2: Write the failing test**
 
-Create `tests/test_user_preferences_migration.py`:
+Create `tests/test_mf_user_prefs_schema.py`:
 
 ```python
+"""Schema test: mf_user_prefs table exists with correct columns and PK constraint.
+
+The table stores per-user preferences (portable across machines), keyed by
+UnionCore `sub` claim. Distinct from the existing `user_preferences` table
+which stores system-level singleton prefs (key/value, not per-user).
+
+Spec: docs/superpowers/specs/2026-04-28-ux-overhaul-search-as-home-design.md §10
+"""
 import json
+
 import pytest
 import aiosqlite
 
+from core.db.schema import _SCHEMA_SQL
 
-@pytest.mark.asyncio
-async def test_user_preferences_table_created(tmp_path, run_migrations):
-    """After migrations, user_preferences table exists with the right columns."""
+
+pytestmark = pytest.mark.asyncio
+
+
+async def _init_schema(db_path):
+    async with aiosqlite.connect(db_path) as conn:
+        await conn.executescript(_SCHEMA_SQL)
+        await conn.commit()
+
+
+async def test_mf_user_prefs_table_created(tmp_path):
     db = tmp_path / "test.db"
-    await run_migrations(db)
+    await _init_schema(db)
     async with aiosqlite.connect(db) as conn:
         async with conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_preferences'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='mf_user_prefs'"
         ) as cur:
             row = await cur.fetchone()
-        assert row is not None, "user_preferences table not created"
+        assert row is not None, "mf_user_prefs table not created"
 
-        async with conn.execute("PRAGMA table_info(user_preferences)") as cur:
+        async with conn.execute("PRAGMA table_info(mf_user_prefs)") as cur:
             cols = {r[1] for r in await cur.fetchall()}
         assert {"user_id", "value", "schema_ver", "updated_at"}.issubset(cols)
 
 
-@pytest.mark.asyncio
-async def test_user_preferences_roundtrip(tmp_path, run_migrations):
-    """Insert and read back a preference value."""
+async def test_mf_user_prefs_roundtrip(tmp_path):
+    """Insert and read back a JSON-blob preference value."""
     db = tmp_path / "test.db"
-    await run_migrations(db)
+    await _init_schema(db)
     async with aiosqlite.connect(db) as conn:
         await conn.execute(
-            "INSERT INTO user_preferences (user_id, value, updated_at) "
+            "INSERT INTO mf_user_prefs (user_id, value, updated_at) "
             "VALUES (?, ?, datetime('now'))",
             ("xerxes@local46.org", json.dumps({"layout": "minimal", "density": "cards"})),
         )
         await conn.commit()
         async with conn.execute(
-            "SELECT value FROM user_preferences WHERE user_id = ?",
+            "SELECT value FROM mf_user_prefs WHERE user_id = ?",
             ("xerxes@local46.org",),
         ) as cur:
             row = await cur.fetchone()
@@ -547,97 +573,95 @@ async def test_user_preferences_roundtrip(tmp_path, run_migrations):
         assert prefs["layout"] == "minimal"
 
 
-@pytest.mark.asyncio
-async def test_user_preferences_unique_per_user(tmp_path, run_migrations):
+async def test_mf_user_prefs_unique_per_user(tmp_path):
     """user_id is PRIMARY KEY — duplicate INSERT raises IntegrityError."""
     db = tmp_path / "test.db"
-    await run_migrations(db)
+    await _init_schema(db)
     async with aiosqlite.connect(db) as conn:
         await conn.execute(
-            "INSERT INTO user_preferences (user_id, value, updated_at) "
+            "INSERT INTO mf_user_prefs (user_id, value, updated_at) "
             "VALUES (?, ?, datetime('now'))",
             ("alice@local46.org", json.dumps({"layout": "minimal"})),
         )
         await conn.commit()
         with pytest.raises(aiosqlite.IntegrityError):
             await conn.execute(
-                "INSERT INTO user_preferences (user_id, value, updated_at) "
+                "INSERT INTO mf_user_prefs (user_id, value, updated_at) "
                 "VALUES (?, ?, datetime('now'))",
                 ("alice@local46.org", json.dumps({"layout": "maximal"})),
             )
             await conn.commit()
-```
 
-The `run_migrations` fixture should already exist in `tests/conftest.py`. If not, create one that mirrors how the app applies migrations on startup.
+
+async def test_existing_user_preferences_table_untouched(tmp_path):
+    """Sanity: the legacy system-level user_preferences table still exists with
+    its (key, value, updated_at) shape — we did not break the existing prefs."""
+    db = tmp_path / "test.db"
+    await _init_schema(db)
+    async with aiosqlite.connect(db) as conn:
+        async with conn.execute("PRAGMA table_info(user_preferences)") as cur:
+            cols = {r[1] for r in await cur.fetchall()}
+        assert {"key", "value", "updated_at"}.issubset(cols)
+        assert "user_id" not in cols, "user_preferences table got contaminated with per-user shape"
+```
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `pytest tests/test_user_preferences_migration.py -v`
+Run: `pytest tests/test_mf_user_prefs_schema.py -v`
 
-Expected: FAIL — table doesn't exist.
+Expected: 3 of 4 FAIL (the new-table tests), 1 PASS (the legacy-table sanity test). Failure mode: `mf_user_prefs` table not found.
 
-- [ ] **Step 4: Write the migration**
+- [ ] **Step 4: Append DDL to `_SCHEMA_SQL`**
 
-Create `core/db/migrations/<NNN>_user_preferences.py` (replace `<NNN>` with the actual next integer determined in Step 1):
+Open `core/db/schema.py`. Locate the closing `"""` of `_SCHEMA_SQL`. Just before it, append:
 
-```python
-"""User preferences — portable across machines, keyed by UnionCore subject claim.
+```sql
 
-Spec: docs/superpowers/specs/2026-04-28-ux-overhaul-search-as-home-design.md §10
-"""
-from __future__ import annotations
-import aiosqlite
+-- Per-user preferences (portable, keyed by UnionCore `sub` claim).
+-- Distinct from `user_preferences` above (which is system-level singletons).
+-- Spec: docs/superpowers/specs/2026-04-28-ux-overhaul-search-as-home-design.md §10
+CREATE TABLE IF NOT EXISTS mf_user_prefs (
+    user_id     TEXT PRIMARY KEY,
+    value       TEXT NOT NULL,
+    schema_ver  INTEGER NOT NULL DEFAULT 1,
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
-
-async def upgrade(conn: aiosqlite.Connection) -> None:
-    await conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS user_preferences (
-            user_id     TEXT PRIMARY KEY,
-            value       TEXT NOT NULL,
-            schema_ver  INTEGER NOT NULL DEFAULT 1,
-            updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
-        )
-        """
-    )
-    await conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_user_preferences_updated_at "
-        "ON user_preferences(updated_at)"
-    )
-
-
-async def downgrade(conn: aiosqlite.Connection) -> None:
-    await conn.execute("DROP INDEX IF EXISTS idx_user_preferences_updated_at")
-    await conn.execute("DROP TABLE IF EXISTS user_preferences")
+CREATE INDEX IF NOT EXISTS idx_mf_user_prefs_updated_at ON mf_user_prefs(updated_at);
 ```
 
-If the project's migration framework uses different signatures (raw SQL, Alembic, etc.), adapt — the schema (table + index) stays identical.
+(Use the exact whitespace style of the surrounding entries — typically 4-space indents for column lists and a blank line separator between table groups.)
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `pytest tests/test_user_preferences_migration.py -v`
+Run: `pytest tests/test_mf_user_prefs_schema.py -v`
 
-Expected: 3 PASS.
+Expected: 4 PASS.
 
-- [ ] **Step 6: Apply migration locally and confirm**
+- [ ] **Step 6: Apply locally and confirm**
 
 ```bash
 docker-compose up -d
-docker-compose logs app | grep -iE "migrat|user_preferences" | tail
+docker-compose exec app sqlite3 /app/markflow.db ".schema mf_user_prefs"
 docker-compose exec app sqlite3 /app/markflow.db ".schema user_preferences"
 ```
 
-Expected: the table schema printed back.
+Expected: the new table schema is printed; the existing `user_preferences` schema is unchanged (still `key, value, updated_at`).
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add core/db/migrations/*user_preferences.py tests/test_user_preferences_migration.py
-git commit -m "feat(db): add user_preferences table
+git add core/db/schema.py tests/test_mf_user_prefs_schema.py
+git commit -m "feat(db): add mf_user_prefs table for per-user preferences
 
-Stores portable per-user preferences keyed by UnionCore subject claim.
-JSON value column with schema_ver for future shape changes. Indexed on
-updated_at for housekeeping. Spec §10."
+Per-user portable preferences keyed by UnionCore subject claim. JSON
+value column with schema_ver for future shape changes. Indexed on
+updated_at for housekeeping.
+
+Distinct from the existing user_preferences table, which is unchanged
+and continues to serve system-level singleton preferences (key/value).
+
+Spec §10."
 ```
 
 ---
@@ -648,11 +672,26 @@ updated_at for housekeeping. Spec §10."
 - Modify: `core/auth.py`
 - Create: `tests/test_role_claim_extraction.py`
 
+**Critical context — existing role machinery:** `core/auth.py` already defines:
+- `class UserRole(str, Enum)` — values `SEARCH_USER, OPERATOR, MANAGER, ADMIN` (legacy 4-level system)
+- `_HIERARCHY = [SEARCH_USER, OPERATOR, MANAGER, ADMIN]`
+- `role_satisfies(role, required) -> bool`
+- `@dataclass class AuthenticatedUser: sub, email, role: UserRole, is_service_account`
+- `verify_token(token, secret) -> AuthenticatedUser` (raises 403 on unknown role)
+- `get_current_user(request) -> AuthenticatedUser` (FastAPI dependency)
+- `require_role(minimum: UserRole)` (factory for role-gated endpoints)
+
+This task adds a **second**, parallel `Role` IntEnum (3-level: MEMBER/OPERATOR/ADMIN) for the new UX consumers. The two enums coexist:
+- `UserRole` (string) — used by existing `verify_token` / `require_role` / `AuthenticatedUser.role`. **Do not modify.**
+- `Role` (IntEnum) — used by new UI gating helpers and `extract_role(claims)`. Numeric comparisons (`>=`) drive visibility gates.
+
+A future reconciliation pass can collapse the two if UnionCore commits to a single role taxonomy. Out of scope here.
+
 - [ ] **Step 1: Read the existing auth module**
 
-Run: `grep -n "decode\|verify_token\|claims\|jwt" core/auth.py | head -30`
+Run: `grep -n "decode\|verify_token\|claims\|jwt\|UserRole\|class Role" core/auth.py | head -30`
 
-Locate the function that returns parsed JWT claims (likely a dict). The new helpers will sit alongside it.
+Confirm the existing `UserRole` is still intact at the top of the file. The new `Role` + `extract_role` go *below* the existing role machinery so imports of `UserRole` keep working unchanged.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -855,124 +894,131 @@ the release after Plan 4."
 
 ---
 
-### Task 7: Server-side preferences module
+### Task 7: Server-side per-user preferences module (`core/user_prefs.py`)
 
 **Files:**
-- Create: `core/preferences.py`
-- Create: `tests/test_preferences.py`
+- Create: `core/user_prefs.py` (NOT `core/preferences.py` — would clash with the existing system-pref module `core/db/preferences.py`)
+- Create: `tests/test_user_prefs.py` (NOT `tests/test_preferences.py` — that file already exists and tests the system prefs API)
+
+**Naming:** the new module exports `DEFAULT_USER_PREFS`, `USER_PREF_KEYS`, `get_user_prefs(db, user_id)`, `set_user_pref(db, user_id, key, value)`, `set_user_prefs(db, user_id, updates)`. Distinct from `core/db/preferences.py`'s `DEFAULT_PREFERENCES`, `get_preference`, `set_preference` (system prefs). Table is `mf_user_prefs`.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/test_preferences.py`:
+Create `tests/test_user_prefs.py`:
 
 ```python
+"""Tests for the per-user preferences module (core.user_prefs).
+
+Distinct from tests/test_preferences.py which covers the system-level
+preferences API. This module manages per-user JSON blobs in the
+mf_user_prefs table (keyed by UnionCore sub claim).
+"""
 import pytest
-from core.preferences import (
-    DEFAULT_PREFERENCES,
-    get_preferences,
-    set_preference,
-    set_preferences,
-    PREFERENCE_KEYS,
+import aiosqlite
+
+from core.db.schema import _SCHEMA_SQL
+from core.user_prefs import (
+    DEFAULT_USER_PREFS,
+    USER_PREF_KEYS,
+    get_user_prefs,
+    set_user_pref,
+    set_user_prefs,
 )
 
 
-@pytest.mark.asyncio
-async def test_default_preferences_returned_for_new_user(tmp_path, run_migrations):
-    db = tmp_path / "test.db"
-    await run_migrations(db)
-    prefs = await get_preferences(db, "new@local46.org")
-    assert prefs == DEFAULT_PREFERENCES
+pytestmark = pytest.mark.asyncio
 
 
-@pytest.mark.asyncio
-async def test_set_then_get(tmp_path, run_migrations):
-    db = tmp_path / "test.db"
-    await run_migrations(db)
-    await set_preference(db, "alice@local46.org", "layout", "minimal")
-    prefs = await get_preferences(db, "alice@local46.org")
+@pytest.fixture
+async def db(tmp_path):
+    """Init schema in a tmp DB and yield the path."""
+    p = tmp_path / "test.db"
+    async with aiosqlite.connect(p) as conn:
+        await conn.executescript(_SCHEMA_SQL)
+        await conn.commit()
+    return p
+
+
+async def test_defaults_returned_for_new_user(db):
+    prefs = await get_user_prefs(db, "new@local46.org")
+    assert prefs == DEFAULT_USER_PREFS
+
+
+async def test_set_then_get(db):
+    await set_user_pref(db, "alice@local46.org", "layout", "minimal")
+    prefs = await get_user_prefs(db, "alice@local46.org")
     assert prefs["layout"] == "minimal"
 
 
-@pytest.mark.asyncio
-async def test_unknown_key_rejected(tmp_path, run_migrations):
-    db = tmp_path / "test.db"
-    await run_migrations(db)
+async def test_unknown_key_rejected(db):
     with pytest.raises(ValueError, match="unknown preference"):
-        await set_preference(db, "alice@local46.org", "not_a_real_key", "x")
+        await set_user_pref(db, "alice@local46.org", "not_a_real_key", "x")
 
 
-@pytest.mark.asyncio
-async def test_layout_value_validated(tmp_path, run_migrations):
-    db = tmp_path / "test.db"
-    await run_migrations(db)
+async def test_layout_value_validated(db):
     with pytest.raises(ValueError, match="invalid value"):
-        await set_preference(db, "alice@local46.org", "layout", "extreme")
+        await set_user_pref(db, "alice@local46.org", "layout", "extreme")
 
 
-@pytest.mark.asyncio
-async def test_partial_update_preserves_other_keys(tmp_path, run_migrations):
-    db = tmp_path / "test.db"
-    await run_migrations(db)
-    await set_preference(db, "alice@local46.org", "layout", "recent")
-    await set_preference(db, "alice@local46.org", "density", "list")
-    prefs = await get_preferences(db, "alice@local46.org")
+async def test_partial_update_preserves_other_keys(db):
+    await set_user_pref(db, "alice@local46.org", "layout", "recent")
+    await set_user_pref(db, "alice@local46.org", "density", "list")
+    prefs = await get_user_prefs(db, "alice@local46.org")
     assert prefs["layout"] == "recent"
     assert prefs["density"] == "list"
 
 
-@pytest.mark.asyncio
-async def test_bulk_set_preferences(tmp_path, run_migrations):
-    db = tmp_path / "test.db"
-    await run_migrations(db)
-    await set_preferences(db, "alice@local46.org", {
+async def test_bulk_set_user_prefs(db):
+    await set_user_prefs(db, "alice@local46.org", {
         "layout": "minimal",
         "density": "compact",
         "advanced_actions_inline": True,
     })
-    prefs = await get_preferences(db, "alice@local46.org")
+    prefs = await get_user_prefs(db, "alice@local46.org")
     assert prefs["layout"] == "minimal"
     assert prefs["density"] == "compact"
     assert prefs["advanced_actions_inline"] is True
 
 
-@pytest.mark.asyncio
-async def test_recent_searches_capped_at_50(tmp_path, run_migrations):
-    db = tmp_path / "test.db"
-    await run_migrations(db)
+async def test_recent_searches_capped_at_50(db):
     queries = [f"q{i}" for i in range(60)]
-    await set_preference(db, "alice@local46.org", "recent_searches", queries)
-    prefs = await get_preferences(db, "alice@local46.org")
+    await set_user_pref(db, "alice@local46.org", "recent_searches", queries)
+    prefs = await get_user_prefs(db, "alice@local46.org")
     assert len(prefs["recent_searches"]) == 50
     assert prefs["recent_searches"][0] == "q10"
     assert prefs["recent_searches"][-1] == "q59"
 
 
-@pytest.mark.asyncio
-async def test_items_per_page_bounds(tmp_path, run_migrations):
-    db = tmp_path / "test.db"
-    await run_migrations(db)
+async def test_items_per_page_bounds(db):
     with pytest.raises(ValueError):
-        await set_preference(db, "alice@local46.org", "items_per_page_cards", 0)
+        await set_user_pref(db, "alice@local46.org", "items_per_page_cards", 0)
     with pytest.raises(ValueError):
-        await set_preference(db, "alice@local46.org", "items_per_page_cards", 99999)
+        await set_user_pref(db, "alice@local46.org", "items_per_page_cards", 99999)
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `pytest tests/test_preferences.py -v`
+Run: `pytest tests/test_user_prefs.py -v`
 
-Expected: FAIL — `core.preferences` doesn't exist.
+Expected: FAIL — `core.user_prefs` doesn't exist.
 
 - [ ] **Step 3: Implement the module**
 
-Create `core/preferences.py`:
+Create `core/user_prefs.py`:
 
 ```python
-"""User preferences — portable across machines.
+"""Per-user preferences — portable across machines, keyed by UnionCore sub claim.
 
-Stored as a JSON blob keyed by user_id (UnionCore subject claim).
-Validation happens at write time; reads always return a dict with all keys
-present (defaults filled in for any missing).
+Stored as a JSON blob in `mf_user_prefs` (one row per user). Validation
+happens at write time; reads always return a dict with all keys present
+(defaults filled in for any missing).
+
+Distinct from `core/db/preferences.py`, which manages **system-level**
+singleton preferences (one row per key name, table `user_preferences`).
+The two stores serve different concerns:
+
+- `core.db.preferences`  → system config (e.g., `pdf_engine`, `pipeline_enabled`)
+- `core.user_prefs`      → per-user UI state (layout, density, pinned, ...)
 
 Spec: docs/superpowers/specs/2026-04-28-ux-overhaul-search-as-home-design.md §10
 """
@@ -988,9 +1034,9 @@ log = structlog.get_logger(__name__)
 SCHEMA_VER = 1
 
 
-# Default values for every supported preference. Reads return these for
-# missing keys; writes are rejected for keys not in this dict.
-DEFAULT_PREFERENCES: dict = {
+# Default values for every supported per-user preference. Reads return these
+# for missing keys; writes are rejected for keys not in this dict.
+DEFAULT_USER_PREFS: dict = {
     # Layout (Spec §3)
     "layout":                    "minimal",   # 'maximal' | 'recent' | 'minimal'
     "density":                   "cards",     # 'cards' | 'compact' | 'list'
@@ -1012,10 +1058,13 @@ DEFAULT_PREFERENCES: dict = {
     # Pinned (Spec §3 Maximal mode)
     "pinned_folders":            [],
     "pinned_topics":             [],
+
+    # Onboarding (Plan 8 — empty string = not yet completed)
+    "onboarding_completed_at":   "",
 }
 
 
-PREFERENCE_KEYS = set(DEFAULT_PREFERENCES.keys())
+USER_PREF_KEYS = set(DEFAULT_USER_PREFS.keys())
 
 
 _ENUMS = {
@@ -1026,6 +1075,7 @@ _ENUMS = {
 _BOOLS = {"show_file_thumbnails", "advanced_actions_inline", "track_recent_searches"}
 _INTS  = {"items_per_page_cards", "items_per_page_compact", "items_per_page_list"}
 _LISTS = {"pinned_folders", "pinned_topics"}
+_STRS  = {"onboarding_completed_at"}
 
 
 def _validate(key: str, value):
@@ -1050,40 +1100,44 @@ def _validate(key: str, value):
         if not isinstance(value, list) or not all(isinstance(x, str) for x in value):
             raise ValueError(f"invalid value for recent_searches: must be list[str]")
         return value[-50:]
+    if key in _STRS:
+        if not isinstance(value, str):
+            raise ValueError(f"invalid value for {key}: must be str")
+        return value
     raise ValueError(f"unknown preference: {key}")
 
 
-async def get_preferences(db_path: Path | str, user_id: str) -> dict:
+async def get_user_prefs(db_path: Path | str, user_id: str) -> dict:
     """Return user's prefs, with defaults filled in for any missing keys."""
     async with aiosqlite.connect(str(db_path)) as conn:
         async with conn.execute(
-            "SELECT value FROM user_preferences WHERE user_id = ?", (user_id,)
+            "SELECT value FROM mf_user_prefs WHERE user_id = ?", (user_id,)
         ) as cur:
             row = await cur.fetchone()
     stored = json.loads(row[0]) if row else {}
-    merged = dict(DEFAULT_PREFERENCES)
-    merged.update({k: v for k, v in stored.items() if k in PREFERENCE_KEYS})
+    merged = dict(DEFAULT_USER_PREFS)
+    merged.update({k: v for k, v in stored.items() if k in USER_PREF_KEYS})
     return merged
 
 
-async def set_preference(db_path: Path | str, user_id: str, key: str, value) -> None:
-    """Validate + persist a single preference."""
-    if key not in PREFERENCE_KEYS:
+async def set_user_pref(db_path: Path | str, user_id: str, key: str, value) -> None:
+    """Validate + persist a single per-user preference."""
+    if key not in USER_PREF_KEYS:
         raise ValueError(f"unknown preference: {key}")
     validated = _validate(key, value)
-    current = await get_preferences(db_path, user_id)
+    current = await get_user_prefs(db_path, user_id)
     current[key] = validated
     await _write_all(db_path, user_id, current)
 
 
-async def set_preferences(db_path: Path | str, user_id: str, updates: dict) -> None:
-    """Validate + persist multiple preferences atomically."""
+async def set_user_prefs(db_path: Path | str, user_id: str, updates: dict) -> None:
+    """Validate + persist multiple per-user preferences atomically."""
     validated = {}
     for k, v in updates.items():
-        if k not in PREFERENCE_KEYS:
+        if k not in USER_PREF_KEYS:
             raise ValueError(f"unknown preference: {k}")
         validated[k] = _validate(k, v)
-    current = await get_preferences(db_path, user_id)
+    current = await get_user_prefs(db_path, user_id)
     current.update(validated)
     await _write_all(db_path, user_id, current)
 
@@ -1093,7 +1147,7 @@ async def _write_all(db_path: Path | str, user_id: str, prefs: dict) -> None:
     async with aiosqlite.connect(str(db_path)) as conn:
         await conn.execute(
             """
-            INSERT INTO user_preferences (user_id, value, schema_ver, updated_at)
+            INSERT INTO mf_user_prefs (user_id, value, schema_ver, updated_at)
             VALUES (?, ?, ?, datetime('now'))
             ON CONFLICT (user_id) DO UPDATE SET
               value      = excluded.value,
@@ -1108,42 +1162,50 @@ async def _write_all(db_path: Path | str, user_id: str, prefs: dict) -> None:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `pytest tests/test_preferences.py -v`
+Run: `pytest tests/test_user_prefs.py -v`
 
 Expected: 8 PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add core/preferences.py tests/test_preferences.py
-git commit -m "feat(prefs): server-side preferences module with validation
+git add core/user_prefs.py tests/test_user_prefs.py
+git commit -m "feat(prefs): per-user preferences module (core/user_prefs.py)
 
 Per-key validators for layout/density/snippet_length enums, bool flags,
-positive ints, and list[str] (recent searches capped at 50). Reads
-always return a complete dict with defaults filled in. Atomic upsert
-per user. Spec §10."
+positive ints, list[str] (recent searches capped at 50), and string
+(onboarding marker). Reads always return a complete dict with defaults
+filled in. Atomic upsert into mf_user_prefs per user.
+
+Distinct from core/db/preferences.py (system-level singleton prefs).
+Spec §10."
 ```
 
 ---
 
-### Task 8: GET / PUT `/api/preferences` endpoints
+### Task 8: GET / PUT `/api/user-prefs` endpoints
 
 **Files:**
-- Create: `api/routes/preferences.py`
-- Modify: `main.py`
-- Create: `tests/test_preferences_api.py`
+- Create: `api/routes/user_prefs.py` (NOT `api/routes/preferences.py` — that file already exists and serves the system prefs API at `/api/preferences`)
+- Modify: `main.py` (register the new router; do NOT touch the existing preferences router)
+- Create: `tests/test_user_prefs_api.py`
+
+**Naming:** new endpoints live at `/api/user-prefs` to avoid collision with the existing `/api/preferences/{key}` route. PUT body is a partial dict (`{key: value, ...}`); server validates each key + value and merges into the user's stored blob. No `{key}` path segment.
 
 - [ ] **Step 1: Confirm the project's auth dependency**
 
-Run: `grep -rn "Depends\|require_user\|current_user\|get_current_user" api/routes/*.py | head -10`
-
-Pick whichever existing dependency yields an authenticated user with at least a `user_id` (or equivalent) attribute. Adapt the import below.
+The existing repo provides `core/auth.get_current_user(request) -> AuthenticatedUser` as the FastAPI dependency. `AuthenticatedUser.sub` carries the UnionCore subject claim (this is the `user_id` for our purposes). The code below uses that import. If `grep -rn "get_current_user\|Depends(get_current_user)" api/routes/*.py | head -5` shows existing routes use a different dependency name, adapt — but `get_current_user` is the canonical one.
 
 - [ ] **Step 2: Write the failing test**
 
-Create `tests/test_preferences_api.py`:
+Create `tests/test_user_prefs_api.py`:
 
 ```python
+"""HTTP tests for /api/user-prefs (per-user prefs).
+
+Distinct from tests/test_preferences.py which covers the system prefs
+endpoints at /api/preferences (key/value singletons).
+"""
 import pytest
 from fastapi.testclient import TestClient
 from main import app
@@ -1160,110 +1222,125 @@ def authed_client(fake_jwt):
     )
 
 
-def test_get_preferences_returns_defaults(authed_client):
-    r = authed_client.get("/api/preferences")
+def test_get_user_prefs_returns_defaults(authed_client):
+    r = authed_client.get("/api/user-prefs")
     assert r.status_code == 200
     body = r.json()
     assert body["layout"] == "minimal"
     assert body["density"] == "cards"
 
 
-def test_put_preferences_persists(authed_client):
+def test_put_user_prefs_persists(authed_client):
     r = authed_client.put(
-        "/api/preferences",
+        "/api/user-prefs",
         json={"layout": "recent", "density": "compact"},
     )
     assert r.status_code == 200
-    r2 = authed_client.get("/api/preferences")
+    r2 = authed_client.get("/api/user-prefs")
     assert r2.json()["layout"] == "recent"
     assert r2.json()["density"] == "compact"
 
 
 def test_put_invalid_value_returns_400(authed_client):
-    r = authed_client.put("/api/preferences", json={"layout": "extreme"})
+    r = authed_client.put("/api/user-prefs", json={"layout": "extreme"})
     assert r.status_code == 400
     assert "invalid" in r.json()["detail"].lower()
 
 
 def test_put_unknown_key_returns_400(authed_client):
-    r = authed_client.put("/api/preferences", json={"not_a_real_key": "x"})
+    r = authed_client.put("/api/user-prefs", json={"not_a_real_key": "x"})
     assert r.status_code == 400
 
 
 def test_unauthenticated_returns_401():
     client = TestClient(app)
-    r = client.get("/api/preferences")
+    r = client.get("/api/user-prefs")
     assert r.status_code == 401
+
+
+def test_existing_preferences_route_unaffected(authed_client):
+    """Sanity: the legacy /api/preferences (system prefs, key/value) is
+    untouched and still serves the existing preferences schema."""
+    r = authed_client.get("/api/preferences")
+    assert r.status_code == 200
+    body = r.json()
+    # The existing endpoint shape includes a 'preferences' dict and a 'schema' dict.
+    assert "preferences" in body
+    assert "schema" in body
 ```
 
 - [ ] **Step 3: Run tests to verify they fail**
 
-Run: `pytest tests/test_preferences_api.py -v`
+Run: `pytest tests/test_user_prefs_api.py -v`
 
-Expected: FAIL — endpoints don't exist.
+Expected: 5 of 6 FAIL (the new endpoint tests). 1 PASS (legacy sanity test). Failure mode: `/api/user-prefs` returns 404.
 
 - [ ] **Step 4: Implement the routes**
 
-Create `api/routes/preferences.py`:
+Create `api/routes/user_prefs.py`:
 
 ```python
-"""Preferences GET/PUT endpoints. Spec §10."""
+"""Per-user preferences GET/PUT endpoints. Spec §10.
+
+Distinct from api/routes/preferences.py (system-level singleton prefs).
+"""
 from __future__ import annotations
 from typing import Any
 from fastapi import APIRouter, HTTPException, Depends
 
-from core.preferences import get_preferences, set_preferences
-from core.auth import require_user
+from core.user_prefs import get_user_prefs, set_user_prefs
+from core.auth import get_current_user, AuthenticatedUser
 from core.db.connection import get_db_path
 
-router = APIRouter(prefix="/api/preferences", tags=["preferences"])
+router = APIRouter(prefix="/api/user-prefs", tags=["user-prefs"])
 
 
 @router.get("")
-async def read_preferences(user=Depends(require_user)):
+async def read_user_prefs(user: AuthenticatedUser = Depends(get_current_user)):
     db = get_db_path()
-    return await get_preferences(db, user.user_id)
+    return await get_user_prefs(db, user.sub)
 
 
 @router.put("")
-async def write_preferences(
+async def write_user_prefs(
     payload: dict[str, Any],
-    user=Depends(require_user),
+    user: AuthenticatedUser = Depends(get_current_user),
 ):
     db = get_db_path()
     try:
-        await set_preferences(db, user.user_id, payload)
+        await set_user_prefs(db, user.sub, payload)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return await get_preferences(db, user.user_id)
+    return await get_user_prefs(db, user.sub)
 ```
 
-If your project's auth dependency or DB-path helper has different names, adapt the imports. The dependency should yield an object with a `user_id` attribute (or equivalent) populated from the JWT `sub` claim.
+`AuthenticatedUser.sub` is the UnionCore subject claim — used as the `user_id` key in `mf_user_prefs`. If `core/auth.py` exposes a different attribute name in the future, adjust here.
 
 - [ ] **Step 5: Wire the router into `main.py`**
 
-Add to `main.py` (with the other `app.include_router` calls):
+Add to `main.py` (with the other `app.include_router` calls; do NOT touch any line that includes the existing `preferences` router):
 
 ```python
-from api.routes import preferences as preferences_routes
-app.include_router(preferences_routes.router)
+from api.routes import user_prefs as user_prefs_routes
+app.include_router(user_prefs_routes.router)
 ```
 
 - [ ] **Step 6: Run tests to verify they pass**
 
-Run: `pytest tests/test_preferences_api.py -v`
+Run: `pytest tests/test_user_prefs_api.py -v`
 
-Expected: 5 PASS.
+Expected: 6 PASS.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add api/routes/preferences.py main.py tests/test_preferences_api.py
-git commit -m "feat(api): GET/PUT /api/preferences endpoints
+git add api/routes/user_prefs.py main.py tests/test_user_prefs_api.py
+git commit -m "feat(api): GET/PUT /api/user-prefs endpoints
 
-Authenticated. PUT validates payload via core/preferences (ValueError
+Authenticated. PUT validates payload via core.user_prefs (ValueError
 -> 400). Unauthenticated -> 401. GET always returns a complete dict
-with defaults filled in. Spec §10."
+with defaults filled in. Distinct from the existing /api/preferences
+route which serves system-level singleton prefs. Spec §10."
 ```
 
 ---
@@ -1377,7 +1454,7 @@ v1 spec."
 In `CLAUDE.md`, find the `## Architecture Reminders` section. Append (preserve existing items):
 
 ```markdown
-- **User preferences are portable** — `core/preferences.py` stores per-user prefs (layout, density, etc.) in `user_preferences` table keyed by UnionCore subject claim. Client mirror in `localStorage` via `static/js/preferences.js` (Plan 1B) with debounced server sync. Spec: `docs/superpowers/specs/2026-04-28-ux-overhaul-search-as-home-design.md` §10.
+- **Per-user preferences are portable** — `core/user_prefs.py` stores per-user prefs (layout, density, etc.) in the `mf_user_prefs` table keyed by UnionCore subject claim. **Distinct from** the existing `core/db/preferences.py` + `user_preferences` table (system-level singletons; do not conflate). Client mirror in `localStorage` via `static/js/preferences.js` (Plan 1B) with debounced server sync to `/api/user-prefs`. Spec: `docs/superpowers/specs/2026-04-28-ux-overhaul-search-as-home-design.md` §10.
 - **Role hierarchy from JWT** — `core.auth.Role` IntEnum (MEMBER=0 < OPERATOR=1 < ADMIN=2). Use `extract_role(claims)` and `role >= Role.OPERATOR` for visibility gates. Spec §11.
 - **`ENABLE_NEW_UX` feature flag** — gates new UX rendering across Plans 1B and beyond. Default off in prod until phase 4 ships. Read via `core.feature_flags.is_new_ux_enabled()`.
 - **Design tokens are CSS variables** — `static/css/design-tokens.css` is the single source of truth for colors, type, spacing, shadows. Never hardcode hex outside that file. Component CSS in `static/css/components.css` consumes tokens via `var(--mf-*)`.
@@ -1388,7 +1465,7 @@ In `CLAUDE.md`, find the `## Architecture Reminders` section. Append (preserve e
 Find the `## Critical Files` table. Append rows (preserve existing rows):
 
 ```markdown
-| `core/preferences.py` | Server-side user preferences (portable, JSON value, schema versioned) |
+| `core/user_prefs.py` | Server-side **per-user** preferences (portable, JSON value, schema versioned). Distinct from `core/db/preferences.py` (system singletons). |
 | `core/feature_flags.py` | Feature flag accessors (e.g. `ENABLE_NEW_UX`) |
 | `static/css/design-tokens.css` | Visual system as CSS variables — single source of truth |
 | `static/css/components.css` | Shared component classes (pills, toggles, segmented, pulse, role pill, version chip) |
@@ -1409,9 +1486,12 @@ the v1 spec for deeper context."
 
 ## Acceptance check (run before declaring this plan complete)
 
-- [ ] `pytest tests/test_feature_flag.py tests/test_user_preferences_migration.py tests/test_role_claim_extraction.py tests/test_route_aliases.py tests/test_preferences.py tests/test_preferences_api.py -v` — all pass
-- [ ] `docker-compose up -d` succeeds, app starts, no migration errors in logs
-- [ ] `docker-compose exec app sqlite3 /app/markflow.db ".schema user_preferences"` returns the table schema
+- [ ] `pytest tests/test_feature_flag.py tests/test_mf_user_prefs_schema.py tests/test_role_claim_extraction.py tests/test_route_aliases.py tests/test_user_prefs.py tests/test_user_prefs_api.py -v` — all pass
+- [ ] `docker-compose up -d` succeeds, app starts, no schema errors in logs
+- [ ] `docker-compose exec app sqlite3 /app/markflow.db ".schema mf_user_prefs"` returns the new per-user table schema
+- [ ] `docker-compose exec app sqlite3 /app/markflow.db ".schema user_preferences"` returns the existing system-prefs schema **unchanged** (`key, value, updated_at`)
+- [ ] `curl -i -H "Authorization: Bearer $JWT" http://localhost:8000/api/user-prefs` returns 200 + JSON defaults
+- [ ] `curl -i -H "Authorization: Bearer $JWT" http://localhost:8000/api/preferences` returns 200 + the existing `{preferences, schema}` shape (unchanged behavior)
 - [ ] `curl -i http://localhost:8000/pipeline` shows `301` to `/activity`
 - [ ] `curl -i http://localhost:8000/static/css/design-tokens.css` returns 200 + CSS body
 - [ ] `git log --oneline | head -12` shows ~10 task commits in order
@@ -1440,7 +1520,7 @@ Once all green, **Plan 1A is done**. The next plan in the sequence is `2026-04-2
 
 **Placeholder scan:** No TODOs, no "fill in details", no "similar to Task N" — every task contains the actual code. Migration number is `<NNN>` because it depends on the repo's current state (Step 1 of Task 4 resolves it).
 
-**Type consistency:** `Role` enum + `extract_role` consistent across Task 5 use-sites. Preferences key set defined once in `DEFAULT_PREFERENCES` (Task 7), referenced as `PREFERENCE_KEYS` everywhere (Tasks 7, 8). DB column names (`user_id`, `value`, `schema_ver`, `updated_at`) match between migration (Task 4), tests (Tasks 4, 7, 8), and module (Task 7).
+**Type consistency:** `Role` enum + `extract_role` consistent across Task 5 use-sites. Per-user preferences key set defined once in `DEFAULT_USER_PREFS` (Task 7), referenced as `USER_PREF_KEYS` everywhere (Tasks 7, 8). Table name `mf_user_prefs` and column names (`user_id`, `value`, `schema_ver`, `updated_at`) match between schema DDL (Task 4), tests (Tasks 4, 7, 8), and module (Task 7). New API base `/api/user-prefs` and module `core/user_prefs.py` are intentionally distinct from existing `/api/preferences` and `core/db/preferences.py` (system-level singleton prefs).
 
 ---
 

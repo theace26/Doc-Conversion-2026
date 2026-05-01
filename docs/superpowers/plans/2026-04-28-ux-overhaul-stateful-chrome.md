@@ -68,8 +68,10 @@ Manual smoke verification (no JS test runner). The module exposes load / get / s
 Create `static/js/preferences.js`:
 
 ```javascript
-/* Client preferences. localStorage-backed cache + debounced server sync.
- * Spec §10. Server endpoints: GET/PUT /api/preferences (Plan 1A Task 8).
+/* Client per-user preferences. localStorage-backed cache + debounced server sync.
+ * Spec §10. Server endpoints: GET/PUT /api/user-prefs (Plan 1A Task 8).
+ * NOTE: /api/user-prefs is the per-user store (UnionCore sub-keyed). Distinct
+ * from /api/preferences which is system-level singleton prefs — do not conflate.
  *
  * Usage:
  *   await MFPrefs.load();                      // hydrates from server, falls back to LS
@@ -84,7 +86,7 @@ Create `static/js/preferences.js`:
   'use strict';
 
   var LS_KEY = 'mf:preferences:v1';
-  var ENDPOINT = '/api/preferences';
+  var ENDPOINT = '/api/user-prefs';
   var DEBOUNCE_MS = 500;
 
   var prefs = {};
@@ -222,7 +224,7 @@ await MFPrefs.load();
 console.log('layout:', MFPrefs.get('layout'));
 MFPrefs.subscribe('layout', function(v) { console.log('layout changed ->', v); });
 await MFPrefs.set('layout', 'recent');
-// Wait 500ms, check Network tab -> PUT /api/preferences with {"layout":"recent"}
+// Wait 500ms, check Network tab -> PUT /api/user-prefs with {"layout":"recent"}
 ```
 
 If unauthenticated GET 401s, the localStorage fallback should still work and the console shouldn't throw — just a warning.
@@ -1220,7 +1222,7 @@ Visit `http://localhost:8000/static/dev-chrome.html`. Expected:
 1. Top nav renders with `MarkFlow [v0.34.2-dev]` + `Search · Activity · Convert` + layout-icon + avatar
 2. Click avatar → role-gated menu opens. Switch role to `member` first; verify Personal section shows Profile/Display/Pinned/Notifications (no API keys, no System); switch to `admin`; verify API keys appears + System section appears with `Admin only` gate
 3. Click layout-icon → 3-mode popover; the current mode has a checkmark
-4. Click a different mode → popover closes, network tab shows `PUT /api/preferences` 500ms later
+4. Click a different mode → popover closes, network tab shows `PUT /api/user-prefs` 500ms later
 5. Press `⌘\` (or `Ctrl+\` on Linux/Windows) → mode cycles
 6. Open dev-tools console; verify telemetry events emitted on each interaction (Network tab: POST /api/telemetry → 204)
 7. Press `Esc` while menu is open → closes
