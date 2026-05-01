@@ -2385,6 +2385,30 @@
   background: rgba(0,0,0,0.3);
   z-index: 999;
 }
+/* === toast (self-contained; used by avatar-menu-wiring on both UX modes) === */
+.mf-toast {
+  position: fixed;
+  bottom: 1.25rem;
+  right: 1.25rem;
+  max-width: 22rem;
+  padding: 0.75rem 1rem;
+  background: var(--mf-color-accent);
+  color: #ffffff;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+  font-size: var(--mf-text-body, 0.95rem);
+  font-family: var(--mf-font-family, inherit);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 200ms ease, transform 200ms ease;
+  pointer-events: none;
+  z-index: 1100;
+}
+.mf-toast--visible { opacity: 1; transform: translateY(0); }
+.mf-toast--info    { background: var(--mf-color-accent); }
+.mf-toast--success { background: var(--ok, #2e7d32); }
+.mf-toast--error   { background: var(--error, #c62828); }
+
 /* Group header within swatches */
 .mf-disp-drawer__group-label {
   grid-column: 1 / -1;
