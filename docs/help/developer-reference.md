@@ -24,20 +24,21 @@ taxonomy, schema relationships, runbook).
 1. [Quick start](#quick-start)
 2. [Authentication](#authentication)
 3. [API surface (high-level)](#api-surface-high-level)
-4. [Premiere project cross-reference (v0.34.0)](#premiere-project-cross-reference-v0340)
-5. [LLM cost subsystem (v0.33.x)](#llm-cost-subsystem-v033x)
-6. [Search + AI Assist](#search--ai-assist)
-7. [Pipeline / bulk conversion](#pipeline--bulk-conversion)
-8. [Lifecycle + Trash](#lifecycle--trash)
-9. [Storage + mounts](#storage--mounts)
-10. [Analysis (image-vision) queue](#analysis-image-vision-queue)
-11. [Logs + log management](#logs--log-management)
-12. [Database schema](#database-schema)
-13. [Log event taxonomy](#log-event-taxonomy)
-14. [Format handler architecture](#format-handler-architecture)
-15. [Docker / CLI workflows](#docker--cli-workflows)
-16. [Environment variables](#environment-variables)
-17. [Runbook](#runbook)
+4. [Active Operations Registry (v0.35.0)](#active-operations-registry-v0350)
+5. [Premiere project cross-reference (v0.34.0)](#premiere-project-cross-reference-v0340)
+6. [LLM cost subsystem (v0.33.x)](#llm-cost-subsystem-v033x)
+7. [Search + AI Assist](#search--ai-assist)
+8. [Pipeline / bulk conversion](#pipeline--bulk-conversion)
+9. [Lifecycle + Trash](#lifecycle--trash)
+10. [Storage + mounts](#storage--mounts)
+11. [Analysis (image-vision) queue](#analysis-image-vision-queue)
+12. [Logs + log management](#logs--log-management)
+13. [Database schema](#database-schema)
+14. [Log event taxonomy](#log-event-taxonomy)
+15. [Format handler architecture](#format-handler-architecture)
+16. [Docker / CLI workflows](#docker--cli-workflows)
+17. [Environment variables](#environment-variables)
+18. [Runbook](#runbook)
 
 ---
 
@@ -182,8 +183,33 @@ prefixes you'll likely care about:
 | `/api/flags/*` | `flags` | Content moderation / flagged files |
 | `/api/help/*` | `help` | Help wiki (public, no auth) |
 | `/api/health` | `admin` | System health check |
+| `/api/active-ops` | `active_ops` | Active Operations Registry — list running ops + cancel (v0.35.0) |
 
 For the full list, hit `/openapi.json`.
+
+### Active Operations Registry (v0.35.0)
+
+Two endpoints. Auth: JWT or `X-API-Key`.
+
+**`GET /api/active-ops`** — OPERATOR+
+
+Returns `{"ops": [...]}` — all running operations plus those finished within the last 30 seconds. Each op includes `op_id`, `op_type`, `label`, `icon`, `done`, `total`, `started_at_epoch`, `finished_at_epoch`, `cancellable`, `origin_url`, `started_by`, `error_msg`.
+
+```bash
+curl -s -H "X-API-Key: $KEY" http://localhost:8000/api/active-ops \
+  | jq '.ops[] | {label, op_type, done, total}'
+```
+
+Response includes `Cache-Control: no-cache`.
+
+**`POST /api/active-ops/{op_id}/cancel`** — MANAGER+
+
+Requests cancellation of a running operation. Returns `{"cancelled": true}` on success. Returns `400` if the op is uncancellable or already finished; `404` if the `op_id` is unknown.
+
+```bash
+curl -s -X POST -H "X-API-Key: $KEY" \
+  http://localhost:8000/api/active-ops/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx/cancel
+```
 
 ---
 
