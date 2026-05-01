@@ -830,7 +830,7 @@
     var period30 = opts.period30 || { total_usd: 0, by_provider: {}, by_model: [], daily: [] };
     var providers = opts.providers || [];
     var byModel = period30.by_model || [];
-    var isSingle = providers.length === 1;
+    var isSingle = providers.length <= 1;
 
     var tableHead = el('h3', 'mf-stg__section-subhead');
     tableHead.textContent = 'Last 30 days — spend by model';
