@@ -1,6 +1,10 @@
 /* MarkFlow — Shared Design System
    Imported by all user-facing pages. Debug dashboard excluded. */
 
+/* ── Token system (v0.38.0: required for legacy pages to receive --mf-* defs and [data-theme] overrides) ─ */
+@import url('./css/design-tokens.css');
+@import url('./css/design-themes.css');
+
 /* ── Fonts ──────────────────────────────────────────────────────────────────── */
 @import url('https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
