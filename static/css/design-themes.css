@@ -24,6 +24,11 @@
   --mf-color-text-faint:    #606078;
   --mf-shadow-card:         0 1px 0 rgba(0,0,0,0.4), 0 24px 48px -24px rgba(0,0,0,0.6);
   --mf-btn-bg:              linear-gradient(135deg,#7c5ff8,#9d80ff);
+  --mf-surface-alt:         #232638;
+  --mf-color-accent-hover:  #8189e8;
+  --mf-color-info:          #60a5fa;
+  --mf-shadow-press:        0 1px 3px rgba(0,0,0,.3);
+  --mf-shadow-popover:      0 4px 12px rgba(0,0,0,.4);
 }
 
 [data-theme="cobalt"] {
@@ -608,8 +613,6 @@
 
 /* ─── Fonts ──────────────────────────────────────────────────────────────── */
 
-[data-font="inter"]           { --mf-font-family: 'Inter', system-ui, sans-serif; }
-[data-font="ibm-plex-sans"]   { --mf-font-family: 'IBM Plex Sans', system-ui, sans-serif; }
 [data-font="roboto"]          { --mf-font-family: 'Roboto', system-ui, sans-serif; }
 [data-font="source-sans-3"]   { --mf-font-family: 'Source Sans 3', system-ui, sans-serif; }
 [data-font="lato"]            { --mf-font-family: 'Lato', system-ui, sans-serif; }
@@ -618,9 +621,8 @@
 [data-font="nunito"]          { --mf-font-family: 'Nunito', system-ui, sans-serif; }
 [data-font="playfair-display"]{ --mf-font-family: 'Playfair Display', Georgia, serif; }
 [data-font="raleway"]         { --mf-font-family: 'Raleway', system-ui, sans-serif; }
-[data-font="poppins"]         { --mf-font-family: 'Poppins', system-ui, sans-serif; }
-[data-font="dm-sans"]         { --mf-font-family: 'DM Sans', system-ui, sans-serif; }
 [data-font="crimson-pro"]     { --mf-font-family: 'Crimson Pro', Georgia, serif; }
+[data-font="comic-sans"]      { --mf-font-family: 'Comic Sans MS', 'Chalkboard SE', cursive; }
 
 /* ─── Text scale ─────────────────────────────────────────────────────────── */
 

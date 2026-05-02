@@ -277,43 +277,26 @@ function _loadAvatarMenu() {
         document.head.appendChild(s);
     }
 
-    _loadScript('/static/js/components/avatar.js', function () {
-        _loadScript('/static/js/components/avatar-menu.js', function () {
-            _loadScript('/static/js/components/display-prefs-drawer.js', function () {
-                fetch('/api/me', { credentials: 'same-origin' })
-                    .then(function (r) { return r.ok ? r.json() : null; })
-                    .catch(function () { return null; })
-                    .then(function (me) {
-                        const user = {
-                            name:  (me && me.name)  || '',
-                            role:  (me && me.role)  || 'member',
-                            scope: (me && me.scope) || '',
-                        };
-                        const build = (me && me.build) || null;
-
-                        const menu = MFAvatarMenu.create({
-                            user: user,
-                            build: build,
-                            onSelectItem: function (id) {
-                                if (id === 'display') {
-                                    const drawer = MFDisplayPrefsDrawer.create();
-                                    drawer.open();
-                                } else if (id === 'all-settings') {
-                                    window.location.href = '/settings.html';
-                                } else if (id === 'help') {
-                                    window.location.href = '/help.html';
-                                }
-                            },
-                            onSignOut: function () {
-                                fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' })
-                                    .finally(function () { window.location.href = '/'; });
-                            },
-                        });
-
-                        MFAvatar.mount(slot, {
-                            onClick: function (btn) { menu.openAt(btn); }
-                        });
+    _loadScript('/static/js/preferences.js', function () {
+        _loadScript('/static/js/components/avatar.js', function () {
+            _loadScript('/static/js/components/avatar-menu.js', function () {
+                _loadScript('/static/js/components/display-prefs-drawer.js', function () {
+                    _loadScript('/static/js/components/avatar-menu-wiring.js', function () {
+                        if (MFPrefs && typeof MFPrefs.load === 'function') { MFPrefs.load(); }
+                        fetch('/api/me', { credentials: 'same-origin' })
+                            .then(function (r) { return r.ok ? r.json() : null; })
+                            .catch(function () { return null; })
+                            .then(function (me) {
+                                const user = {
+                                    name:  (me && me.name)  || '',
+                                    role:  (me && me.role)  || 'member',
+                                    scope: (me && me.scope) || '',
+                                };
+                                const build = (me && me.build) || null;
+                                MFAvatarMenuWiring.mount(slot, { user: user, build: build, pageSet: 'original' });
+                            });
                     });
+                });
             });
         });
     });

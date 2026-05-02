@@ -58,23 +58,6 @@
     var build = me.build;
     var user = { name: me.name, role: me.role, scope: me.scope };
 
-    var avatarMenu = MFAvatarMenu.create({
-      user: user,
-      build: build,
-      onSelectItem: function (id) {
-        if (id === 'display') {
-          var drawer = MFDisplayPrefsDrawer.create();
-          drawer.open();
-          return;
-        }
-        console.log('avatar item:', id);
-      },
-      onSignOut: function () {
-        fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' })
-          .finally(function () { window.location.href = '/'; });
-      },
-    });
-
     var layoutPop = MFLayoutPopover.create({
       current: MFPrefs.get('layout') || 'minimal',
       onChoose: function (mode) {
@@ -88,9 +71,9 @@
       navRoot.querySelector('[data-mf-slot="version-chip"]'),
       { version: build.version }
     );
-    MFAvatar.mount(
+    MFAvatarMenuWiring.mount(
       navRoot.querySelector('[data-mf-slot="avatar"]'),
-      { user: user, onClick: function (btn) { avatarMenu.openAt(btn); } }
+      { user: user, build: build, pageSet: 'new' }
     );
     MFLayoutIcon.mount(
       navRoot.querySelector('[data-mf-slot="layout-icon"]'),

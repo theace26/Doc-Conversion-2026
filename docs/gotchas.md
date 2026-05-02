@@ -5,6 +5,22 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 ---
 
+## Theme System & Stylesheets (v0.37.0+)
+
+- **The theme system uses TWO font tokens, not one. Pick the right one.** `--mf-font-family` is theme-driven (overridden by `[data-font="X"]` selectors in `design-themes.css`). `--mf-font-sans` is hardcoded in `design-tokens.css :root` and is NOT theme-overridden. If your CSS uses `font-family: var(--mf-font-sans)`, the drawer's font picker has no effect on that surface — the selector silently no-ops. **Always use `var(--mf-font-family)` for body/heading text that should respond to user font selection.** Cited: BUG-027 (markflow.css originally bound `--font-sans` -> `--mf-font-sans`; rebound to `--mf-font-family` in v0.37.1).
+
+- **`html { font-size: 16px }` defeats the text-scale slider unless wrapped in `calc(... * var(--mf-text-scale))`.** Drawer's text-scale sets `--mf-text-scale: 0.84/1/1.18/1.36`, but only tokens that explicitly multiply by it (e.g., `--mf-text-body`) propagate the scale. Hardcoded font-sizes in px or rem don't. The cheap one-line fix: change root font-size to `calc(16px * var(--mf-text-scale, 1))` — every rem-based descendant size now scales for free. v0.37.1 markflow.css fix.
+
+- **Don't put `@media (prefers-color-scheme: dark)` in any stylesheet that shares a page with `[data-theme]`.** OS preference and theme-attribute selector cascade-fight. The OS-media block fires unconditionally on a dark-OS machine and overrides whatever the user picked in the drawer. **The theme system is the only correct dark-mode mechanism.** If a stylesheet needs theme-specific overrides, write them as `html[data-theme="classic-dark"] .selector { ... }` rules instead. Cited: BUG-027 (v0.37.1 deleted/converted 7 such media queries from markflow.css).
+
+- **Promote heading and section-title text to accent color, not body color.** Body text shifts subtle across themes (dark on light vs light on dark). Accent shifts dramatically (purple -> orange -> green -> pink). Users perceive theme changes far more readily when titles/headings/CTAs use `color: var(--mf-color-accent)`. v0.37.1 promoted `h1`, `h2`, `h3`, `.card-header`, `.section-title`, and the drop-zone CTA in markflow.css. Apply the same pattern to new title-like surfaces.
+
+- **When introducing a new stylesheet that should respect the theme system, verify it consumes `--mf-*` tokens — not its own custom-prop block.** v0.37.0 shipped `design-themes.css` and `design-tokens.css` but didn't audit `markflow.css`, which had its own parallel `--surface`/`--text`/`--accent` block. The new theme picker silently failed on every legacy page for a full release cycle (BUG-027). When introducing a stylesheet, run: `grep -cE 'var\(--[a-z]' your-file.css | grep -v 'var(--mf-'` — non-zero count means non-`mf-` vars exist and the file probably bypasses the theme system.
+
+- **`--mf-font-sans` and `--mf-font-family` are NOT aliases for each other in v0.37.x.** They have different purposes (font stack vs theme-driven single font) and different default values. If you want both to track the user's font picker, you'd need to rebind one to the other in `design-tokens.css :root` — but that's a behavior change for new-UX too and should be a deliberate decision, not an accidental one.
+
+---
+
 ## Active Operations Registry
 
 - **Every long-running op MUST call `register_op()` at start and `finish_op()` at end.** Otherwise restart hydration marks it as `terminated_by_restart` (cosmetic noise on the next page load).

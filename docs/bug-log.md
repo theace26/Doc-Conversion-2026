@@ -88,7 +88,32 @@ Planned during the Active Operations Registry (v0.35.0) implementation. Original
 
 ## Shipped (history)
 
-### v0.34.9 — Bulk-worker abort persists immediately, even with stuck workers
+### v0.37.1 — v0.37.0 theme system didn't reach legacy original-UX pages
+
+The v0.37.0 Display Preferences feature was operator-visible on the new-UX
+pages but **silently no-op'd on every page that loads `static/markflow.css`**
+(26 legacy HTML pages including index, resources, admin, bulk, storage, help).
+Four distinct sub-bugs traced to the legacy stylesheet never being plumbed
+into the v0.37.0 token system — its own parallel `--surface`/`--text`/etc.
+custom-prop block + `@media (prefers-color-scheme: dark)` overrides bypassed
+`[data-theme]` entirely. Resolved by a 19-commit refactor on
+`refactor/markflow-css-theme-aware`: deleted markflow.css's `:root` block
+and all 7 OS-media-query blocks (the main one entirely; the 6 component-
+scoped ones rewritten as `html[data-theme="classic-dark"]` selector
+prefixes), renamed all 302 `var(--…)` references to `--mf-*` equivalents,
+substituted ~50 hardcoded color literals to `var(--mf-…)` calls, and
+introduced 6 new tokens. Plus inline fixes from visual checkpoints (font
+list cleanup, Display Prefs drawer button-wrap at X-Large, h1/h2/h3 +
+section titles + drop-zone CTA promoted to accent color).
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-025 | shipped-v0.37.1 | high | Display Preferences drawer was a no-op on every legacy original-UX page | Drawer threw `ReferenceError: MFPrefs is not defined` at `MFPrefs.get('theme')` inside `MFDisplayPrefsDrawer.open()` because `app.js`'s `_loadAvatarMenu()` chain loaded `avatar.js → avatar-menu.js → display-prefs-drawer.js → avatar-menu-wiring.js` but never `preferences.js`. Drawer silently failed to render; user clicked Display Preferences and nothing happened. The 26 legacy HTML pages that rely on `app.js` for chrome (no static `<script src="…/preferences.js">` in their `<head>`) all hit this. Fix: added `_loadScript('/static/js/preferences.js', …)` at the head of the chain in `app.js` plus `MFPrefs.load()` invocation post-load. Shipped first as commit `bbe3753` (also extracted `MFAvatarMenuWiring` helper for BUG-026). |
+| BUG-026 | shipped-v0.37.1 | medium | Avatar menu items unwired on every page (12 of 16 menu IDs went to `console.log` instead of routing) | Each `*-boot.js` (13 files) and `app.js` had its own inline `onSelectItem` handler that handled only `id === 'display'` (open drawer); every other menu ID — Profile, Pinned, Notifications, API keys, Account & auth, Storage, Pipeline, AI providers, Database, Logs, All settings, Help, Shortcuts, Bug report — fell through to `console.log('avatar item:', id)`. Fix: extracted `MFAvatarMenuWiring` helper (`static/js/components/avatar-menu-wiring.js`, 138 lines) with two ID→URL maps (one per UX mode), a coming-soon toast for unwired items, drawer lazy-load, and sign-out flow. All 13 boot files + `app.js` now call `MFAvatarMenuWiring.mount(slot, {…, pageSet})`. Removed ~250 lines of duplicated wiring. Commit `bbe3753`. |
+| BUG-027 | shipped-v0.37.1 | high | Theme/font/scale switching had no visible effect on legacy original-UX pages | `static/markflow.css` (1684 lines, 0 `var(--mf-*)` references) had its own parallel CSS-custom-prop system at `:root` (lines 8–29: `--bg`, `--surface`, `--text`, `--accent`, etc.) and overrode 14 of those props in an `@media (prefers-color-scheme: dark) { :root { … } }` block. Six additional `@media (prefers-color-scheme: dark)` blocks scattered through the file (lines 270, 350, 1168, 1231, 1384, 1402) overrode component-scoped colors. None of this responded to `[data-theme="X"]` — and the OS-media-query block actively *fought* the theme system, since on a dark-OS machine it forced dark colors regardless of the user's drawer selection. Fix (Phases 1–8 of the refactor): added 5 new tokens to `design-tokens.css :root`, added classic-dark overrides for 5 tokens to `design-themes.css`, deleted markflow.css's `:root` and main `@media` blocks (lines 7–50), rewrote the 6 remaining `@media` blocks to `html[data-theme="classic-dark"]` selector prefixes, renamed all 302 `var(--name)` references to `var(--mf-name)`, and substituted ~50 remaining hardcoded literals to `var(--mf-…)` calls. Final state: 0 `@media (prefers-color-scheme)` blocks, 0 non-`mf-` var refs. |
+| BUG-028 | shipped-v0.37.1 | low | X-Large text size broke Display Preferences drawer button layout | `.mf-disp-drawer__scale-row` used `display: grid; grid-template-columns: repeat(4, 1fr)` — a fixed four-column row. At X-Large scale (text-scale 1.36), the four button labels overflowed their column widths and visually broke the drawer. Fix: switched to `grid-template-columns: repeat(auto-fit, minmax(80px, 1fr))` so the buttons reflow into 2×2 (or whatever fits) when their content grows. Single-line CSS change in `components.css`. Commit `8ef45b9`. |
+
+
 
 The post-v0.34.8 verification confirmed BUG-018's true root cause:
 the abort safeguard *was* firing in memory, but the DB write that

@@ -52,6 +52,14 @@
   --mf-fmt-mp4:   linear-gradient(135deg, #22b8cf 0%, #0b7285 100%);
   --mf-fmt-md:    linear-gradient(135deg, #0a0a0a 0%, #495057 100%);
 
+  /* === Color — legacy-ux additions (markflow.css refactor 2026-05-01) === */
+  --mf-surface-alt:            #f0f1f5;  /* secondary surface, alt rows, nav bg */
+  --mf-color-text-on-accent:   #ffffff;  /* text rendered on accent-bg buttons/badges */
+  --mf-color-accent-hover:     #3d49b8;  /* darker accent for hover states */
+  --mf-color-accent-glow:      rgba(91,61,245,0.4);  /* toggle on-state shadow glow */
+  --mf-color-info:             #2563eb;  /* informational status (toasts, running pills) */
+  --mf-radius-sm:              4px;      /* smaller radius for badges/inline pills */
+
   /* === Type === */
   --mf-font-sans:    -apple-system, "SF Pro Display", "Inter", system-ui, sans-serif;
   --mf-font-serif:   "Iowan Old Style", "Charter", "Cambria", Georgia, serif;

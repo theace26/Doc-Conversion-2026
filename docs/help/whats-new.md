@@ -6,6 +6,20 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.37.1 — Themes now apply to every page
+
+**Display Preferences finally works on the original-style pages.** In v0.37.0 the theme / font / text-size picker only changed the look of the new-style chrome and the picker itself -- pages like Index, Bulk, Storage, Admin, and Help kept their old colors regardless of what you selected. v0.37.1 fixes that. Every page now responds to your theme, font, and text-size choices.
+
+**Page titles, section headings, and the drop-zone "click to browse" callout are now highlighted in your accent color.** The accent color shifts dramatically between themes -- purple on Classic Light, brighter purple on Classic Dark, orange on Cobalt, green on Sage, pink on Crimson. So switching themes is visible at a glance: titles change color along with backgrounds.
+
+**Display Preferences drawer no longer breaks at X-Large text size.** The four size buttons (Small / Default / Large / X-Large) now reflow into a 2x2 grid when their content grows, instead of overflowing.
+
+**Font list cleaned up.** Removed Inter, IBM Plex Sans, Poppins, and DM Sans -- at normal text sizes on Mac these all looked indistinguishable from System UI. Added **Comic Sans MS** as a fun, distinctive alternative. The drawer now lists 11 fonts down from 14, but every choice is now visibly different.
+
+**Heads up -- OS dark-mode preference no longer overrides your theme choice.** Previously, if your operating system was set to dark mode, original-style pages would force-render dark regardless of which theme you'd selected. This was a bug -- your drawer choice should win. v0.37.1 removes the OS-preference shortcut. If you want dark on the original-style pages, pick **Classic Dark** in the drawer.
+
+---
+
 ## v0.37.0 — Display Preferences & Theme System
 
 **28 color themes.** Choose from Original UX, New UX, High Contrast, Pastel, and Seasonal palettes -- six groups in all. Themes apply instantly without a page reload.

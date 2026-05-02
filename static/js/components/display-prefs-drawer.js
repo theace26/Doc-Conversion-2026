@@ -47,8 +47,6 @@
 
   var FONTS = [
     {id:'system',          label:'System UI'},
-    {id:'inter',           label:'Inter'},
-    {id:'ibm-plex-sans',   label:'IBM Plex Sans'},
     {id:'roboto',          label:'Roboto'},
     {id:'source-sans-3',   label:'Source Sans 3'},
     {id:'lato',            label:'Lato'},
@@ -57,9 +55,8 @@
     {id:'nunito',          label:'Nunito'},
     {id:'playfair-display',label:'Playfair Display'},
     {id:'raleway',         label:'Raleway'},
-    {id:'poppins',         label:'Poppins'},
-    {id:'dm-sans',         label:'DM Sans'},
     {id:'crimson-pro',     label:'Crimson Pro'},
+    {id:'comic-sans',      label:'Comic Sans MS'},
   ];
 
   var SCALES = [
@@ -75,15 +72,17 @@
   };
 
   var FONT_FAMILIES = {
-    'system':'system-ui,sans-serif','inter':'Inter,system-ui,sans-serif',
-    'ibm-plex-sans':'IBM Plex Sans,system-ui,sans-serif',
+    'system':'system-ui,sans-serif',
     'roboto':'Roboto,system-ui,sans-serif',
     'source-sans-3':'Source Sans 3,system-ui,sans-serif',
-    'lato':'Lato,system-ui,sans-serif','merriweather':'Merriweather,Georgia,serif',
-    'jetbrains-mono':'JetBrains Mono,monospace','nunito':'Nunito,system-ui,sans-serif',
+    'lato':'Lato,system-ui,sans-serif',
+    'merriweather':'Merriweather,Georgia,serif',
+    'jetbrains-mono':'JetBrains Mono,monospace',
+    'nunito':'Nunito,system-ui,sans-serif',
     'playfair-display':'Playfair Display,Georgia,serif',
-    'raleway':'Raleway,system-ui,sans-serif','poppins':'Poppins,system-ui,sans-serif',
-    'dm-sans':'DM Sans,system-ui,sans-serif','crimson-pro':'Crimson Pro,Georgia,serif'
+    'raleway':'Raleway,system-ui,sans-serif',
+    'crimson-pro':'Crimson Pro,Georgia,serif',
+    'comic-sans':'"Comic Sans MS","Chalkboard SE",cursive'
   };
 
   function el(tag, cls) {

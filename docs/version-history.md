@@ -4,6 +4,58 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.37.1 — Theme system reaches legacy original-UX pages (2026-05-02)
+
+**Goal:** Make the v0.37.0 Display Preferences (theme / font / text-scale) visibly apply to the 26 legacy original-UX HTML pages, not just the new-UX surfaces. Resolves four sub-bugs (BUG-025 through BUG-028) clustered around the same root cause: `static/markflow.css` was never plumbed into the v0.37.0 `[data-theme]` token system and had its own parallel custom-prop block plus 7 `@media (prefers-color-scheme: dark)` overrides.
+
+**Why this matters:** v0.37.0 shipped a polished theme picker that did nothing on most pages a typical operator actually visits day-to-day (index, bulk, storage, admin, help, resources). Clicking a theme swatch would re-color the new-UX chrome and the drawer itself, but `/index.html` stayed the same color. Worse, on a dark-OS machine the legacy stylesheet's `@media (prefers-color-scheme: dark)` block actively fought the user's chosen theme — Classic Light + dark-OS rendered dark anyway. v0.37.1 closes this gap.
+
+**What changed:**
+
+1. **`bbe3753` — Display Preferences drawer + avatar-menu wiring fix (preliminary commit, before the markflow.css refactor).** `app.js`'s `_loadAvatarMenu()` chain now loads `preferences.js` first so `MFPrefs` is defined when the drawer's `open()` calls `MFPrefs.get('theme')`. Without this, the drawer silently `ReferenceError`'d on every legacy page (BUG-025). Same commit also extracted a new `MFAvatarMenuWiring` helper (`static/js/components/avatar-menu-wiring.js`, 138 lines) that owns avatar-menu mount + ID->URL routing for both UX modes + coming-soon toast + drawer lazy-load + sign-out, replacing ~250 lines of duplicated wiring across `app.js` and 13 `*-boot.js` files (BUG-026 — 12 of 16 menu items previously fell through to `console.log`).
+
+2. **8-phase markflow.css refactor (commits `78826b3` through `8a272dc`).** Reconciles legacy stylesheet with v0.37.0 token system:
+   - Phase 1 — Added 5 new tokens to `design-tokens.css :root`: `--mf-surface-alt`, `--mf-color-text-on-accent`, `--mf-color-accent-hover`, `--mf-color-info`, `--mf-radius-sm`. Added classic-dark overrides for 5 (incl. `--mf-shadow-press` and `--mf-shadow-popover` to preserve markflow.css's old dark-mode shadow values).
+   - Phase 2 — Deleted markflow.css's `:root` custom-prop block (lines 8-29) and main `@media (prefers-color-scheme: dark) { :root { ... } }` block (lines 31-50). Rewrote the 6 remaining `@media (prefers-color-scheme: dark)` blocks (badge dark variants, storage-verify dark variants, flag-banner dark, stop-banner dark, tool-* dark, db-tool-* dark) as `html[data-theme="classic-dark"]` selector prefixes — the styles are preserved, but they now fire from the user's theme choice, not the OS preference. Renamed all 302 `var(--...)` references in markflow.css from local custom-prop names (`--bg`, `--surface`, `--text`, `--accent`, `--ok`, `--warn`, `--error`, `--info`, `--radius`, `--font-sans`, `--font-mono`, `--shadow`, `--shadow-lg`, `--transition`, ...) to their `--mf-*` equivalents per a 20-row rename map.
+   - Phases 3-8 — Per-section literal-substitution sweep using a documented decision tree (exact match / drift-<=-5 snap / new-token / kept-as-literal / status-snap). ~50 hardcoded color literals substituted to `var(--mf-...)` calls. One additional new token introduced: `--mf-color-accent-glow` for the toggle-switch on-state shadow.
+
+3. **`fd3f80c` — Font + text-scale wiring fixes from Phase-2 visual checkpoint #1.** Spec A11 originally bound markflow's `--font-sans` -> `--mf-font-sans`. But `--mf-font-sans` is hardcoded in design-tokens.css; design-themes.css's `[data-font="X"]` rules override `--mf-font-family`. Renamed 5 `var(--mf-font-sans)` -> `var(--mf-font-family)` in markflow.css so the drawer's font picker actually applies. Also wrapped `html { font-size: 16px }` in `calc(16px * var(--mf-text-scale, 1))` — single-line change that makes every rem-based font-size in the file scale with the drawer's text-size selector.
+
+4. **`a710c5c` and `d8ddb13` — Visible-text highlighting from Phase-2 visual checkpoints #1 and #2.** User reported that page titles, section headers, and the drop-zone CTA didn't visibly recolor on theme switches because they inherited body text color (`--mf-color-text`), and the deltas across themes for body text were subtle on the user's display. Promoted h1, h2, h3, `.card-header`, and `.section-title` to `color: var(--mf-color-accent)`, plus the drop-zone CTA paragraph and its `<strong>`/`<em>` inline emphasis. Theme switches now visibly re-color the prominent text on every legacy page.
+
+5. **`8ef45b9` — Display Prefs drawer scale-row wraps gracefully (BUG-028).** `.mf-disp-drawer__scale-row` switched from `grid-template-columns: repeat(4, 1fr)` to `repeat(auto-fit, minmax(80px, 1fr))`. At X-Large text scale, the four buttons now reflow into 2x2 instead of overflowing.
+
+6. **Font list cleanup.** Removed Inter, IBM Plex Sans, Poppins, and DM Sans from the drawer FONTS list, FONT_FAMILIES map, and design-themes.css `[data-font]` selectors — at body sizes on macOS, all four rendered visually identical to system-ui (SF Pro). Replaced with **Comic Sans MS** as a system-installed alternative (no Google Fonts dependency). Drawer now offers 11 fonts down from 14, every one visibly distinct.
+
+**Design decisions:**
+
+- **Full rename over alias bridge.** Spec considered two options for handling markflow's local custom-prop namespace (`--surface`, `--text`, etc.): (alpha) add `:root { --surface: var(--mf-surface); ... }` aliases in design-tokens.css so existing `var(--surface)` calls auto-track; (beta) rewrite every `var(--surface)` to `var(--mf-surface)` in markflow.css. User picked beta. Rationale: cleaner end state, single canonical namespace, no two-level resolution chain. Cost: ~24 extra substitutions in the change-index. Tradeoff accepted.
+- **Delete the OS dark-mode media query (no fallback).** v0.37.1 removes `@media (prefers-color-scheme: dark)` from markflow.css entirely. Users who want dark on legacy pages now pick Classic Dark in the drawer (or stay on the system default if Nebula is configured). Rationale: keeping the media query alongside `[data-theme]` creates cascade conflicts; the theme system is the correct mechanism for dark-mode opt-in. Edge case: a user previously on Classic Light + dark-OS will now see Classic Light's actual light colors instead of OS-forced dark. This is the intended behavior — operators can override via the drawer.
+- **Status colors converge to existing tokens (A4 mandate).** The decision tree's status-snap branch routes any error/warn/success/info-toned literal to `--mf-color-success`/`warn`/`error`/`info` (or `*_bg` variants) regardless of small drift from the original markflow.css value. Rationale: status colors carry semantic meaning, not aesthetic; consistency across UX modes matters more than pixel-fidelity to the legacy palette. ~40 of the ~50 substitutions across Phase 8 fell into this branch.
+- **Promote h1/h2/h3 + section-title + drop-zone CTA to accent color.** User explicitly requested visible highlighting on titles after Phase-2 checkpoint #1, then again after checkpoint #2. Rationale: body color shifts subtle; accent color shifts dramatic across themes (purple -> orange -> green -> pink). h4 left alone (small/label-like usage).
+
+**Files modified:**
+- `static/markflow.css` — 1684 -> 1631 lines; net -53 lines after deletions and re-prefixing
+- `static/css/design-tokens.css` — 6 new tokens (5 from spec + accent-glow)
+- `static/css/design-themes.css` — 5 classic-dark overrides + Comic Sans `[data-font]` rule; removed 4 obsolete `[data-font]` rules
+- `static/js/components/display-prefs-drawer.js` — FONTS list cleaned up
+- `static/css/components.css` — scale-row CSS fix
+- `static/app.js` — preferences.js loaded in chain; delegated to `MFAvatarMenuWiring`
+- 13 `static/js/*-boot.js` — refactored to call `MFAvatarMenuWiring.mount()` instead of inline wiring
+- 12 `static/*.html` — added `<script src=".../avatar-menu-wiring.js">`
+
+**Files created:**
+- `static/js/components/avatar-menu-wiring.js` (138 lines) — single source of truth for avatar-menu mount + routing across both UX modes
+- `docs/superpowers/specs/2026-05-01-markflow-theme-refactor-design.md` — design spec for the refactor
+- `docs/superpowers/specs/2026-05-01-markflow-theme-refactor-change-index.md` — full rollback artifact: every literal touched, every snap, every kept literal, every renamed var, every deleted block; ~140 rows
+- `docs/superpowers/plans/2026-05-01-markflow-theme-refactor.md` — 14-task implementation plan with per-task model/effort routing
+
+**Loose ends tracked forward:**
+- `static/css/components.css` (new-UX) has the same `--mf-font-sans` and hardcoded `0.86rem`-style font-sizes that markflow.css had pre-refactor. Font picker and text-scale work on legacy pages now but only partially on new-UX pages. Separate refactor; smaller scope since components.css is more disciplined.
+- Palette tweaks deferred per user intent ("I'll have to sit down and tweak it a little more at a later date"). Token VALUES in `design-themes.css` are easy to revise without touching markflow.css.
+
+---
+
 ## v0.37.0 — Display Preferences & Theme System (2026-04-30)
 
 **Goal:** Ship a full per-user display customization layer on top of the v0.36.0 UX overhaul. Users get 28 color themes, 14 font choices, and 4 text-scale steps, all accessible from a drawer in the avatar menu. Operators get a new Settings -> Appearance page to control system defaults and the per-user override gate.
