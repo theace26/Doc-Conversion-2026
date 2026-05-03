@@ -90,9 +90,11 @@
         },
         onComplete: function () {
           MFPrefs.set('onboarding_done', '1');
+          if (MFPrefs.flush) MFPrefs.flush();  // server PUT now, not after 500ms debounce
         },
         onSkip: function () {
           MFPrefs.set('onboarding_done', '1');
+          if (MFPrefs.flush) MFPrefs.flush();  // server PUT now; otherwise refresh re-shows onboarding
         },
       });
     }
