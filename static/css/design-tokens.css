@@ -61,19 +61,27 @@
   --mf-radius-sm:              4px;      /* smaller radius for badges/inline pills */
 
   /* === Type === */
+  /* DEPRECATED in v0.38.0: --mf-font-sans is a hardcoded fallback that bypasses the font picker.
+     Picker-bound token is --mf-font-family (defined at line 11; overridden by [data-font="..."]).
+     Kept here as a safety net for any external/legacy consumer; no MarkFlow code should reference it. */
   --mf-font-sans:    -apple-system, "SF Pro Display", "Inter", system-ui, sans-serif;
   --mf-font-serif:   "Iowan Old Style", "Charter", "Cambria", Georgia, serif;
   --mf-font-mono:    ui-monospace, "SF Mono", Menlo, monospace;
 
-  --mf-text-display:    2.4rem;
-  --mf-text-display-sm: 2.0rem;
-  --mf-text-h1:         1.85rem;
+  /* Text-size grid (v0.38.0). Plain rem values; --mf-text-scale applies once via
+     html { font-size: calc(16px * --mf-text-scale) } in design-themes.css. Do NOT
+     re-introduce `* var(--mf-text-scale)` in these defs — that creates double-scaling. */
+  --mf-text-2xs:        0.7rem;
+  --mf-text-xs:         0.78rem;
+  --mf-text-sm:         0.82rem;
+  --mf-text-base:       0.86rem;
+  --mf-text-body:       0.92rem;
+  --mf-text-md:         1.0rem;
+  --mf-text-h3:         1.2rem;
   --mf-text-h2:         1.4rem;
-  --mf-text-h3:         1.05rem;
-  --mf-text-body:       calc(0.94rem * var(--mf-text-scale));
-  --mf-text-sm:         calc(0.86rem * var(--mf-text-scale));
-  --mf-text-xs:         calc(0.78rem * var(--mf-text-scale));
-  --mf-text-micro:      calc(0.7rem  * var(--mf-text-scale));
+  --mf-text-h1:         1.85rem;
+  --mf-text-display:    2.4rem;
+  --mf-text-display-lg: 3.0rem;
 
   --mf-tracking-tight:  -0.025em;
   --mf-tracking-wide:   0.07em;
