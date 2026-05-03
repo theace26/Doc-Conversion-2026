@@ -41,8 +41,10 @@ def _slugify(text: str) -> str:
     s = text.strip().lower()
     # Strip punctuation/symbols; preserve only alphanumerics, spaces, hyphens, underscores
     s = re.sub(r'[^a-z0-9 _-]+', '', s)
-    # Collapse whitespace runs to a single hyphen
-    s = re.sub(r'\s+', '-', s)
+    # Replace each space individually with a hyphen (do NOT collapse runs — markdown
+    # authors writing [Search + AI Assist](#search--ai-assist) expect the two spaces
+    # surrounding the stripped '+' to become two consecutive hyphens).
+    s = s.replace(' ', '-')
     # Trim leading/trailing hyphens (interior runs intentionally kept)
     return s.strip('-')
 
