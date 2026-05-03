@@ -111,11 +111,11 @@
   }
 
   function flush() {
-    if (!pending) return;
+    if (!pending) return Promise.resolve();
     var body = pending;
     pending = null;
-    saveTimer = null;
-    fetch(ENDPOINT, {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+    return fetch(ENDPOINT, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
@@ -248,6 +248,7 @@
 
   global.MFPrefs = {
     load: load, get: get, set: set, setMany: setMany, subscribe: subscribe,
+    flush: flush,
     applySystemTheme: applySystemTheme,
     LIGHT_DARK_PAIR: LIGHT_DARK_PAIR,
     FALLBACK_LIGHT: FALLBACK_LIGHT,

@@ -391,7 +391,12 @@
             ? (ORIG_TO_NEW[path] || '/index-new.html')
             : (NEW_TO_ORIG[path] || '/index.html');
           if (dest !== path) {
-            window.location.href = dest;
+            // FLUSH the pending PUT before navigating — otherwise the
+            // 500ms debounce hasn't fired yet, the new page's load()
+            // fetches stale server prefs, and use_new_ux reverts.
+            MFPrefs.flush().finally(function () {
+              window.location.href = dest;
+            });
           } else {
             buildBody();  // already on the target UX — just refresh drawer
           }
