@@ -126,13 +126,15 @@ small, .text-sm { font-size: var(--mf-text-base); }
   font-size: var(--mf-text-body);
   font-weight: 500;
   border: 1px solid var(--mf-border);
+  background: var(--mf-surface-soft);
+  color: var(--mf-color-text);
   cursor: pointer;
   transition: all var(--mf-transition-med);
   text-decoration: none;
   line-height: 1.4;
   white-space: nowrap;
 }
-.btn:hover { text-decoration: none; }
+.btn:hover { background: var(--mf-surface-alt); text-decoration: none; }
 .btn:disabled, .btn[disabled] {
   opacity: 0.5;
   cursor: not-allowed;
@@ -146,8 +148,11 @@ small, .text-sm { font-size: var(--mf-text-base); }
 }
 .btn-primary:hover { background: var(--mf-color-accent-hover); border-color: var(--mf-color-accent-hover); }
 
+/* .btn-ghost is now visually equivalent to plain .btn for consistency
+   (filled at rest, surface-alt on hover). Kept as a separate class for
+   semantic clarity and any future divergence. */
 .btn-ghost {
-  background: transparent;
+  background: var(--mf-surface-soft);
   color: var(--mf-color-text);
   border-color: var(--mf-border);
 }

@@ -25,44 +25,44 @@
       align-items: center;
       gap: 0.75rem;
       padding: 0.85rem 1rem;
-      background: var(--bg-secondary, #1a1a2e);
-      border-radius: var(--radius, 8px);
+      background: var(--mf-surface-soft);
+      border-radius: var(--mf-radius-thumb);
       margin-bottom: 1rem;
     }
     .lm-topbar .spacer { flex: 1; }
-    .lm-stats { display: flex; flex-wrap: wrap; gap: 0.65rem; font-size: 0.85rem; color: var(--text-muted, #aaa); }
-    .lm-stats strong { color: var(--text, #eee); margin-left: 0.25em; }
-    .lm-card { border: 1px solid var(--border, #2b2b3f); border-radius: var(--radius, 8px); background: var(--surface, #161624); padding: 1rem 1.1rem; margin-bottom: 1rem; }
+    .lm-stats { display: flex; flex-wrap: wrap; gap: 0.65rem; font-size: 0.85rem; color: var(--mf-color-text-muted); }
+    .lm-stats strong { color: var(--mf-color-text); margin-left: 0.25em; }
+    .lm-card { border: 1px solid var(--mf-border); border-radius: var(--mf-radius-thumb); background: var(--mf-surface); padding: 1rem 1.1rem; margin-bottom: 1rem; }
     .lm-card h2 { margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 600; }
-    .lm-card .hint { color: var(--text-muted, #aaa); font-size: 0.84rem; margin: 0 0 0.75rem; }
+    .lm-card .hint { color: var(--mf-color-text-muted); font-size: 0.84rem; margin: 0 0 0.75rem; }
     .lm-file-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-    .lm-file-table th, .lm-file-table td { padding: 0.5rem 0.7rem; text-align: left; border-bottom: 1px solid var(--border, #2b2b3f); vertical-align: middle; }
-    .lm-file-table th { font-size: 0.75rem; color: var(--text-muted, #aaa); text-transform: uppercase; letter-spacing: 0.03em; }
+    .lm-file-table th, .lm-file-table td { padding: 0.5rem 0.7rem; text-align: left; border-bottom: 1px solid var(--mf-border); vertical-align: middle; }
+    .lm-file-table th { font-size: 0.75rem; color: var(--mf-color-text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
     .lm-file-table td.name { font-family: ui-monospace, monospace; font-size: 0.84rem; }
-    .lm-file-table td.size, .lm-file-table td.modified { color: var(--text-muted, #aaa); white-space: nowrap; }
+    .lm-file-table td.size, .lm-file-table td.modified { color: var(--mf-color-text-muted); white-space: nowrap; }
     .lm-pill { display: inline-block; padding: 0.1em 0.6em; border-radius: 999px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
     .lm-pill.active { background: rgba(34,197,94,0.18); color: #86efac; }
     .lm-pill.rotated { background: rgba(217,119,6,0.18); color: #fbbf24; }
     .lm-pill.compressed { background: rgba(59,130,246,0.18); color: #93c5fd; }
     .lm-pill.other { background: rgba(156,163,175,0.18); color: #d1d5db; }
     .lm-settings-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem; max-width: 520px; }
-    .lm-settings-grid label { align-self: center; color: var(--text-muted, #aaa); font-size: 0.88rem; }
-    .lm-settings-grid input, .lm-settings-grid select { padding: 0.35rem 0.55rem; background: var(--bg-secondary, #1a1a2e); color: var(--text, #eee); border: 1px solid var(--border, #2b2b3f); border-radius: var(--radius-sm, 4px); font-family: inherit; font-size: 0.88rem; }
+    .lm-settings-grid label { align-self: center; color: var(--mf-color-text-muted); font-size: 0.88rem; }
+    .lm-settings-grid input, .lm-settings-grid select { padding: 0.35rem 0.55rem; background: var(--mf-surface-soft); color: var(--mf-color-text); border: 1px solid var(--mf-border); border-radius: var(--mf-radius-sm); font-family: inherit; font-size: 0.88rem; }
     .lm-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
     /* v0.31.1: 7z cap warning + system snapshot styling */
     .lm-cap-warn { font-size: 0.78rem; padding: 0.2rem 0; }
     .lm-cap-warn.warn { color: #fbbf24; }
     .lm-cap-warn.error { color: #f87171; }
-    .lm-cap-warn.ok { color: var(--text-muted, #aaa); }
+    .lm-cap-warn.ok { color: var(--mf-color-text-muted); }
     .lm-system-row {
       margin-top: 0.85rem; padding: 0.55rem 0.7rem;
       background: rgba(96,165,250,0.06);
       border: 1px solid rgba(96,165,250,0.18);
-      border-radius: var(--radius-sm, 4px);
-      font-size: 0.82rem; color: var(--text-muted, #ccd);
+      border-radius: var(--mf-radius-sm);
+      font-size: 0.82rem; color: var(--mf-color-text-muted);
       max-width: 760px; line-height: 1.45;
     }
-    .lm-system-row strong { color: var(--text, #eee); }
+    .lm-system-row strong { color: var(--mf-color-text); }
     .lm-system-row .lm-warn-bad { color: #fbbf24; }
   </style>
 </head>

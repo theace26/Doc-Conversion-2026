@@ -49,10 +49,10 @@
     }
 
     /* Default chip colors — match status page pipeline pills */
-    .filter-chip[data-status="scanned"]         { background: var(--bg-tertiary,#252540); color: var(--text-secondary,#aaa); }
-    .filter-chip[data-status="pending"]          { background: var(--bg-tertiary,#252540); color: var(--text-secondary,#aaa); }
+    .filter-chip[data-status="scanned"]         { background: var(--mf-surface-alt); color: var(--mf-color-text-soft); }
+    .filter-chip[data-status="pending"]          { background: var(--mf-surface-alt); color: var(--mf-color-text-soft); }
     .filter-chip[data-status="failed"]           { background: rgba(239,68,68,.15);  color: #f87171; }
-    .filter-chip[data-status="unrecognized"]     { background: var(--bg-tertiary,#252540); color: var(--text-secondary,#aaa); }
+    .filter-chip[data-status="unrecognized"]     { background: var(--mf-surface-alt); color: var(--mf-color-text-soft); }
     .filter-chip[data-status="pending_analysis"] { background: rgba(99,102,241,.15); color: #818cf8; }
     .filter-chip[data-status="batched"]          { background: rgba(245,158,11,.15); color: #fbbf24; }
     .filter-chip[data-status="analysis_failed"]  { background: rgba(239,68,68,.15);  color: #f87171; }
@@ -123,7 +123,7 @@
     .expand-cell:hover { color: var(--mf-color-text); }
 
     .path-cell {
-      font-family: var(--font-mono, monospace); font-size: 0.8rem;
+      font-family: var(--mf-font-mono); font-size: 0.8rem;
       color: var(--mf-color-text-muted); word-break: break-all; max-width: 480px;
     }
     .ext-cell { font-size: 0.8rem; color: var(--mf-color-text-muted); white-space: nowrap; }
@@ -172,7 +172,7 @@
     }
     .detail-grid dd {
       margin: 0; word-break: break-all;
-      font-family: var(--font-mono, monospace);
+      font-family: var(--mf-font-mono);
     }
     .detail-grid dd.err { color: var(--mf-color-error); }
     .detail-grid dd.warn { color: var(--mf-color-warn); }
@@ -256,7 +256,7 @@
     <!--   scan moves disappeared files through marked_for_deletion -> -->
     <!--   in_trash; without this filter, the page showed those rows -->
     <!--   too — typically inflating the list 50-100x. -->
-    <div style="margin: 0.5rem 0; display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--text-secondary, #aaa);">
+    <div style="margin: 0.5rem 0; display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--mf-color-text-soft);">
       <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
         <input type="checkbox" id="include-trashed" style="margin: 0;">
         <span>Include trashed / marked-for-deletion files</span>
