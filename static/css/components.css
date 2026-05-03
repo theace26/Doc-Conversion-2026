@@ -2378,11 +2378,13 @@
   justify-content: space-between;
 }
 .mf-disp-drawer__ux-label { color: var(--mf-color-text-soft); font-size: var(--mf-text-body); }
-/* Overlay backdrop */
+/* Overlay backdrop — transparent + pointer-events:none so the page stays
+   interactive for live theme preview while the drawer is open. */
 .mf-disp-drawer-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.3);
+  background: transparent;
+  pointer-events: none;
   z-index: 999;
 }
 /* === toast (self-contained; used by avatar-menu-wiring on both UX modes) === */

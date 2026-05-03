@@ -236,7 +236,8 @@
     }
 
     closeBtn.addEventListener('click', close);
-    backdrop.addEventListener('click', close);
+    // Note: backdrop has pointer-events:none (live-preview mode); no click handler.
+    // Drawer closes via the × button or Escape key (handler in openDrawer).
 
     var open = false;
 

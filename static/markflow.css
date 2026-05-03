@@ -125,7 +125,7 @@ small, .text-sm { font-size: var(--mf-text-base); }
   font-family: var(--mf-font-family);
   font-size: var(--mf-text-body);
   font-weight: 500;
-  border: 1px solid transparent;
+  border: 1px solid var(--mf-border);
   cursor: pointer;
   transition: all var(--mf-transition-med);
   text-decoration: none;
