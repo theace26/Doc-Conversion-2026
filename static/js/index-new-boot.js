@@ -47,6 +47,7 @@
       current: MFPrefs.get('layout') || 'minimal',
       onChoose: function (mode) {
         MFPrefs.set('layout', mode);
+        layoutPop.setCurrent(mode);  // sync popover UI; otherwise highlight reverts
         MFTelemetry.emit('ui.layout_mode_selected', { mode: mode, source: 'popover' });
       },
     });
