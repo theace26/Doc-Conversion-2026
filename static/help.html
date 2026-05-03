@@ -59,7 +59,15 @@
       document.getElementById('help-search').addEventListener('input', debounce(handleSearch, 300));
       window.addEventListener('hashchange', function() {
         var s = window.location.hash ? window.location.hash.slice(1) : '';
-        if (s && s !== currentSlug) loadArticle(s);
+        if (!s) return;
+        if (s === currentSlug) return;
+        if (isArticleSlug(s)) {
+          loadArticle(s);
+        } else {
+          // In-page anchor — scroll content to that heading
+          var target = document.getElementById(s);
+          if (target) target.scrollIntoView({behavior: 'smooth', block: 'start'});
+        }
       });
     }
 
@@ -94,6 +102,47 @@
       });
     }
 
+    function isArticleSlug(slug) {
+      if (!helpIndex) return false;
+      return (helpIndex.categories || []).some(function(cat) {
+        return (cat.articles || []).some(function(a) { return a.slug === slug; });
+      });
+    }
+
+    function renderInPageTOC(slug) {
+      // Remove any existing sub-TOC
+      document.querySelectorAll('.article-subtoc').forEach(function(el) { el.remove(); });
+
+      // Find the active article link
+      var activeLink = document.querySelector('.article-link[data-slug="' + slug + '"]');
+      if (!activeLink) return;
+
+      // Collect h2/h3 from the content area
+      var content = document.getElementById('help-content');
+      var headings = content.querySelectorAll('h2[id], h3[id]');
+      if (headings.length < 2) return;  // not worth building TOC for tiny articles
+
+      var subToc = document.createElement('div');
+      subToc.className = 'article-subtoc';
+
+      Array.prototype.forEach.call(headings, function(h) {
+        var item = document.createElement('a');
+        item.className = 'article-subtoc-item article-subtoc-' + h.tagName.toLowerCase();
+        item.href = '#' + h.id;
+        item.textContent = h.textContent;
+        item.addEventListener('click', function(e) {
+          e.preventDefault();
+          h.scrollIntoView({behavior: 'smooth', block: 'start'});
+          // Optionally update URL hash (lets users bookmark deep-link)
+          history.replaceState(null, '', '#' + h.id);
+        });
+        subToc.appendChild(item);
+      });
+
+      // Insert after the active link
+      activeLink.parentNode.insertBefore(subToc, activeLink.nextSibling);
+    }
+
     // ── Load article ─────────────────────────────────────────────────────
     async function loadArticle(slug) {
       var content = document.getElementById('help-content');
@@ -119,6 +168,7 @@
 
         window.location.hash = slug;
         content.scrollTop = 0;
+        renderInPageTOC(slug);
       } catch (e) {
         content.innerHTML = '<h1>Article Not Found</h1><p>The help article "' + slug + '" doesn\'t exist yet.</p>' +
           '<p><a href="#getting-started">Go to Getting Started</a></p>';

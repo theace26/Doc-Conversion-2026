@@ -1394,7 +1394,30 @@ html[data-theme="classic-dark"] .db-tool-error { background: #3b1010; color: #ef
 }
 .help-sidebar .article-link:hover { background: var(--mf-surface-alt); }
 .help-sidebar .article-link.active { background: var(--mf-color-accent); color: var(--mf-color-text-on-accent); font-weight: 500; }
-.help-content { padding: 2rem 3rem; max-width: 800px; overflow-y: auto; }
+/* In-page section TOC inside the sidebar (expanded under active article) */
+.article-subtoc {
+  display: flex; flex-direction: column;
+  margin: 0.25rem 0 0.5rem 1rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--mf-border);
+  gap: 0.15rem;
+}
+.article-subtoc-item {
+  font-size: var(--mf-text-sm);
+  color: var(--mf-color-text-muted);
+  padding: 0.2rem 0.5rem;
+  text-decoration: none;
+  border-radius: var(--mf-radius-sm);
+  transition: color 0.12s, background 0.12s;
+}
+.article-subtoc-item:hover { color: var(--mf-color-accent); background: var(--mf-surface-alt); text-decoration: none; }
+.article-subtoc-h3 { padding-left: 1.25rem; font-size: var(--mf-text-xs); }
+.help-content {
+  padding: clamp(1rem, 3vw, 3rem) clamp(1rem, 4vw, 4rem);
+  max-width: min(100%, 110rem);
+  overflow-y: auto;
+}
+.help-content > p, .help-content > ul, .help-content > ol { max-width: 75ch; }
 .help-content h1 { font-size: var(--mf-text-h1); font-weight: 700; margin-bottom: 0.5rem; }
 .help-content h2 { font-size: var(--mf-text-h2); font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--mf-border); }
 .help-content h3 { font-size: var(--mf-text-h3); font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.5rem; }

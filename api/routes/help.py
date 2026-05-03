@@ -9,6 +9,7 @@ All endpoints are public (no auth required).
 """
 
 import json
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -27,6 +28,24 @@ _article_cache: dict[str, dict] = {}
 _index_cache: Optional[dict] = None
 
 _markdown = mistune.create_markdown(plugins=["table", "strikethrough", "footnotes"])
+
+_HEADING_RE = re.compile(r'<(h[1-4])>([^<]+)</\1>')
+
+
+def _slugify(text: str) -> str:
+    """Lowercase, replace runs of non-alphanumeric chars with single hyphen, strip leading/trailing hyphens."""
+    s = re.sub(r'[^a-zA-Z0-9]+', '-', text.strip().lower())
+    return s.strip('-')
+
+
+def _add_heading_ids(html: str) -> str:
+    """Inject id="..." attributes into <h1>–<h4> tags so in-page anchors work."""
+    def replace(m):
+        tag = m.group(1)
+        text = m.group(2)
+        slug = _slugify(text)
+        return f'<{tag} id="{slug}">{text}</{tag}>'
+    return _HEADING_RE.sub(replace, html)
 
 
 def _load_index() -> dict:
@@ -61,7 +80,7 @@ def _render_article(slug: str) -> Optional[dict]:
     if lines and lines[0].startswith("# "):
         title = lines[0].lstrip("# ").strip()
 
-    html = _markdown(raw)
+    html = _add_heading_ids(_markdown(raw))
 
     result = {"slug": slug, "title": title, "html": html, "raw_length": len(raw)}
     _article_cache[slug] = result
