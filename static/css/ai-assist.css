@@ -7,35 +7,34 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  padding: 6px 14px;
   border: 1.5px solid var(--mf-border);
-  border-radius: 6px;
-  background: transparent;
+  border-radius: var(--mf-radius-pill);
+  background: var(--mf-surface-soft);
   color: var(--mf-color-text-muted);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
+  transition: border-color 0.18s, background 0.18s, color 0.18s;
   user-select: none;
   white-space: nowrap;
 }
 
 .ai-assist-toggle:hover {
-  border-color: var(--mf-color-accent);
+  border-color: var(--mf-color-accent-border);
+  background: var(--mf-color-accent-tint);
   color: var(--mf-color-accent);
 }
 
 .ai-assist-toggle.active {
   border-color: var(--mf-color-accent);
-  background: var(--mf-color-accent);
-  color: #fff;
+  background: var(--mf-color-accent-tint);
+  color: var(--mf-color-accent);
   font-weight: 600;
-  box-shadow: 0 0 0 1px var(--mf-color-accent), 0 2px 6px color-mix(in srgb, var(--mf-color-accent) 35%, transparent);
 }
 
 .ai-assist-toggle.active:hover {
-  color: #fff;
-  filter: brightness(1.08);
+  background: color-mix(in srgb, var(--mf-color-accent-tint) 80%, var(--mf-color-accent) 20%);
 }
 
 .ai-assist-toggle .toggle-icon {
@@ -48,7 +47,7 @@
   height: 8px;
   border-radius: 50%;
   background: var(--mf-color-text-muted);
-  transition: background 0.15s;
+  transition: background 0.18s;
 }
 
 .ai-assist-toggle.active .toggle-dot { display: none; }
@@ -61,8 +60,8 @@
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  background: rgba(255, 255, 255, 0.22);
-  border-radius: 3px;
+  background: color-mix(in srgb, var(--mf-color-accent) 14%, transparent);
+  border-radius: var(--mf-radius-pill);
 }
 .ai-assist-toggle.active .toggle-state { display: inline; }
 
@@ -114,8 +113,8 @@
 }
 @keyframes aiTogglePulse {
   0%   { transform: scale(1); }
-  40%  { transform: scale(1.08); box-shadow: 0 0 0 6px color-mix(in srgb, var(--mf-color-accent) 25%, transparent); }
-  100% { transform: scale(1); box-shadow: 0 0 0 0 transparent; }
+  40%  { transform: scale(1.07); }
+  100% { transform: scale(1); }
 }
 @media (prefers-reduced-motion: reduce) {
   .ai-assist-run-btn.is-running,

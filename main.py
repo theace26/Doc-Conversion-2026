@@ -543,11 +543,40 @@ async def _pipeline_alias(rest: str = ""):
 
 
 @app.get("/activity", include_in_schema=False)
-async def activity_page():
-    """Activity dashboard (admin/operator-only at the API layer; the
-    boot script redirects members to / on /api/me response).
-    """
-    return FileResponse("static/activity.html")
+async def activity_page(request: Request):
+    """Activity dashboard — per-user UX dispatch.
+    Members are redirected to / by the boot script on /api/me response."""
+    return serve_ux_page(request, "static/activity-new.html", "static/activity.html")
+
+
+@app.get("/search", include_in_schema=False)
+async def search_results_page(request: Request):
+    """Search results — per-user UX dispatch."""
+    return serve_ux_page(request, "static/search-new.html", "static/search.html")
+
+
+@app.get("/status", include_in_schema=False)
+async def status_page(request: Request):
+    """Active jobs / pipeline status — per-user UX dispatch."""
+    return serve_ux_page(request, "static/status-new.html", "static/status.html")
+
+
+@app.get("/history", include_in_schema=False)
+async def history_page(request: Request):
+    """Conversion history — per-user UX dispatch."""
+    return serve_ux_page(request, "static/history-new.html", "static/history.html")
+
+
+@app.get("/storage", include_in_schema=False)
+async def storage_page(request: Request):
+    """Storage management — per-user UX dispatch."""
+    return serve_ux_page(request, "static/storage-new.html", "static/storage.html")
+
+
+@app.get("/flagged", include_in_schema=False)
+async def flagged_page(request: Request):
+    """Flagged files — per-user UX dispatch."""
+    return serve_ux_page(request, "static/flagged-new.html", "static/flagged.html")
 
 
 # UX overhaul Plan 5: Settings overview + Storage detail
