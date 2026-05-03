@@ -1,5 +1,5 @@
 /* MarkFlow theme overrides — CSS custom property blocks keyed by data-theme.
-   Loaded via @import in components.css. Font + text-scale blocks also here.
+   Loaded via @import in components.css and markflow.css. Font + text-scale blocks also here.
    Spec: docs/superpowers/specs/2026-04-30-theme-ux-toggle-display-prefs-design.md §5
 */
 
@@ -630,3 +630,8 @@
 [data-text-scale="large"]  { --mf-text-scale: 1.18; }
 [data-text-scale="xl"]     { --mf-text-scale: 1.36; }
 /* default (1.0) is :root — no override block needed */
+
+/* ─── Root font-size (drives text-scale) ─────────────────────────────────── */
+/* Single source of truth for text-scale propagation. Every page that loads
+   this stylesheet (which is all of them, after Phase 0) inherits this rule. */
+html { font-size: calc(16px * var(--mf-text-scale, 1)); -webkit-font-smoothing: antialiased; }

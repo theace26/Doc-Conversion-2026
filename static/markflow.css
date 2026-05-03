@@ -12,8 +12,6 @@
 /* ── Reset & Base ───────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-html { font-size: calc(16px * var(--mf-text-scale, 1)); -webkit-font-smoothing: antialiased; }
-
 body {
   font-family: var(--mf-font-family);
   background: var(--mf-bg-page);
