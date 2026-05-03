@@ -38,9 +38,11 @@
     'ai':            '/settings-ai-providers.html',
     'auth':          '/settings-auth.html',
     'db':            '/settings-db-health.html',
-    'logs':          '/settings-log-mgmt.html',
+    'logs':          '/log-mgmt-new.html',
+    'log-viewer':    '/log-viewer-new.html',
+    'log-levels':    '/log-levels-new.html',
     'all-settings':  '/settings-new.html',
-    'help':          '/help.html'
+    'help':          '/help-new.html'
   };
 
   // Friendly labels for items that fall through to the toast.

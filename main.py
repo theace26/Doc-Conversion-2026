@@ -496,6 +496,10 @@ app.include_router(analysis_routes.router)
 from api.routes import log_management as log_management_routes
 app.include_router(log_management_routes.router)
 
+# new-UX operator tooling: per-subsystem log level configuration
+from api.routes import log_levels as log_levels_routes
+app.include_router(log_levels_routes.router)
+
 # v0.33.1: LLM token-cost estimation subsystem
 app.include_router(llm_costs_routes.router)
 
@@ -604,6 +608,35 @@ async def settings_appearance_page():
 async def settings_section_page(section: str):
     """Future plans implement each section. Redirect to overview for now."""
     return RedirectResponse("/settings", status_code=302)
+
+# new-UX operator pages: help, log viewer, log management, log levels
+@app.get("/help-new", include_in_schema=False)
+@app.get("/help-new.html", include_in_schema=False)
+async def help_new_page():
+    """New-UX help wiki (same content as /help.html, new-UX chrome)."""
+    return FileResponse("static/help-new.html")
+
+
+@app.get("/log-viewer-new", include_in_schema=False)
+@app.get("/log-viewer-new.html", include_in_schema=False)
+async def log_viewer_new_page():
+    """New-UX live log viewer."""
+    return FileResponse("static/log-viewer-new.html")
+
+
+@app.get("/log-mgmt-new", include_in_schema=False)
+@app.get("/log-mgmt-new.html", include_in_schema=False)
+async def log_mgmt_new_page():
+    """New-UX log management (file inventory, download, compress)."""
+    return FileResponse("static/log-mgmt-new.html")
+
+
+@app.get("/log-levels-new", include_in_schema=False)
+@app.get("/log-levels-new.html", include_in_schema=False)
+async def log_levels_new_page():
+    """New-UX per-subsystem log level configuration."""
+    return FileResponse("static/log-levels-new.html")
+
 
 log.info("markflow.all_routes_registered")
 
