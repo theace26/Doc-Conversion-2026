@@ -27,11 +27,11 @@ a:hover { text-decoration: underline; }
 
 /* ── Typography ─────────────────────────────────────────────────────────────── */
 h1 { font-size: 1.75rem; font-weight: 700; line-height: 1.2; margin-bottom: 0.25rem; color: var(--mf-color-accent); }
-h2 { font-size: 1.35rem; font-weight: 600; line-height: 1.3; margin-bottom: 0.25rem; color: var(--mf-color-accent); }
+h2 { font-size: var(--mf-text-h2); font-weight: 600; line-height: 1.3; margin-bottom: 0.25rem; color: var(--mf-color-accent); }
 h3 { font-size: 1.1rem;  font-weight: 600; line-height: 1.4; color: var(--mf-color-accent); }
-h4 { font-size: 1rem;    font-weight: 600; }
+h4 { font-size: var(--mf-text-md);    font-weight: 600; }
 p  { margin-bottom: 0.5rem; }
-small, .text-sm { font-size: 0.85rem; }
+small, .text-sm { font-size: var(--mf-text-base); }
 .text-muted { color: var(--mf-color-text-muted); }
 .text-mono { font-family: var(--mf-font-mono); font-size: 0.9em; }
 
@@ -69,7 +69,7 @@ small, .text-sm { font-size: 0.85rem; }
 }
 .nav-logo:hover { text-decoration: none; color: var(--mf-color-accent); }
 .version-badge {
-  font-size: 0.7rem;
+  font-size: var(--mf-text-2xs);
   font-weight: 400;
   color: var(--mf-color-text-muted);
   margin-left: 0.4rem;
@@ -84,7 +84,7 @@ small, .text-sm { font-size: 0.85rem; }
 .nav-link {
   padding: 0.4rem 0.85rem;
   border-radius: var(--mf-radius-sm);
-  font-size: 0.9rem;
+  font-size: var(--mf-text-body);
   font-weight: 500;
   color: var(--mf-color-text-muted);
   transition: color var(--mf-transition-med), background var(--mf-transition-med);
@@ -104,7 +104,7 @@ small, .text-sm { font-size: 0.85rem; }
 
 .card-header {
   font-weight: 600;
-  font-size: 1rem;
+  font-size: var(--mf-text-md);
   margin-bottom: 1rem;
   padding-bottom: 0.75rem;
   border-bottom: 1px solid var(--mf-border);
@@ -123,7 +123,7 @@ small, .text-sm { font-size: 0.85rem; }
   padding: 0.5rem 1.1rem;
   border-radius: var(--mf-radius-sm);
   font-family: var(--mf-font-family);
-  font-size: 0.9rem;
+  font-size: var(--mf-text-body);
   font-weight: 500;
   border: 1px solid transparent;
   cursor: pointer;
@@ -160,8 +160,8 @@ small, .text-sm { font-size: 0.85rem; }
 }
 .btn-danger:hover { opacity: 0.9; }
 
-.btn-sm { padding: 0.3rem 0.7rem; font-size: 0.8rem; }
-.btn-lg { padding: 0.65rem 1.5rem; font-size: 1rem; }
+.btn-sm { padding: 0.3rem 0.7rem; font-size: var(--mf-text-sm); }
+.btn-lg { padding: 0.65rem 1.5rem; font-size: var(--mf-text-md); }
 
 .btn-group { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
@@ -170,7 +170,7 @@ small, .text-sm { font-size: 0.85rem; }
   display: inline-block;
   padding: 0.15em 0.55em;
   border-radius: var(--mf-radius-sm);
-  font-size: 0.78rem;
+  font-size: var(--mf-text-xs);
   font-weight: 600;
   background: var(--mf-color-success-bg);
   color: var(--mf-color-success);
@@ -180,7 +180,7 @@ small, .text-sm { font-size: 0.85rem; }
   display: inline-block;
   padding: 0.15em 0.55em;
   border-radius: var(--mf-radius-sm);
-  font-size: 0.78rem;
+  font-size: var(--mf-text-xs);
   font-weight: 600;
   background: var(--mf-color-error-bg);
   color: var(--mf-color-error);
@@ -190,7 +190,7 @@ small, .text-sm { font-size: 0.85rem; }
   display: inline-block;
   padding: 0.15em 0.55em;
   border-radius: var(--mf-radius-sm);
-  font-size: 0.78rem;
+  font-size: var(--mf-text-xs);
   font-weight: 600;
   background: var(--mf-color-warn-bg);
   color: var(--mf-color-warn);
@@ -200,7 +200,7 @@ small, .text-sm { font-size: 0.85rem; }
   display: inline-block;
   padding: 0.15em 0.55em;
   border-radius: var(--mf-radius-sm);
-  font-size: 0.78rem;
+  font-size: var(--mf-text-xs);
   font-weight: 600;
   background: rgba(37,99,235,.1);
   color: var(--mf-color-info);
@@ -211,7 +211,7 @@ small, .text-sm { font-size: 0.85rem; }
   display: inline-block;
   padding: 0.15em 0.5em;
   border-radius: var(--mf-radius-sm);
-  font-size: 0.72rem;
+  font-size: var(--mf-text-2xs);
   font-weight: 600;
   font-family: var(--mf-font-mono);
   text-transform: uppercase;
@@ -241,7 +241,7 @@ html[data-theme="classic-dark"] .badge-md   { background: rgba(156,163,175,.2);c
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 0.9rem;
+  font-size: var(--mf-text-body);
   line-height: 1.4;
 }
 .storage-verify .sv-icon {
@@ -252,7 +252,7 @@ html[data-theme="classic-dark"] .badge-md   { background: rgba(156,163,175,.2);c
   height: 1.25rem;
   border-radius: 999px;
   font-weight: 700;
-  font-size: 0.85rem;
+  font-size: var(--mf-text-base);
   flex-shrink: 0;
 }
 .storage-verify .sv-ok  { background: var(--mf-color-success-bg); color: var(--mf-color-success); }
@@ -268,15 +268,15 @@ html[data-theme="classic-dark"] .badge-md   { background: rgba(156,163,175,.2);c
   to { transform: rotate(360deg); }
 }
 .storage-verify-inline { margin-top: 0.25rem; }
-.storage-verify-inline .sv-line { font-size: 0.82rem; }
-.storage-verify-inline .sv-sub { font-size: 0.78rem; padding-left: 1.5rem; }
+.storage-verify-inline .sv-line { font-size: var(--mf-text-sm); }
+.storage-verify-inline .sv-sub { font-size: var(--mf-text-xs); padding-left: 1.5rem; }
 .storage-reverify-btn {
   background: transparent;
   border: 1px solid var(--mf-border);
   color: var(--mf-color-text-muted);
   border-radius: var(--mf-radius-sm);
   padding: 0.15rem 0.55rem;
-  font-size: 0.75rem;
+  font-size: var(--mf-text-2xs);
   cursor: pointer;
   margin-left: 0.5rem;
   vertical-align: middle;
@@ -285,21 +285,21 @@ html[data-theme="classic-dark"] .badge-md   { background: rgba(156,163,175,.2);c
 .storage-reverify-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .storage-verify .sv-path {
   font-family: var(--mf-font-mono, monospace);
-  font-size: 0.85rem;
+  font-size: var(--mf-text-base);
   word-break: break-all;
   background: var(--mf-surface-alt, #f0f1f5);
   padding: 0.1rem 0.35rem;
   border-radius: 3px;
 }
 .storage-verify .sv-sub {
-  font-size: 0.82rem;
+  font-size: var(--mf-text-sm);
   margin-top: 0.15rem;
   padding-left: 1.65rem;
 }
 .storage-verify .sv-ok-sub  { color: var(--mf-color-success); }
 .storage-verify .sv-bad-sub { color: var(--mf-color-error); }
 .storage-verify .sv-warn {
-  font-size: 0.82rem;
+  font-size: var(--mf-text-sm);
   margin-top: 0.15rem;
   padding-left: 1.65rem;
   color: var(--mf-color-warn);
