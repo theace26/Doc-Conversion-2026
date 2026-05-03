@@ -639,6 +639,14 @@ async def health_check():
     return await run_health_check()
 
 
+@app.get("/convert", include_in_schema=False)
+async def convert_page():
+    """Serve the convert page. New UX when ENABLE_NEW_UX=true."""
+    if is_new_ux_enabled():
+        return FileResponse("static/convert-new.html")
+    return FileResponse("static/index.html")
+
+
 # ── Root ──────────────────────────────────────────────────────────────────────
 @app.get("/", include_in_schema=False)
 async def root_index():

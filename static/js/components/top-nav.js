@@ -22,17 +22,17 @@
   var ROLE_LINKS = {
     member:   [
       { id: 'search',   label: 'Search',   href: '/' },
-      { id: 'convert',  label: 'Convert',  href: '/index.html' }
+      { id: 'convert',  label: 'Convert',  href: '/convert' }
     ],
     operator: [
       { id: 'search',   label: 'Search',   href: '/' },
       { id: 'activity', label: 'Activity', href: '/activity' },
-      { id: 'convert',  label: 'Convert',  href: '/index.html' }
+      { id: 'convert',  label: 'Convert',  href: '/convert' }
     ],
     admin:    [
       { id: 'search',   label: 'Search',   href: '/' },
       { id: 'activity', label: 'Activity', href: '/activity' },
-      { id: 'convert',  label: 'Convert',  href: '/index.html' }
+      { id: 'convert',  label: 'Convert',  href: '/convert' }
     ]
   };
 
