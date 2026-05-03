@@ -6,6 +6,25 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.39.0 — Per-user New UI toggle + Search Results renders properly
+
+**The "New interface" toggle in Display Preferences now actually switches the look.** Before this release, the toggle only changed local CSS classes — the served page itself was decided by an environment variable that only operators could change. Now every user can switch independently, and the choice persists across sessions and devices.
+
+**Search Results page is no longer unstyled.** In the new interface, visiting `/search?q=...` previously showed an unstyled wall of HTML — search bar, results, and pagination all stripped of formatting. Fixed: the page now uses the full theme system, looks polished on every theme, and respects font and text-size choices.
+
+**"Match system" theme option.** New control in the theme picker: pick one light theme and one dark theme, and MarkFlow follows your OS dark-mode preference between them in real time. Useful if you live in OS dark mode at night and don't want to flip themes manually.
+
+**Help wiki improvements.** Category sidebar collapses by default and auto-opens for the page you're on. Anchor links survive being copied (GitHub-style slugs preserve consecutive dashes). Every section has a "back to top" link. Anchor jumps no longer land with the heading hidden under the sticky header — the page scrolls to leave breathing room above.
+
+**Convert, Help, Log Viewer, Log Management, and Log Levels pages are now available in the new interface.** Pages that don't yet have a new look (Status, History, Locations, Bulk, Pipeline Files, Viewer) automatically fall back to the original interface, and the toggle stays honest about it instead of silently breaking.
+
+**Heads-up for users**
+
+- If you flipped the new UI on or off during v0.38.0, your last choice will be re-applied on next page load.
+- The "match system" theme option requires both a light and a dark theme to be picked from the theme picker. Pick from any of the existing 28 themes.
+
+---
+
 ## v0.37.1 — Themes now apply to every page
 
 **Display Preferences finally works on the original-style pages.** In v0.37.0 the theme / font / text-size picker only changed the look of the new-style chrome and the picker itself -- pages like Index, Bulk, Storage, Admin, and Help kept their old colors regardless of what you selected. v0.37.1 fixes that. Every page now responds to your theme, font, and text-size choices.

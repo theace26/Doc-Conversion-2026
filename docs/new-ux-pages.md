@@ -1,6 +1,6 @@
 # MarkFlow Page Inventory — New-UX Status
 
-> **Last updated:** 2026-05-02 (v0.39.0)
+> **Last updated:** 2026-05-03 (v0.39.0)
 >
 > Single source of truth for every page in the app, its UX status, and what
 > is needed to build a new-UX equivalent.

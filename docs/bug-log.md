@@ -88,6 +88,17 @@ Planned during the Active Operations Registry (v0.35.0) implementation. Original
 
 ## Shipped (history)
 
+### v0.39.0 — Per-user UX dispatch + new-UX page CSS gap closed
+
+One bug closed in v0.39.0 (BUG-033) — the search-results page was
+structurally complete but visually unstyled because none of its BEM
+classes were defined in any stylesheet. Discovered during user
+browser verification of the v0.39.0 batch.
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-033 | shipped-v0.39.0 | high | New-UX Search Results page rendered with zero styling — `static/js/pages/search-results.js` referenced ~40 `mf-search-results__*` BEM classes; none were defined in any stylesheet | The component creates the full sticky search bar, autocomplete dropdown, facet chips, sort + per-page controls, batch bar, results list, row layout, snippet highlight, and pagination using BEM class names. `static/search-new.html` only loads `components.css` and `ai-assist.css`. `components.css` had zero `mf-search-results__*` definitions. Result: page renders structurally but every element is unstyled — no visible borders, no chip styling, no spacing, no font sizing beyond browser defaults. Catch: this is a silent failure (no console error), so nothing flagged it until a user said "the new UI search result page is not formatted proper." Fix: added a `=== search results page (new UX) ===` section to `components.css` (~340 lines) plus shared `.mf-page-wrapper` / `.mf-page-content` / `.mf-empty-state` utilities. All styles consume design tokens. Class-of-bug gotcha added (`docs/gotchas.md` Per-User UX Dispatch section): every new-UX page must have all its BEM classes defined; lint helper documented. |
+
 ### v0.38.0 — components.css theme-aware refactor
 
 Four bugs closed in v0.38.0 (BUG-029 through BUG-032). Three were

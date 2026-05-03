@@ -1361,6 +1361,24 @@ The single-writer queue (v0.23.0) is universal. NO subsystem implements its own 
 
 - **hashcat `-w 4` causes thermal shutdown on fanless Macs**: Default to `-w 2`.
 
+## Per-User UX Dispatch (v0.39.0+)
+
+- **Dispatch is server-side via `core/ux_dispatch.py`**: `is_new_ux_for_request(request)` reads the `mf_use_new_ux` cookie. `=1` → new-UX file; `=0` → original-UX file; absent → fall back to `is_new_ux_enabled()` (env). `serve_ux_page(request, new_path, orig_path)` is the canonical wrapper. Don't reimplement the cookie read in route handlers — always go through the helper.
+
+- **Cookie is set by `static/js/preferences.js:syncUxCookie()`**: never set the cookie elsewhere. The cookie has `path=/; Max-Age=31536000`. Three-tier truth chain: (1) cookie → (2) env var → (3) system DB pref → (4) False. Pref drawer toggles update the cookie *and* PUT to `/api/user-prefs`; both must complete before navigation. v0.39.0 fixed a race here — `syncUxCookie()` now flushes the PUT before redirecting; same fix applied to onboarding Skip/Complete.
+
+- **Original-only pages must include `ux-fallback.js`**: When a user with `mf_use_new_ux=1` lands on a page without a new-UX twin (catch-all-served), `static/js/ux-fallback.js` flips the cookie to `0` so the drawer toggle stays honest. Never serve a page that has no new-UX twin without this script — the toggle will lie.
+
+- **Page inventory is in `docs/new-ux-pages.md`**: This is the source of truth for what's `both` / `new-only` / `original-only` / `redirect`. Update it on every release that adds or migrates a page. Stale entries cause confusion when planning the next batch.
+
+- **Catch-all `@app.get("/{page_name}.html")` is the fallback**: any `/<page>.html` URL not matched by an explicit route gets served from `static/<page>.html` if present, else `index.html`. Adding `*-new.html` files to `static/` makes them directly browsable as `/<page>-new.html` — accept this or add a guard. Currently accepted; the canonical `/help`, `/log-viewer`, etc. dispatch via `serve_ux_page` and the `-new` aliases are kept for transition bookmarks.
+
+- **Each new-UX page must define ALL its BEM classes in `components.css`**: page components reference dozens of `mf-<page>__*` classes; if any are undefined, the page renders as unstyled HTML — silent failure, not a console error. v0.39.0 BUG-033 verified mode: `search-results.js` referenced ~40 classes; none were in any stylesheet; entire page rendered with no formatting until CSS was added. **Lint helper before claiming completion**: `grep -E '\.mf-<page>__[a-z-]+' static/js/pages/<page>.js | sort -u` then verify each is present in `static/css/components.css`. Or `grep -oE 'el\([^,]+,\s*..mf-[a-z][a-z0-9_-]+' static/js/pages/<page>.js`.
+
+- **Page components consume design tokens, never raw hex**: every `mf-<page>__*` class in `components.css` must use `var(--mf-*)` for color, border, shadow, font, and font-size. Hardcoded hex breaks theme switching and double-scales text. Cite: BUG-029, BUG-030 (v0.38.0). Verification: `grep -E 'var\(--[a-z]' your-section | grep -v -- '--mf-'` returns zero.
+
+- **Page templates live in `docs/templates/`**: copy-paste `new-ux-page.html` + `new-ux-page-boot.js` + `new-ux-page-component.js`, replace placeholders, add a `serve_ux_page()` route in `main.py`. ~30-minute build per page. See `docs/templates/README.md`.
+
 ## Help Wiki
 
 - **Help articles are cached in-memory**: Container restart needed to see edits.

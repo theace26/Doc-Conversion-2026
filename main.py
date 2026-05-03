@@ -586,55 +586,27 @@ async def settings_page(request: Request):
     return serve_ux_page(request, "static/settings-new.html", "static/settings.html")
 
 
-@app.get("/settings/storage", include_in_schema=False)
-async def settings_storage_page():
-    """Storage detail page — sidebar + mounts/output view."""
-    return FileResponse("static/settings-storage.html")
+# Settings sub-pages are dispatched from a single table. Adding a new
+# sub-page is a one-line change here. v0.39.0 consolidation.
+_SETTINGS_PAGES = {
+    "storage":            "static/settings-storage.html",
+    "pipeline":           "static/settings-pipeline.html",
+    "ai-providers":       "static/settings-ai-providers.html",
+    "ai-providers/cost":  "static/settings-cost-cap.html",
+    "auth":               "static/settings-auth.html",
+    "notifications":      "static/settings-notifications.html",
+    "db-health":          "static/settings-db-health.html",
+    "log-management":     "static/settings-log-mgmt.html",
+    "appearance":         "static/settings-appearance.html",
+}
 
 
-@app.get("/settings/pipeline", include_in_schema=False)
-async def settings_pipeline_page():
-    return FileResponse("static/settings-pipeline.html")
-
-
-@app.get("/settings/ai-providers", include_in_schema=False)
-async def settings_ai_providers_page():
-    return FileResponse("static/settings-ai-providers.html")
-
-
-@app.get("/settings/auth", include_in_schema=False)
-async def settings_auth_page():
-    return FileResponse("static/settings-auth.html")
-
-
-@app.get("/settings/notifications", include_in_schema=False)
-async def settings_notifications_page():
-    return FileResponse("static/settings-notifications.html")
-
-
-@app.get("/settings/db-health", include_in_schema=False)
-async def settings_db_health_page():
-    return FileResponse("static/settings-db-health.html")
-
-
-@app.get("/settings/log-management", include_in_schema=False)
-async def settings_log_management_page():
-    return FileResponse("static/settings-log-mgmt.html")
-
-
-@app.get("/settings/ai-providers/cost", include_in_schema=False)
-async def settings_cost_cap_page():
-    return FileResponse("static/settings-cost-cap.html")
-
-
-@app.get("/settings/appearance", include_in_schema=False)
-async def settings_appearance_page():
-    return FileResponse("static/settings-appearance.html")
-
-
-@app.get("/settings/{section}", include_in_schema=False)
+@app.get("/settings/{section:path}", include_in_schema=False)
 async def settings_section_page(section: str):
-    """Future plans implement each section. Redirect to overview for now."""
+    """Serve a settings sub-page. Unknown sections redirect to /settings."""
+    page = _SETTINGS_PAGES.get(section)
+    if page:
+        return FileResponse(page)
     return RedirectResponse("/settings", status_code=302)
 
 # Per-user-dispatched operator pages: help, log viewer, log management, log levels.

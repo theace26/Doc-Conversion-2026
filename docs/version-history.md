@@ -4,6 +4,95 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.39.0 — Per-user UX dispatch + 5 new-UX pages + theme polish (2026-05-03)
+
+**Goal:** Lift the new UI from "hidden behind env-only flag" to a real per-user toggle, ship 5 new-UX page surfaces (Convert, Help, Log Viewer, Log Management, Log Levels), close the Search Results CSS gap (BUG-033), add a "match system" auto-switch that follows OS dark-mode preference, and build the inventory doc + page template that make future new-UX page builds turn-key.
+
+**Why this matters:** v0.38.0 closed the theme-system gaps but left the new UX gated behind `ENABLE_NEW_UX` (operator flips for everyone, no per-user choice). The Display Preferences drawer's "New interface" toggle did not actually switch the served HTML — it only changed local CSS classes. Operators who wanted to support a mixed user base (early-adopters + legacy) had no path. Separately, the new-UX Search Results page was a silent failure: `static/js/pages/search-results.js` referenced ~40 `mf-search-results__*` BEM classes; not one was defined in any stylesheet, so the entire page rendered as unstyled HTML. v0.39.0 closes both gaps.
+
+**What changed:**
+
+1. **Per-user UX dispatch (`core/ux_dispatch.py`).** New module exposes `is_new_ux_for_request(request)` (cookie → env → system DB → False) and `serve_ux_page(request, new_path, orig_path)`. Sixteen routes in `main.py` migrated to the helper: `/`, `/convert`, `/settings`, `/help`, `/log-viewer`, `/log-mgmt`, `/log-levels`, `/activity`, `/search`, `/status`, `/history`, `/storage`, `/flagged`. Cookie set client-side via `static/js/preferences.js:syncUxCookie()` with `path=/; Max-Age=31536000`.
+
+2. **`ux-fallback.js` for original-only pages.** When a user with `mf_use_new_ux=1` lands on a page that has no new-UX twin, the script auto-flips the cookie to `0` so the drawer toggle never lies. Injected via per-page `<script src="/static/js/ux-fallback.js">` block on all 19+ legacy pages.
+
+3. **5 new-UX pages built** (commits `7277ed1`, `699f7ec`, `641e756`):
+   - `/convert` — `static/convert-new.html` + `static/js/pages/convert.js` (drop-zone + queue)
+   - `/help` — `help-new.html` + `help.js` (wiki with collapsible sidebar)
+   - `/log-viewer` — `log-viewer-new.html` + `log-viewer.js` (live tail)
+   - `/log-mgmt` — `log-mgmt-new.html` + `log-mgmt.js` (file management)
+   - `/log-levels` — `log-levels-new.html` + `log-levels.js` (per-subsystem levels)
+
+4. **Search Results page CSS gap closed (BUG-033).** Added a `=== search results page (new UX) ===` section to `components.css` (~340 lines) defining sticky search bar, autocomplete dropdown, facet chips, sort + per-page controls, batch bar, results list, row layout, snippet highlight, pagination. Plus shared `.mf-page-wrapper`, `.mf-page-content`, and `.mf-empty-state` utilities used by `search-results`, `status`, and `history` pages. Every style consumes design tokens — no hardcoded hex.
+
+5. **Match-system theme auto-switch (commit `bd2974f`).** New theme-picker control: pick one light theme + one dark theme, MarkFlow follows the OS `prefers-color-scheme` between them in real time. Implementation reuses the existing `[data-theme]` switching plumbing.
+
+6. **Help wiki polish** (commits `398ce55`, `5217ace`, `6568a4d`, `80c6587`, `686e4b5`):
+   - Collapsible category sidebar with `data-active` auto-open
+   - GitHub-style slug generation that preserves consecutive dashes (so `--foo--bar` round-trips)
+   - Back-to-top links on every `h2`
+   - `scroll-margin-top` on `h1`–`h4` so anchor jumps land with the heading visible (not sliding under the sticky header)
+   - h3 arrow indicators in the sidebar
+   - Auto-dark diagnostic instrumentation
+
+7. **UX toggle hardening** (commits `c810553`, `9af26f8`, `2d59660`):
+   - Always-redirect to target UX with a fallback landing page if the current path has no twin
+   - Flush server `PUT /api/user-prefs` BEFORE navigating, so the toggle doesn't race the redirect
+   - Onboarding flow flushes prefs after Skip / Complete — same race fix
+
+8. **New-UX page inventory + template** (`docs/new-ux-pages.md`, `docs/templates/`). Single source of truth for every page's UX status (`both`, `new-only`, `original-only`, `redirect`). Template + 5-step guide in `docs/templates/README.md` makes a new page a ~30-minute build.
+
+9. **Settings sub-page route consolidation.** 11 nearly-identical handlers in `main.py` (`/settings/storage`, `/settings/pipeline`, etc.) collapsed to a single table-driven `/settings/{section:path}` dispatcher backed by `_SETTINGS_PAGES` dict. Behavior preserved; surface area shrunk.
+
+10. **AI-Assist toggle visual polish (commit `67b7c25`).** Toggle and Synthesize button switch from outlined-at-rest to filled-when-active. Pure CSS change.
+
+11. **Misc new-UX wiring fixes** (commits `55adc78`, `1268db5`, `7d92a23`, `9ab6966`, `4c11dd3`, `b174df6`):
+    - Activity page Pipeline controls now wire to backend with visual feedback
+    - Home layout selection persists
+    - Search home indexed-count fetched from real `/api/search/index/status`
+    - Convert link fixed to `/index.html` (was 404 `/convert`)
+    - Top-nav uses `data-ux` for per-user routing; theme grid consolidated
+    - Display-prefs drawer swatch role badges (light/dark indicator on active swatches)
+
+**Design decisions:**
+
+- **Cookie-based dispatch over query string.** Considered `?ux=new` query param vs cookie. Cookie wins because (a) the toggle is a stable user preference, not a one-off override; (b) bookmarks should be UX-mode-stable; (c) cookie auto-applies on `/` without URL surgery. Trade-off accepted: cookies require explicit cleanup on sign-out (handled by avatar-menu-wiring).
+
+- **Ship per-user toggle BEFORE building all 8 priority pages.** Could have built more new-UX page twins and shipped per-user dispatch later. Routing layer first means each future page benefits from the toggle on day one. The 8 still-missing pages are tracked in `docs/superpowers/plans/2026-05-03-new-ux-priority-pages.md`.
+
+- **CSS-section-per-page convention.** Every new-UX page gets its own `=== <page> ===` section in `components.css`. Cited gotcha: missing-CSS bugs (BUG-033) are silent — the page renders fine structurally but unstyled. Lint helper documented in gotchas.
+
+- **Settings sub-page table-driven dispatch.** Considered keeping 11 individual `@app.get` handlers (one per sub-page) for explicitness vs. collapsing to a dict + one handler. Dict won because the handlers were 100% boilerplate and the dict is the actual source of truth for which sub-pages exist. New sub-pages add a row; old surface stays the same.
+
+**Files modified:**
+- `core/version.py` — `0.38.0` → `0.39.0`
+- `main.py` — 16 routes migrated to `serve_ux_page`; settings sub-page handlers consolidated
+- `static/css/components.css` — `+340` lines (search-results section + shared page-wrapper utilities)
+- `static/js/preferences.js` — `syncUxCookie()`, flush-before-navigate semantics
+- `static/js/components/avatar-menu-wiring.js` — UX-aware page set + ID→URL maps
+- `static/js/components/display-prefs-drawer.js` — match-system toggle, swatch role badges
+- `static/js/components/top-nav.js` — `data-ux` attribute for per-user routing
+- 5 new HTML files: `convert-new.html`, `help-new.html`, `log-viewer-new.html`, `log-mgmt-new.html`, `log-levels-new.html`
+- 5 new component files: `convert.js`, `help.js`, `log-viewer.js`, `log-mgmt.js`, `log-levels.js`
+- 4 new boot scripts (one per page; aliases share boot)
+- ~19 legacy HTML pages — added `<script src="/static/js/ux-fallback.js">`
+
+**Files created:**
+- `core/ux_dispatch.py` — per-user UX dispatcher (cookie reader + `serve_ux_page` helper)
+- `static/js/ux-fallback.js` — auto-flip cookie when landing on an original-only page
+- `docs/new-ux-pages.md` — page inventory (single source of truth for UX status)
+- `docs/templates/README.md` — 5-step guide for building a new-UX page
+- `docs/templates/new-ux-page.html` — copy-paste HTML scaffold
+- `docs/templates/new-ux-page-boot.js` — copy-paste boot script
+- `docs/templates/new-ux-page-component.js` — copy-paste page component
+- `docs/superpowers/plans/2026-05-03-new-ux-priority-pages.md` — plan for the remaining 8 priority pages with per-page model/effort routing
+
+**Loose ends tracked forward:**
+- 8 priority pages awaiting new-UX twins — see plan above for parallel-dispatch sequencing.
+- Palette tweaks (still deferred to user's Figma pass).
+
+---
+
 ## v0.38.0 — components.css theme-aware refactor (2026-05-03)
 
 **Goal:** Extend the v0.37.1 theme-system fixes to cover `static/css/components.css` (new-UX components), close two latent regressions introduced during v0.37.1 (an import chain gap and inline-style token rot), unify font-size literals across both stylesheets onto a consistent 11-token grid, and resolve two bonus defects discovered during browser verification (card shadow mismatch, inline JS token references).
