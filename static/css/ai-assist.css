@@ -2,39 +2,38 @@
    AI Assist Drawer
    ============================================= */
 
-/* Toggle button in search bar */
+/* Toggle button in search bar.
+ * Visual rule (per user): inactive = accent border + transparent fill;
+ * active = filled accent + accent border. Same pattern as .ai-assist-run-btn. */
 .ai-assist-toggle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 6px 14px;
-  border: 1.5px solid var(--mf-border);
+  border: 1.5px solid var(--mf-color-accent);
   border-radius: var(--mf-radius-pill);
-  background: var(--mf-surface-soft);
-  color: var(--mf-color-text-muted);
+  background: transparent;
+  color: var(--mf-color-accent);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: border-color 0.18s, background 0.18s, color 0.18s;
+  transition: background 0.18s, color 0.18s;
   user-select: none;
   white-space: nowrap;
 }
 
 .ai-assist-toggle:hover {
-  border-color: var(--mf-color-accent-border);
   background: var(--mf-color-accent-tint);
-  color: var(--mf-color-accent);
 }
 
 .ai-assist-toggle.active {
-  border-color: var(--mf-color-accent);
-  background: var(--mf-color-accent-tint);
-  color: var(--mf-color-accent);
+  background: var(--mf-color-accent);
+  color: var(--mf-color-text-on-accent);
   font-weight: 600;
 }
 
 .ai-assist-toggle.active:hover {
-  background: color-mix(in srgb, var(--mf-color-accent-tint) 80%, var(--mf-color-accent) 20%);
+  background: var(--mf-color-accent-hover);
 }
 
 .ai-assist-toggle .toggle-icon {
@@ -80,7 +79,9 @@
 }
 .ai-assist-hint .hint-icon { font-size: 13px; }
 
-/* "Synthesize these results" inline run button */
+/* "Synthesize these results" inline run button.
+ * Visual rule (per user): outlined at rest (accent border, transparent fill);
+ * fills with accent when hovered or selected. Mirrors .ai-assist-toggle. */
 .ai-assist-run-btn {
   display: inline-flex;
   align-items: center;
@@ -88,16 +89,20 @@
   padding: 5px 12px;
   font-size: 0.82rem;
   font-weight: 600;
-  color: #fff;
-  background: var(--mf-color-accent);
-  border: 1px solid var(--mf-color-accent);
+  color: var(--mf-color-accent);
+  background: transparent;
+  border: 1.5px solid var(--mf-color-accent);
   border-radius: var(--mf-radius-sm);
   cursor: pointer;
-  transition: filter 0.15s;
+  transition: background 0.15s, color 0.15s;
 }
-.ai-assist-run-btn:hover { filter: brightness(1.08); }
+.ai-assist-run-btn:hover {
+  background: var(--mf-color-accent);
+  color: var(--mf-color-text-on-accent);
+}
 .ai-assist-run-btn.is-running {
-  opacity: 0.75;
+  background: var(--mf-color-accent);
+  color: var(--mf-color-text-on-accent);
   cursor: progress;
   animation: aiRunPulse 1s ease-in-out infinite;
 }
