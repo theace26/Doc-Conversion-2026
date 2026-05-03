@@ -5,6 +5,22 @@ the relevant subsystem. Referenced from CLAUDE.md.
 
 ---
 
+## Theme System & Stylesheets (v0.37.0+)
+
+- **The theme system uses TWO font tokens, not one. Pick the right one.** `--mf-font-family` is theme-driven (overridden by `[data-font="X"]` selectors in `design-themes.css`). `--mf-font-sans` is hardcoded in `design-tokens.css :root` and is NOT theme-overridden. If your CSS uses `font-family: var(--mf-font-sans)`, the drawer's font picker has no effect on that surface — the selector silently no-ops. **Always use `var(--mf-font-family)` for body/heading text that should respond to user font selection.** Cited: BUG-027 (markflow.css originally bound `--font-sans` -> `--mf-font-sans`; rebound to `--mf-font-family` in v0.37.1).
+
+- **`html { font-size: 16px }` defeats the text-scale slider unless wrapped in `calc(... * var(--mf-text-scale))`.** Drawer's text-scale sets `--mf-text-scale: 0.84/1/1.18/1.36`, but only tokens that explicitly multiply by it (e.g., `--mf-text-body`) propagate the scale. Hardcoded font-sizes in px or rem don't. The cheap one-line fix: change root font-size to `calc(16px * var(--mf-text-scale, 1))` — every rem-based descendant size now scales for free. v0.37.1 markflow.css fix.
+
+- **Don't put `@media (prefers-color-scheme: dark)` in any stylesheet that shares a page with `[data-theme]`.** OS preference and theme-attribute selector cascade-fight. The OS-media block fires unconditionally on a dark-OS machine and overrides whatever the user picked in the drawer. **The theme system is the only correct dark-mode mechanism.** If a stylesheet needs theme-specific overrides, write them as `html[data-theme="classic-dark"] .selector { ... }` rules instead. Cited: BUG-027 (v0.37.1 deleted/converted 7 such media queries from markflow.css).
+
+- **Promote heading and section-title text to accent color, not body color.** Body text shifts subtle across themes (dark on light vs light on dark). Accent shifts dramatically (purple -> orange -> green -> pink). Users perceive theme changes far more readily when titles/headings/CTAs use `color: var(--mf-color-accent)`. v0.37.1 promoted `h1`, `h2`, `h3`, `.card-header`, `.section-title`, and the drop-zone CTA in markflow.css. Apply the same pattern to new title-like surfaces.
+
+- **When introducing a new stylesheet that should respect the theme system, verify it consumes `--mf-*` tokens — not its own custom-prop block.** v0.37.0 shipped `design-themes.css` and `design-tokens.css` but didn't audit `markflow.css`, which had its own parallel `--surface`/`--text`/`--accent` block. The new theme picker silently failed on every legacy page for a full release cycle (BUG-027). When introducing a stylesheet, run: `grep -cE 'var\(--[a-z]' your-file.css | grep -v 'var(--mf-'` — non-zero count means non-`mf-` vars exist and the file probably bypasses the theme system.
+
+- **`--mf-font-sans` and `--mf-font-family` are NOT aliases for each other in v0.37.x.** They have different purposes (font stack vs theme-driven single font) and different default values. If you want both to track the user's font picker, you'd need to rebind one to the other in `design-tokens.css :root` — but that's a behavior change for new-UX too and should be a deliberate decision, not an accidental one.
+
+---
+
 ## Active Operations Registry
 
 - **Every long-running op MUST call `register_op()` at start and `finish_op()` at end.** Otherwise restart hydration marks it as `terminated_by_restart` (cosmetic noise on the next page load).
@@ -1344,6 +1360,24 @@ The single-writer queue (v0.23.0) is universal. NO subsystem implements its own 
 - **`system_profiler` is slow (1-3s)**: Called once at startup, cached.
 
 - **hashcat `-w 4` causes thermal shutdown on fanless Macs**: Default to `-w 2`.
+
+## Per-User UX Dispatch (v0.39.0+)
+
+- **Dispatch is server-side via `core/ux_dispatch.py`**: `is_new_ux_for_request(request)` reads the `mf_use_new_ux` cookie. `=1` → new-UX file; `=0` → original-UX file; absent → fall back to `is_new_ux_enabled()` (env). `serve_ux_page(request, new_path, orig_path)` is the canonical wrapper. Don't reimplement the cookie read in route handlers — always go through the helper.
+
+- **Cookie is set by `static/js/preferences.js:syncUxCookie()`**: never set the cookie elsewhere. The cookie has `path=/; Max-Age=31536000`. Three-tier truth chain: (1) cookie → (2) env var → (3) system DB pref → (4) False. Pref drawer toggles update the cookie *and* PUT to `/api/user-prefs`; both must complete before navigation. v0.39.0 fixed a race here — `syncUxCookie()` now flushes the PUT before redirecting; same fix applied to onboarding Skip/Complete.
+
+- **Original-only pages must include `ux-fallback.js`**: When a user with `mf_use_new_ux=1` lands on a page without a new-UX twin (catch-all-served), `static/js/ux-fallback.js` flips the cookie to `0` so the drawer toggle stays honest. Never serve a page that has no new-UX twin without this script — the toggle will lie.
+
+- **Page inventory is in `docs/new-ux-pages.md`**: This is the source of truth for what's `both` / `new-only` / `original-only` / `redirect`. Update it on every release that adds or migrates a page. Stale entries cause confusion when planning the next batch.
+
+- **Catch-all `@app.get("/{page_name}.html")` is the fallback**: any `/<page>.html` URL not matched by an explicit route gets served from `static/<page>.html` if present, else `index.html`. Adding `*-new.html` files to `static/` makes them directly browsable as `/<page>-new.html` — accept this or add a guard. Currently accepted; the canonical `/help`, `/log-viewer`, etc. dispatch via `serve_ux_page` and the `-new` aliases are kept for transition bookmarks.
+
+- **Each new-UX page must define ALL its BEM classes in `components.css`**: page components reference dozens of `mf-<page>__*` classes; if any are undefined, the page renders as unstyled HTML — silent failure, not a console error. v0.39.0 BUG-033 verified mode: `search-results.js` referenced ~40 classes; none were in any stylesheet; entire page rendered with no formatting until CSS was added. **Lint helper before claiming completion**: `grep -E '\.mf-<page>__[a-z-]+' static/js/pages/<page>.js | sort -u` then verify each is present in `static/css/components.css`. Or `grep -oE 'el\([^,]+,\s*..mf-[a-z][a-z0-9_-]+' static/js/pages/<page>.js`.
+
+- **Page components consume design tokens, never raw hex**: every `mf-<page>__*` class in `components.css` must use `var(--mf-*)` for color, border, shadow, font, and font-size. Hardcoded hex breaks theme switching and double-scales text. Cite: BUG-029, BUG-030 (v0.38.0). Verification: `grep -E 'var\(--[a-z]' your-section | grep -v -- '--mf-'` returns zero.
+
+- **Page templates live in `docs/templates/`**: copy-paste `new-ux-page.html` + `new-ux-page-boot.js` + `new-ux-page-component.js`, replace placeholders, add a `serve_ux_page()` route in `main.py`. ~30-minute build per page. See `docs/templates/README.md`.
 
 ## Help Wiki
 

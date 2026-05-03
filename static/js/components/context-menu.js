@@ -17,13 +17,18 @@
 (function (global) {
   'use strict';
 
+  // Platform-aware modifier label so Windows/Linux users see Ctrl+ instead of ⌘.
+  var IS_MAC = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+  var MOD = IS_MAC ? '⌘' : 'Ctrl+';
+  var UP = IS_MAC ? '↑' : 'Up';
+
   var SECTIONS = [
     {
       label: 'View',
       items: [
         { id: 'preview',     label: 'Preview file',           kbd: 'Space' },
-        { id: 'open',        label: 'Open original',          kbd: '⌘O' },
-        { id: 'goto-folder', label: 'Go to containing folder', kbd: '⌘↑' },
+        { id: 'open',        label: 'Open original',          kbd: MOD + 'O' },
+        { id: 'goto-folder', label: 'Go to containing folder', kbd: MOD + UP },
       ],
     },
     {
@@ -44,7 +49,7 @@
 
   // Power-user-gated items (the Advanced section).
   var ADVANCED_ITEMS = [
-    { id: 'download-md',     label: 'Download as Markdown', kbd: '⌘D' },
+    { id: 'download-md',     label: 'Download as Markdown', kbd: MOD + 'D' },
     { id: 'copy-md',         label: 'Copy Markdown to clipboard' },
     { id: 'view-md-source',  label: 'View raw Markdown source' },
   ];

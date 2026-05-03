@@ -59,7 +59,15 @@
       document.getElementById('help-search').addEventListener('input', debounce(handleSearch, 300));
       window.addEventListener('hashchange', function() {
         var s = window.location.hash ? window.location.hash.slice(1) : '';
-        if (s && s !== currentSlug) loadArticle(s);
+        if (!s) return;
+        if (s === currentSlug) return;
+        if (isArticleSlug(s)) {
+          loadArticle(s);
+        } else {
+          // In-page anchor — scroll content to that heading
+          var target = document.getElementById(s);
+          if (target) target.scrollIntoView({behavior: 'smooth', block: 'start'});
+        }
       });
     }
 
@@ -68,7 +76,7 @@
       toc.innerHTML = '';
       (index.categories || []).forEach(function(cat) {
         var heading = document.createElement('div');
-        heading.className = 'category-heading open';
+        heading.className = 'category-heading';
         heading.textContent = cat.name;
         heading.addEventListener('click', function() {
           this.classList.toggle('open');
@@ -78,6 +86,7 @@
 
         var list = document.createElement('div');
         list.className = 'category-articles';
+        list.hidden = true;
         (cat.articles || []).forEach(function(art) {
           var a = document.createElement('a');
           a.className = 'article-link';
@@ -91,6 +100,283 @@
           list.appendChild(a);
         });
         toc.appendChild(list);
+      });
+    }
+
+    // Auto-open the sidebar category that contains the given article slug.
+    function openCategoryFor(slug) {
+      var headings = document.querySelectorAll('.category-heading');
+      Array.prototype.forEach.call(headings, function(h) {
+        var list = h.nextElementSibling;
+        if (!list || !list.classList.contains('category-articles')) return;
+        var hasActive = !!list.querySelector('.article-link[data-slug="' + slug + '"]');
+        if (hasActive) {
+          h.classList.add('open');
+          list.hidden = false;
+        }
+      });
+    }
+
+    function isArticleSlug(slug) {
+      if (!helpIndex) return false;
+      return (helpIndex.categories || []).some(function(cat) {
+        return (cat.articles || []).some(function(a) { return a.slug === slug; });
+      });
+    }
+
+    function renderInPageTOC(slug) {
+      // Remove any existing sub-TOC
+      document.querySelectorAll('.article-subtoc').forEach(function(el) { el.remove(); });
+
+      // Find the active article link
+      var activeLink = document.querySelector('.article-link[data-slug="' + slug + '"]');
+      if (!activeLink) return;
+
+      // Collect h2/h3 from the content area
+      var content = document.getElementById('help-content');
+      var headings = content.querySelectorAll('h2[id], h3[id]');
+      if (headings.length < 2) return;  // not worth building TOC for tiny articles
+
+      // Determine active hash for auto-opening the right group
+      var activeHash = window.location.hash ? window.location.hash.slice(1) : null;
+
+      var subToc = document.createElement('div');
+      subToc.className = 'article-subtoc';
+
+      // Walk headings and build grouped structure: h2s with collapsible h3 children
+      var currentH2Wrap = null;
+      var currentH2Id = null;
+      var currentChildren = null;
+      var currentHasChildren = false;
+      var pendingH3s = [];  // buffer h3s until we can attach them
+
+      function flushH2(h2Wrap, childrenDiv, hasChildren, h3Nodes) {
+        if (!h2Wrap) return;
+        if (hasChildren && h3Nodes.length > 0) {
+          // Build toggle button and children container
+          var toggleBtn = document.createElement('button');
+          toggleBtn.className = 'article-subtoc-toggle';
+          toggleBtn.setAttribute('type', 'button');
+          toggleBtn.setAttribute('aria-label', 'Toggle sub-sections');
+          toggleBtn.textContent = '▸';  // ▸
+
+          h2Wrap.appendChild(toggleBtn);
+          subToc.appendChild(h2Wrap);
+
+          var childDiv = document.createElement('div');
+          childDiv.className = 'article-subtoc-children';
+          childDiv.hidden = true;  // collapsed by default
+
+          h3Nodes.forEach(function(node) { childDiv.appendChild(node); });
+          subToc.appendChild(childDiv);
+
+          // Auto-open if the active hash is among the children
+          var shouldOpen = h3Nodes.some(function(node) {
+            return activeHash && node.getAttribute('href') === '#' + activeHash;
+          });
+          if (shouldOpen) {
+            childDiv.hidden = false;
+            toggleBtn.className = 'article-subtoc-toggle open';
+          }
+
+          toggleBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var isOpen = !childDiv.hidden;
+            childDiv.hidden = isOpen;
+            toggleBtn.className = 'article-subtoc-toggle' + (isOpen ? '' : ' open');
+          });
+        } else {
+          subToc.appendChild(h2Wrap);
+        }
+      }
+
+      Array.prototype.forEach.call(headings, function(h) {
+        if (h.tagName.toLowerCase() === 'h2') {
+          // Flush previous h2 group first
+          flushH2(currentH2Wrap, currentChildren, currentHasChildren, pendingH3s);
+
+          var wrap = document.createElement('div');
+          wrap.className = 'article-subtoc-h2-wrap';
+
+          var link = document.createElement('a');
+          link.className = 'article-subtoc-item article-subtoc-h2';
+          link.href = '#' + h.id;
+          link.textContent = h.textContent;
+          (function(heading) {
+            link.addEventListener('click', function(e) {
+              e.preventDefault();
+              heading.scrollIntoView({behavior: 'smooth', block: 'start'});
+              history.replaceState(null, '', '#' + heading.id);
+            });
+          }(h));
+          wrap.appendChild(link);
+
+          currentH2Wrap = wrap;
+          currentH2Id = h.id;
+          currentChildren = null;
+          currentHasChildren = false;
+          pendingH3s = [];
+        } else {
+          // h3 — buffer under current h2
+          var item = document.createElement('a');
+          item.className = 'article-subtoc-item article-subtoc-h3';
+          item.href = '#' + h.id;
+          item.textContent = h.textContent;
+          (function(heading) {
+            item.addEventListener('click', function(e) {
+              e.preventDefault();
+              heading.scrollIntoView({behavior: 'smooth', block: 'start'});
+              history.replaceState(null, '', '#' + heading.id);
+            });
+          }(h));
+          pendingH3s.push(item);
+          currentHasChildren = true;
+        }
+      });
+
+      // Flush the last h2 group
+      flushH2(currentH2Wrap, currentChildren, currentHasChildren, pendingH3s);
+
+      // Insert after the active link
+      activeLink.parentNode.insertBefore(subToc, activeLink.nextSibling);
+    }
+
+    // ── Related-topics auto-append ───────────────────────────────────────
+    // If the article doesn't already have a "Related" / "See also" section,
+    // append one auto-built from same-category sibling articles.
+    function renderRelatedTopics(slug) {
+      if (!helpIndex) return;
+      var content = document.getElementById('help-content');
+
+      // Skip if the article already has a Related section in markdown
+      var existing = Array.prototype.find.call(
+        content.querySelectorAll('h2, h3'),
+        function(h) {
+          var t = (h.textContent || '').trim().toLowerCase();
+          return t === 'related' || t === 'related articles' || t === 'related artifacts' || t === 'related topics' || t === 'see also';
+        }
+      );
+      if (existing) return;
+
+      // Find the article's category; collect siblings (other articles in same category)
+      var siblings = null;
+      (helpIndex.categories || []).some(function(cat) {
+        if ((cat.articles || []).some(function(a) { return a.slug === slug; })) {
+          siblings = (cat.articles || []).filter(function(a) { return a.slug !== slug; });
+          return true;
+        }
+        return false;
+      });
+      if (!siblings || siblings.length === 0) return;
+
+      // Build the section
+      var section = document.createElement('section');
+      section.className = 'related-topics';
+      var heading = document.createElement('h2');
+      heading.id = 'related-topics';
+      heading.textContent = 'Related topics';
+      section.appendChild(heading);
+
+      var list = document.createElement('ul');
+      list.className = 'related-topics-list';
+      siblings.forEach(function(a) {
+        var li = document.createElement('li');
+        var link = document.createElement('a');
+        link.href = '#' + a.slug;
+        link.textContent = a.title;
+        link.addEventListener('click', function(e) {
+          e.preventDefault();
+          loadArticle(a.slug);
+        });
+        li.appendChild(link);
+        if (a.description) {
+          var desc = document.createElement('span');
+          desc.className = 'related-topics-desc';
+          desc.textContent = ' — ' + a.description;
+          li.appendChild(desc);
+        }
+        list.appendChild(li);
+      });
+      section.appendChild(list);
+      content.appendChild(section);
+    }
+
+    // ── Copy buttons for code blocks ─────────────────────────────────────
+    // ── Back-to-top links ───────────────────────────────────────────────
+    // Appends a small "↑ top" link in the right margin of each h2 so users
+    // can jump back to the article top without scrolling — particularly
+    // helpful on long articles like developer-reference.
+    function addBackToTopLinks() {
+      var content = document.getElementById('help-content');
+      var headings = content.querySelectorAll('h2[id]');
+      Array.prototype.forEach.call(headings, function(h2) {
+        // Skip if h2 already has a back-to-top link (re-render guard)
+        if (h2.querySelector('.back-to-top')) return;
+        // Skip the auto-Related section's heading and the "Contents" h2 (already at top)
+        var hid = h2.getAttribute('id');
+        if (hid === 'related-topics' || hid === 'contents') return;
+
+        var link = document.createElement('a');
+        link.className = 'back-to-top';
+        link.href = '#';
+        link.title = 'Back to top';
+        link.textContent = '↑ top';
+        link.addEventListener('click', function(e) {
+          e.preventDefault();
+          content.scrollTo({top: 0, behavior: 'smooth'});
+          history.replaceState(null, '', '#' + currentSlug);
+        });
+        h2.appendChild(link);
+      });
+    }
+
+    function addCopyButtons() {
+      var content = document.getElementById('help-content');
+      var blocks = content.querySelectorAll('pre');
+      Array.prototype.forEach.call(blocks, function(pre) {
+        if (pre.parentNode.classList && pre.parentNode.classList.contains('code-block-wrap')) return;  // already wrapped
+
+        var wrap = document.createElement('div');
+        wrap.className = 'code-block-wrap';
+        pre.parentNode.insertBefore(wrap, pre);
+        wrap.appendChild(pre);
+
+        var btn = document.createElement('button');
+        btn.className = 'code-copy-btn';
+        btn.type = 'button';
+        btn.textContent = 'Copy';
+        btn.setAttribute('aria-label', 'Copy code to clipboard');
+        btn.addEventListener('click', function() {
+          var code = pre.textContent;
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(code).then(function() {
+              btn.textContent = 'Copied!';
+              btn.classList.add('copied');
+              setTimeout(function() { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+            }).catch(function() {
+              btn.textContent = 'Failed';
+              setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+            });
+          } else {
+            // Fallback for non-secure contexts
+            var ta = document.createElement('textarea');
+            ta.value = code;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            try {
+              document.execCommand('copy');
+              btn.textContent = 'Copied!';
+              btn.classList.add('copied');
+              setTimeout(function() { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+            } catch (e) {
+              btn.textContent = 'Failed';
+            }
+            document.body.removeChild(ta);
+          }
+        });
+        wrap.appendChild(btn);
       });
     }
 
@@ -116,9 +402,14 @@
         document.querySelectorAll('.article-link').forEach(function(a) {
           a.classList.toggle('active', a.dataset.slug === slug);
         });
+        openCategoryFor(slug);
 
         window.location.hash = slug;
         content.scrollTop = 0;
+        renderInPageTOC(slug);
+        renderRelatedTopics(slug);
+        addCopyButtons();
+        addBackToTopLinks();
       } catch (e) {
         content.innerHTML = '<h1>Article Not Found</h1><p>The help article "' + slug + '" doesn\'t exist yet.</p>' +
           '<p><a href="#getting-started">Go to Getting Started</a></p>';

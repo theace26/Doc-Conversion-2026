@@ -47,8 +47,6 @@
 
   var FONTS = [
     {id:'system',          label:'System UI'},
-    {id:'inter',           label:'Inter'},
-    {id:'ibm-plex-sans',   label:'IBM Plex Sans'},
     {id:'roboto',          label:'Roboto'},
     {id:'source-sans-3',   label:'Source Sans 3'},
     {id:'lato',            label:'Lato'},
@@ -57,9 +55,8 @@
     {id:'nunito',          label:'Nunito'},
     {id:'playfair-display',label:'Playfair Display'},
     {id:'raleway',         label:'Raleway'},
-    {id:'poppins',         label:'Poppins'},
-    {id:'dm-sans',         label:'DM Sans'},
     {id:'crimson-pro',     label:'Crimson Pro'},
+    {id:'comic-sans',      label:'Comic Sans MS'},
   ];
 
   var SCALES = [
@@ -74,16 +71,53 @@
     pas:'Pastel', sea:'Seasonal'
   };
 
+  // Page-equivalence between original-UX and new-UX URLs.
+  var ORIG_TO_NEW = {
+    '/index.html':                   '/index-new.html',
+    '/settings.html':                '/settings-new.html',
+    '/settings-storage.html':        '/settings-storage.html',
+    '/settings-pipeline.html':       '/settings-pipeline.html',
+    '/settings-ai-providers.html':   '/settings-ai-providers.html',
+    '/settings-notifications.html':  '/settings-notifications.html',
+    '/settings-auth.html':           '/settings-auth.html',
+    '/settings-db-health.html':      '/settings-db-health.html',
+    '/settings-log-mgmt.html':       '/settings-log-mgmt.html',
+    '/settings-cost-cap.html':       '/settings-cost-cap.html',
+    '/settings-appearance.html':     '/settings-appearance.html',
+    '/':                             '/index-new.html'
+  };
+  var NEW_TO_ORIG = {
+    '/index-new.html':               '/index.html',
+    '/settings-new.html':            '/settings.html',
+    '/':                             '/index.html'
+  };
+
+  // Luminance-based classification of all themes (no-mate themes included).
+  var LIGHT_THEMES = [
+    'classic-light', 'sage', 'slate', 'sandstone',
+    'spring-orig', 'summer-orig', 'fall-orig', 'winter-orig',
+    'hc-light', 'hc-light-new',
+    'pastel-lavender', 'pastel-mint', 'pastel-lavender-new', 'pastel-mint-new'
+  ];
+  var DARK_THEMES = [
+    'classic-dark', 'cobalt', 'graphite', 'crimson', 'nebula', 'aurora',
+    'cobalt-new', 'rose-quartz', 'midnight-slate', 'forest', 'obsidian', 'dusk',
+    'hc-dark', 'hc-dark-new',
+    'spring-new', 'summer-new', 'fall-new', 'winter-new'
+  ];
+
   var FONT_FAMILIES = {
-    'system':'system-ui,sans-serif','inter':'Inter,system-ui,sans-serif',
-    'ibm-plex-sans':'IBM Plex Sans,system-ui,sans-serif',
+    'system':'system-ui,sans-serif',
     'roboto':'Roboto,system-ui,sans-serif',
     'source-sans-3':'Source Sans 3,system-ui,sans-serif',
-    'lato':'Lato,system-ui,sans-serif','merriweather':'Merriweather,Georgia,serif',
-    'jetbrains-mono':'JetBrains Mono,monospace','nunito':'Nunito,system-ui,sans-serif',
+    'lato':'Lato,system-ui,sans-serif',
+    'merriweather':'Merriweather,Georgia,serif',
+    'jetbrains-mono':'JetBrains Mono,monospace',
+    'nunito':'Nunito,system-ui,sans-serif',
     'playfair-display':'Playfair Display,Georgia,serif',
-    'raleway':'Raleway,system-ui,sans-serif','poppins':'Poppins,system-ui,sans-serif',
-    'dm-sans':'DM Sans,system-ui,sans-serif','crimson-pro':'Crimson Pro,Georgia,serif'
+    'raleway':'Raleway,system-ui,sans-serif',
+    'crimson-pro':'Crimson Pro,Georgia,serif',
+    'comic-sans':'"Comic Sans MS","Chalkboard SE",cursive'
   };
 
   function el(tag, cls) {
@@ -92,7 +126,29 @@
     return n;
   }
 
-  function buildSwatches(currentTheme, currentUx) {
+  // Build a single swatch button element.
+  function makeSwatch(t, activeTheme, noAutoPair) {
+    var sw = el('button', 'mf-disp-drawer__swatch');
+    sw.setAttribute('type', 'button');
+    sw.setAttribute('title', t.label + (noAutoPair ? ' (no auto-pair)' : ''));
+    sw.setAttribute('data-theme-id', t.id);
+    if (t.id === activeTheme) sw.className += ' mf-disp-drawer__swatch--active';
+    var bg = el('div', 'mf-disp-drawer__swatch-bg');
+    bg.style.background = t.bg;
+    var acc = el('div', 'mf-disp-drawer__swatch-acc');
+    acc.style.background = t.acc;
+    sw.appendChild(bg);
+    sw.appendChild(acc);
+    if (noAutoPair) {
+      var badge = el('span', 'mf-disp-drawer__swatch-badge');
+      badge.textContent = 'no auto-pair';
+      sw.appendChild(badge);
+    }
+    return sw;
+  }
+
+  // Single combined swatch grid (auto_dark OFF — current behavior).
+  function buildSwatchesSingle(currentTheme) {
     var wrap = el('div');
     var lastGroup = null;
     var grid = null;
@@ -106,21 +162,114 @@
         glabel.textContent = GROUP_LABELS[t.g] || t.g;
         grid.appendChild(glabel);
       }
-      var sw = el('button', 'mf-disp-drawer__swatch');
-      sw.setAttribute('type', 'button');
-      sw.setAttribute('title', t.label);
-      sw.setAttribute('data-theme-id', t.id);
-      if (t.id === currentTheme) sw.className += ' mf-disp-drawer__swatch--active';
-      var bg = el('div', 'mf-disp-drawer__swatch-bg');
-      bg.style.background = t.bg;
-      var acc = el('div', 'mf-disp-drawer__swatch-acc');
-      acc.style.background = t.acc;
-      sw.appendChild(bg);
-      sw.appendChild(acc);
+      grid.appendChild(makeSwatch(t, currentTheme, false));
+    });
+    if (grid) wrap.appendChild(grid);
+    return wrap;
+  }
+
+  // Dual-row swatch view (auto_dark ON).
+  // Shows "Light theme" row, "Dark theme" row, and optionally
+  // an "Other (no light/dark variant)" row for themes outside both lists.
+  function buildSwatchesDual(lightActive, darkActive) {
+    var PAIR = MFPrefs.LIGHT_DARK_PAIR;
+    var lightSet = {};
+    var darkSet  = {};
+    LIGHT_THEMES.forEach(function(id) { lightSet[id] = true; });
+    DARK_THEMES.forEach(function(id)  { darkSet[id]  = true; });
+
+    var wrap = el('div');
+
+    function makeRow(rowLabel, themeIds, activeTheme) {
+      var rowWrap = el('div', 'mf-disp-drawer__autotheme-row');
+      var rlbl = el('div', 'mf-disp-drawer__group-label');
+      rlbl.textContent = rowLabel;
+      rowWrap.appendChild(rlbl);
+      var grid = el('div', 'mf-disp-drawer__swatches mf-disp-drawer__swatches--inline');
+      themeIds.forEach(function(id) {
+        var t = null;
+        for (var i = 0; i < THEMES.length; i++) {
+          if (THEMES[i].id === id) { t = THEMES[i]; break; }
+        }
+        if (!t) return;
+        var noAutoPair = !PAIR[id];
+        grid.appendChild(makeSwatch(t, activeTheme, noAutoPair));
+      });
+      rowWrap.appendChild(grid);
+      return rowWrap;
+    }
+
+    wrap.appendChild(makeRow('Light theme', LIGHT_THEMES, lightActive));
+    wrap.appendChild(makeRow('Dark theme',  DARK_THEMES,  darkActive));
+
+    // "Other" row: themes present in THEMES but not in either classification list.
+    var otherIds = [];
+    THEMES.forEach(function(t) {
+      if (!lightSet[t.id] && !darkSet[t.id]) otherIds.push(t.id);
+    });
+    if (otherIds.length > 0) {
+      wrap.appendChild(makeRow('Other (no light/dark variant)', otherIds, null));
+    }
+
+    return wrap;
+  }
+
+  // Entry point called by buildBody — delegates to single or dual layout.
+  // Always renders the same grouped grid (Original UX / New UX / HC / Pastel /
+  // Seasonal). When auto-dark is on, both currently-selected light AND dark
+  // themes are highlighted and a small badge indicates the role; click on a
+  // light-luminance theme updates light_theme, click on a dark-luminance theme
+  // updates dark_theme. This keeps the visible theme set consistent
+  // regardless of the auto-dark toggle state.
+  function buildSwatches(currentTheme, currentUx, autoDark, lightTheme, darkTheme) {
+    var wrap = el('div');
+    var lastGroup = null;
+    var grid = null;
+
+    THEMES.forEach(function(t) {
+      if (t.g !== lastGroup) {
+        lastGroup = t.g;
+        if (grid) wrap.appendChild(grid);
+        grid = el('div', 'mf-disp-drawer__swatches');
+        var glabel = el('div', 'mf-disp-drawer__group-label');
+        glabel.textContent = GROUP_LABELS[t.g] || t.g;
+        grid.appendChild(glabel);
+      }
+      var sw = makeSwatch(t, currentTheme, false);
+      if (autoDark) {
+        // Highlight both active light + dark themes; badge identifies which.
+        sw.classList.remove('mf-disp-drawer__swatch--active');
+        if (t.id === lightTheme) {
+          sw.classList.add('mf-disp-drawer__swatch--active');
+          var lbadge = el('span', 'mf-disp-drawer__swatch-role');
+          lbadge.textContent = 'light';
+          sw.appendChild(lbadge);
+        } else if (t.id === darkTheme) {
+          sw.classList.add('mf-disp-drawer__swatch--active');
+          var dbadge = el('span', 'mf-disp-drawer__swatch-role');
+          dbadge.textContent = 'dark';
+          sw.appendChild(dbadge);
+        }
+      }
       grid.appendChild(sw);
     });
     if (grid) wrap.appendChild(grid);
     return wrap;
+  }
+
+  // Toggle row for "Match system dark/light".
+  function buildAutoDarkRow(autoDark) {
+    var row = el('div', 'mf-disp-drawer__ux-row');
+    var lbl = el('span', 'mf-disp-drawer__ux-label');
+    lbl.textContent = 'Match system dark/light';
+    var toggle = el('button', 'mf-toggle mf-toggle--' + (autoDark ? 'on' : 'off'));
+    toggle.setAttribute('type', 'button');
+    toggle.setAttribute('data-autodark-toggle', '1');
+    var knob = el('span', 'mf-toggle__knob');
+    toggle.appendChild(knob);
+    row.appendChild(lbl);
+    row.appendChild(toggle);
+    return row;
   }
 
   function buildFonts(currentFont) {
@@ -196,16 +345,56 @@
       var currentUx    = document.documentElement.getAttribute('data-ux') || 'new';
       var currentFont  = (MFPrefs.get('font') || 'system');
       var currentScale = (MFPrefs.get('text_scale') || 'default');
+      var autoDark     = !!(MFPrefs.get('auto_dark'));
+      var lightTheme   = MFPrefs.get('light_theme') || MFPrefs.FALLBACK_LIGHT;
+      var darkTheme    = MFPrefs.get('dark_theme')  || MFPrefs.FALLBACK_DARK;
 
       var body = el('div', 'mf-disp-drawer__body');
 
+      // "Match system dark/light" toggle — above Theme section for prominence.
+      body.appendChild(section('Match system dark/light', buildAutoDarkRow(autoDark)));
       body.appendChild(section('Interface', buildUxRow(currentUx)));
-      body.appendChild(section('Theme', buildSwatches(currentTheme, currentUx)));
+      body.appendChild(section('Theme', buildSwatches(currentTheme, currentUx, autoDark, lightTheme, darkTheme)));
       body.appendChild(section('Font', buildFonts(currentFont)));
       body.appendChild(section('Text size', buildScales(currentScale)));
 
       body.addEventListener('click', function(ev) {
         var t = ev.target;
+
+        // Auto-dark toggle.
+        var ad = t.closest ? t.closest('[data-autodark-toggle]') : null;
+        if (ad) {
+          var enableAutoDark = !autoDark;
+          if (enableAutoDark) {
+            // Seed light_theme / dark_theme from current manual choice + its pair.
+            var PAIR = MFPrefs.LIGHT_DARK_PAIR;
+            var seedLight, seedDark;
+            if (LIGHT_THEMES.indexOf(currentTheme) !== -1) {
+              seedLight = currentTheme;
+              seedDark  = PAIR[currentTheme] || MFPrefs.FALLBACK_DARK;
+            } else {
+              seedDark  = currentTheme;
+              seedLight = PAIR[currentTheme] || MFPrefs.FALLBACK_LIGHT;
+            }
+            MFPrefs.setMany({
+              auto_dark:   true,
+              light_theme: seedLight,
+              dark_theme:  seedDark
+            });
+            MFPrefs.applySystemTheme();
+          } else {
+            MFPrefs.setMany({ auto_dark: false });
+            // Restore the manual theme pref to the current data-theme so the
+            // display is consistent after turning off auto-dark.
+            var currentDataTheme = document.documentElement.getAttribute('data-theme');
+            if (currentDataTheme) {
+              MFPrefs.set('theme', currentDataTheme);
+            }
+          }
+          buildBody();
+          return;
+        }
+
         var sw = t.closest ? t.closest('[data-theme-id]') : null;
         if (sw) {
           MFPrefs.set('theme', sw.getAttribute('data-theme-id'));
@@ -228,7 +417,24 @@
         if (ux) {
           var useNew = currentUx !== 'new';
           MFPrefs.setMany({use_new_ux: useNew});
-          buildBody();
+          var path = window.location.pathname;
+          // Many legacy pages have no new-UX twin (status, search, history,
+          // flagged, ...). Fall back to the landing page of the target UX so
+          // the toggle ALWAYS actually moves the user into the chosen UX,
+          // not silently no-op when the current page has no per-page twin.
+          var dest = useNew
+            ? (ORIG_TO_NEW[path] || '/index-new.html')
+            : (NEW_TO_ORIG[path] || '/index.html');
+          if (dest !== path) {
+            // FLUSH the pending PUT before navigating — otherwise the
+            // 500ms debounce hasn't fired yet, the new page's load()
+            // fetches stale server prefs, and use_new_ux reverts.
+            MFPrefs.flush().finally(function () {
+              window.location.href = dest;
+            });
+          } else {
+            buildBody();  // already on the target UX — just refresh drawer
+          }
           return;
         }
       });
@@ -237,7 +443,8 @@
     }
 
     closeBtn.addEventListener('click', close);
-    backdrop.addEventListener('click', close);
+    // Note: backdrop has pointer-events:none (live-preview mode); no click handler.
+    // Drawer closes via the × button or Escape key (handler in openDrawer).
 
     var open = false;
 

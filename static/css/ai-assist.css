@@ -2,40 +2,38 @@
    AI Assist Drawer
    ============================================= */
 
-/* Toggle button in search bar */
+/* Toggle button in search bar.
+ * Visual rule (per user): inactive = accent border + transparent fill;
+ * active = filled accent + accent border. Same pattern as .ai-assist-run-btn. */
 .ai-assist-toggle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
-  border: 1.5px solid var(--border);
-  border-radius: 6px;
+  padding: 6px 14px;
+  border: 1.5px solid var(--mf-color-accent);
+  border-radius: var(--mf-radius-pill);
   background: transparent;
-  color: var(--text-muted);
+  color: var(--mf-color-accent);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
+  transition: background 0.18s, color 0.18s;
   user-select: none;
   white-space: nowrap;
 }
 
 .ai-assist-toggle:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  background: var(--mf-color-accent-tint);
 }
 
 .ai-assist-toggle.active {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
+  background: var(--mf-color-accent);
+  color: var(--mf-color-text-on-accent);
   font-weight: 600;
-  box-shadow: 0 0 0 1px var(--accent), 0 2px 6px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .ai-assist-toggle.active:hover {
-  color: #fff;
-  filter: brightness(1.08);
+  background: var(--mf-color-accent-hover);
 }
 
 .ai-assist-toggle .toggle-icon {
@@ -47,8 +45,8 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--text-muted);
-  transition: background 0.15s;
+  background: var(--mf-color-text-muted);
+  transition: background 0.18s;
 }
 
 .ai-assist-toggle.active .toggle-dot { display: none; }
@@ -61,8 +59,8 @@
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  background: rgba(255, 255, 255, 0.22);
-  border-radius: 3px;
+  background: color-mix(in srgb, var(--mf-color-accent) 14%, transparent);
+  border-radius: var(--mf-radius-pill);
 }
 .ai-assist-toggle.active .toggle-state { display: inline; }
 
@@ -74,14 +72,16 @@
   margin: -0.5rem 0 1rem;
   padding: 6px 10px;
   font-size: 0.82rem;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  border: 1px dashed color-mix(in srgb, var(--accent) 40%, var(--border));
-  border-radius: var(--radius-sm, 4px);
+  color: var(--mf-color-accent);
+  background: color-mix(in srgb, var(--mf-color-accent) 8%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--mf-color-accent) 40%, var(--mf-border));
+  border-radius: var(--mf-radius-sm);
 }
 .ai-assist-hint .hint-icon { font-size: 13px; }
 
-/* "Synthesize these results" inline run button */
+/* "Synthesize these results" inline run button.
+ * Visual rule (per user): outlined at rest (accent border, transparent fill);
+ * fills with accent when hovered or selected. Mirrors .ai-assist-toggle. */
 .ai-assist-run-btn {
   display: inline-flex;
   align-items: center;
@@ -89,16 +89,20 @@
   padding: 5px 12px;
   font-size: 0.82rem;
   font-weight: 600;
-  color: #fff;
-  background: var(--accent);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-sm, 4px);
+  color: var(--mf-color-accent);
+  background: transparent;
+  border: 1.5px solid var(--mf-color-accent);
+  border-radius: var(--mf-radius-sm);
   cursor: pointer;
-  transition: filter 0.15s;
+  transition: background 0.15s, color 0.15s;
 }
-.ai-assist-run-btn:hover { filter: brightness(1.08); }
+.ai-assist-run-btn:hover {
+  background: var(--mf-color-accent);
+  color: var(--mf-color-text-on-accent);
+}
 .ai-assist-run-btn.is-running {
-  opacity: 0.75;
+  background: var(--mf-color-accent);
+  color: var(--mf-color-text-on-accent);
   cursor: progress;
   animation: aiRunPulse 1s ease-in-out infinite;
 }
@@ -114,8 +118,8 @@
 }
 @keyframes aiTogglePulse {
   0%   { transform: scale(1); }
-  40%  { transform: scale(1.08); box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 25%, transparent); }
-  100% { transform: scale(1); box-shadow: 0 0 0 0 transparent; }
+  40%  { transform: scale(1.07); }
+  100% { transform: scale(1); }
 }
 @media (prefers-reduced-motion: reduce) {
   .ai-assist-run-btn.is-running,
@@ -125,20 +129,20 @@
 /* Drawer "just opened" flash — draws the eye on wide monitors */
 .ai-assist-drawer.just-opened {
   box-shadow: -4px 0 24px rgba(0, 0, 0, 0.2),
-              -1px 0 0 2px var(--accent);
+              -1px 0 0 2px var(--mf-color-accent);
 }
 
 /* "Needs configuration" state — feature exists but key/admin toggle missing */
 .ai-assist-toggle.needs-config {
-  border-color: color-mix(in srgb, var(--warning, #d97706) 50%, var(--border));
-  color: var(--warning, #d97706);
-  background: color-mix(in srgb, var(--warning, #d97706) 8%, transparent);
+  border-color: color-mix(in srgb, var(--mf-color-warn) 50%, var(--mf-border));
+  color: var(--mf-color-warn);
+  background: color-mix(in srgb, var(--mf-color-warn) 8%, transparent);
 }
 .ai-assist-toggle.needs-config .toggle-dot {
-  background: var(--warning, #d97706);
+  background: var(--mf-color-warn);
 }
 .ai-assist-toggle.needs-config:hover {
-  border-color: var(--warning, #d97706);
+  border-color: var(--mf-color-warn);
 }
 
 /* Drawer overlay */
@@ -149,8 +153,8 @@
   width: 400px;
   max-width: 92vw;
   height: 100vh;
-  background: var(--surface);
-  border-left: 1px solid var(--border);
+  background: var(--mf-surface);
+  border-left: 1px solid var(--mf-border);
   box-shadow: -4px 0 24px rgba(0, 0, 0, 0.08);
   z-index: 900;
   display: flex;
@@ -170,7 +174,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--mf-border);
   flex-shrink: 0;
   gap: 10px;
 }
@@ -190,7 +194,7 @@
 .ai-drawer-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--mf-color-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -199,8 +203,8 @@
 .ai-drawer-query-badge {
   font-size: 11px;
   font-weight: 500;
-  color: var(--text-muted);
-  background: var(--surface-alt);
+  color: var(--mf-color-text-muted);
+  background: var(--mf-surface-alt);
   padding: 2px 7px;
   border-radius: 99px;
   white-space: nowrap;
@@ -213,7 +217,7 @@
   background: none;
   border: none;
   cursor: pointer;
-  color: var(--text-muted);
+  color: var(--mf-color-text-muted);
   font-size: 18px;
   line-height: 1;
   padding: 4px;
@@ -223,8 +227,8 @@
 }
 
 .ai-drawer-close:hover {
-  color: var(--text);
-  background: var(--surface-alt);
+  color: var(--mf-color-text);
+  background: var(--mf-surface-alt);
 }
 
 /* Drawer body — scrollable */
@@ -242,7 +246,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  color: var(--text-muted);
+  color: var(--mf-color-text-muted);
   font-size: 13px;
   padding: 8px 0;
 }
@@ -256,7 +260,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--mf-color-accent);
   animation: ai-dot-bounce 1.2s ease-in-out infinite;
 }
 
@@ -272,7 +276,7 @@
 .ai-response-text {
   font-size: 14px;
   line-height: 1.65;
-  color: var(--text);
+  color: var(--mf-color-text);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -280,16 +284,16 @@
 /* Error state */
 .ai-drawer-error {
   font-size: 13px;
-  color: var(--error);
-  background: color-mix(in srgb, var(--error) 8%, var(--surface));
-  border: 1px solid color-mix(in srgb, var(--error) 25%, transparent);
+  color: var(--mf-color-error);
+  background: color-mix(in srgb, var(--mf-color-error) 8%, var(--mf-surface));
+  border: 1px solid color-mix(in srgb, var(--mf-color-error) 25%, transparent);
   border-radius: 6px;
   padding: 10px 12px;
 }
 
 /* Sources section */
 .ai-sources-section {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--mf-border);
   padding-top: 12px;
 }
 
@@ -298,7 +302,7 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--text-muted);
+  color: var(--mf-color-text-muted);
   margin-bottom: 8px;
 }
 
@@ -308,7 +312,7 @@
   justify-content: space-between;
   gap: 8px;
   padding: 7px 0;
-  border-bottom: 1px solid var(--surface-alt);
+  border-bottom: 1px solid var(--mf-surface-alt);
 }
 
 .ai-source-item:last-child {
@@ -325,8 +329,8 @@
 .ai-source-index {
   font-size: 11px;
   font-weight: 700;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--mf-color-accent);
+  background: color-mix(in srgb, var(--mf-color-accent) 12%, transparent);
   width: 20px;
   height: 20px;
   border-radius: 50%;
@@ -338,7 +342,7 @@
 
 .ai-source-title {
   font-size: 12px;
-  color: var(--text);
+  color: var(--mf-color-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -347,7 +351,7 @@
 
 .ai-source-type {
   font-size: 10px;
-  color: var(--text-muted);
+  color: var(--mf-color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   flex-shrink: 0;
@@ -356,9 +360,9 @@
 .ai-expand-btn {
   font-size: 11px;
   font-weight: 500;
-  color: var(--accent);
+  color: var(--mf-color-accent);
   background: none;
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border: 1px solid color-mix(in srgb, var(--mf-color-accent) 35%, transparent);
   border-radius: 4px;
   padding: 3px 8px;
   cursor: pointer;
@@ -368,7 +372,7 @@
 }
 
 .ai-expand-btn:hover {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  background: color-mix(in srgb, var(--mf-color-accent) 10%, transparent);
 }
 
 .ai-expand-btn:disabled {
@@ -380,7 +384,7 @@
 .ai-expand-heading {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--mf-color-text-muted);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -391,7 +395,7 @@
   background: none;
   border: none;
   font-size: 11px;
-  color: var(--accent);
+  color: var(--mf-color-accent);
   cursor: pointer;
   padding: 0;
   text-decoration: underline;
@@ -402,7 +406,7 @@
   display: inline-block;
   width: 2px;
   height: 14px;
-  background: var(--accent);
+  background: var(--mf-color-accent);
   margin-left: 2px;
   vertical-align: text-bottom;
   animation: ai-blink 1s step-end infinite;
@@ -422,7 +426,7 @@
     bottom: 0;
     right: 0;
     border-left: none;
-    border-top: 1px solid var(--border);
+    border-top: 1px solid var(--mf-border);
     border-radius: 14px 14px 0 0;
     transform: translateY(100%);
     box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.1);

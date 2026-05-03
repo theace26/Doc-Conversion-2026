@@ -21,19 +21,19 @@
   <style>
     .detail-row { display: none; }
     .detail-row.open { display: table-row; }
-    .detail-row td { background: var(--surface-alt); padding: 1rem 1.25rem; }
+    .detail-row td { background: var(--mf-surface-alt); padding: 1rem 1.25rem; }
     .detail-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.5rem 1.5rem; }
-    .detail-grid dt { font-weight: 600; color: var(--text-muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; }
+    .detail-grid dt { font-weight: 600; color: var(--mf-color-text-muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; }
     .detail-grid dd { margin: 0 0 0.6rem 0; font-size: 0.9rem; }
     .clickable-row { cursor: pointer; }
-    .clickable-row:hover td { background: var(--surface-alt); }
-    .ocr-badge { display: inline-flex; align-items: center; gap: 0.25em; font-size: 0.75rem; font-weight: 600; padding: 0.15em 0.45em; border-radius: var(--radius-sm); white-space: nowrap; }
-    .ocr-badge.ok { background: rgba(22,163,74,0.12); color: var(--ok); }
-    .ocr-badge.warn { background: rgba(217,119,6,0.12); color: var(--warn); }
-    .ocr-badge.error { background: rgba(220,38,38,0.12); color: var(--error); }
-    .conf-bar-track { position: relative; height: 0.5rem; background: var(--surface-alt); border-radius: 0.25rem; overflow: visible; margin: 0.25rem 0; min-width: 120px; }
+    .clickable-row:hover td { background: var(--mf-surface-alt); }
+    .ocr-badge { display: inline-flex; align-items: center; gap: 0.25em; font-size: 0.75rem; font-weight: 600; padding: 0.15em 0.45em; border-radius: var(--mf-radius-sm); white-space: nowrap; }
+    .ocr-badge.ok { background: rgba(22,163,74,0.12); color: var(--mf-color-success); }
+    .ocr-badge.warn { background: rgba(217,119,6,0.12); color: var(--mf-color-warn); }
+    .ocr-badge.error { background: rgba(220,38,38,0.12); color: var(--mf-color-error); }
+    .conf-bar-track { position: relative; height: 0.5rem; background: var(--mf-surface-alt); border-radius: 0.25rem; overflow: visible; margin: 0.25rem 0; min-width: 120px; }
     .conf-bar-fill { height: 100%; border-radius: 0.25rem; transition: width 0.3s; }
-    .conf-bar-track::after { content: ""; position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--text-muted); opacity: 0.6; }
+    .conf-bar-track::after { content: ""; position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--mf-color-text-muted); opacity: 0.6; }
   </style>
 </head>
 <body>
@@ -55,7 +55,7 @@
       <div style="display:flex;justify-content:space-between;align-items:center">
         <h3 style="margin:0">
           Pending Files
-          <span id="pending-count-badge" style="font-size:0.8rem;padding:0.15em 0.5em;border-radius:var(--radius-sm);background:rgba(79,91,213,0.12);color:var(--accent);margin-left:0.5rem">0</span>
+          <span id="pending-count-badge" style="font-size:0.8rem;padding:0.15em 0.5em;border-radius:var(--mf-radius-sm);background:rgba(79,91,213,0.12);color:var(--mf-color-accent);margin-left:0.5rem">0</span>
         </h3>
         <div style="display:flex;gap:0.5rem;align-items:center">
           <button id="force-transcribe-btn" type="button"
@@ -63,11 +63,11 @@
                   title="Trigger an immediate scan + convert cycle that will pick up every pending file, including audio/video transcription via Whisper. Equivalent to Pipeline → Run Now.">
             Force Transcribe / Convert Pending
           </button>
-          <select id="pending-status-filter" style="font-size:0.82rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text)">
+          <select id="pending-status-filter" style="font-size:0.82rem;padding:0.3rem 0.5rem;border:1px solid var(--mf-border);border-radius:var(--mf-radius-sm);background:var(--mf-surface);color:var(--mf-color-text)">
             <option value="pending">Pending</option>
             <option value="failed">Failed</option>
           </select>
-          <input type="search" id="pending-search" placeholder="Search..." style="font-size:0.82rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);width:180px">
+          <input type="search" id="pending-search" placeholder="Search..." style="font-size:0.82rem;padding:0.3rem 0.5rem;border:1px solid var(--mf-border);border-radius:var(--mf-radius-sm);background:var(--mf-surface);color:var(--mf-color-text);width:180px">
         </div>
       </div>
       <!-- v0.31.6: bulk-action bar for hand-picked selections. Hidden
@@ -78,10 +78,10 @@
            style="display:none;margin-top:0.75rem;padding:0.55rem 0.85rem;
                   background:rgba(79,91,213,0.10);
                   border:1px solid rgba(79,91,213,0.35);
-                  border-radius:var(--radius-sm);
+                  border-radius:var(--mf-radius-sm);
                   align-items:center;gap:0.7rem;font-size:0.85rem">
         <strong id="pending-bulk-count">0 selected</strong>
-        <span id="pending-bulk-context" style="color:var(--text-muted)"></span>
+        <span id="pending-bulk-context" style="color:var(--mf-color-text-muted)"></span>
         <span style="flex:1"></span>
         <button id="pending-bulk-convert" type="button"
                 class="btn btn-primary btn-sm">Convert Selected</button>
@@ -306,7 +306,7 @@
       const isMedia = r.media_engine != null;
       const mediaIcon = isMedia ? ((['mp4','mov','avi','mkv','wmv','m4v','webm'].includes(r.source_format)) ? '&#127916; ' : '&#127925; ') : '';
       const engineLabels = {whisper_local:'Whisper',whisper_cloud_openai:'Cloud: OpenAI',whisper_cloud_gemini:'Cloud: Gemini',caption_ingest:'Caption'};
-      const mediaBadge = isMedia ? `<span class="text-sm" style="padding:2px 6px;border-radius:3px;background:var(--surface-alt);margin-left:4px">${engineLabels[r.media_engine] || r.media_engine}</span>` : '';
+      const mediaBadge = isMedia ? `<span class="text-sm" style="padding:2px 6px;border-radius:3px;background:var(--mf-surface-alt);margin-left:4px">${engineLabels[r.media_engine] || r.media_engine}</span>` : '';
       const mediaDuration = isMedia && r.media_duration_seconds ? (() => { const s=r.media_duration_seconds; return `${Math.floor(s/3600)}:${String(Math.floor((s%3600)/60)).padStart(2,'0')}:${String(Math.floor(s%60)).padStart(2,'0')}`; })() : '';
       return `<tr class="${rowClass}" data-id="${r.id}">
         <td class="text-mono text-sm">${mediaIcon}${r.source_filename}</td>
@@ -645,10 +645,10 @@
       var badge = document.getElementById('pending-count-badge');
       if (statusFilter === 'failed') {
         badge.style.background = 'rgba(220,38,38,0.12)';
-        badge.style.color = 'var(--error)';
+        badge.style.color = 'var(--mf-color-error)';
       } else {
         badge.style.background = 'rgba(79,91,213,0.12)';
-        badge.style.color = 'var(--accent)';
+        badge.style.color = 'var(--mf-color-accent)';
       }
 
       var tbody = document.getElementById('pending-tbody');
@@ -661,7 +661,7 @@
         td.colSpan = 6;
         td.style.textAlign = 'center';
         td.style.padding = '1.5rem';
-        td.style.color = 'var(--text-muted)';
+        td.style.color = 'var(--mf-color-text-muted)';
         td.textContent = statusFilter === 'failed' ? 'No failed files.' : 'No pending files.';
         tr.appendChild(td);
         tbody.appendChild(tr);
@@ -709,7 +709,7 @@
         // Type
         var tdType = document.createElement('td');
         tdType.textContent = f.file_ext || '-';
-        tdType.style.color = 'var(--text-muted)';
+        tdType.style.color = 'var(--mf-color-text-muted)';
         tr.appendChild(tdType);
 
         // Size
@@ -728,13 +728,13 @@
         var statusSpan = document.createElement('span');
         var fileStatus = f.status || 'pending';
         if (fileStatus === 'failed' || fileStatus === 'adobe_failed') {
-          statusSpan.style.color = 'var(--error)';
+          statusSpan.style.color = 'var(--mf-color-error)';
           statusSpan.textContent = f.error_msg || fileStatus;
         } else if (fileStatus === 'for_review') {
-          statusSpan.style.color = 'var(--warn)';
+          statusSpan.style.color = 'var(--mf-color-warn)';
           statusSpan.textContent = 'Needs review';
         } else {
-          statusSpan.style.color = 'var(--ok)';
+          statusSpan.style.color = 'var(--mf-color-success)';
           statusSpan.textContent = fileStatus;
         }
         statusSpan.style.fontSize = '0.8rem';
@@ -897,5 +897,7 @@
   // Auto-refresh pending count every 30s
   setInterval(loadPending, 30000);
   </script>
+  <script src="/static/js/components/ux-fallback.js"></script>
+  <script>MFNewUxFallback.flag();</script>
 </body>
 </html>

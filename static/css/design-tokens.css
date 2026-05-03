@@ -23,7 +23,13 @@
   /* === Color — neutrals === */
   --mf-color-text:             #0a0a0a;
   --mf-color-text-soft:        #3a3a3a;
-  --mf-color-text-muted:       #5a5a5a;
+  /* --mf-color-text-muted is the secondary text tier (sidebar items, captions,
+     descriptions). Derived via color-mix so dark themes that only override
+     --mf-color-text + --mf-bg-page automatically get a properly-contrasted muted
+     value (was: many dark themes hardcoded muted values like #406060 that blended
+     into their dark page-bg). Themes that need a hand-tuned muted can still
+     override this in their theme block. */
+  --mf-color-text-muted:       color-mix(in srgb, var(--mf-color-text) 65%, var(--mf-bg-page) 35%);
   --mf-color-text-faint:       #888888;
   --mf-color-text-fainter:     #aaaaaa;
 
@@ -52,20 +58,40 @@
   --mf-fmt-mp4:   linear-gradient(135deg, #22b8cf 0%, #0b7285 100%);
   --mf-fmt-md:    linear-gradient(135deg, #0a0a0a 0%, #495057 100%);
 
+  /* === Color — legacy-ux additions (markflow.css refactor 2026-05-01) === */
+  /* --mf-surface-alt is derived via color-mix so it auto-adapts to every theme:
+     light themes get a slightly darker surface (8% text-mixed); dark themes get a
+     slightly lighter surface (8% text-mixed, where text is light). Single rule
+     replaces what would otherwise need a per-theme override in 16+ theme blocks. */
+  --mf-surface-alt:            color-mix(in srgb, var(--mf-surface) 92%, var(--mf-color-text) 8%);
+  --mf-color-text-on-accent:   #ffffff;  /* text rendered on accent-bg buttons/badges */
+  --mf-color-accent-hover:     #3d49b8;  /* darker accent for hover states */
+  --mf-color-accent-glow:      rgba(91,61,245,0.4);  /* toggle on-state shadow glow */
+  --mf-color-info:             #2563eb;  /* informational status (toasts, running pills) */
+  --mf-radius-sm:              4px;      /* smaller radius for badges/inline pills */
+
   /* === Type === */
+  /* DEPRECATED in v0.38.0: --mf-font-sans is a hardcoded fallback that bypasses the font picker.
+     Picker-bound token is --mf-font-family (defined at line 11; overridden by [data-font="..."]).
+     Kept here as a safety net for any external/legacy consumer; no MarkFlow code should reference it. */
   --mf-font-sans:    -apple-system, "SF Pro Display", "Inter", system-ui, sans-serif;
   --mf-font-serif:   "Iowan Old Style", "Charter", "Cambria", Georgia, serif;
   --mf-font-mono:    ui-monospace, "SF Mono", Menlo, monospace;
 
-  --mf-text-display:    2.4rem;
-  --mf-text-display-sm: 2.0rem;
-  --mf-text-h1:         1.85rem;
+  /* Text-size grid (v0.38.0). Plain rem values; --mf-text-scale applies once via
+     html { font-size: calc(16px * --mf-text-scale) } in design-themes.css. Do NOT
+     re-introduce `* var(--mf-text-scale)` in these defs — that creates double-scaling. */
+  --mf-text-2xs:        0.7rem;
+  --mf-text-xs:         0.78rem;
+  --mf-text-sm:         0.82rem;
+  --mf-text-base:       0.86rem;
+  --mf-text-body:       0.92rem;
+  --mf-text-md:         1.0rem;
+  --mf-text-h3:         1.2rem;
   --mf-text-h2:         1.4rem;
-  --mf-text-h3:         1.05rem;
-  --mf-text-body:       calc(0.94rem * var(--mf-text-scale));
-  --mf-text-sm:         calc(0.86rem * var(--mf-text-scale));
-  --mf-text-xs:         calc(0.78rem * var(--mf-text-scale));
-  --mf-text-micro:      calc(0.7rem  * var(--mf-text-scale));
+  --mf-text-h1:         1.85rem;
+  --mf-text-display:    2.4rem;
+  --mf-text-display-lg: 3.0rem;
 
   --mf-tracking-tight:  -0.025em;
   --mf-tracking-wide:   0.07em;

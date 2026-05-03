@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>
+  (function(){
+    var D={theme:'nebula',font:'system',textScale:'default',useNewUx:true};
+    var p=Object.assign({},D,JSON.parse(localStorage.getItem('mf:preferences:v1')||'{}'));
+    var h=document.documentElement;
+    h.setAttribute('data-theme',p.theme);
+    h.setAttribute('data-font',p.font);
+    h.setAttribute('data-text-scale',p.textScale);
+    h.setAttribute('data-ux',p.useNewUx?'new':'orig');
+  })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Roboto:wght@400;500;700&family=Source+Sans+3:wght@400;600&family=Lato:wght@400;700&family=Merriweather:wght@400;700&family=JetBrains+Mono:wght@400;500&family=Nunito:wght@400;500;700&family=Playfair+Display:wght@400;700&family=Raleway:wght@400;500;700&family=Poppins:wght@400;500;600&family=DM+Sans:wght@400;500&family=Crimson+Pro:wght@400;600&display=swap">
+  <title>Help - MarkFlow</title>
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/markflow.css">
+  <style>
+    body { margin: 0; background: var(--mf-bg-page); font-family: -apple-system, "SF Pro Display", Inter, system-ui, sans-serif; min-height: 100vh; }
+    .help-layout { padding-top: 0; }
+  </style>
+</head>
+<body data-env="dev">
+  <div id="mf-top-nav"></div>
+  <div class="help-layout">
+    <aside class="help-sidebar" id="help-sidebar">
+      <input type="text" class="search-input" id="help-search" placeholder="Search help..." autocomplete="off" />
+      <div id="search-results" hidden></div>
+      <nav id="help-toc"></nav>
+    </aside>
+    <main class="help-content" id="help-content">
+      <p class="text-muted" style="padding:3rem 0;text-align:center">Loading...</p>
+    </main>
+  </div>
+  <script src="/static/js/preferences.js"></script>
+  <script src="/static/js/telemetry.js"></script>
+  <script src="/static/js/keybinds.js"></script>
+  <script src="/static/js/components/top-nav.js"></script>
+  <script src="/static/js/components/version-chip.js"></script>
+  <script src="/static/js/components/avatar.js"></script>
+  <script src="/static/js/components/avatar-menu.js"></script>
+  <script src="/static/js/components/avatar-menu-wiring.js"></script>
+  <script src="/static/js/components/layout-icon.js"></script>
+  <script src="/static/js/components/layout-popover.js"></script>
+  <script src="/static/js/components/display-prefs-drawer.js"></script>
+  <script src="/static/js/help-new-boot.js"></script>
+  <script src="/static/app.js"></script>
+  <script src="/static/js/pages/help.js"></script>
+</body>
+</html>

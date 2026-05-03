@@ -22,10 +22,10 @@
     /* ── Back link ───────────────────────────────────────────────────────── */
     .back-link {
       display: inline-flex; align-items: center; gap: 0.3rem;
-      font-size: 0.85rem; color: var(--text-muted); text-decoration: none;
+      font-size: 0.85rem; color: var(--mf-color-text-muted); text-decoration: none;
       margin-bottom: 1rem;
     }
-    .back-link:hover { color: var(--accent); text-decoration: none; }
+    .back-link:hover { color: var(--mf-color-accent); text-decoration: none; }
 
     /* ── Page title ──────────────────────────────────────────────────────── */
     .page-title { font-size: 1.5rem; font-weight: 700; margin: 0 0 1rem; }
@@ -38,21 +38,21 @@
     .filter-chip {
       display: inline-flex; align-items: center; gap: 0.35rem;
       padding: 0.3em 0.75em; border-radius: 999px;
-      border: 1.5px solid var(--border); background: none;
-      color: var(--text-muted); font-size: 0.82rem; font-weight: 500;
+      border: 1.5px solid var(--mf-border); background: none;
+      color: var(--mf-color-text-muted); font-size: 0.82rem; font-weight: 500;
       cursor: pointer; transition: all 0.15s; white-space: nowrap;
       user-select: none;
     }
-    .filter-chip:hover { border-color: #aaa; color: var(--text); }
+    .filter-chip:hover { border-color: #aaa; color: var(--mf-color-text); }
     .filter-chip .chip-count {
       font-size: 0.72rem; opacity: 0.8;
     }
 
     /* Default chip colors — match status page pipeline pills */
-    .filter-chip[data-status="scanned"]         { background: var(--bg-tertiary,#252540); color: var(--text-secondary,#aaa); }
-    .filter-chip[data-status="pending"]          { background: var(--bg-tertiary,#252540); color: var(--text-secondary,#aaa); }
+    .filter-chip[data-status="scanned"]         { background: var(--mf-surface-alt); color: var(--mf-color-text-soft); }
+    .filter-chip[data-status="pending"]          { background: var(--mf-surface-alt); color: var(--mf-color-text-soft); }
     .filter-chip[data-status="failed"]           { background: rgba(239,68,68,.15);  color: #f87171; }
-    .filter-chip[data-status="unrecognized"]     { background: var(--bg-tertiary,#252540); color: var(--text-secondary,#aaa); }
+    .filter-chip[data-status="unrecognized"]     { background: var(--mf-surface-alt); color: var(--mf-color-text-soft); }
     .filter-chip[data-status="pending_analysis"] { background: rgba(99,102,241,.15); color: #818cf8; }
     .filter-chip[data-status="batched"]          { background: rgba(245,158,11,.15); color: #fbbf24; }
     .filter-chip[data-status="analysis_failed"]  { background: rgba(239,68,68,.15);  color: #f87171; }
@@ -68,16 +68,16 @@
     }
     .search-bar input {
       flex: 1; padding: 0.45rem 0.75rem;
-      border: 1px solid var(--border); border-radius: var(--radius-sm);
-      background: var(--surface); color: var(--text); font-size: 0.9rem;
+      border: 1px solid var(--mf-border); border-radius: var(--mf-radius-sm);
+      background: var(--mf-surface); color: var(--mf-color-text); font-size: 0.9rem;
     }
-    .search-bar input:focus { outline: none; border-color: var(--accent); }
-    .result-count { font-size: 0.82rem; color: var(--text-muted); white-space: nowrap; }
+    .search-bar input:focus { outline: none; border-color: var(--mf-color-accent); }
+    .result-count { font-size: 0.82rem; color: var(--mf-color-text-muted); white-space: nowrap; }
 
     /* ── LLM provider status banner ──────────────────────────────────────── */
     .llm-banner {
       display: none; align-items: center; gap: 0.75rem;
-      padding: 0.7rem 1rem; border-radius: var(--radius-sm);
+      padding: 0.7rem 1rem; border-radius: var(--mf-radius-sm);
       background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.35);
       color: #f87171; font-size: 0.85rem; margin-bottom: 0.75rem;
     }
@@ -93,9 +93,9 @@
     /* ── Large-result warning ─────────────────────────────────────────────── */
     .large-warning {
       display: flex; align-items: center; gap: 0.5rem;
-      padding: 0.6rem 1rem; border-radius: var(--radius-sm);
+      padding: 0.6rem 1rem; border-radius: var(--mf-radius-sm);
       background: rgba(245,158,11,.12); border: 1px solid rgba(245,158,11,.3);
-      color: var(--warn); font-size: 0.85rem; margin-bottom: 0.75rem;
+      color: var(--mf-color-warn); font-size: 0.85rem; margin-bottom: 0.75rem;
     }
 
     /* ── File table ──────────────────────────────────────────────────────── */
@@ -104,30 +104,30 @@
     }
     .file-table th {
       text-align: left; padding: 0.5rem 0.75rem;
-      border-bottom: 2px solid var(--border);
-      color: var(--text-muted); font-weight: 600;
+      border-bottom: 2px solid var(--mf-border);
+      color: var(--mf-color-text-muted); font-weight: 600;
       font-size: 0.78rem; text-transform: uppercase; white-space: nowrap;
     }
     .file-table td {
-      padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border);
+      padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--mf-border);
       vertical-align: middle;
     }
-    .file-table tbody tr.data-row:hover { background: var(--surface-alt); }
+    .file-table tbody tr.data-row:hover { background: var(--mf-surface-alt); }
     .file-table tbody tr.data-row { cursor: default; }
 
     /* expand arrow cell */
     .expand-cell {
       width: 28px; text-align: center; cursor: pointer;
-      color: var(--text-muted); font-size: 0.8rem; user-select: none;
+      color: var(--mf-color-text-muted); font-size: 0.8rem; user-select: none;
     }
-    .expand-cell:hover { color: var(--text); }
+    .expand-cell:hover { color: var(--mf-color-text); }
 
     .path-cell {
-      font-family: var(--font-mono, monospace); font-size: 0.8rem;
-      color: var(--text-muted); word-break: break-all; max-width: 480px;
+      font-family: var(--mf-font-mono); font-size: 0.8rem;
+      color: var(--mf-color-text-muted); word-break: break-all; max-width: 480px;
     }
-    .ext-cell { font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; }
-    .size-cell { font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; text-align: right; }
+    .ext-cell { font-size: 0.8rem; color: var(--mf-color-text-muted); white-space: nowrap; }
+    .size-cell { font-size: 0.8rem; color: var(--mf-color-text-muted); white-space: nowrap; text-align: right; }
     .actions-cell { white-space: nowrap; }
 
     /* ── Status badge ────────────────────────────────────────────────────── */
@@ -136,46 +136,46 @@
       border-radius: 3px; font-size: 0.72rem;
       font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
     }
-    .status-badge.scanned         { background: rgba(128,128,128,.12); color: var(--text-muted); }
-    .status-badge.pending         { background: rgba(107,112,132,.08); color: var(--text-muted); }
-    .status-badge.failed          { background: rgba(220,38,38,.12); color: var(--error); }
-    .status-badge.unrecognized    { background: rgba(128,128,128,.12); color: var(--text-muted); }
+    .status-badge.scanned         { background: rgba(128,128,128,.12); color: var(--mf-color-text-muted); }
+    .status-badge.pending         { background: rgba(107,112,132,.08); color: var(--mf-color-text-muted); }
+    .status-badge.failed          { background: rgba(220,38,38,.12); color: var(--mf-color-error); }
+    .status-badge.unrecognized    { background: rgba(128,128,128,.12); color: var(--mf-color-text-muted); }
     .status-badge.pending_analysis { background: rgba(99,102,241,.15); color: #818cf8; }
     .status-badge.batched         { background: rgba(245,158,11,.15); color: #fbbf24; }
-    .status-badge.analysis_failed { background: rgba(220,38,38,.12); color: var(--error); }
+    .status-badge.analysis_failed { background: rgba(220,38,38,.12); color: var(--mf-color-error); }
     .status-badge.indexed         { background: rgba(34,197,94,.15); color: #4ade80; }
-    .status-badge.converted       { background: rgba(22,163,74,.12); color: var(--ok); }
+    .status-badge.converted       { background: rgba(22,163,74,.12); color: var(--mf-color-success); }
 
     /* ── Action buttons ──────────────────────────────────────────────────── */
     .action-btn {
       display: inline-flex; align-items: center; justify-content: center;
       width: 28px; height: 28px; border: none; background: none;
-      border-radius: var(--radius-sm); color: var(--text-muted);
+      border-radius: var(--mf-radius-sm); color: var(--mf-color-text-muted);
       cursor: pointer; font-size: 1rem; transition: color 0.15s, background 0.15s;
     }
-    .action-btn:hover { color: var(--accent); background: rgba(79,91,213,.08); }
+    .action-btn:hover { color: var(--mf-color-accent); background: rgba(79,91,213,.08); }
 
     /* ── Detail row ──────────────────────────────────────────────────────── */
     .detail-row td {
-      padding: 0; border-bottom: 1px solid var(--border);
+      padding: 0; border-bottom: 1px solid var(--mf-border);
     }
     .detail-inner {
       padding: 0.75rem 1rem 0.75rem 2.5rem;
-      background: var(--surface-alt);
+      background: var(--mf-surface-alt);
     }
     .detail-grid {
       display: grid; grid-template-columns: auto 1fr;
       gap: 0.25rem 1.25rem; font-size: 0.82rem;
     }
     .detail-grid dt {
-      color: var(--text-muted); white-space: nowrap; font-weight: 500;
+      color: var(--mf-color-text-muted); white-space: nowrap; font-weight: 500;
     }
     .detail-grid dd {
       margin: 0; word-break: break-all;
-      font-family: var(--font-mono, monospace);
+      font-family: var(--mf-font-mono);
     }
-    .detail-grid dd.err { color: var(--error); }
-    .detail-grid dd.warn { color: var(--warn); }
+    .detail-grid dd.err { color: var(--mf-color-error); }
+    .detail-grid dd.warn { color: var(--mf-color-warn); }
 
     /* ── Pagination ──────────────────────────────────────────────────────── */
     .pagination {
@@ -184,23 +184,23 @@
     }
     .pagination button {
       padding: 0.3em 0.7em;
-      border: 1px solid var(--border); border-radius: var(--radius-sm);
-      background: none; color: var(--text); cursor: pointer; font-size: 0.85rem;
+      border: 1px solid var(--mf-border); border-radius: var(--mf-radius-sm);
+      background: none; color: var(--mf-color-text); cursor: pointer; font-size: 0.85rem;
     }
-    .pagination button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    .pagination button:hover:not(:disabled) { border-color: var(--mf-color-accent); color: var(--mf-color-accent); }
     .pagination button:disabled { opacity: 0.4; cursor: default; }
-    .pagination .page-info { color: var(--text-muted); padding: 0 0.25rem; }
+    .pagination .page-info { color: var(--mf-color-text-muted); padding: 0 0.25rem; }
     .pagination select {
-      padding: 0.25em 0.4em; border: 1px solid var(--border);
-      border-radius: var(--radius-sm); background: var(--surface);
-      color: var(--text); font-size: 0.82rem; cursor: pointer;
+      padding: 0.25em 0.4em; border: 1px solid var(--mf-border);
+      border-radius: var(--mf-radius-sm); background: var(--mf-surface);
+      color: var(--mf-color-text); font-size: 0.82rem; cursor: pointer;
     }
-    .per-page-label { color: var(--text-muted); font-size: 0.82rem; }
+    .per-page-label { color: var(--mf-color-text-muted); font-size: 0.82rem; }
 
     /* ── Empty state ─────────────────────────────────────────────────────── */
     .empty-state {
       text-align: center; padding: 3rem 1rem;
-      color: var(--text-muted); font-size: 0.9rem;
+      color: var(--mf-color-text-muted); font-size: 0.9rem;
     }
     .empty-state .empty-icon { font-size: 2rem; margin-bottom: 0.5rem; }
   </style>
@@ -256,7 +256,7 @@
     <!--   scan moves disappeared files through marked_for_deletion -> -->
     <!--   in_trash; without this filter, the page showed those rows -->
     <!--   too — typically inflating the list 50-100x. -->
-    <div style="margin: 0.5rem 0; display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--text-secondary, #aaa);">
+    <div style="margin: 0.5rem 0; display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--mf-color-text-soft);">
       <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
         <input type="checkbox" id="include-trashed" style="margin: 0;">
         <span>Include trashed / marked-for-deletion files</span>
@@ -831,5 +831,7 @@
 
   })();
   </script>
+  <script src="/static/js/components/ux-fallback.js"></script>
+  <script>MFNewUxFallback.flag();</script>
 </body>
 </html>

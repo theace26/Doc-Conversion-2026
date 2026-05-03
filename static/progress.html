@@ -19,14 +19,14 @@
   <title>MarkFlow — Converting...</title>
   <link rel="stylesheet" href="/static/markflow.css">
   <style>
-    .file-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 0; border-bottom: 1px solid var(--border); }
+    .file-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 0; border-bottom: 1px solid var(--mf-border); }
     .file-row:last-child { border-bottom: none; }
     .file-icon { font-size: 1.1rem; width: 1.5rem; text-align: center; flex-shrink: 0; }
-    .file-name { font-family: var(--font-mono); font-size: 0.9rem; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .file-arrow { color: var(--text-muted); font-size: 0.85rem; }
-    .file-output { font-family: var(--font-mono); font-size: 0.85rem; color: var(--text-muted); }
-    .file-duration { font-family: var(--font-mono); font-size: 0.85rem; color: var(--text-muted); white-space: nowrap; }
-    .file-detail { font-size: 0.85rem; color: var(--error); padding: 0.3rem 0 0 2.25rem; }
+    .file-name { font-family: var(--mf-font-mono); font-size: 0.9rem; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-arrow { color: var(--mf-color-text-muted); font-size: 0.85rem; }
+    .file-output { font-family: var(--mf-font-mono); font-size: 0.85rem; color: var(--mf-color-text-muted); }
+    .file-duration { font-family: var(--mf-font-mono); font-size: 0.85rem; color: var(--mf-color-text-muted); white-space: nowrap; }
+    .file-detail { font-size: 0.85rem; color: var(--mf-color-error); padding: 0.3rem 0 0 2.25rem; }
     .file-detail summary { cursor: pointer; }
   </style>
 </head>
@@ -222,5 +222,7 @@
     }).join('');
   }
   </script>
+  <script src="/static/js/components/ux-fallback.js"></script>
+  <script>MFNewUxFallback.flag();</script>
 </body>
 </html>

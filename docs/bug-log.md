@@ -88,7 +88,56 @@ Planned during the Active Operations Registry (v0.35.0) implementation. Original
 
 ## Shipped (history)
 
-### v0.34.9 — Bulk-worker abort persists immediately, even with stuck workers
+### v0.39.0 — Per-user UX dispatch + new-UX page CSS gap closed
+
+One bug closed in v0.39.0 (BUG-033) — the search-results page was
+structurally complete but visually unstyled because none of its BEM
+classes were defined in any stylesheet. Discovered during user
+browser verification of the v0.39.0 batch.
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-033 | shipped-v0.39.0 | high | New-UX Search Results page rendered with zero styling — `static/js/pages/search-results.js` referenced ~40 `mf-search-results__*` BEM classes; none were defined in any stylesheet | The component creates the full sticky search bar, autocomplete dropdown, facet chips, sort + per-page controls, batch bar, results list, row layout, snippet highlight, and pagination using BEM class names. `static/search-new.html` only loads `components.css` and `ai-assist.css`. `components.css` had zero `mf-search-results__*` definitions. Result: page renders structurally but every element is unstyled — no visible borders, no chip styling, no spacing, no font sizing beyond browser defaults. Catch: this is a silent failure (no console error), so nothing flagged it until a user said "the new UI search result page is not formatted proper." Fix: added a `=== search results page (new UX) ===` section to `components.css` (~340 lines) plus shared `.mf-page-wrapper` / `.mf-page-content` / `.mf-empty-state` utilities. All styles consume design tokens. Class-of-bug gotcha added (`docs/gotchas.md` Per-User UX Dispatch section): every new-UX page must have all its BEM classes defined; lint helper documented. |
+
+### v0.38.0 — components.css theme-aware refactor
+
+Four bugs closed in v0.38.0 (BUG-029 through BUG-032). Three were
+latent regressions from v0.37.1 and v0.37.0; one was a shadow token
+mismatch discovered during browser verification.
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-029 | shipped-v0.38.0 | high | v0.37.1 import regression — markflow.css and 27 legacy HTML pages never loaded design-tokens.css or design-themes.css, so all 364 `var(--mf-*)` token references and every `[data-theme]` override silently no-op'd | `static/markflow.css` used `var(--mf-*)` tokens throughout but had no `@import` for `design-tokens.css` or `design-themes.css`. The 27 legacy HTML pages that link only markflow.css (not components.css) never pulled the design files in via any other route either. Result: every token resolved to nothing; page background and text colors fell back to browser defaults on those pages despite the v0.37.1 refactor. Fix: prepended `@import "./css/design-tokens.css"` and `@import "./css/design-themes.css"` to markflow.css (Phase 0, commit `8101001`). |
+| BUG-030 | shipped-v0.38.0 | medium | Font picker silently no-op'd on all new-UX components — 28 components.css sites bound to `var(--mf-font-sans)` (hardcoded fallback) instead of `var(--mf-font-family)` (picker-bound token) | `design-tokens.css` defines `--mf-font-sans` as a static string (e.g., `system-ui, sans-serif`) that is never overridden. `design-themes.css` overrides `--mf-font-family` for each `[data-font="X"]` choice. `components.css` referenced `--mf-font-sans` at 28 selectors, so the font picker had no effect on new-UX components. Fix: rebound all 28 occurrences to `var(--mf-font-family)` (Phase 2, commit `fe5e803`). |
+| BUG-031 | shipped-v0.38.0 | medium | Invisible card boundaries on low-contrast themes — `.card` in markflow.css used `var(--mf-shadow-press)` (pressed/interactive-state shadow) instead of `var(--mf-shadow-card)` (per-theme elevation shadow) | `--mf-shadow-press` is defined as `0 1px 3px rgba(0,0,0,0.08)` — a nearly imperceptible depth cue intended for pressed button states, not card elevation. On low-contrast themes (spring, summer, fall, winter and dark variants) where surface and background colors are close, this rendered card boundaries invisible. `--mf-shadow-card` provides the intended per-theme elevation shadow. Fix: single-token swap in `.card` rule (commit `01fc0cf`). |
+| BUG-032 | shipped-v0.38.0 | high | Inline-style token rot on 19 legacy HTML pages — inline `<style>` blocks and JS `style="..."` attributes still referenced pre-v0.37.0 token names deleted by v0.37.1 | v0.37.1 deleted markflow.css's `:root` block, removing all the old short-name tokens (`--surface`, `--border`, `--text-muted`, `--accent`, `--ok`, `--error`, `--warn`, `--radius`, `--shadow`, etc.). But 19 legacy HTML pages had inline `<style>` blocks AND JS code that dynamically writes `style="color: var(--ok)"` etc. into the DOM — both reference live CSS custom properties. Neither was updated in v0.37.1. Result: ~640 inline usages resolved to nothing, causing invisible UI on resources, flagged, search, viewer, job-detail, pipeline-files, and most other original-UX pages. Fix: applied a 25-rule token-name mapping to both `<style>` and `<script>` blocks across all 19 pages (commit `617c237`). |
+
+### v0.37.1 — v0.37.0 theme system didn't reach legacy original-UX pages
+
+The v0.37.0 Display Preferences feature was operator-visible on the new-UX
+pages but **silently no-op'd on every page that loads `static/markflow.css`**
+(26 legacy HTML pages including index, resources, admin, bulk, storage, help).
+Four distinct sub-bugs traced to the legacy stylesheet never being plumbed
+into the v0.37.0 token system — its own parallel `--surface`/`--text`/etc.
+custom-prop block + `@media (prefers-color-scheme: dark)` overrides bypassed
+`[data-theme]` entirely. Resolved by a 19-commit refactor on
+`refactor/markflow-css-theme-aware`: deleted markflow.css's `:root` block
+and all 7 OS-media-query blocks (the main one entirely; the 6 component-
+scoped ones rewritten as `html[data-theme="classic-dark"]` selector
+prefixes), renamed all 302 `var(--…)` references to `--mf-*` equivalents,
+substituted ~50 hardcoded color literals to `var(--mf-…)` calls, and
+introduced 6 new tokens. Plus inline fixes from visual checkpoints (font
+list cleanup, Display Prefs drawer button-wrap at X-Large, h1/h2/h3 +
+section titles + drop-zone CTA promoted to accent color).
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-025 | shipped-v0.37.1 | high | Display Preferences drawer was a no-op on every legacy original-UX page | Drawer threw `ReferenceError: MFPrefs is not defined` at `MFPrefs.get('theme')` inside `MFDisplayPrefsDrawer.open()` because `app.js`'s `_loadAvatarMenu()` chain loaded `avatar.js → avatar-menu.js → display-prefs-drawer.js → avatar-menu-wiring.js` but never `preferences.js`. Drawer silently failed to render; user clicked Display Preferences and nothing happened. The 26 legacy HTML pages that rely on `app.js` for chrome (no static `<script src="…/preferences.js">` in their `<head>`) all hit this. Fix: added `_loadScript('/static/js/preferences.js', …)` at the head of the chain in `app.js` plus `MFPrefs.load()` invocation post-load. Shipped first as commit `bbe3753` (also extracted `MFAvatarMenuWiring` helper for BUG-026). |
+| BUG-026 | shipped-v0.37.1 | medium | Avatar menu items unwired on every page (12 of 16 menu IDs went to `console.log` instead of routing) | Each `*-boot.js` (13 files) and `app.js` had its own inline `onSelectItem` handler that handled only `id === 'display'` (open drawer); every other menu ID — Profile, Pinned, Notifications, API keys, Account & auth, Storage, Pipeline, AI providers, Database, Logs, All settings, Help, Shortcuts, Bug report — fell through to `console.log('avatar item:', id)`. Fix: extracted `MFAvatarMenuWiring` helper (`static/js/components/avatar-menu-wiring.js`, 138 lines) with two ID→URL maps (one per UX mode), a coming-soon toast for unwired items, drawer lazy-load, and sign-out flow. All 13 boot files + `app.js` now call `MFAvatarMenuWiring.mount(slot, {…, pageSet})`. Removed ~250 lines of duplicated wiring. Commit `bbe3753`. |
+| BUG-027 | shipped-v0.37.1 | high | Theme/font/scale switching had no visible effect on legacy original-UX pages | `static/markflow.css` (1684 lines, 0 `var(--mf-*)` references) had its own parallel CSS-custom-prop system at `:root` (lines 8–29: `--bg`, `--surface`, `--text`, `--accent`, etc.) and overrode 14 of those props in an `@media (prefers-color-scheme: dark) { :root { … } }` block. Six additional `@media (prefers-color-scheme: dark)` blocks scattered through the file (lines 270, 350, 1168, 1231, 1384, 1402) overrode component-scoped colors. None of this responded to `[data-theme="X"]` — and the OS-media-query block actively *fought* the theme system, since on a dark-OS machine it forced dark colors regardless of the user's drawer selection. Fix (Phases 1–8 of the refactor): added 5 new tokens to `design-tokens.css :root`, added classic-dark overrides for 5 tokens to `design-themes.css`, deleted markflow.css's `:root` and main `@media` blocks (lines 7–50), rewrote the 6 remaining `@media` blocks to `html[data-theme="classic-dark"]` selector prefixes, renamed all 302 `var(--name)` references to `var(--mf-name)`, and substituted ~50 remaining hardcoded literals to `var(--mf-…)` calls. Final state: 0 `@media (prefers-color-scheme)` blocks, 0 non-`mf-` var refs. |
+| BUG-028 | shipped-v0.37.1 | low | X-Large text size broke Display Preferences drawer button layout | `.mf-disp-drawer__scale-row` used `display: grid; grid-template-columns: repeat(4, 1fr)` — a fixed four-column row. At X-Large scale (text-scale 1.36), the four button labels overflowed their column widths and visually broke the drawer. Fix: switched to `grid-template-columns: repeat(auto-fit, minmax(80px, 1fr))` so the buttons reflow into 2×2 (or whatever fits) when their content grows. Single-line CSS change in `components.css`. Commit `8ef45b9`. |
+
+
 
 The post-v0.34.8 verification confirmed BUG-018's true root cause:
 the abort safeguard *was* firing in memory, but the DB write that

@@ -19,7 +19,7 @@
   <title>MarkFlow — Settings</title>
   <link rel="stylesheet" href="/static/markflow.css">
   <style>
-    .tier-desc { font-size: 0.82rem; color: var(--text-muted); margin-top: 0.2rem; }
+    .tier-desc { font-size: 0.82rem; color: var(--mf-color-text-muted); margin-top: 0.2rem; }
 
     /* Collapsible sections */
     .settings-section { margin-bottom: 0.75rem; }
@@ -29,9 +29,9 @@
       font-size: 0.95rem;
       text-transform: uppercase;
       letter-spacing: 0.03em;
-      color: var(--text-muted);
+      color: var(--mf-color-text-muted);
       padding: 0.6rem 0;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid var(--mf-border);
       list-style: none;
       display: flex;
       align-items: center;
@@ -89,7 +89,7 @@
       </div>
 
       <!-- Storage (v0.25.0) — prominent link-card to the new unified page -->
-      <div class="card" style="margin-bottom:1rem;border-left:3px solid var(--accent, #4ade80);padding:0.9rem 1rem">
+      <div class="card" style="margin-bottom:1rem;border-left:3px solid var(--mf-color-accent);padding:0.9rem 1rem">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap">
           <div>
             <strong>Storage</strong>
@@ -190,7 +190,7 @@
         </div>
 
         <!-- GPU Status Card -->
-        <div id="gpu-status-card" style="margin-top:1rem;padding:0.75rem 1rem;background:var(--surface-alt);border:1px solid var(--border);border-radius:var(--radius)">
+        <div id="gpu-status-card" style="margin-top:1rem;padding:0.75rem 1rem;background:var(--mf-surface-alt);border:1px solid var(--mf-border);border-radius:var(--mf-radius-thumb)">
           <h4 style="margin-bottom:0.5rem">GPU Acceleration</h4>
           <div style="display:grid;grid-template-columns:auto 1fr;gap:0.25rem 1rem;font-size:0.85rem">
             <span class="text-muted">Status</span><span id="gpu-status-pill">Detecting...</span>
@@ -513,12 +513,12 @@
 
         <div class="form-group">
           <label for="pref-vision_frame_prompt">Frame description prompt</label>
-          <textarea id="pref-vision_frame_prompt" data-key="vision_frame_prompt" rows="3" style="width:100%;font-family:var(--font-mono);font-size:0.85rem;resize:vertical"></textarea>
+          <textarea id="pref-vision_frame_prompt" data-key="vision_frame_prompt" rows="3" style="width:100%;font-family:var(--mf-font-mono);font-size:0.85rem;resize:vertical"></textarea>
           <button type="button" class="btn btn-ghost btn-sm" style="margin-top:0.25rem" onclick="resetFramePrompt()">Reset to default prompt</button>
           <div class="inline-error" id="err-vision_frame_prompt"></div>
         </div>
 
-        <div class="form-group" style="margin-top:1rem;padding-top:0.75rem;border-top:1px solid var(--border)">
+        <div class="form-group" style="margin-top:1rem;padding-top:0.75rem;border-top:1px solid var(--mf-border)">
           <label>Active vision provider</label>
           <div style="display:flex;gap:0.5rem;align-items:center">
             <span id="vision-provider-display" class="text-sm">Loading...</span>
@@ -541,7 +541,7 @@
           <div class="form-group">
             <label>MCP Server URL</label>
             <div style="display:flex;gap:0.5rem;align-items:center">
-              <input type="text" id="mcp-url" readonly style="flex:1;font-family:var(--font-mono);font-size:0.85rem">
+              <input type="text" id="mcp-url" readonly style="flex:1;font-family:var(--mf-font-mono);font-size:0.85rem">
               <button type="button" class="btn btn-ghost btn-sm" onclick="copyMcpUrl()">Copy</button>
             </div>
           </div>
@@ -550,13 +550,13 @@
             <span id="mcp-status" class="text-sm">Checking...</span>
           </div>
           <details style="margin-top:0.75rem">
-            <summary class="text-sm" style="cursor:pointer;color:var(--accent)">Setup Instructions</summary>
+            <summary class="text-sm" style="cursor:pointer;color:var(--mf-color-accent)">Setup Instructions</summary>
             <div class="text-sm" style="margin:0.5rem 0 0 0;line-height:1.6">
               <p style="margin:0.5rem 0 0.25rem"><strong>Claude Code (recommended):</strong></p>
-              <pre style="background:var(--bg-secondary);padding:0.5rem;border-radius:4px;overflow-x:auto;font-size:0.8rem">claude mcp add markflow --transport sse http://localhost:8001/sse</pre>
+              <pre style="background:var(--mf-surface-soft);padding:0.5rem;border-radius:4px;overflow-x:auto;font-size:0.8rem">claude mcp add markflow --transport sse http://localhost:8001/sse</pre>
 
               <p style="margin:0.75rem 0 0.25rem"><strong>Claude Desktop</strong> &mdash; add to claude_desktop_config.json:</p>
-              <pre style="background:var(--bg-secondary);padding:0.5rem;border-radius:4px;overflow-x:auto;font-size:0.8rem">{
+              <pre style="background:var(--mf-surface-soft);padding:0.5rem;border-radius:4px;overflow-x:auto;font-size:0.8rem">{
   "mcpServers": {
     "markflow": {
       "command": "npx",
@@ -579,15 +579,15 @@
             <button type="button" id="btn-generate-config" class="btn btn-secondary btn-sm">Generate Config for Claude Desktop</button>
             <div id="config-generator-panel" hidden style="margin-top:0.75rem">
               <p class="text-sm">Paste your current <code>claude_desktop_config.json</code> below (or leave blank for a fresh config):</p>
-              <textarea id="config-input" rows="8" style="width:100%;font-family:var(--font-mono);font-size:0.8rem;margin:0.5rem 0" placeholder='{ "preferences": { ... }, "mcpServers": { ... } }'></textarea>
-              <div id="config-error" class="text-sm" style="color:var(--error);margin:0.25rem 0" hidden></div>
+              <textarea id="config-input" rows="8" style="width:100%;font-family:var(--mf-font-mono);font-size:0.8rem;margin:0.5rem 0" placeholder='{ "preferences": { ... }, "mcpServers": { ... } }'></textarea>
+              <div id="config-error" class="text-sm" style="color:var(--mf-color-error);margin:0.25rem 0" hidden></div>
               <button type="button" id="btn-merge-config" class="btn btn-primary btn-sm">Generate</button>
               <div id="config-output-section" hidden style="margin-top:0.75rem">
                 <label class="text-sm">Updated config:</label>
-                <textarea id="config-output" rows="12" readonly style="width:100%;font-family:var(--font-mono);font-size:0.8rem;margin:0.5rem 0;background:var(--bg-secondary)"></textarea>
+                <textarea id="config-output" rows="12" readonly style="width:100%;font-family:var(--mf-font-mono);font-size:0.8rem;margin:0.5rem 0;background:var(--mf-surface-soft)"></textarea>
                 <div style="display:flex;align-items:center;gap:0.5rem">
                   <button type="button" id="btn-copy-config" class="btn btn-secondary btn-sm">Copy to Clipboard</button>
-                  <span id="copy-confirm" class="text-sm" style="color:var(--ok)" hidden>Copied!</span>
+                  <span id="copy-confirm" class="text-sm" style="color:var(--mf-color-success)" hidden>Copied!</span>
                 </div>
               </div>
             </div>
@@ -690,7 +690,7 @@
         </p>
 
         <!-- Live provider source / model badge -->
-        <div id="ai-assist-provider-info" class="notice" style="display:none;margin-bottom:1rem;padding:0.6rem 0.8rem;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.85rem">
+        <div id="ai-assist-provider-info" class="notice" style="display:none;margin-bottom:1rem;padding:0.6rem 0.8rem;background:var(--mf-bg-page);border:1px solid var(--mf-border);border-radius:var(--mf-radius-sm);font-size:0.85rem">
           <span id="ai-assist-provider-info-text"></span>
           <a href="/providers.html" style="margin-left:0.5rem">Manage Providers \u2192</a>
         </div>
@@ -1017,7 +1017,7 @@
 
         <div class="form-group">
           <label for="pref-auto_convert_schedule_windows">Scheduled conversion windows (JSON)</label>
-          <textarea id="pref-auto_convert_schedule_windows" data-key="auto_convert_schedule_windows" rows="2" style="width:100%;font-family:var(--font-mono);font-size:0.85rem;resize:vertical" placeholder='[{"start":"00:00","end":"05:00","days":[0,1,2,3,4]}]'></textarea>
+          <textarea id="pref-auto_convert_schedule_windows" data-key="auto_convert_schedule_windows" rows="2" style="width:100%;font-family:var(--mf-font-mono);font-size:0.85rem;resize:vertical" placeholder='[{"start":"00:00","end":"05:00","days":[0,1,2,3,4]}]'></textarea>
           <p class="hint">Leave empty for auto-detection. Days: 0=Mon, 6=Sun.</p>
           <div class="inline-error" id="err-auto_convert_schedule_windows"></div>
         </div>
@@ -1040,7 +1040,7 @@
         </div>
 
         <!-- Engine status card -->
-        <div id="auto-convert-status" style="margin-top:1rem;padding:0.75rem 1rem;background:var(--surface-alt);border:1px solid var(--border);border-radius:var(--radius)">
+        <div id="auto-convert-status" style="margin-top:1rem;padding:0.75rem 1rem;background:var(--mf-surface-alt);border:1px solid var(--mf-border);border-radius:var(--mf-radius-thumb)">
           <h4 style="margin-bottom:0.5rem">Engine Status</h4>
           <div style="display:grid;grid-template-columns:auto 1fr;gap:0.25rem 1rem;font-size:0.85rem">
             <span class="text-muted">Effective Mode</span><span id="ac-effective-mode">Loading...</span>
@@ -1211,18 +1211,18 @@
 
         if (gpu.execution_path === 'container') {
           pill.textContent = 'NVIDIA (Container)';
-          pill.style.color = 'var(--ok)';
+          pill.style.color = 'var(--mf-color-success)';
         } else if (gpu.execution_path === 'host') {
           var vendorLabel = (hw && hw.vendor || '').toUpperCase();
           if (hw && hw.vendor === 'apple') vendorLabel = 'Apple Metal';
           pill.textContent = vendorLabel + ' (Host Worker)';
-          pill.style.color = 'var(--ok)';
+          pill.style.color = 'var(--mf-color-success)';
         } else if (gpu.execution_path === 'container_cpu') {
           pill.textContent = 'CPU Only';
-          pill.style.color = 'var(--warn)';
+          pill.style.color = 'var(--mf-color-warn)';
         } else {
           pill.textContent = 'No GPU / No Hashcat';
-          pill.style.color = 'var(--text-muted)';
+          pill.style.color = 'var(--mf-color-text-muted)';
           help.textContent = 'Install hashcat or run the host worker for GPU cracking.';
         }
       }
@@ -1411,8 +1411,8 @@
       if (active) {
         const verified = active.is_verified;
         const badge = verified
-          ? '<span style="color:var(--ok)">&#10003;</span>'
-          : '<span style="color:var(--warn)">&mdash;</span>';
+          ? '<span style="color:var(--mf-color-success)">&#10003;</span>'
+          : '<span style="color:var(--mf-color-warn)">&mdash;</span>';
         el.innerHTML = `${badge} ${active.name} (${active.model})`;
       } else {
         el.innerHTML = '<span class="text-muted">None configured &mdash; Level 3 will skip frame descriptions</span>';
@@ -1457,8 +1457,8 @@
         const verified = active.is_verified;
         const ago = active.last_verified ? formatTimeAgo(active.last_verified) : 'never';
         statusEl.innerHTML = verified
-          ? `<span style="color:var(--ok)">&#10003; Connected</span> <span class="text-muted">&middot; ${ago}</span>`
-          : `<span style="color:var(--warn)">&mdash; Not verified</span>`;
+          ? `<span style="color:var(--mf-color-success)">&#10003; Connected</span> <span class="text-muted">&middot; ${ago}</span>`
+          : `<span style="color:var(--mf-color-warn)">&mdash; Not verified</span>`;
       }
 
       // Change handler
@@ -1492,9 +1492,9 @@
       document.getElementById('mcp-url').value = data.mcp_url || 'http://localhost:8001/sse';
       const statusEl = document.getElementById('mcp-status');
       if (data.mcp_running) {
-        statusEl.innerHTML = `<span style="color:var(--ok)">&#10003; MCP server running</span> &middot; ${data.tool_count || 0} tools`;
+        statusEl.innerHTML = `<span style="color:var(--mf-color-success)">&#10003; MCP server running</span> &middot; ${data.tool_count || 0} tools`;
       } else {
-        statusEl.innerHTML = '<span style="color:var(--text-muted)">&mdash; MCP server not detected</span>';
+        statusEl.innerHTML = '<span style="color:var(--mf-color-text-muted)">&mdash; MCP server not detected</span>';
       }
     } catch {
       document.getElementById('mcp-url').value = 'http://localhost:8001/sse';
@@ -1865,5 +1865,7 @@
   }
   </script>
 
+  <script src="/static/js/components/ux-fallback.js"></script>
+  <script>MFNewUxFallback.flag();</script>
 </body>
 </html>

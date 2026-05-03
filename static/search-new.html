@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<!-- MarkFlow — Search Results (new UX)
+     Equivalent of static/search.html using the new-UX chrome + component system.
+     Route: @app.get("/search") serve_ux_page(request, "static/search-new.html", "static/search.html")
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Inline pref-flash guard: runs synchronously before first paint so the
+       page renders in the user's preferred theme/font without flicker.
+       Do NOT modify this block — it is identical in every new-UX page. -->
+  <script>
+  (function(){
+    var D={theme:'nebula',font:'system',textScale:'default',useNewUx:true};
+    var p=Object.assign({},D,JSON.parse(localStorage.getItem('mf:preferences:v1')||'{}'));
+    var h=document.documentElement;
+    h.setAttribute('data-theme',p.theme);
+    h.setAttribute('data-font',p.font);
+    h.setAttribute('data-text-scale',p.textScale);
+    h.setAttribute('data-ux',p.useNewUx?'new':'orig');
+  })();
+  </script>
+
+  <!-- Google Fonts: keep this block exactly as-is across all new-UX pages. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Roboto:wght@400;500;700&family=Source+Sans+3:wght@400;600&family=Lato:wght@400;700&family=Merriweather:wght@400;700&family=JetBrains+Mono:wght@400;500&family=Nunito:wght@400;500;700&family=Playfair+Display:wght@400;700&family=Raleway:wght@400;500;700&family=Poppins:wght@400;500;600&family=DM+Sans:wght@400;500&family=Crimson+Pro:wght@400;600&display=swap">
+
+  <title>MarkFlow — Search</title>
+
+  <!-- components.css provides all new-UX design tokens + component styles. -->
+  <link rel="stylesheet" href="/static/css/components.css">
+
+  <!-- ai-assist.css provides .ai-assist-drawer, .ai-assist-toggle, etc. -->
+  <link rel="stylesheet" href="/static/css/ai-assist.css">
+
+  <style>
+    /* Page-level layout only — no overrides to components.css variables. */
+    body {
+      margin: 0;
+      background: var(--mf-bg-page);
+      font-family: -apple-system, "SF Pro Display", Inter, system-ui, sans-serif;
+      min-height: 100vh;
+    }
+  </style>
+</head>
+<body data-env="dev">
+  <!-- Top navigation bar (mounted by boot script) -->
+  <div id="mf-top-nav"></div>
+
+  <!-- Page component mount point -->
+  <div id="mf-search-results-page"></div>
+
+  <!-- AI Assist drawer (lives outside the page component so it can overlay freely) -->
+  <aside id="ai-assist-drawer" class="ai-assist-drawer" aria-hidden="true"
+    aria-label="AI-assisted search synthesis">
+    <div class="ai-drawer-header">
+      <div class="ai-drawer-header-left">
+        <span class="ai-drawer-sparkle">&#10022;</span>
+        <span class="ai-drawer-title">AI Assist</span>
+        <span id="ai-drawer-query-badge" class="ai-drawer-query-badge"></span>
+      </div>
+      <button id="ai-drawer-close" class="ai-drawer-close" aria-label="Close AI Assist panel">
+        &times;
+      </button>
+    </div>
+    <div id="ai-drawer-body" class="ai-drawer-body"></div>
+  </aside>
+
+  <!-- ── Script loading order ─────────────────────────────────────────────
+       Load order matters. Each script depends on the ones above it.
+       Do NOT reorder.
+       ──────────────────────────────────────────────────────────────────── -->
+
+  <!-- Core preferences module (exposes MFPrefs global) -->
+  <script src="/static/js/preferences.js"></script>
+
+  <!-- Telemetry (exposes MFTelemetry global; no-op if server unreachable) -->
+  <script src="/static/js/telemetry.js"></script>
+
+  <!-- Keyboard shortcuts (exposes MFKeybinds global) -->
+  <script src="/static/js/keybinds.js"></script>
+
+  <!-- Chrome components (top nav, version chip, avatar, layout) -->
+  <script src="/static/js/components/top-nav.js"></script>
+  <script src="/static/js/components/version-chip.js"></script>
+  <script src="/static/js/components/avatar.js"></script>
+  <script src="/static/js/components/avatar-menu.js"></script>
+  <script src="/static/js/components/avatar-menu-wiring.js"></script>
+  <script src="/static/js/components/layout-icon.js"></script>
+  <script src="/static/js/components/layout-popover.js"></script>
+
+  <!-- AI Assist module (exposes AIAssist global; reads #ai-assist-drawer DOM) -->
+  <script src="/static/js/ai-assist.js"></script>
+
+  <!-- Page component (exposes MFSearchResults global) -->
+  <script src="/static/js/pages/search-results.js"></script>
+
+  <!-- Display preferences drawer (lazy-loaded by avatar menu) -->
+  <script src="/static/js/components/display-prefs-drawer.js"></script>
+
+  <!-- Boot script: wires chrome + page component after /api/me resolves -->
+  <script src="/static/js/search-new-boot.js"></script>
+</body>
+</html>

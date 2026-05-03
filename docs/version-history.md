@@ -4,6 +4,269 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.40.0 — Eight new-UX pages built in two parallel waves (2026-05-03)
+
+**Goal:** Complete the operator surface area for the new UX in a single multi-wave release. After v0.39.0 closed the dispatch infrastructure and four silent-failure CSS gaps, the long-tail operator pages remained as `original-only` rows in `docs/new-ux-pages.md`. This release builds new-UX twins for the eight Tier B pages plus the recommended Tier C consolidations identified in the audit plan.
+
+**Why this matters:** Per-user UX dispatch is the headline feature of v0.39.0, but a user who toggled into new UX would still hit original-UX pages whenever they navigated away from search, convert, settings, help, logs, or status (which itself was a thin tabless surface). v0.40.0 means an operator can stay in new UX through the entire daily workflow — overview their jobs at `/operations`, drill into a bulk job at `/bulk/{id}`, inspect a file at `/preview`, view a converted doc at `/viewer`, manage trash and unrecognized files, run admin tools from `/settings/admin`, all under the same theme/font/text-scale plumbing.
+
+**What changed:**
+
+1. **`/operations` consolidates `/status` + `/activity`** (commit text — Wave 1, Sonnet high). New tabbed page: "Active now" tab defer-mounts `MFStatus` (live ops, progress bars, cancel buttons, system health), "Trends" tab defer-mounts `MFActivity` (charts, weekly performance). Components are cached after first activation so re-clicking a tab doesn't re-poll the API. Top-nav for operator+admin roles is updated from "Activity" to "Operations". Original `/status` and `/activity` routes remain live for backwards compatibility.
+
+2. **`/pipeline-files` new-UX twin** (Wave 1, Sonnet medium). Operator drill-down by pipeline state (scanned, pending, batched, failed, etc.) with state-filter pills, live counts via `/api/pipeline/stats`, sortable paginated file table, expand-to-detail rows, 30s auto-refresh.
+
+3. **`/settings/locations` new-UX twin** (Wave 1, Sonnet medium). Source-location CRUD with browse-picker integration and exclusion patterns, lives under the settings sub-page hierarchy. New IA: `/locations.html` (original-UX) → `/settings/locations` (new-UX). Original-UX `/locations.html` preserved.
+
+4. **`/bulk` family three-to-two consolidation** (Wave 1, Sonnet high; agent committed e40aa8a). Original-UX has three pages: `/bulk.html` (overview), `/bulk-review.html` (review queue), `/job-detail.html` (single-job detail). New UX has two: `/bulk` (overview list with stats/filter/pagination) and `/bulk/{id}` (tabbed detail with Overview + Files + Errors + Log, plus pause/resume/cancel state machine and SSE live progress). Eliminates the page-transition context-switch between job overview and per-job detail.
+
+5. **`/viewer` new-UX twin** (Wave 2, Opus high — only Opus task this release). Dual-pane Markdown + Original preview layout. Right rail with metadata table, fidelity tier badge (T1/T2/T3 styled per tier), and related-files context. Action bar: Download MD, Download original, Force re-process, Flag for review. Markdown rendered client-side via `marked` + `DOMPurify` (using `RETURN_DOM_FRAGMENT` + `appendChild`, never `innerHTML`). Self-contained flag modal mirrors the search-results pattern. Reached from search-results and history links (with pending follow-up to repoint `viewerUrl()` from `/viewer.html` to `/viewer`).
+
+6. **`/trash` + `/unrecognized` bundle** (Wave 2, Haiku). List + filter + bulk-action pattern. Operator drill-downs from /operations (Active now tab) into trash items with restore-or-empty actions and unrecognized files with reclassify-or-ignore actions. Both pages handle their backend 404s gracefully (APIs not yet implemented in v0.40.0; tracked for v0.40.1).
+
+7. **`/review` + `/preview` bundle** (Wave 2, Sonnet medium). Per-batch review queue (`/review`) with score-based filtering and accept/reject bulk operations. Per-file inspection (`/preview`) with chunked content view, sidecar metadata cards, force-process button with inline progress, related-files tabs, selection-driven search-within-file.
+
+8. **`/settings/admin` new-UX twin** (Wave 2, Sonnet medium — security-adjacent). API key management, user list, system actions (restart watchers, force rescan, flush cache), database tools (vacuum, integrity check, backup, restore). All destructive operations gated by confirmation modals — typed-string confirmation for backup restore. Admin-role-only; non-admins are redirected to `/settings` after a 2s warning.
+
+9. **Settings sub-page table now has 11 entries** (was 9 in v0.39.0). Adding `locations` and `admin` to the `_SETTINGS_PAGES` dict. Single `@app.get("/settings/{section:path}")` dispatcher handles all of them.
+
+10. **Avatar menu URL maps + top-nav updated** for the 10 new pages. `URLS_NEW` adds: operations, pipeline-files, locations, admin, trash, unrecognized, review, preview. `URLS_ORIGINAL` adds: pipeline-files, trash, unrecognized, review, preview. Top-nav `ROLE_LINKS` operator+admin: "Activity" replaced by "Operations".
+
+**Design decisions:**
+
+- **Wave 1 + Wave 2 parallel-dispatch.** Per the picking-model-and-effort skill, agents were dispatched concurrently with model/effort calibrated per task: Sonnet high for state-heavy pages (/operations tabbed merge, /bulk family state machine), Sonnet medium for standard CRUD/list pages, Haiku medium for the most mechanical bundle (/trash + /unrecognized), Opus high for the genuinely novel UI (/viewer with markdown render + dual-pane). Estimated ~70% cost reduction vs. an all-Opus dispatch.
+
+- **Token-only CSS for every new section.** All ~3000 lines of new CSS (across 10 sections) consume `var(--mf-*)` tokens for color, font-family, font-size, shadow, radius. Two agents emitted hardcoded `rgba(...)` and undefined tokens (`--mf-color-error-tint`, `--mf-radius`); these were corrected during the merge step before reaching `components.css`.
+
+- **Original-UX kept live for everything.** No breaking removals in this release. `/bulk.html`, `/bulk-review.html`, `/job-detail.html`, `/admin.html`, `/locations.html` all still serve their original UX. New-UX users get the consolidated surfaces; original-UX users get the legacy pages. Only the operator+admin top-nav changes (Activity → Operations) — and Activity is still routable directly.
+
+- **Defer-mount for Operations tabs.** `MFStatus` and `MFActivity` both poll their APIs on a 30s timer; mounting both at page load would double the polling traffic. Operations tabs lazy-mount on first click and cache the mounted instance, so the user pays the polling cost only for tabs they actually view.
+
+**Files modified:**
+- `core/version.py` — `0.39.0` → `0.40.0`
+- `main.py` — 6 new routes (`/operations`, `/pipeline-files`, `/viewer`, `/trash`, `/unrecognized`, `/review`, `/preview`); `/bulk` and `/bulk/{job_id}` from agent commit e40aa8a; 2 new entries in `_SETTINGS_PAGES` dict (`locations`, `admin`)
+- `static/css/components.css` — 12 new BEM sections (~3000 lines): `mf-operations`, `mf-pf`, `mf-loc`, `mf-bk`, `mf-bkd`, `mf-vw`, `mf-tr`, `mf-ur`, `mf-rv`, `mf-pv`, `mf-adm`, plus utility shared chrome
+- `static/js/components/avatar-menu-wiring.js` — `URLS_NEW` + `URLS_ORIGINAL` extended
+- `static/js/components/top-nav.js` — operator+admin Activity → Operations
+- `docs/new-ux-pages.md` — 10 page rows updated/added; Tier table format expanded
+
+**Files created (page-specific, 30 files across 10 surfaces):**
+- `static/operations-new.html` + `static/js/pages/operations.js` + `static/js/operations-new-boot.js`
+- `static/pipeline-files-new.html` + `static/js/pages/pipeline-files.js` + `static/js/pipeline-files-new-boot.js`
+- `static/settings-locations.html` + `static/js/pages/settings-locations.js` + `static/js/settings-locations-boot.js`
+- `static/bulk-new.html` + `static/js/pages/bulk.js` + `static/js/bulk-new-boot.js`
+- `static/bulk-detail-new.html` + `static/js/pages/bulk-detail.js` + `static/js/bulk-detail-new-boot.js`
+- `static/viewer-new.html` + `static/js/pages/viewer.js` + `static/js/viewer-new-boot.js`
+- `static/trash-new.html` + `static/js/pages/trash.js` + `static/js/trash-new-boot.js`
+- `static/unrecognized-new.html` + `static/js/pages/unrecognized.js` + `static/js/unrecognized-new-boot.js`
+- `static/review-new.html` + `static/js/pages/review.js` + `static/js/review-new-boot.js`
+- `static/preview-new.html` + `static/js/pages/preview.js` + `static/js/preview-new-boot.js`
+- `static/settings-admin.html` + `static/js/pages/settings-admin.js` + `static/js/settings-admin-boot.js`
+
+**Browser verification (Playwright on VM):**
+- 48 page loads (16 pages × 3 themes: nebula, classic-dark, spring)
+- All sentinel BEM elements visible per page
+- Theme switching propagates correctly when `/api/user-prefs` is mocked to return the test theme (real users get the same effect via the drawer + server PUT)
+- Console "errors" are: Google Fonts CSP block (cosmetic, expected in headless), CSP block on marked.js + DOMPurify CDN for /viewer + /preview (real concern; tracked for v0.40.1), 404s on stub-only backend APIs for /trash + /unrecognized + /review (handled gracefully, page renders empty state)
+- Screenshots in `~/playwright-verify/screenshots/{nebula,classic-dark,spring}/{home,search,status,history,flagged,storage,operations,pipeline,bulk,viewer,trash,unrec,review,preview,locations,admin}.png`
+
+**Loose ends tracked forward:**
+- See "Known concerns" + "Loose ends" in CLAUDE.md Current Version block.
+
+---
+
+## v0.39.0 — Per-user UX dispatch + 5 new-UX pages + theme polish (2026-05-03)
+
+**Goal:** Lift the new UI from "hidden behind env-only flag" to a real per-user toggle, ship 5 new-UX page surfaces (Convert, Help, Log Viewer, Log Management, Log Levels), close the Search Results CSS gap (BUG-033), add a "match system" auto-switch that follows OS dark-mode preference, and build the inventory doc + page template that make future new-UX page builds turn-key.
+
+**Why this matters:** v0.38.0 closed the theme-system gaps but left the new UX gated behind `ENABLE_NEW_UX` (operator flips for everyone, no per-user choice). The Display Preferences drawer's "New interface" toggle did not actually switch the served HTML — it only changed local CSS classes. Operators who wanted to support a mixed user base (early-adopters + legacy) had no path. Separately, the new-UX Search Results page was a silent failure: `static/js/pages/search-results.js` referenced ~40 `mf-search-results__*` BEM classes; not one was defined in any stylesheet, so the entire page rendered as unstyled HTML. v0.39.0 closes both gaps.
+
+**What changed:**
+
+1. **Per-user UX dispatch (`core/ux_dispatch.py`).** New module exposes `is_new_ux_for_request(request)` (cookie → env → system DB → False) and `serve_ux_page(request, new_path, orig_path)`. Sixteen routes in `main.py` migrated to the helper: `/`, `/convert`, `/settings`, `/help`, `/log-viewer`, `/log-mgmt`, `/log-levels`, `/activity`, `/search`, `/status`, `/history`, `/storage`, `/flagged`. Cookie set client-side via `static/js/preferences.js:syncUxCookie()` with `path=/; Max-Age=31536000`.
+
+2. **`ux-fallback.js` for original-only pages.** When a user with `mf_use_new_ux=1` lands on a page that has no new-UX twin, the script auto-flips the cookie to `0` so the drawer toggle never lies. Injected via per-page `<script src="/static/js/ux-fallback.js">` block on all 19+ legacy pages.
+
+3. **5 new-UX pages built** (commits `7277ed1`, `699f7ec`, `641e756`):
+   - `/convert` — `static/convert-new.html` + `static/js/pages/convert.js` (drop-zone + queue)
+   - `/help` — `help-new.html` + `help.js` (wiki with collapsible sidebar)
+   - `/log-viewer` — `log-viewer-new.html` + `log-viewer.js` (live tail)
+   - `/log-mgmt` — `log-mgmt-new.html` + `log-mgmt.js` (file management)
+   - `/log-levels` — `log-levels-new.html` + `log-levels.js` (per-subsystem levels)
+
+4. **Search Results page CSS gap closed (BUG-033).** Added a `=== search results page (new UX) ===` section to `components.css` (~340 lines) defining sticky search bar, autocomplete dropdown, facet chips, sort + per-page controls, batch bar, results list, row layout, snippet highlight, pagination. Plus shared `.mf-page-wrapper`, `.mf-page-content`, and `.mf-empty-state` utilities used by `search-results`, `status`, and `history` pages. Every style consumes design tokens — no hardcoded hex.
+
+5. **Match-system theme auto-switch (commit `bd2974f`).** New theme-picker control: pick one light theme + one dark theme, MarkFlow follows the OS `prefers-color-scheme` between them in real time. Implementation reuses the existing `[data-theme]` switching plumbing.
+
+6. **Help wiki polish** (commits `398ce55`, `5217ace`, `6568a4d`, `80c6587`, `686e4b5`):
+   - Collapsible category sidebar with `data-active` auto-open
+   - GitHub-style slug generation that preserves consecutive dashes (so `--foo--bar` round-trips)
+   - Back-to-top links on every `h2`
+   - `scroll-margin-top` on `h1`–`h4` so anchor jumps land with the heading visible (not sliding under the sticky header)
+   - h3 arrow indicators in the sidebar
+   - Auto-dark diagnostic instrumentation
+
+7. **UX toggle hardening** (commits `c810553`, `9af26f8`, `2d59660`):
+   - Always-redirect to target UX with a fallback landing page if the current path has no twin
+   - Flush server `PUT /api/user-prefs` BEFORE navigating, so the toggle doesn't race the redirect
+   - Onboarding flow flushes prefs after Skip / Complete — same race fix
+
+8. **New-UX page inventory + template** (`docs/new-ux-pages.md`, `docs/templates/`). Single source of truth for every page's UX status (`both`, `new-only`, `original-only`, `redirect`). Template + 5-step guide in `docs/templates/README.md` makes a new page a ~30-minute build.
+
+9. **Settings sub-page route consolidation.** 11 nearly-identical handlers in `main.py` (`/settings/storage`, `/settings/pipeline`, etc.) collapsed to a single table-driven `/settings/{section:path}` dispatcher backed by `_SETTINGS_PAGES` dict. Behavior preserved; surface area shrunk.
+
+10. **AI-Assist toggle visual polish (commit `67b7c25`).** Toggle and Synthesize button switch from outlined-at-rest to filled-when-active. Pure CSS change.
+
+11. **Misc new-UX wiring fixes** (commits `55adc78`, `1268db5`, `7d92a23`, `9ab6966`, `4c11dd3`, `b174df6`):
+    - Activity page Pipeline controls now wire to backend with visual feedback
+    - Home layout selection persists
+    - Search home indexed-count fetched from real `/api/search/index/status`
+    - Convert link fixed to `/index.html` (was 404 `/convert`)
+    - Top-nav uses `data-ux` for per-user routing; theme grid consolidated
+    - Display-prefs drawer swatch role badges (light/dark indicator on active swatches)
+
+**Design decisions:**
+
+- **Cookie-based dispatch over query string.** Considered `?ux=new` query param vs cookie. Cookie wins because (a) the toggle is a stable user preference, not a one-off override; (b) bookmarks should be UX-mode-stable; (c) cookie auto-applies on `/` without URL surgery. Trade-off accepted: cookies require explicit cleanup on sign-out (handled by avatar-menu-wiring).
+
+- **Ship per-user toggle BEFORE building all 8 priority pages.** Could have built more new-UX page twins and shipped per-user dispatch later. Routing layer first means each future page benefits from the toggle on day one. The 8 still-missing pages are tracked in `docs/superpowers/plans/2026-05-03-new-ux-priority-pages.md`.
+
+- **CSS-section-per-page convention.** Every new-UX page gets its own `=== <page> ===` section in `components.css`. Cited gotcha: missing-CSS bugs (BUG-033) are silent — the page renders fine structurally but unstyled. Lint helper documented in gotchas.
+
+- **Settings sub-page table-driven dispatch.** Considered keeping 11 individual `@app.get` handlers (one per sub-page) for explicitness vs. collapsing to a dict + one handler. Dict won because the handlers were 100% boilerplate and the dict is the actual source of truth for which sub-pages exist. New sub-pages add a row; old surface stays the same.
+
+**Files modified:**
+- `core/version.py` — `0.38.0` → `0.39.0`
+- `main.py` — 16 routes migrated to `serve_ux_page`; settings sub-page handlers consolidated
+- `static/css/components.css` — `+340` lines (search-results section + shared page-wrapper utilities)
+- `static/js/preferences.js` — `syncUxCookie()`, flush-before-navigate semantics
+- `static/js/components/avatar-menu-wiring.js` — UX-aware page set + ID→URL maps
+- `static/js/components/display-prefs-drawer.js` — match-system toggle, swatch role badges
+- `static/js/components/top-nav.js` — `data-ux` attribute for per-user routing
+- 5 new HTML files: `convert-new.html`, `help-new.html`, `log-viewer-new.html`, `log-mgmt-new.html`, `log-levels-new.html`
+- 5 new component files: `convert.js`, `help.js`, `log-viewer.js`, `log-mgmt.js`, `log-levels.js`
+- 4 new boot scripts (one per page; aliases share boot)
+- ~19 legacy HTML pages — added `<script src="/static/js/ux-fallback.js">`
+
+**Files created:**
+- `core/ux_dispatch.py` — per-user UX dispatcher (cookie reader + `serve_ux_page` helper)
+- `static/js/ux-fallback.js` — auto-flip cookie when landing on an original-only page
+- `docs/new-ux-pages.md` — page inventory (single source of truth for UX status)
+- `docs/templates/README.md` — 5-step guide for building a new-UX page
+- `docs/templates/new-ux-page.html` — copy-paste HTML scaffold
+- `docs/templates/new-ux-page-boot.js` — copy-paste boot script
+- `docs/templates/new-ux-page-component.js` — copy-paste page component
+- `docs/superpowers/plans/2026-05-03-new-ux-priority-pages.md` — plan for the remaining 8 priority pages with per-page model/effort routing
+
+**Loose ends tracked forward:**
+- 8 priority pages awaiting new-UX twins — see plan above for parallel-dispatch sequencing.
+- Palette tweaks (still deferred to user's Figma pass).
+
+---
+
+## v0.38.0 — components.css theme-aware refactor (2026-05-03)
+
+**Goal:** Extend the v0.37.1 theme-system fixes to cover `static/css/components.css` (new-UX components), close two latent regressions introduced during v0.37.1 (an import chain gap and inline-style token rot), unify font-size literals across both stylesheets onto a consistent 11-token grid, and resolve two bonus defects discovered during browser verification (card shadow mismatch, inline JS token references).
+
+**Why this matters:** v0.37.1 closed the theme gap on legacy pages but left three silent failures on the new-UX side. (1) The font picker no-op'd on every new-UX component because `components.css` bound to `--mf-font-sans` (a hardcoded design-tokens.css fallback) instead of `--mf-font-family` (the token that `design-themes.css` overrides for each font choice). (2) The entire v0.37.1 color refactor was invisible on the 27 legacy HTML pages that link only `markflow.css` — that file used 364 `var(--mf-*)` tokens but never imported `design-tokens.css` or `design-themes.css`, so every token resolved to nothing and the page background/text colors fell back to browser defaults. (3) 311 raw `font-size: Xrem` literals across 39 distinct values existed in the two stylesheets, several of which double-scaled because their `--mf-text-*` token definitions AND the `html { font-size }` rule both applied `* var(--mf-text-scale)`. Together these three failures meant the Display Preferences picker was more broken than v0.37.1 appeared to fix.
+
+**What changed:**
+
+1. **Phase 0 — `@import` fix for markflow.css (commit `8101001`).** Prepended `@import "./css/design-tokens.css"` and `@import "./css/design-themes.css"` to `static/markflow.css`. This one change made all 364 existing `var(--mf-*)` references in markflow.css resolve correctly on the 27 legacy pages that link only markflow.css — resolving BUG-029. Without this, the v0.37.1 refactor was a silent no-op on those pages.
+
+2. **Phase 1a — 11-token text-size grid in design-tokens.css (commit `6263313`).** Replaced the previous `--mf-text-*` scale-multiplier scheme with 11 plain-rem values: `--mf-text-2xs` (0.7rem), `xs` (0.78rem), `sm` (0.82rem), `base` (0.86rem), `body` (0.92rem), `md` (1.0rem), `h3` (1.2rem), `h2` (1.4rem), `h1` (1.85rem), `display` (2.4rem), `display-lg` (3.0rem). Eliminates the double-scaling bug: the old token values themselves included `* var(--mf-text-scale)`, so sites using them plus the `html { font-size: calc(16px * var(--mf-text-scale)) }` rule were scaled twice.
+
+3. **Phase 1b — move `html { font-size }` rule to design-themes.css (commit `cfca0b6`).** Relocated the `html { font-size: calc(16px * var(--mf-text-scale, 1)) }` rule from `design-tokens.css` to `design-themes.css` so the cascade order is correct — the rule now lives in the same file as the `[data-text-scale]` overrides that modify `--mf-text-scale`, preventing specificity surprises.
+
+4. **Phase 2 — rebind `--mf-font-sans` → `--mf-font-family` in components.css (commit `fe5e803`, resolves BUG-030).** 28 selectors in `components.css` referenced `var(--mf-font-sans)`, which is a static fallback string defined once in `design-tokens.css` and never overridden. The font picker works by overriding `--mf-font-family` in `design-themes.css`'s `[data-font="X"]` selectors. Rebound all 28 sites to `var(--mf-font-family)` so the font picker applies to every new-UX component.
+
+5. **Phase 3 — tokenize components.css font-sizes (commits `c1204ed`, `1a55a1f`, `1e4f96f`, `3b5d92e`).** Four-pass sweep across all ~1100 lines of `components.css`. 152 raw `font-size: Xrem` literals replaced with the nearest token from the 11-token grid. Decision tree: exact match → token; drift ≤0.04rem → snap to nearest; > 0.04rem drift or semantic edge case → keep raw with `/* exception: */` comment. 4 keep-raw exceptions: `.mf-av-menu__gate` (0.5rem), `.mf-doc-list-row__fmt` (0.55rem), `.mf-card-grid--compact .mf-doc-card__snippet` (0.56rem), `.mf-home__headline--huge` (3.4rem).
+
+6. **Phase 4 — tokenize markflow.css font-sizes (commits `ac7d8e5`, `0707ba7`, `0d3754e`, `6f76d6d`).** Same four-pass sweep across `static/markflow.css`. 117 raw literals tokenized; 0 keep-raw exceptions (markflow.css had no sub-0.7rem or above-3.0rem outliers).
+
+7. **Card shadow swap (commit `01fc0cf`, resolves BUG-031).** `.card` in markflow.css was using `box-shadow: var(--mf-shadow-press)` — the pressed/interactive-state shadow (`0 1px 3px rgba(0,0,0,0.08)`, nearly imperceptible). Swapped to `var(--mf-shadow-card)`, the per-theme elevation shadow. Resolves invisible card boundaries on legacy pages under low-contrast themes (spring, summer, fall, winter and their dark variants).
+
+8. **HTML inline-style token migration (commit `617c237`, resolves BUG-032).** 19 legacy HTML pages had inline `<style>` blocks and JS-driven `style="..."` attributes referencing pre-v0.37.0 token names (`var(--surface)`, `var(--border)`, `var(--text-muted)`, `var(--accent)`, `var(--ok)`, `var(--error)`, `var(--warn)`, `var(--radius)`, `var(--shadow)`, etc.) that v0.37.1's `:root` block deletion had silently invalidated. Applied a 25-rule sed mapping to both `<style>` blocks and `<script>` blocks (JS dynamically writes `style="color: var(--ok)"` into the DOM, so JS-string token references are real CSS usages). ~640 sites migrated across resources, flagged, search, viewer, job-detail, pipeline-files, and most other original-UX pages.
+
+9. **Phase 5 — 31 outlier per-site decisions (commit `17c2a5e`).** Change-index sidecar updated with documented rationale for each of the 31 font-size sites not handled mechanically in Phases 3–4. All 4 keep-raw exceptions in components.css have `/* exception: keep-raw — [reason] */` inline comments.
+
+**Design decisions:**
+
+- **Plain-rem token values (no multiplier in token definitions).** The old scheme stored `calc(Xrem * var(--mf-text-scale))` directly inside each `--mf-text-*` token, which double-scaled any site that also inherited the `html { font-size: calc(16px * var(--mf-text-scale)) }` rule. New scheme: tokens are plain rem values; the html rule is the single place text-scale is applied.
+- **Keep-raw exceptions documented inline.** Rather than forcing 4 edge-case font-sizes onto the nearest grid token (which would shift them more than the grid allows), they are left raw with `/* exception: keep-raw — [reason] */` comments. This makes future audits self-documenting without losing the substitution history.
+- **JS-string token references treated as CSS usages.** The inline-style migration correctly included `<script>` blocks, not just `<style>` blocks. JS strings like `el.style.color = 'var(--ok)'` write literal CSS into the DOM and must use current token names.
+- **Phase 0 import-first (not alias bridge).** Rather than adding `:root` alias forwarding (`--surface: var(--mf-surface)` etc.) to design-tokens.css, the fix was to import the design files into markflow.css directly. Rationale: alias bridges mask root-cause token drift over time; a single `@import` line is cleaner and surfaced the real gap.
+
+**Files modified:**
+- `static/markflow.css` — `@import` prepended; 117 font-size literals tokenized; `.card` shadow token corrected; inline-style token rot fixed on all 27+ legacy pages
+- `static/css/components.css` — 28 font-family rebindings; 152 font-size literals tokenized; 4 keep-raw exceptions commented
+- `static/css/design-tokens.css` — 11 plain-rem `--mf-text-*` token values replacing multiplier scheme
+- `static/css/design-themes.css` — `html { font-size }` rule relocated here from design-tokens.css
+- 19 `static/*.html` pages — inline `<style>` + `<script>` blocks migrated from pre-v0.37.0 token names to `--mf-*` equivalents
+
+**Files created / updated:**
+- `docs/superpowers/specs/2026-05-02-components-css-theme-aware-design.md` — design spec
+- `docs/superpowers/plans/2026-05-02-components-css-theme-aware.md` — 13-task implementation plan
+- `docs/superpowers/specs/2026-05-02-components-css-theme-aware-change-index.md` — full rollback artifact: every literal touched, every snap, every keep-raw exception; ~300 rows
+
+**Loose ends tracked forward:**
+- Palette tweaks deferred (user intends to revise `design-themes.css` token values via Figma + Tokens Studio). All surfaces are on tokens; this is now a value-only edit.
+- BUG-013 through BUG-024 in the open/planned section are unaffected by this release.
+
+---
+
+## v0.37.1 — Theme system reaches legacy original-UX pages (2026-05-02)
+
+**Goal:** Make the v0.37.0 Display Preferences (theme / font / text-scale) visibly apply to the 26 legacy original-UX HTML pages, not just the new-UX surfaces. Resolves four sub-bugs (BUG-025 through BUG-028) clustered around the same root cause: `static/markflow.css` was never plumbed into the v0.37.0 `[data-theme]` token system and had its own parallel custom-prop block plus 7 `@media (prefers-color-scheme: dark)` overrides.
+
+**Why this matters:** v0.37.0 shipped a polished theme picker that did nothing on most pages a typical operator actually visits day-to-day (index, bulk, storage, admin, help, resources). Clicking a theme swatch would re-color the new-UX chrome and the drawer itself, but `/index.html` stayed the same color. Worse, on a dark-OS machine the legacy stylesheet's `@media (prefers-color-scheme: dark)` block actively fought the user's chosen theme — Classic Light + dark-OS rendered dark anyway. v0.37.1 closes this gap.
+
+**What changed:**
+
+1. **`bbe3753` — Display Preferences drawer + avatar-menu wiring fix (preliminary commit, before the markflow.css refactor).** `app.js`'s `_loadAvatarMenu()` chain now loads `preferences.js` first so `MFPrefs` is defined when the drawer's `open()` calls `MFPrefs.get('theme')`. Without this, the drawer silently `ReferenceError`'d on every legacy page (BUG-025). Same commit also extracted a new `MFAvatarMenuWiring` helper (`static/js/components/avatar-menu-wiring.js`, 138 lines) that owns avatar-menu mount + ID->URL routing for both UX modes + coming-soon toast + drawer lazy-load + sign-out, replacing ~250 lines of duplicated wiring across `app.js` and 13 `*-boot.js` files (BUG-026 — 12 of 16 menu items previously fell through to `console.log`).
+
+2. **8-phase markflow.css refactor (commits `78826b3` through `8a272dc`).** Reconciles legacy stylesheet with v0.37.0 token system:
+   - Phase 1 — Added 5 new tokens to `design-tokens.css :root`: `--mf-surface-alt`, `--mf-color-text-on-accent`, `--mf-color-accent-hover`, `--mf-color-info`, `--mf-radius-sm`. Added classic-dark overrides for 5 (incl. `--mf-shadow-press` and `--mf-shadow-popover` to preserve markflow.css's old dark-mode shadow values).
+   - Phase 2 — Deleted markflow.css's `:root` custom-prop block (lines 8-29) and main `@media (prefers-color-scheme: dark) { :root { ... } }` block (lines 31-50). Rewrote the 6 remaining `@media (prefers-color-scheme: dark)` blocks (badge dark variants, storage-verify dark variants, flag-banner dark, stop-banner dark, tool-* dark, db-tool-* dark) as `html[data-theme="classic-dark"]` selector prefixes — the styles are preserved, but they now fire from the user's theme choice, not the OS preference. Renamed all 302 `var(--...)` references in markflow.css from local custom-prop names (`--bg`, `--surface`, `--text`, `--accent`, `--ok`, `--warn`, `--error`, `--info`, `--radius`, `--font-sans`, `--font-mono`, `--shadow`, `--shadow-lg`, `--transition`, ...) to their `--mf-*` equivalents per a 20-row rename map.
+   - Phases 3-8 — Per-section literal-substitution sweep using a documented decision tree (exact match / drift-<=-5 snap / new-token / kept-as-literal / status-snap). ~50 hardcoded color literals substituted to `var(--mf-...)` calls. One additional new token introduced: `--mf-color-accent-glow` for the toggle-switch on-state shadow.
+
+3. **`fd3f80c` — Font + text-scale wiring fixes from Phase-2 visual checkpoint #1.** Spec A11 originally bound markflow's `--font-sans` -> `--mf-font-sans`. But `--mf-font-sans` is hardcoded in design-tokens.css; design-themes.css's `[data-font="X"]` rules override `--mf-font-family`. Renamed 5 `var(--mf-font-sans)` -> `var(--mf-font-family)` in markflow.css so the drawer's font picker actually applies. Also wrapped `html { font-size: 16px }` in `calc(16px * var(--mf-text-scale, 1))` — single-line change that makes every rem-based font-size in the file scale with the drawer's text-size selector.
+
+4. **`a710c5c` and `d8ddb13` — Visible-text highlighting from Phase-2 visual checkpoints #1 and #2.** User reported that page titles, section headers, and the drop-zone CTA didn't visibly recolor on theme switches because they inherited body text color (`--mf-color-text`), and the deltas across themes for body text were subtle on the user's display. Promoted h1, h2, h3, `.card-header`, and `.section-title` to `color: var(--mf-color-accent)`, plus the drop-zone CTA paragraph and its `<strong>`/`<em>` inline emphasis. Theme switches now visibly re-color the prominent text on every legacy page.
+
+5. **`8ef45b9` — Display Prefs drawer scale-row wraps gracefully (BUG-028).** `.mf-disp-drawer__scale-row` switched from `grid-template-columns: repeat(4, 1fr)` to `repeat(auto-fit, minmax(80px, 1fr))`. At X-Large text scale, the four buttons now reflow into 2x2 instead of overflowing.
+
+6. **Font list cleanup.** Removed Inter, IBM Plex Sans, Poppins, and DM Sans from the drawer FONTS list, FONT_FAMILIES map, and design-themes.css `[data-font]` selectors — at body sizes on macOS, all four rendered visually identical to system-ui (SF Pro). Replaced with **Comic Sans MS** as a system-installed alternative (no Google Fonts dependency). Drawer now offers 11 fonts down from 14, every one visibly distinct.
+
+**Design decisions:**
+
+- **Full rename over alias bridge.** Spec considered two options for handling markflow's local custom-prop namespace (`--surface`, `--text`, etc.): (alpha) add `:root { --surface: var(--mf-surface); ... }` aliases in design-tokens.css so existing `var(--surface)` calls auto-track; (beta) rewrite every `var(--surface)` to `var(--mf-surface)` in markflow.css. User picked beta. Rationale: cleaner end state, single canonical namespace, no two-level resolution chain. Cost: ~24 extra substitutions in the change-index. Tradeoff accepted.
+- **Delete the OS dark-mode media query (no fallback).** v0.37.1 removes `@media (prefers-color-scheme: dark)` from markflow.css entirely. Users who want dark on legacy pages now pick Classic Dark in the drawer (or stay on the system default if Nebula is configured). Rationale: keeping the media query alongside `[data-theme]` creates cascade conflicts; the theme system is the correct mechanism for dark-mode opt-in. Edge case: a user previously on Classic Light + dark-OS will now see Classic Light's actual light colors instead of OS-forced dark. This is the intended behavior — operators can override via the drawer.
+- **Status colors converge to existing tokens (A4 mandate).** The decision tree's status-snap branch routes any error/warn/success/info-toned literal to `--mf-color-success`/`warn`/`error`/`info` (or `*_bg` variants) regardless of small drift from the original markflow.css value. Rationale: status colors carry semantic meaning, not aesthetic; consistency across UX modes matters more than pixel-fidelity to the legacy palette. ~40 of the ~50 substitutions across Phase 8 fell into this branch.
+- **Promote h1/h2/h3 + section-title + drop-zone CTA to accent color.** User explicitly requested visible highlighting on titles after Phase-2 checkpoint #1, then again after checkpoint #2. Rationale: body color shifts subtle; accent color shifts dramatic across themes (purple -> orange -> green -> pink). h4 left alone (small/label-like usage).
+
+**Files modified:**
+- `static/markflow.css` — 1684 -> 1631 lines; net -53 lines after deletions and re-prefixing
+- `static/css/design-tokens.css` — 6 new tokens (5 from spec + accent-glow)
+- `static/css/design-themes.css` — 5 classic-dark overrides + Comic Sans `[data-font]` rule; removed 4 obsolete `[data-font]` rules
+- `static/js/components/display-prefs-drawer.js` — FONTS list cleaned up
+- `static/css/components.css` — scale-row CSS fix
+- `static/app.js` — preferences.js loaded in chain; delegated to `MFAvatarMenuWiring`
+- 13 `static/js/*-boot.js` — refactored to call `MFAvatarMenuWiring.mount()` instead of inline wiring
+- 12 `static/*.html` — added `<script src=".../avatar-menu-wiring.js">`
+
+**Files created:**
+- `static/js/components/avatar-menu-wiring.js` (138 lines) — single source of truth for avatar-menu mount + routing across both UX modes
+- `docs/superpowers/specs/2026-05-01-markflow-theme-refactor-design.md` — design spec for the refactor
+- `docs/superpowers/specs/2026-05-01-markflow-theme-refactor-change-index.md` — full rollback artifact: every literal touched, every snap, every kept literal, every renamed var, every deleted block; ~140 rows
+- `docs/superpowers/plans/2026-05-01-markflow-theme-refactor.md` — 14-task implementation plan with per-task model/effort routing
+
+**Loose ends tracked forward:**
+- `static/css/components.css` (new-UX) has the same `--mf-font-sans` and hardcoded `0.86rem`-style font-sizes that markflow.css had pre-refactor. Font picker and text-scale work on legacy pages now but only partially on new-UX pages. Separate refactor; smaller scope since components.css is more disciplined.
+- Palette tweaks deferred per user intent ("I'll have to sit down and tweak it a little more at a later date"). Token VALUES in `design-themes.css` are easy to revise without touching markflow.css.
+
+---
+
 ## v0.37.0 — Display Preferences & Theme System (2026-04-30)
 
 **Goal:** Ship a full per-user display customization layer on top of the v0.36.0 UX overhaul. Users get 28 color themes, 14 font choices, and 4 text-scale steps, all accessible from a drawer in the avatar menu. Operators get a new Settings -> Appearance page to control system defaults and the per-user override gate.

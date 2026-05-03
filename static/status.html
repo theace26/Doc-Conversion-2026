@@ -26,29 +26,29 @@
     /* Clickable counter values (inline file list) */
     .job-card__counts .flp-counter { cursor: pointer; transition: opacity 0.15s; }
     .job-card__counts .flp-counter:hover { opacity: 0.7; text-decoration: underline; }
-    .flp-counter.cv-converted { color: var(--ok); }
-    .flp-counter.cv-failed { color: var(--error); }
-    .flp-counter.cv-skipped { color: var(--text-muted); }
+    .flp-counter.cv-converted { color: var(--mf-color-success); }
+    .flp-counter.cv-failed { color: var(--mf-color-error); }
+    .flp-counter.cv-skipped { color: var(--mf-color-text-muted); }
 
     /* File list panel (one per job card) */
     .file-list-panel { overflow: hidden; max-height: 0; opacity: 0; transition: max-height 0.35s ease, opacity 0.25s ease, margin 0.25s ease; margin-top: 0; }
     .file-list-panel.open { max-height: 600px; opacity: 1; margin-top: 0.75rem; }
     .file-list-panel .flp-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
     .file-list-panel .flp-title { font-weight: 600; font-size: 0.85rem; text-transform: uppercase; }
-    .file-list-panel .flp-close { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 1.1rem; padding: 0.2rem 0.4rem; }
-    .file-list-panel .flp-close:hover { color: var(--text); }
-    .file-list-panel .flp-loading { font-size: 0.85rem; color: var(--text-muted); padding: 0.5rem 0; }
+    .file-list-panel .flp-close { background: none; border: none; cursor: pointer; color: var(--mf-color-text-muted); font-size: 1.1rem; padding: 0.2rem 0.4rem; }
+    .file-list-panel .flp-close:hover { color: var(--mf-color-text); }
+    .file-list-panel .flp-loading { font-size: 0.85rem; color: var(--mf-color-text-muted); padding: 0.5rem 0; }
     .flp-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-    .flp-table th { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 2px solid var(--border); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); }
-    .flp-table td { padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .flp-table th { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 2px solid var(--mf-border); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; color: var(--mf-color-text-muted); }
+    .flp-table td { padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--mf-border); vertical-align: top; }
     .flp-table tr:last-child td { border-bottom: none; }
     .flp-table .flp-fname { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .flp-table .flp-path { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 0.78rem; }
-    .flp-table .flp-err { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--error); font-size: 0.78rem; }
-    .flp-table .flp-size { white-space: nowrap; color: var(--text-muted); }
+    .flp-table .flp-path { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mf-color-text-muted); font-size: 0.78rem; }
+    .flp-table .flp-err { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mf-color-error); font-size: 0.78rem; }
+    .flp-table .flp-size { white-space: nowrap; color: var(--mf-color-text-muted); }
     .file-list-panel .flp-scroll { max-height: 400px; overflow-y: auto; }
-    .file-list-panel .flp-load-more { display: block; width: 100%; margin-top: 0.5rem; padding: 0.4rem; text-align: center; background: var(--surface-alt); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; font-size: 0.82rem; color: var(--text-muted); }
-    .file-list-panel .flp-load-more:hover { background: var(--surface); color: var(--text); }
+    .file-list-panel .flp-load-more { display: block; width: 100%; margin-top: 0.5rem; padding: 0.4rem; text-align: center; background: var(--mf-surface-alt); border: 1px solid var(--mf-border); border-radius: var(--mf-radius-sm); cursor: pointer; font-size: 0.82rem; color: var(--mf-color-text-muted); }
+    .file-list-panel .flp-load-more:hover { background: var(--mf-surface); color: var(--mf-color-text); }
   </style>
 </head>
 <body>
@@ -74,8 +74,8 @@
     </div>
 
     <!-- Pipeline stat strip -->
-    <div id="pipeline-stats-strip" style="display:flex;flex-wrap:wrap;gap:0.5rem;margin:0.75rem 0 1rem 0;padding:0.75rem 1rem;background:var(--bg-secondary,#1a1a2e);border-radius:8px;">
-      <span style="color:var(--text-muted,#888);align-self:center;margin-right:0.25rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;font-size:0.75rem;">Pipeline</span>
+    <div id="pipeline-stats-strip" style="display:flex;flex-wrap:wrap;gap:0.5rem;margin:0.75rem 0 1rem 0;padding:0.75rem 1rem;background:var(--mf-surface-soft);border-radius:8px;">
+      <span style="color:var(--mf-color-text-muted);align-self:center;margin-right:0.25rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;font-size:0.75rem;">Pipeline</span>
       <a class="stat-pill stat-pill--link" href="/pipeline-files.html?status=scanned" id="ps-scanned">— scanned</a>
       <a class="stat-pill stat-pill--link" href="/pipeline-files.html?status=pending" id="ps-pending">— pending</a>
       <a class="stat-pill stat-pill--link" href="/pipeline-files.html?status=failed" id="ps-failed">— failed</a>
@@ -359,7 +359,7 @@
             ? sp.scanned.toLocaleString() + ' / ' + sp.total.toLocaleString() + ' files scanned'
             : sp.scanned.toLocaleString() + ' files scanned';
           progressLine =
-            '<div style="font-size:0.82rem;color:var(--text-muted)">' +
+            '<div style="font-size:0.82rem;color:var(--mf-color-text-muted)">' +
               '<span class="spinner" style="margin-right:0.4rem"></span>' +
               'Scanning source files \u2014 ' + countStr +
               ' \u2014 ' + fmtDur(elapsedSec) + ' elapsed' +
@@ -371,7 +371,7 @@
               : '');
         } else {
           progressLine =
-            '<div style="font-size:0.82rem;color:var(--text-muted)">' +
+            '<div style="font-size:0.82rem;color:var(--mf-color-text-muted)">' +
               (stuck
                 ? '<span style="color:#fbbf24">\u26a0 Enumerating &mdash; stuck? ' +
                   'No progress for ' + fmtDur(elapsedSec) + '. ' +
@@ -386,7 +386,7 @@
             '<div class="job-card__progress-fill" style="width:' + pct + '%"></div>' +
           '</div>';
         progressLine =
-          '<div style="font-size:0.82rem;color:var(--text-muted)">' +
+          '<div style="font-size:0.82rem;color:var(--mf-color-text-muted)">' +
             job.converted.toLocaleString() + ' / ' + (job.total_files || '?').toLocaleString() + ' files \u2014 ' + pctStr +
           '</div>';
       }
@@ -603,7 +603,7 @@
           clearElement(panel);
           var err = document.createElement('div');
           err.className = 'flp-loading';
-          err.style.color = 'var(--error)';
+          err.style.color = 'var(--mf-color-error)';
           err.textContent = 'Failed to load files: ' + (e.message || 'unknown error');
           panel.appendChild(err);
         }
@@ -618,8 +618,8 @@
 
       var title = document.createElement('span');
       title.className = 'flp-title';
-      var statusColors = { converted: 'var(--ok)', failed: 'var(--error)', skipped: 'var(--text-muted)' };
-      title.style.color = statusColors[status] || 'var(--text)';
+      var statusColors = { converted: 'var(--mf-color-success)', failed: 'var(--mf-color-error)', skipped: 'var(--mf-color-text-muted)' };
+      title.style.color = statusColors[status] || 'var(--mf-color-text)';
       title.textContent = status.charAt(0).toUpperCase() + status.slice(1) + ' Files (' + (state.total || 0).toLocaleString() + ')';
       header.appendChild(title);
 
@@ -832,7 +832,7 @@
 
         if (data.override_active) {
           modeLabel.textContent = 'Override: ' + data.mode_override + ' (expires ' + data.override_expiry + ')';
-          modeLabel.style.color = 'var(--warn)';
+          modeLabel.style.color = 'var(--mf-color-warn)';
           clearBtn.hidden = false;
           select.value = data.mode_override;
         } else {
@@ -937,5 +937,7 @@
     }
   })();
   </script>
+  <script src="/static/js/components/ux-fallback.js"></script>
+  <script>MFNewUxFallback.flag();</script>
 </body>
 </html>

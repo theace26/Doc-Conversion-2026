@@ -9,6 +9,7 @@ All endpoints are public (no auth required).
 """
 
 import json
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -27,6 +28,35 @@ _article_cache: dict[str, dict] = {}
 _index_cache: Optional[dict] = None
 
 _markdown = mistune.create_markdown(plugins=["table", "strikethrough", "footnotes"])
+
+_HEADING_RE = re.compile(r'<(h[1-4])>([^<]+)</\1>')
+
+
+def _slugify(text: str) -> str:
+    """GitHub-flavored slugify: lowercase, STRIP non-alphanumeric/space/hyphen
+    punctuation, then replace whitespace runs with single hyphen. Preserves
+    consecutive-hyphen runs that arise when interior punctuation gets stripped
+    (e.g., 'Search + AI Assist' -> 'search  ai assist' -> 'search--ai-assist').
+    Matches the slug format markdown authors write in [Title](#anchor) links."""
+    s = text.strip().lower()
+    # Strip punctuation/symbols; preserve only alphanumerics, spaces, hyphens, underscores
+    s = re.sub(r'[^a-z0-9 _-]+', '', s)
+    # Replace each space individually with a hyphen (do NOT collapse runs — markdown
+    # authors writing [Search + AI Assist](#search--ai-assist) expect the two spaces
+    # surrounding the stripped '+' to become two consecutive hyphens).
+    s = s.replace(' ', '-')
+    # Trim leading/trailing hyphens (interior runs intentionally kept)
+    return s.strip('-')
+
+
+def _add_heading_ids(html: str) -> str:
+    """Inject id="..." attributes into <h1>–<h4> tags so in-page anchors work."""
+    def replace(m):
+        tag = m.group(1)
+        text = m.group(2)
+        slug = _slugify(text)
+        return f'<{tag} id="{slug}">{text}</{tag}>'
+    return _HEADING_RE.sub(replace, html)
 
 
 def _load_index() -> dict:
@@ -61,7 +91,7 @@ def _render_article(slug: str) -> Optional[dict]:
     if lines and lines[0].startswith("# "):
         title = lines[0].lstrip("# ").strip()
 
-    html = _markdown(raw)
+    html = _add_heading_ids(_markdown(raw))
 
     result = {"slug": slug, "title": title, "html": html, "raw_length": len(raw)}
     _article_cache[slug] = result

@@ -23,10 +23,11 @@ from contextlib import asynccontextmanager
 
 from core.version import __version__
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from core.feature_flags import is_new_ux_enabled
+from core.ux_dispatch import serve_ux_page
 from fastapi.staticfiles import StaticFiles
 
 from core.database import init_db
@@ -496,6 +497,10 @@ app.include_router(analysis_routes.router)
 from api.routes import log_management as log_management_routes
 app.include_router(log_management_routes.router)
 
+# new-UX operator tooling: per-subsystem log level configuration
+from api.routes import log_levels as log_levels_routes
+app.include_router(log_levels_routes.router)
+
 # v0.33.1: LLM token-cost estimation subsystem
 app.include_router(llm_costs_routes.router)
 
@@ -538,72 +543,164 @@ async def _pipeline_alias(rest: str = ""):
 
 
 @app.get("/activity", include_in_schema=False)
-async def activity_page():
-    """Activity dashboard (admin/operator-only at the API layer; the
-    boot script redirects members to / on /api/me response).
-    """
-    return FileResponse("static/activity.html")
+async def activity_page(request: Request):
+    """Activity dashboard — per-user UX dispatch.
+    Members are redirected to / by the boot script on /api/me response."""
+    return serve_ux_page(request, "static/activity-new.html", "static/activity.html")
+
+
+@app.get("/search", include_in_schema=False)
+async def search_results_page(request: Request):
+    """Search results — per-user UX dispatch."""
+    return serve_ux_page(request, "static/search-new.html", "static/search.html")
+
+
+@app.get("/status", include_in_schema=False)
+async def status_page(request: Request):
+    """Active jobs / pipeline status — per-user UX dispatch."""
+    return serve_ux_page(request, "static/status-new.html", "static/status.html")
+
+
+@app.get("/history", include_in_schema=False)
+async def history_page(request: Request):
+    """Conversion history — per-user UX dispatch."""
+    return serve_ux_page(request, "static/history-new.html", "static/history.html")
+
+
+@app.get("/storage", include_in_schema=False)
+async def storage_page(request: Request):
+    """Storage management — per-user UX dispatch."""
+    return serve_ux_page(request, "static/storage-new.html", "static/storage.html")
+
+
+@app.get("/flagged", include_in_schema=False)
+async def flagged_page(request: Request):
+    """Flagged files — per-user UX dispatch."""
+    return serve_ux_page(request, "static/flagged-new.html", "static/flagged.html")
+
+
+@app.get("/bulk", include_in_schema=False)
+async def bulk_page(request: Request):
+    """Bulk jobs overview — per-user UX dispatch."""
+    return serve_ux_page(request, "static/bulk-new.html", "static/bulk.html")
+
+
+@app.get("/bulk/{job_id}", include_in_schema=False)
+async def bulk_detail_page(request: Request, job_id: str):
+    """Bulk job detail — new UX tabbed view (consolidates bulk-review + job-detail)."""
+    return serve_ux_page(request, "static/bulk-detail-new.html", "static/job-detail.html")
+
+
+@app.get("/operations", include_in_schema=False)
+async def operations_page(request: Request):
+    """Operations — new-UX consolidation of /status (Active Jobs) + /activity (Trends).
+    Original-UX users fall back to /status."""
+    return serve_ux_page(request, "static/operations-new.html", "static/status.html")
+
+
+@app.get("/pipeline-files", include_in_schema=False)
+async def pipeline_files_page(request: Request):
+    """Pipeline files drill-down — per-user UX dispatch."""
+    return serve_ux_page(request, "static/pipeline-files-new.html", "static/pipeline-files.html")
+
+
+@app.get("/viewer", include_in_schema=False)
+async def viewer_page(request: Request):
+    """Document viewer — per-user UX dispatch."""
+    return serve_ux_page(request, "static/viewer-new.html", "static/viewer.html")
+
+
+@app.get("/trash", include_in_schema=False)
+async def trash_page(request: Request):
+    """Trash queue — per-user UX dispatch."""
+    return serve_ux_page(request, "static/trash-new.html", "static/trash.html")
+
+
+@app.get("/unrecognized", include_in_schema=False)
+async def unrecognized_page(request: Request):
+    """Unrecognized files — per-user UX dispatch."""
+    return serve_ux_page(request, "static/unrecognized-new.html", "static/unrecognized.html")
+
+
+@app.get("/review", include_in_schema=False)
+async def review_page(request: Request):
+    """Review queue — per-user UX dispatch."""
+    return serve_ux_page(request, "static/review-new.html", "static/review.html")
+
+
+@app.get("/preview", include_in_schema=False)
+async def preview_page(request: Request):
+    """File preview — per-user UX dispatch."""
+    return serve_ux_page(request, "static/preview-new.html", "static/preview.html")
 
 
 # UX overhaul Plan 5: Settings overview + Storage detail
 @app.get("/settings", include_in_schema=False)
-async def settings_page():
-    """Settings overview card grid. New UX when ENABLE_NEW_UX=true."""
-    if is_new_ux_enabled():
-        return FileResponse("static/settings-new.html")
-    return FileResponse("static/settings.html")
+async def settings_page(request: Request):
+    """Settings overview card grid. Per-user UX pref via cookie."""
+    return serve_ux_page(request, "static/settings-new.html", "static/settings.html")
 
 
-@app.get("/settings/storage", include_in_schema=False)
-async def settings_storage_page():
-    """Storage detail page — sidebar + mounts/output view."""
-    return FileResponse("static/settings-storage.html")
+# Settings sub-pages are dispatched from a single table. Adding a new
+# sub-page is a one-line change here. v0.39.0 consolidation.
+_SETTINGS_PAGES = {
+    "storage":            "static/settings-storage.html",
+    "pipeline":           "static/settings-pipeline.html",
+    "ai-providers":       "static/settings-ai-providers.html",
+    "ai-providers/cost":  "static/settings-cost-cap.html",
+    "auth":               "static/settings-auth.html",
+    "notifications":      "static/settings-notifications.html",
+    "db-health":          "static/settings-db-health.html",
+    "log-management":     "static/settings-log-mgmt.html",
+    "appearance":         "static/settings-appearance.html",
+    "locations":          "static/settings-locations.html",
+    "admin":              "static/settings-admin.html",
+}
 
 
-@app.get("/settings/pipeline", include_in_schema=False)
-async def settings_pipeline_page():
-    return FileResponse("static/settings-pipeline.html")
-
-
-@app.get("/settings/ai-providers", include_in_schema=False)
-async def settings_ai_providers_page():
-    return FileResponse("static/settings-ai-providers.html")
-
-
-@app.get("/settings/auth", include_in_schema=False)
-async def settings_auth_page():
-    return FileResponse("static/settings-auth.html")
-
-
-@app.get("/settings/notifications", include_in_schema=False)
-async def settings_notifications_page():
-    return FileResponse("static/settings-notifications.html")
-
-
-@app.get("/settings/db-health", include_in_schema=False)
-async def settings_db_health_page():
-    return FileResponse("static/settings-db-health.html")
-
-
-@app.get("/settings/log-management", include_in_schema=False)
-async def settings_log_management_page():
-    return FileResponse("static/settings-log-mgmt.html")
-
-
-@app.get("/settings/ai-providers/cost", include_in_schema=False)
-async def settings_cost_cap_page():
-    return FileResponse("static/settings-cost-cap.html")
-
-
-@app.get("/settings/appearance", include_in_schema=False)
-async def settings_appearance_page():
-    return FileResponse("static/settings-appearance.html")
-
-
-@app.get("/settings/{section}", include_in_schema=False)
+@app.get("/settings/{section:path}", include_in_schema=False)
 async def settings_section_page(section: str):
-    """Future plans implement each section. Redirect to overview for now."""
+    """Serve a settings sub-page. Unknown sections redirect to /settings."""
+    page = _SETTINGS_PAGES.get(section)
+    if page:
+        return FileResponse(page)
     return RedirectResponse("/settings", status_code=302)
+
+# Per-user-dispatched operator pages: help, log viewer, log management, log levels.
+# /help, /log-viewer, /log-mgmt, /log-levels are the canonical paths; the
+# "-new" variants are kept as aliases so any existing bookmarks continue to work.
+
+@app.get("/help", include_in_schema=False)
+@app.get("/help-new", include_in_schema=False)
+@app.get("/help-new.html", include_in_schema=False)
+async def help_page(request: Request):
+    """Help wiki — dispatches to new-UX or original-UX based on user cookie."""
+    return serve_ux_page(request, "static/help-new.html", "static/help.html")
+
+
+@app.get("/log-viewer", include_in_schema=False)
+@app.get("/log-viewer-new", include_in_schema=False)
+@app.get("/log-viewer-new.html", include_in_schema=False)
+async def log_viewer_page(request: Request):
+    """Live log viewer — dispatches to new-UX or original-UX based on user cookie."""
+    return serve_ux_page(request, "static/log-viewer-new.html", "static/log-viewer.html")
+
+
+@app.get("/log-mgmt", include_in_schema=False)
+@app.get("/log-mgmt-new", include_in_schema=False)
+@app.get("/log-mgmt-new.html", include_in_schema=False)
+async def log_mgmt_page(request: Request):
+    """Log management — dispatches to new-UX or original-UX based on user cookie."""
+    return serve_ux_page(request, "static/log-mgmt-new.html", "static/log-management.html")
+
+
+@app.get("/log-levels", include_in_schema=False)
+@app.get("/log-levels-new", include_in_schema=False)
+@app.get("/log-levels-new.html", include_in_schema=False)
+async def log_levels_page(request: Request):
+    """Log levels — dispatches to new-UX or original-UX based on user cookie."""
+    return serve_ux_page(request, "static/log-levels-new.html", "static/log-viewer.html")
+
 
 log.info("markflow.all_routes_registered")
 
@@ -639,13 +736,17 @@ async def health_check():
     return await run_health_check()
 
 
+@app.get("/convert", include_in_schema=False)
+async def convert_page(request: Request):
+    """Serve the convert page. Per-user UX pref via cookie."""
+    return serve_ux_page(request, "static/convert-new.html", "static/index.html")
+
+
 # ── Root ──────────────────────────────────────────────────────────────────────
 @app.get("/", include_in_schema=False)
-async def root_index():
-    """Serve the home page. New UX rendered when ENABLE_NEW_UX=true."""
-    if is_new_ux_enabled():
-        return FileResponse("static/index-new.html")
-    return FileResponse("static/index.html")
+async def root_index(request: Request):
+    """Serve the home page. Per-user UX pref via cookie."""
+    return serve_ux_page(request, "static/index-new.html", "static/index.html")
 
 
 # ── Catch-all for SPA-style page navigation ───────────────────────────────────

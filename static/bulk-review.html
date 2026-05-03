@@ -21,23 +21,23 @@
   <style>
     .summary-bar { display: flex; gap: 1.5rem; flex-wrap: wrap; font-size: 0.9rem; margin-bottom: 1rem; }
     .summary-bar .count { font-weight: 700; }
-    .review-entry { padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
+    .review-entry { padding: 1rem 1.25rem; border-bottom: 1px solid var(--mf-border); }
     .review-entry:last-child { border-bottom: none; }
     .review-entry.resolved { opacity: 0.5; }
     .entry-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
-    .entry-filename { font-family: var(--font-mono); font-size: 0.9rem; font-weight: 500; }
-    .conf-bar-track { position: relative; height: 0.5rem; background: var(--surface-alt); border-radius: 0.25rem; margin: 0.5rem 0; max-width: 300px; }
+    .entry-filename { font-family: var(--mf-font-mono); font-size: 0.9rem; font-weight: 500; }
+    .conf-bar-track { position: relative; height: 0.5rem; background: var(--mf-surface-alt); border-radius: 0.25rem; margin: 0.5rem 0; max-width: 300px; }
     .conf-bar-fill { height: 100%; border-radius: 0.25rem; }
-    .conf-bar-track::after { content: ""; position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--text-muted); opacity: 0.6; }
-    .conf-label { font-size: 0.8rem; color: var(--text-muted); }
+    .conf-bar-track::after { content: ""; position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--mf-color-text-muted); opacity: 0.6; }
+    .conf-label { font-size: 0.8rem; color: var(--mf-color-text-muted); }
     .entry-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
-    .entry-status { font-size: 0.8rem; font-weight: 600; padding: 0.1em 0.4em; border-radius: var(--radius-sm); }
-    .entry-status.converted { background: rgba(22,163,74,0.12); color: var(--ok); }
-    .entry-status.skipped { background: rgba(107,112,132,0.12); color: var(--text-muted); }
-    .entry-status.converting { background: rgba(79,91,213,0.12); color: var(--accent); }
+    .entry-status { font-size: 0.8rem; font-weight: 600; padding: 0.1em 0.4em; border-radius: var(--mf-radius-sm); }
+    .entry-status.converted { background: rgba(22,163,74,0.12); color: var(--mf-color-success); }
+    .entry-status.skipped { background: rgba(107,112,132,0.12); color: var(--mf-color-text-muted); }
+    .entry-status.converting { background: rgba(79,91,213,0.12); color: var(--mf-color-accent); }
     .filter-row { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1rem; }
     .bulk-actions { display: flex; gap: 0.75rem; margin-bottom: 1rem; }
-    .empty-review { text-align: center; padding: 3rem 1rem; color: var(--text-muted); }
+    .empty-review { text-align: center; padding: 3rem 1rem; color: var(--mf-color-text-muted); }
   </style>
 </head>
 <body>
@@ -62,7 +62,7 @@
     </div>
 
     <div class="filter-row">
-      <select id="filter-status" style="padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text)">
+      <select id="filter-status" style="padding:0.4rem 0.6rem;border:1px solid var(--mf-border);border-radius:var(--mf-radius-sm);background:var(--mf-surface);color:var(--mf-color-text)">
         <option value="pending">Pending</option>
         <option value="">All</option>
         <option value="converted">Converted</option>
@@ -279,5 +279,7 @@
   // Initial load
   loadQueue();
   </script>
+  <script src="/static/js/components/ux-fallback.js"></script>
+  <script>MFNewUxFallback.flag();</script>
 </body>
 </html>

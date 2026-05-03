@@ -25,14 +25,14 @@
       { id: 'convert',  label: 'Convert',  href: '/convert' }
     ],
     operator: [
-      { id: 'search',   label: 'Search',   href: '/' },
-      { id: 'activity', label: 'Activity', href: '/activity' },
-      { id: 'convert',  label: 'Convert',  href: '/convert' }
+      { id: 'search',     label: 'Search',     href: '/' },
+      { id: 'operations', label: 'Operations', href: '/operations' },
+      { id: 'convert',    label: 'Convert',    href: '/convert' }
     ],
     admin:    [
-      { id: 'search',   label: 'Search',   href: '/' },
-      { id: 'activity', label: 'Activity', href: '/activity' },
-      { id: 'convert',  label: 'Convert',  href: '/convert' }
+      { id: 'search',     label: 'Search',     href: '/' },
+      { id: 'operations', label: 'Operations', href: '/operations' },
+      { id: 'convert',    label: 'Convert',    href: '/convert' }
     ]
   };
 
@@ -63,7 +63,10 @@
     logo.appendChild(makeSlot('version-chip'));
     root.appendChild(logo);
 
-    // Link bar.
+    // Link bar. Server-side per-user dispatch (core/ux_dispatch.py) routes /
+    // and /convert to the correct HTML file based on the mf_use_new_ux cookie,
+    // so plain href values work in both UX modes. No client-side URL override
+    // needed here.
     var linkBar = document.createElement('div');
     linkBar.className = 'mf-nav__links';
     for (var i = 0; i < links.length; i++) {

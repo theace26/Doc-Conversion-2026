@@ -72,10 +72,10 @@
         <input type="file" id="folder-input" webkitdirectory directory style="display:none">
       </div>
       <!-- Skipped files log (shown when folder drop contains unsupported files) -->
-      <div id="skipped-log" hidden class="mt-1" style="max-height:150px;overflow-y:auto;background:var(--surface-alt,#f8f8f8);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.5rem">
+      <div id="skipped-log" hidden class="mt-1" style="max-height:150px;overflow-y:auto;background:var(--mf-surface-alt);border:1px solid var(--mf-border);border-radius:var(--mf-radius-sm);padding:0.5rem">
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <span class="text-sm" style="font-weight:600;color:var(--warn)">Skipped files (unsupported format)</span>
-          <a href="#" id="dismiss-skipped" class="text-sm" style="color:var(--text-muted)">dismiss</a>
+          <span class="text-sm" style="font-weight:600;color:var(--mf-color-warn)">Skipped files (unsupported format)</span>
+          <a href="#" id="dismiss-skipped" class="text-sm" style="color:var(--mf-color-text-muted)">dismiss</a>
         </div>
         <ul id="skipped-list" class="text-sm text-muted" style="list-style:none;padding:0;margin:0.4rem 0 0"></ul>
       </div>
@@ -111,17 +111,17 @@
 
       <!-- Conversion options (shown on Convert click) -->
       <details id="convert-options" style="margin-bottom:1rem">
-        <summary style="cursor:pointer;font-weight:600;font-size:0.9rem;color:var(--text-muted)">Conversion Options</summary>
+        <summary style="cursor:pointer;font-weight:600;font-size:0.9rem;color:var(--mf-color-text-muted)">Conversion Options</summary>
         <p class="text-sm text-muted" style="margin:0.5rem 0 0;font-style:italic">These options apply to this session only and will revert to defaults when your session expires.</p>
         <div style="display:grid;grid-template-columns:140px 1fr;gap:0.5rem 0.75rem;align-items:center;padding:0.75rem 0;font-size:0.85rem">
           <label for="cv-fidelity" style="font-weight:500">Fidelity tier</label>
-          <select id="cv-fidelity" style="padding:0.35rem 0.55rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:0.85rem">
+          <select id="cv-fidelity" style="padding:0.35rem 0.55rem;border:1px solid var(--mf-border);border-radius:var(--mf-radius-sm);background:var(--mf-surface);color:var(--mf-color-text);font-size:0.85rem">
             <option value="1">Tier 1 (structure)</option>
             <option value="2" selected>Tier 2 (styles)</option>
             <option value="3">Tier 3 (original patch)</option>
           </select>
           <label for="cv-ocr-mode" style="font-weight:500">OCR mode</label>
-          <select id="cv-ocr-mode" style="padding:0.35rem 0.55rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:0.85rem">
+          <select id="cv-ocr-mode" style="padding:0.35rem 0.55rem;border:1px solid var(--mf-border);border-radius:var(--mf-radius-sm);background:var(--mf-surface);color:var(--mf-color-text);font-size:0.85rem">
             <option value="auto" selected>Auto-detect</option>
             <option value="force">Force OCR</option>
             <option value="skip">Skip OCR</option>
@@ -340,7 +340,7 @@
         ${formatBadge(f.name.split('.').pop())}
         <span class="text-mono text-sm">${f.name}</span>
         <span class="text-sm text-muted">(${formatBytes(f.size)})</span>
-        <a href="#" onclick="removeFile(${i});return false" style="color:var(--error);font-size:0.85rem">&#x2715;</a>
+        <a href="#" onclick="removeFile(${i});return false" style="color:var(--mf-color-error);font-size:0.85rem">&#x2715;</a>
       </li>`
     ).join('');
     document.getElementById('btn-preview').disabled = false;

@@ -46,7 +46,7 @@
       h.appendChild(title);
       var kbd = el('div', 'mf-layout-pop__kbd');
       var k = el('kbd');
-      k.textContent = '⌘\\';
+      k.textContent = (navigator.platform.toUpperCase().indexOf('MAC') >= 0 ? '⌘' : 'Ctrl+') + '\\';
       kbd.appendChild(k);
       kbd.appendChild(document.createTextNode(' to cycle'));
       h.appendChild(kbd);

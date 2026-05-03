@@ -1,5 +1,5 @@
 /* MarkFlow theme overrides — CSS custom property blocks keyed by data-theme.
-   Loaded via @import in components.css. Font + text-scale blocks also here.
+   Loaded via @import in components.css and markflow.css. Font + text-scale blocks also here.
    Spec: docs/superpowers/specs/2026-04-30-theme-ux-toggle-display-prefs-design.md §5
 */
 
@@ -24,6 +24,11 @@
   --mf-color-text-faint:    #606078;
   --mf-shadow-card:         0 1px 0 rgba(0,0,0,0.4), 0 24px 48px -24px rgba(0,0,0,0.6);
   --mf-btn-bg:              linear-gradient(135deg,#7c5ff8,#9d80ff);
+  --mf-surface-alt:         #232638;
+  --mf-color-accent-hover:  #8189e8;
+  --mf-color-info:          #60a5fa;
+  --mf-shadow-press:        0 1px 3px rgba(0,0,0,.3);
+  --mf-shadow-popover:      0 4px 12px rgba(0,0,0,.4);
 }
 
 [data-theme="cobalt"] {
@@ -155,7 +160,6 @@
   --mf-color-accent-border: rgba(124,58,237,0.35);
   --mf-color-text:          #f5f5ff;
   --mf-color-text-soft:     #a0a8d0;
-  --mf-color-text-muted:    #5c6494;
   --mf-color-text-faint:    #3c4474;
   --mf-shadow-card:         0 2px 12px rgba(124,58,237,0.18), 0 24px 48px -24px rgba(0,0,0,0.8);
   --mf-btn-bg:              linear-gradient(135deg,#7c3aed,#a855f7);
@@ -174,7 +178,6 @@
   --mf-color-accent-border: rgba(0,212,170,0.30);
   --mf-color-text:          #e0f5f0;
   --mf-color-text-soft:     #80c0b8;
-  --mf-color-text-muted:    #406060;
   --mf-color-text-faint:    #2a4848;
   --mf-shadow-card:         0 2px 12px rgba(0,212,170,0.12), 0 24px 48px -24px rgba(0,0,0,0.8);
   --mf-btn-bg:              linear-gradient(135deg,#00d4aa,#00f5d4);
@@ -193,7 +196,6 @@
   --mf-color-accent-border: rgba(240,160,0,0.30);
   --mf-color-text:          #e0f0ff;
   --mf-color-text-soft:     #90b8d8;
-  --mf-color-text-muted:    #405880;
   --mf-color-text-faint:    #2a4060;
   --mf-shadow-card:         0 2px 12px rgba(240,160,0,0.12), 0 24px 48px -24px rgba(0,0,0,0.8);
   --mf-btn-bg:              linear-gradient(135deg,#f0a000,#f5c800);
@@ -212,7 +214,6 @@
   --mf-color-accent-border: rgba(212,160,32,0.30);
   --mf-color-text:          #ffe0e8;
   --mf-color-text-soft:     #c090a0;
-  --mf-color-text-muted:    #804060;
   --mf-color-text-faint:    #603050;
   --mf-shadow-card:         0 2px 12px rgba(212,160,32,0.10), 0 24px 48px -24px rgba(0,0,0,0.8);
   --mf-btn-bg:              linear-gradient(135deg,#d4a020,#f0c040);
@@ -231,7 +232,6 @@
   --mf-color-accent-border: rgba(64,128,255,0.30);
   --mf-color-text:          #e0e8ff;
   --mf-color-text-soft:     #9098c0;
-  --mf-color-text-muted:    #505880;
   --mf-color-text-faint:    #344060;
   --mf-shadow-card:         0 2px 12px rgba(64,128,255,0.12), 0 24px 48px -24px rgba(0,0,0,0.8);
   --mf-btn-bg:              linear-gradient(135deg,#4080ff,#60a0ff);
@@ -250,7 +250,6 @@
   --mf-color-accent-border: rgba(255,104,32,0.30);
   --mf-color-text:          #e0f0e0;
   --mf-color-text-soft:     #80b880;
-  --mf-color-text-muted:    #406040;
   --mf-color-text-faint:    #2a4830;
   --mf-shadow-card:         0 2px 12px rgba(255,104,32,0.10), 0 24px 48px -24px rgba(0,0,0,0.8);
   --mf-btn-bg:              linear-gradient(135deg,#ff6820,#ff9040);
@@ -269,7 +268,6 @@
   --mf-color-accent-border: rgba(224,64,251,0.30);
   --mf-color-text:          #f5f5f5;
   --mf-color-text-soft:     #b0b0b0;
-  --mf-color-text-muted:    #606060;
   --mf-color-text-faint:    #404040;
   --mf-shadow-card:         0 2px 12px rgba(224,64,251,0.12), 0 24px 48px -24px rgba(0,0,0,0.9);
   --mf-btn-bg:              linear-gradient(135deg,#e040fb,#f060ff);
@@ -288,7 +286,6 @@
   --mf-color-accent-border: rgba(64,192,248,0.30);
   --mf-color-text:          #fff0e0;
   --mf-color-text-soft:     #c0a080;
-  --mf-color-text-muted:    #806040;
   --mf-color-text-faint:    #605030;
   --mf-shadow-card:         0 2px 12px rgba(64,192,248,0.10), 0 24px 48px -24px rgba(0,0,0,0.8);
   --mf-btn-bg:              linear-gradient(135deg,#40c0f8,#60d8ff);
@@ -543,7 +540,6 @@
   --mf-color-accent-border: rgba(240,128,160,0.30);
   --mf-color-text:          #f0ffe8;
   --mf-color-text-soft:     #90c880;
-  --mf-color-text-muted:    #406040;
   --mf-color-text-faint:    #2a4830;
   --mf-shadow-card:         0 2px 12px rgba(240,128,160,0.10), 0 24px 48px -24px rgba(0,0,0,0.8);
   --mf-btn-bg:              linear-gradient(135deg,#f080a0,#f8b0c0);
@@ -562,7 +558,6 @@
   --mf-color-accent-border: rgba(255,104,96,0.30);
   --mf-color-text:          #e0f8ff;
   --mf-color-text-soft:     #70c8e8;
-  --mf-color-text-muted:    #306080;
   --mf-color-text-faint:    #1c4860;
   --mf-shadow-card:         0 2px 12px rgba(255,104,96,0.10), 0 24px 48px -24px rgba(0,0,0,0.8);
   --mf-btn-bg:              linear-gradient(135deg,#ff6860,#ff9080);
@@ -581,7 +576,6 @@
   --mf-color-accent-border: rgba(224,160,0,0.30);
   --mf-color-text:          #fff0e0;
   --mf-color-text-soft:     #d0a060;
-  --mf-color-text-muted:    #806030;
   --mf-color-text-faint:    #605020;
   --mf-shadow-card:         0 2px 12px rgba(224,160,0,0.10), 0 24px 48px -24px rgba(0,0,0,0.8);
   --mf-btn-bg:              linear-gradient(135deg,#e0a000,#f0c820);
@@ -600,7 +594,6 @@
   --mf-color-accent-border: rgba(200,232,255,0.30);
   --mf-color-text:          #e8f4ff;
   --mf-color-text-soft:     #80a8cc;
-  --mf-color-text-muted:    #406080;
   --mf-color-text-faint:    #2a4860;
   --mf-shadow-card:         0 2px 12px rgba(200,232,255,0.06), 0 24px 48px -24px rgba(0,0,0,0.9);
   --mf-btn-bg:              linear-gradient(135deg,#406080,#c8e8ff);
@@ -608,8 +601,6 @@
 
 /* ─── Fonts ──────────────────────────────────────────────────────────────── */
 
-[data-font="inter"]           { --mf-font-family: 'Inter', system-ui, sans-serif; }
-[data-font="ibm-plex-sans"]   { --mf-font-family: 'IBM Plex Sans', system-ui, sans-serif; }
 [data-font="roboto"]          { --mf-font-family: 'Roboto', system-ui, sans-serif; }
 [data-font="source-sans-3"]   { --mf-font-family: 'Source Sans 3', system-ui, sans-serif; }
 [data-font="lato"]            { --mf-font-family: 'Lato', system-ui, sans-serif; }
@@ -618,9 +609,8 @@
 [data-font="nunito"]          { --mf-font-family: 'Nunito', system-ui, sans-serif; }
 [data-font="playfair-display"]{ --mf-font-family: 'Playfair Display', Georgia, serif; }
 [data-font="raleway"]         { --mf-font-family: 'Raleway', system-ui, sans-serif; }
-[data-font="poppins"]         { --mf-font-family: 'Poppins', system-ui, sans-serif; }
-[data-font="dm-sans"]         { --mf-font-family: 'DM Sans', system-ui, sans-serif; }
 [data-font="crimson-pro"]     { --mf-font-family: 'Crimson Pro', Georgia, serif; }
+[data-font="comic-sans"]      { --mf-font-family: 'Comic Sans MS', 'Chalkboard SE', cursive; }
 
 /* ─── Text scale ─────────────────────────────────────────────────────────── */
 
@@ -628,3 +618,8 @@
 [data-text-scale="large"]  { --mf-text-scale: 1.18; }
 [data-text-scale="xl"]     { --mf-text-scale: 1.36; }
 /* default (1.0) is :root — no override block needed */
+
+/* ─── Root font-size (drives text-scale) ─────────────────────────────────── */
+/* Single source of truth for text-scale propagation. Every page that loads
+   this stylesheet (which is all of them, after Phase 0) inherits this rule. */
+html { font-size: calc(16px * var(--mf-text-scale, 1)); -webkit-font-smoothing: antialiased; }

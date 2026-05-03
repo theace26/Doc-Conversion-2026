@@ -49,7 +49,7 @@
     if (payload.q) qs.set('q', payload.q);
     if (payload.format) qs.set('format', payload.format);
     if (payload.when) qs.set('when', payload.when);
-    window.location.href = '/static/search.html' + (qs.toString() ? '?' + qs : '');
+    window.location.href = '/search' + (qs.toString() ? '?' + qs : '');
   }
 
   // === Layout renderers ===
@@ -118,7 +118,7 @@
     var wrap = el('div', 'mf-recent-chips');
     queries.forEach(function (q) {
       var chip = el('a', 'mf-recent-chip');
-      chip.href = '/static/search.html?q=' + encodeURIComponent(q);
+      chip.href = '/search?q=' + encodeURIComponent(q);
       var icon = el('span', 'mf-recent-chip__icon');
       icon.textContent = '⚲';   // search-glyph-ish dingbat
       chip.appendChild(icon);
@@ -191,7 +191,7 @@
   function addTopicsRow(rows) {
     var slot = el('div');
     var cloud = MFTopicCloud.build(MFSampleRows.topics, function (t) {
-      window.location.href = '/static/search.html?topic=' + encodeURIComponent(t.name);
+      window.location.href = '/search?topic=' + encodeURIComponent(t.name);
     });
     MFBrowseRow.mount(slot, {
       title: 'Browse by topic',

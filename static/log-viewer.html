@@ -29,32 +29,32 @@
       align-items: center;
       gap: 0.5rem;
       padding: 0.65rem 1rem;
-      background: var(--bg-secondary, #1a1a2e);
-      border-bottom: 1px solid var(--border, #2b2b3f);
+      background: var(--mf-surface-soft);
+      border-bottom: 1px solid var(--mf-border);
     }
-    .lv-controls label { font-size: 0.82rem; color: var(--text-muted, #aaa); }
+    .lv-controls label { font-size: 0.82rem; color: var(--mf-color-text-muted); }
     .lv-controls select, .lv-controls input[type="text"], .lv-controls input[type="number"] {
-      padding: 0.25rem 0.5rem; background: var(--surface, #161624);
-      color: var(--text, #eee); border: 1px solid var(--border, #2b2b3f);
-      border-radius: var(--radius-sm, 4px); font: inherit; font-size: 0.85rem;
+      padding: 0.25rem 0.5rem; background: var(--mf-surface);
+      color: var(--mf-color-text); border: 1px solid var(--mf-border);
+      border-radius: var(--mf-radius-sm); font: inherit; font-size: 0.85rem;
     }
     .lv-controls input[type="text"] { min-width: 220px; }
     .lv-controls input[type="datetime-local"] {
-      padding: 0.25rem 0.5rem; background: var(--surface, #161624);
-      color: var(--text, #eee); border: 1px solid var(--border, #2b2b3f);
-      border-radius: var(--radius-sm, 4px); font: inherit; font-size: 0.85rem;
+      padding: 0.25rem 0.5rem; background: var(--mf-surface);
+      color: var(--mf-color-text); border: 1px solid var(--mf-border);
+      border-radius: var(--mf-radius-sm); font: inherit; font-size: 0.85rem;
       color-scheme: dark;
     }
     .lv-controls .chip {
       display: inline-flex; align-items: center; gap: 0.3rem;
       padding: 0.2rem 0.55rem; border-radius: 999px;
-      background: var(--surface, #161624); border: 1px solid var(--border, #2b2b3f);
+      background: var(--mf-surface); border: 1px solid var(--mf-border);
       font-size: 0.8rem; cursor: pointer; user-select: none;
     }
     .lv-controls .chip input { margin: 0; }
     .lv-controls .chip.preset {
-      background: var(--surface, #161624);
-      border-color: var(--border, #2b2b3f);
+      background: var(--mf-surface);
+      border-color: var(--mf-border);
     }
     .lv-controls .chip.preset:hover { background: rgba(255,255,255,0.06); }
     .lv-controls .spacer { flex: 1; }
@@ -73,11 +73,11 @@
     .lv-time-row {
       display: none; flex-wrap: wrap; align-items: center; gap: 0.5rem;
       padding: 0.5rem 1rem;
-      background: var(--bg-secondary, #1a1a2e);
-      border-bottom: 1px solid var(--border, #2b2b3f);
+      background: var(--mf-surface-soft);
+      border-bottom: 1px solid var(--mf-border);
     }
     .lv-time-row.active { display: flex; }
-    .lv-status { font-size: 0.78rem; color: var(--text-muted, #aaa); font-family: ui-monospace, monospace; }
+    .lv-status { font-size: 0.78rem; color: var(--mf-color-text-muted); font-family: ui-monospace, monospace; }
     .lv-body { flex: 1; overflow: auto; background: #0b0b14; padding: 0.5rem 0; font-family: ui-monospace, monospace; font-size: 0.82rem; }
     .lv-line {
       padding: 0.15rem 1rem; white-space: pre-wrap; word-break: break-word;
@@ -95,17 +95,17 @@
     .lv-line .logger { color: #c4b5fd; margin-right: 0.75rem; }
     .lv-line .msg { color: inherit; }
     .lv-line .kv { color: #86efac; margin-left: 0.5rem; }
-    .lv-empty { padding: 2rem; text-align: center; color: var(--text-muted, #aaa); }
+    .lv-empty { padding: 2rem; text-align: center; color: var(--mf-color-text-muted); }
     /* v0.31.0: multi-log tabbed live view */
     .lv-tabs {
       flex: 0 0 auto; display: flex; align-items: center; gap: 0.25rem;
-      padding: 0.4rem 0.6rem; background: var(--bg-secondary, #1a1a2e);
-      border-bottom: 1px solid var(--border, #2b2b3f); overflow-x: auto;
+      padding: 0.4rem 0.6rem; background: var(--mf-surface-soft);
+      border-bottom: 1px solid var(--mf-border); overflow-x: auto;
     }
     .lv-tab {
       display: inline-flex; align-items: center; gap: 0.4rem;
-      padding: 0.3rem 0.6rem; background: var(--surface, #161624);
-      border: 1px solid var(--border, #2b2b3f); border-radius: var(--radius-sm, 4px);
+      padding: 0.3rem 0.6rem; background: var(--mf-surface);
+      border: 1px solid var(--mf-border); border-radius: var(--mf-radius-sm);
       font-size: 0.82rem; cursor: pointer; user-select: none; white-space: nowrap;
     }
     .lv-tab.active { border-color: #60a5fa; background: rgba(96,165,250,0.10); }
@@ -116,13 +116,13 @@
     .lv-tab .lv-tab-dot.connected { background: #22c55e; }
     .lv-tab .lv-tab-dot.disconnected { background: #ef4444; }
     .lv-tab .lv-tab-close {
-      background: none; border: none; color: var(--text-muted, #aaa);
+      background: none; border: none; color: var(--mf-color-text-muted);
       font-size: 0.95rem; cursor: pointer; padding: 0 0.15rem; line-height: 1;
     }
     .lv-tab .lv-tab-close:hover { color: #fca5a5; }
     .lv-tab.add-btn {
-      background: none; border: 1px dashed var(--border, #2b2b3f);
-      color: var(--text-muted, #aaa);
+      background: none; border: 1px dashed var(--mf-border);
+      color: var(--mf-color-text-muted);
     }
     .lv-bodies { flex: 1; position: relative; overflow: hidden; }
     .lv-tab-body { position: absolute; inset: 0; overflow: auto;
@@ -132,8 +132,8 @@
     }
     .lv-tab-body.active { display: block; }
     .lv-add-menu {
-      position: absolute; z-index: 50; background: var(--surface, #161624);
-      border: 1px solid var(--border, #2b2b3f); border-radius: var(--radius-sm, 4px);
+      position: absolute; z-index: 50; background: var(--mf-surface);
+      border: 1px solid var(--mf-border); border-radius: var(--mf-radius-sm);
       max-height: 60vh; overflow: auto; padding: 0.3rem; min-width: 280px;
       box-shadow: 0 6px 20px rgba(0,0,0,0.4);
     }
@@ -1012,5 +1012,7 @@
       bootstrap();
     })();
   </script>
+  <script src="/static/js/components/ux-fallback.js"></script>
+  <script>MFNewUxFallback.flag();</script>
 </body>
 </html>

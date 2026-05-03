@@ -47,6 +47,7 @@
       current: MFPrefs.get('layout') || 'minimal',
       onChoose: function (mode) {
         MFPrefs.set('layout', mode);
+        layoutPop.setCurrent(mode);  // sync popover UI; otherwise highlight reverts
         MFTelemetry.emit('ui.layout_mode_selected', { mode: mode, source: 'popover' });
       },
     });
@@ -77,8 +78,31 @@
     });
 
     var homeHandle = MFSearchHome.mount(homeRoot, {
-      systemStatus: 'All systems running · 12,847 indexed',
+      systemStatus: 'All systems running',  // updated below from /api/search/index/status
     });
+
+    // Replace placeholder with the real indexed-document count.
+    fetch('/api/search/index/status', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) return;
+        var docCount = (data.documents && data.documents.document_count) || 0;
+        var adobeCount = (data.adobe_files && data.adobe_files.document_count) || 0;
+        var transcriptCount = (data.transcripts && data.transcripts.document_count) || 0;
+        var total = docCount + adobeCount + transcriptCount;
+        var label = total
+          ? 'All systems running · ' + total.toLocaleString() + ' indexed'
+          : 'All systems running';
+        var pulse = homeRoot.querySelector('.mf-pulse');
+        if (pulse) {
+          // Preserve the dot span; replace only the trailing text node.
+          while (pulse.lastChild && pulse.lastChild.nodeType === 3) {
+            pulse.removeChild(pulse.lastChild);
+          }
+          pulse.appendChild(document.createTextNode(' ' + label));
+        }
+      })
+      .catch(function () { /* silent — placeholder remains */ });
 
     // Show onboarding overlay for first-time users
     if (!MFPrefs.get('onboarding_done')) {
@@ -90,9 +114,11 @@
         },
         onComplete: function () {
           MFPrefs.set('onboarding_done', '1');
+          if (MFPrefs.flush) MFPrefs.flush();  // server PUT now, not after 500ms debounce
         },
         onSkip: function () {
           MFPrefs.set('onboarding_done', '1');
+          if (MFPrefs.flush) MFPrefs.flush();  // server PUT now; otherwise refresh re-shows onboarding
         },
       });
     }
