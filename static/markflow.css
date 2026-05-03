@@ -97,7 +97,7 @@ small, .text-sm { font-size: var(--mf-text-base); }
   background: var(--mf-surface);
   border: 1px solid var(--mf-border);
   border-radius: var(--mf-radius-thumb);
-  box-shadow: var(--mf-shadow-press);
+  box-shadow: var(--mf-shadow-card);
   padding: 1.5rem;
   margin-bottom: 1.5rem;
 }
