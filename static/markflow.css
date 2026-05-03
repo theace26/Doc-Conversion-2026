@@ -1533,8 +1533,12 @@ html[data-theme="classic-dark"] .db-tool-error { background: #3b1010; color: #ef
 }
 /* Paragraphs fill the available width — user prefers wide-screen reading
    over the conventional 75ch line-length cap. */
-.help-content h1 { font-size: var(--mf-text-h1); font-weight: 700; margin-bottom: 0.5rem; }
-.help-content h2 { font-size: var(--mf-text-h2); font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--mf-border); display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+.help-content h1 { font-size: var(--mf-text-h1); font-weight: 700; margin-bottom: 0.5rem; scroll-margin-top: 1.5rem; }
+.help-content h2 { font-size: var(--mf-text-h2); font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--mf-border); display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; scroll-margin-top: 1.5rem; }
+/* h3 needs scroll-margin-top too so anchor jumps to a sub-section land
+   with the heading visible (not buried behind the previous paragraph). */
+.help-content h3 { scroll-margin-top: 1.5rem; }
+.help-content h4 { scroll-margin-top: 1.5rem; }
 .help-content h2 .back-to-top {
   font-size: var(--mf-text-xs);
   font-weight: 400;
