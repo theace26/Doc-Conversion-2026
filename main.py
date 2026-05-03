@@ -579,6 +579,18 @@ async def flagged_page(request: Request):
     return serve_ux_page(request, "static/flagged-new.html", "static/flagged.html")
 
 
+@app.get("/bulk", include_in_schema=False)
+async def bulk_page(request: Request):
+    """Bulk jobs overview — per-user UX dispatch."""
+    return serve_ux_page(request, "static/bulk-new.html", "static/bulk.html")
+
+
+@app.get("/bulk/{job_id}", include_in_schema=False)
+async def bulk_detail_page(request: Request, job_id: str):
+    """Bulk job detail — new UX tabbed view (consolidates bulk-review + job-detail)."""
+    return serve_ux_page(request, "static/bulk-detail-new.html", "static/job-detail.html")
+
+
 # UX overhaul Plan 5: Settings overview + Storage detail
 @app.get("/settings", include_in_schema=False)
 async def settings_page(request: Request):

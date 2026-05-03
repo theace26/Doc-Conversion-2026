@@ -65,11 +65,13 @@ The shortest path: copy `docs/templates/new-ux-page.html` + `new-ux-page-boot.js
 | `/activity` | `original-only` | — | `activity.html` | `/api/activity/*`, `/api/me` | No new-UX yet; route in main.py; ux-fallback injected |
 | `/status.html` | `original-only` | — | `status.html` | `/api/admin/active-jobs`, `/api/pipeline/stats`, `/api/health` | Catch-all; ux-fallback injected |
 | `/history.html` | `original-only` | — | `history.html` | `/api/history` | Catch-all; ux-fallback injected |
-| `/bulk.html` | `original-only` | — | `bulk.html` | `/api/bulk/jobs/*` | Catch-all; ux-fallback injected |
-| `/bulk-review.html` | `original-only` | — | `bulk-review.html` | `/api/bulk/*` | Catch-all; ux-fallback injected |
+| `/bulk` | `both` | `bulk-new.html` | `bulk.html` | `/api/bulk/jobs` | Server-dispatched; new-UX overview list with filter/sort/pagination |
+| `/bulk/{id}` | `both` | `bulk-detail-new.html` | `job-detail.html` | `/api/bulk/jobs/{id}`, `/api/bulk/jobs/{id}/files`, `/api/bulk/jobs/{id}/errors`, `/api/bulk/jobs/{id}/stream` | Server-dispatched; new-UX tabbed detail (Overview + Files + Errors + Log); consolidates job-detail + bulk-review |
+| `/bulk.html` | `original-only` | — | `bulk.html` | `/api/bulk/jobs/*` | Catch-all; ux-fallback injected; backwards-compat kept |
+| `/bulk-review.html` | `original-only` | — | `bulk-review.html` | `/api/bulk/*` | Catch-all; ux-fallback injected; consolidated into `/bulk/{id}` Files tab in new UX (original-only kept for backwards compat) |
+| `/job-detail.html` | `original-only` | — | `job-detail.html` | `/api/bulk/jobs/*` | Catch-all; ux-fallback injected; consolidated into `/bulk/{id}` in new UX (original-only kept for backwards compat) |
 | `/batch-management.html` | `original-only` | — | `batch-management.html` | `/api/batch/*` | Catch-all; ux-fallback injected |
 | `/progress.html` | `original-only` | — | `progress.html` | `/api/convert/progress/*` | Catch-all; ux-fallback injected |
-| `/job-detail.html` | `original-only` | — | `job-detail.html` | `/api/bulk/jobs/*` | Catch-all; ux-fallback injected |
 
 ---
 

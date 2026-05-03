@@ -28,6 +28,7 @@
   // ID -> URL for original UX (bare-named pages). Items not in the map fall
   // through to the "coming soon" toast.
   var URLS_ORIGINAL = {
+    'bulk':         '/bulk.html',
     'storage':      '/storage.html',
     'pipeline':     '/pipeline-files.html',
     'ai':           '/providers.html',
@@ -40,6 +41,7 @@
   // ID -> URL for new UX. Canonical server-dispatched paths where available;
   // direct .html paths for pages that are new-UX-only and not yet dispatched.
   var URLS_NEW = {
+    'bulk':          '/bulk',
     'notifications': '/settings/notifications',
     'storage':       '/settings/storage',
     'pipeline':      '/settings/pipeline',
