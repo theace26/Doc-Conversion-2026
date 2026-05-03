@@ -33,8 +33,17 @@ _HEADING_RE = re.compile(r'<(h[1-4])>([^<]+)</\1>')
 
 
 def _slugify(text: str) -> str:
-    """Lowercase, replace runs of non-alphanumeric chars with single hyphen, strip leading/trailing hyphens."""
-    s = re.sub(r'[^a-zA-Z0-9]+', '-', text.strip().lower())
+    """GitHub-flavored slugify: lowercase, STRIP non-alphanumeric/space/hyphen
+    punctuation, then replace whitespace runs with single hyphen. Preserves
+    consecutive-hyphen runs that arise when interior punctuation gets stripped
+    (e.g., 'Search + AI Assist' -> 'search  ai assist' -> 'search--ai-assist').
+    Matches the slug format markdown authors write in [Title](#anchor) links."""
+    s = text.strip().lower()
+    # Strip punctuation/symbols; preserve only alphanumerics, spaces, hyphens, underscores
+    s = re.sub(r'[^a-z0-9 _-]+', '', s)
+    # Collapse whitespace runs to a single hyphen
+    s = re.sub(r'\s+', '-', s)
+    # Trim leading/trailing hyphens (interior runs intentionally kept)
     return s.strip('-')
 
 

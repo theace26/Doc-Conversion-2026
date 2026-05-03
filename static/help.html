@@ -302,6 +302,34 @@
     }
 
     // ── Copy buttons for code blocks ─────────────────────────────────────
+    // ── Back-to-top links ───────────────────────────────────────────────
+    // Appends a small "↑ top" link in the right margin of each h2 so users
+    // can jump back to the article top without scrolling — particularly
+    // helpful on long articles like developer-reference.
+    function addBackToTopLinks() {
+      var content = document.getElementById('help-content');
+      var headings = content.querySelectorAll('h2[id]');
+      Array.prototype.forEach.call(headings, function(h2) {
+        // Skip if h2 already has a back-to-top link (re-render guard)
+        if (h2.querySelector('.back-to-top')) return;
+        // Skip the auto-Related section's heading and the "Contents" h2 (already at top)
+        var hid = h2.getAttribute('id');
+        if (hid === 'related-topics' || hid === 'contents') return;
+
+        var link = document.createElement('a');
+        link.className = 'back-to-top';
+        link.href = '#';
+        link.title = 'Back to top';
+        link.textContent = '↑ top';
+        link.addEventListener('click', function(e) {
+          e.preventDefault();
+          content.scrollTo({top: 0, behavior: 'smooth'});
+          history.replaceState(null, '', '#' + currentSlug);
+        });
+        h2.appendChild(link);
+      });
+    }
+
     function addCopyButtons() {
       var content = document.getElementById('help-content');
       var blocks = content.querySelectorAll('pre');
@@ -381,6 +409,7 @@
         renderInPageTOC(slug);
         renderRelatedTopics(slug);
         addCopyButtons();
+        addBackToTopLinks();
       } catch (e) {
         content.innerHTML = '<h1>Article Not Found</h1><p>The help article "' + slug + '" doesn\'t exist yet.</p>' +
           '<p><a href="#getting-started">Go to Getting Started</a></p>';
