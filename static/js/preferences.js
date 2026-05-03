@@ -10,7 +10,13 @@
  *   await MFPrefs.setMany({layout:'recent', density:'compact'});
  *   var unsub = MFPrefs.subscribe('layout', function(v) { ... });
  *
- * Safe DOM: this module touches no DOM.
+ * New prefs (v0.38.0):
+ *   auto_dark   (bool)   — when true, theme auto-follows OS prefers-color-scheme
+ *   light_theme (string) — user-chosen light theme for auto-dark mode
+ *   dark_theme  (string) — user-chosen dark theme for auto-dark mode
+ *
+ * Safe DOM: this module touches no DOM except applySystemTheme() which sets
+ * document.documentElement data-theme attribute only.
  */
 (function (global) {
   'use strict';
@@ -23,6 +29,35 @@
   var pending = null;
   var saveTimer = null;
   var subs = {};   // key -> array of callbacks
+
+  // Same-family light↔dark pairs (bidirectional).
+  var LIGHT_DARK_PAIR = {
+    // Light → Dark
+    'classic-light':   'classic-dark',
+    'sage':            'forest',
+    'slate':           'midnight-slate',
+    'sandstone':       'dusk',
+    'spring-orig':     'spring-new',
+    'summer-orig':     'summer-new',
+    'fall-orig':       'fall-new',
+    'winter-orig':     'winter-new',
+    'hc-light':        'hc-dark',
+    'hc-light-new':    'hc-dark-new',
+    // Dark → Light (reverse mapping)
+    'classic-dark':    'classic-light',
+    'forest':          'sage',
+    'midnight-slate':  'slate',
+    'dusk':            'sandstone',
+    'spring-new':      'spring-orig',
+    'summer-new':      'summer-orig',
+    'fall-new':        'fall-orig',
+    'winter-new':      'winter-orig',
+    'hc-dark':         'hc-light',
+    'hc-dark-new':     'hc-light-new'
+  };
+
+  var FALLBACK_LIGHT = 'classic-light';
+  var FALLBACK_DARK  = 'classic-dark';
 
   var COUNTERPART = {
     'classic-light':'nebula','classic-dark':'nebula',
@@ -101,6 +136,21 @@
     });
   }
 
+  // Applies the correct theme based on OS prefers-color-scheme when auto_dark is on.
+  // Does NOT persist to 'theme' pref — this is a runtime override only.
+  function applySystemTheme() {
+    if (!prefs.auto_dark) return;
+    var isDark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    var chosen;
+    if (isDark) {
+      chosen = prefs.dark_theme || FALLBACK_DARK;
+    } else {
+      chosen = prefs.light_theme || FALLBACK_LIGHT;
+    }
+    var h = document.documentElement;
+    if (h) h.setAttribute('data-theme', chosen);
+  }
+
   function load() {
     // Optimistic: localStorage first so first paint is fast.
     prefs = readLocal();
@@ -115,15 +165,42 @@
         syncAttrs(prefs);
         writeLocal();
         fireAll();
+        // After server data lands, honour auto-dark if enabled.
+        if (prefs.auto_dark) applySystemTheme();
       })
       .catch(function (e) {
         console.warn('mf-prefs: server load failed, using localStorage', e);
+        // Still honour auto-dark from localStorage on error path.
+        if (prefs.auto_dark) applySystemTheme();
       });
+  }
+
+  // Attach OS colour-scheme change listener once at module init.
+  if (window.matchMedia) {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function() {
+      if (prefs.auto_dark) applySystemTheme();
+    });
   }
 
   function get(key) { return prefs[key]; }
 
   function set(key, value) {
+    // When auto_dark is on and the user manually picks a theme, persist into
+    // light_theme or dark_theme (whichever matches the current OS mode) instead
+    // of the bare 'theme' pref.  The runtime data-theme attribute is still
+    // updated immediately so the preview is instant.
+    if (key === 'theme' && prefs.auto_dark) {
+      var isDark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      var slotKey = isDark ? 'dark_theme' : 'light_theme';
+      if (prefs[slotKey] === value) return Promise.resolve();
+      prefs[slotKey] = value;
+      var h = document.documentElement;
+      if (h) h.setAttribute('data-theme', value);
+      writeLocal();
+      fire(slotKey);
+      schedulePut(makeOne(slotKey, value));
+      return Promise.resolve();
+    }
     if (prefs[key] === value) return Promise.resolve();
     prefs[key] = value;
     var u = {}; u[key] = value; syncAttrs(u);
@@ -170,6 +247,10 @@
   }
 
   global.MFPrefs = {
-    load: load, get: get, set: set, setMany: setMany, subscribe: subscribe
+    load: load, get: get, set: set, setMany: setMany, subscribe: subscribe,
+    applySystemTheme: applySystemTheme,
+    LIGHT_DARK_PAIR: LIGHT_DARK_PAIR,
+    FALLBACK_LIGHT: FALLBACK_LIGHT,
+    FALLBACK_DARK: FALLBACK_DARK
   };
 })(window);
