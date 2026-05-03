@@ -43,7 +43,7 @@
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'mf-layout-icon';
-    btn.title = 'Home layout (Cmd+\\)';
+    btn.title = 'Home layout (' + (navigator.platform.toUpperCase().indexOf('MAC') >= 0 ? 'Cmd' : 'Ctrl') + '+\\)';
     btn.setAttribute('aria-label', 'Home layout');
     btn.setAttribute('aria-haspopup', 'menu');
     btn.setAttribute('aria-expanded', 'false');
