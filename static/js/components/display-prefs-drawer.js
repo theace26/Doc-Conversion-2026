@@ -215,11 +215,46 @@
   }
 
   // Entry point called by buildBody — delegates to single or dual layout.
+  // Always renders the same grouped grid (Original UX / New UX / HC / Pastel /
+  // Seasonal). When auto-dark is on, both currently-selected light AND dark
+  // themes are highlighted and a small badge indicates the role; click on a
+  // light-luminance theme updates light_theme, click on a dark-luminance theme
+  // updates dark_theme. This keeps the visible theme set consistent
+  // regardless of the auto-dark toggle state.
   function buildSwatches(currentTheme, currentUx, autoDark, lightTheme, darkTheme) {
-    if (autoDark) {
-      return buildSwatchesDual(lightTheme, darkTheme);
-    }
-    return buildSwatchesSingle(currentTheme);
+    var wrap = el('div');
+    var lastGroup = null;
+    var grid = null;
+
+    THEMES.forEach(function(t) {
+      if (t.g !== lastGroup) {
+        lastGroup = t.g;
+        if (grid) wrap.appendChild(grid);
+        grid = el('div', 'mf-disp-drawer__swatches');
+        var glabel = el('div', 'mf-disp-drawer__group-label');
+        glabel.textContent = GROUP_LABELS[t.g] || t.g;
+        grid.appendChild(glabel);
+      }
+      var sw = makeSwatch(t, currentTheme, false);
+      if (autoDark) {
+        // Highlight both active light + dark themes; badge identifies which.
+        sw.classList.remove('mf-disp-drawer__swatch--active');
+        if (t.id === lightTheme) {
+          sw.classList.add('mf-disp-drawer__swatch--active');
+          var lbadge = el('span', 'mf-disp-drawer__swatch-role');
+          lbadge.textContent = 'light';
+          sw.appendChild(lbadge);
+        } else if (t.id === darkTheme) {
+          sw.classList.add('mf-disp-drawer__swatch--active');
+          var dbadge = el('span', 'mf-disp-drawer__swatch-role');
+          dbadge.textContent = 'dark';
+          sw.appendChild(dbadge);
+        }
+      }
+      grid.appendChild(sw);
+    });
+    if (grid) wrap.appendChild(grid);
+    return wrap;
   }
 
   // Toggle row for "Match system dark/light".
