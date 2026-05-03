@@ -143,6 +143,66 @@
       activeLink.parentNode.insertBefore(subToc, activeLink.nextSibling);
     }
 
+    // ── Related-topics auto-append ───────────────────────────────────────
+    // If the article doesn't already have a "Related" / "See also" section,
+    // append one auto-built from same-category sibling articles.
+    function renderRelatedTopics(slug) {
+      if (!helpIndex) return;
+      var content = document.getElementById('help-content');
+
+      // Skip if the article already has a Related section in markdown
+      var existing = Array.prototype.find.call(
+        content.querySelectorAll('h2, h3'),
+        function(h) {
+          var t = (h.textContent || '').trim().toLowerCase();
+          return t === 'related' || t === 'related articles' || t === 'related artifacts' || t === 'related topics' || t === 'see also';
+        }
+      );
+      if (existing) return;
+
+      // Find the article's category; collect siblings (other articles in same category)
+      var siblings = null;
+      (helpIndex.categories || []).some(function(cat) {
+        if ((cat.articles || []).some(function(a) { return a.slug === slug; })) {
+          siblings = (cat.articles || []).filter(function(a) { return a.slug !== slug; });
+          return true;
+        }
+        return false;
+      });
+      if (!siblings || siblings.length === 0) return;
+
+      // Build the section
+      var section = document.createElement('section');
+      section.className = 'related-topics';
+      var heading = document.createElement('h2');
+      heading.id = 'related-topics';
+      heading.textContent = 'Related topics';
+      section.appendChild(heading);
+
+      var list = document.createElement('ul');
+      list.className = 'related-topics-list';
+      siblings.forEach(function(a) {
+        var li = document.createElement('li');
+        var link = document.createElement('a');
+        link.href = '#' + a.slug;
+        link.textContent = a.title;
+        link.addEventListener('click', function(e) {
+          e.preventDefault();
+          loadArticle(a.slug);
+        });
+        li.appendChild(link);
+        if (a.description) {
+          var desc = document.createElement('span');
+          desc.className = 'related-topics-desc';
+          desc.textContent = ' — ' + a.description;
+          li.appendChild(desc);
+        }
+        list.appendChild(li);
+      });
+      section.appendChild(list);
+      content.appendChild(section);
+    }
+
     // ── Load article ─────────────────────────────────────────────────────
     async function loadArticle(slug) {
       var content = document.getElementById('help-content');
@@ -169,6 +229,7 @@
         window.location.hash = slug;
         content.scrollTop = 0;
         renderInPageTOC(slug);
+        renderRelatedTopics(slug);
       } catch (e) {
         content.innerHTML = '<h1>Article Not Found</h1><p>The help article "' + slug + '" doesn\'t exist yet.</p>' +
           '<p><a href="#getting-started">Go to Getting Started</a></p>';

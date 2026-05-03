@@ -1412,6 +1412,50 @@ html[data-theme="classic-dark"] .db-tool-error { background: #3b1010; color: #ef
 }
 .article-subtoc-item:hover { color: var(--mf-color-accent); background: var(--mf-surface-alt); text-decoration: none; }
 .article-subtoc-h3 { padding-left: 1.25rem; font-size: var(--mf-text-xs); }
+
+/* Auto-appended "Related topics" section at the bottom of help articles
+   that don't have their own curated Related section. */
+.related-topics {
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 2px solid var(--mf-border);
+}
+.related-topics h2 {
+  margin-top: 0 !important;
+  padding-bottom: 0;
+  border-bottom: none;
+  font-size: var(--mf-text-h3);
+}
+.related-topics-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.5rem 1.5rem;
+}
+.related-topics-list li {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--mf-border);
+  border-radius: var(--mf-radius-thumb);
+  background: var(--mf-surface-soft);
+  transition: background 0.12s, border-color 0.12s;
+}
+.related-topics-list li:hover { background: var(--mf-surface-alt); border-color: var(--mf-color-accent); }
+.related-topics-list a {
+  color: var(--mf-color-accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+.related-topics-list a:hover { text-decoration: underline; }
+.related-topics-desc {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: var(--mf-text-sm);
+  color: var(--mf-color-text-muted);
+  font-weight: normal;
+}
+
 .help-content {
   padding: clamp(1rem, 3vw, 3rem) clamp(1rem, 4vw, 4rem);
   max-width: min(100%, 110rem);
