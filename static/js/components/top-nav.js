@@ -63,18 +63,10 @@
     logo.appendChild(makeSlot('version-chip'));
     root.appendChild(logo);
 
-    // Link bar. Per-user UX dispatch happens here: server-side /convert and /
-    // routes use the system-wide ENABLE_NEW_UX flag, but the user's actual
-    // mode lives in localStorage (read into the <html data-ux> attribute on
-    // page load). When the user is in new UX, point links directly at the
-    // new-UX HTML files so they don't get bounced to the original UX by the
-    // server's static-file dispatch.
-    var isNewUx = document.documentElement.getAttribute('data-ux') === 'new';
-    var NEW_UX_OVERRIDE = {
-      'search':  '/static/index-new.html',
-      'convert': '/static/convert-new.html'
-      // 'activity' has no separate new-UX file — mounted on /activity directly
-    };
+    // Link bar. Server-side per-user dispatch (core/ux_dispatch.py) routes /
+    // and /convert to the correct HTML file based on the mf_use_new_ux cookie,
+    // so plain href values work in both UX modes. No client-side URL override
+    // needed here.
     var linkBar = document.createElement('div');
     linkBar.className = 'mf-nav__links';
     for (var i = 0; i < links.length; i++) {
@@ -82,7 +74,7 @@
       var a = document.createElement('a');
       a.className = 'mf-nav__link';
       if (link.id === active) a.classList.add('mf-nav__link--on');
-      a.href = (isNewUx && NEW_UX_OVERRIDE[link.id]) || link.href;
+      a.href = link.href;
       a.textContent = link.label;
       linkBar.appendChild(a);
     }

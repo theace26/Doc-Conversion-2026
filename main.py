@@ -23,10 +23,11 @@ from contextlib import asynccontextmanager
 
 from core.version import __version__
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from core.feature_flags import is_new_ux_enabled
+from core.ux_dispatch import serve_ux_page
 from fastapi.staticfiles import StaticFiles
 
 from core.database import init_db
@@ -551,11 +552,9 @@ async def activity_page():
 
 # UX overhaul Plan 5: Settings overview + Storage detail
 @app.get("/settings", include_in_schema=False)
-async def settings_page():
-    """Settings overview card grid. New UX when ENABLE_NEW_UX=true."""
-    if is_new_ux_enabled():
-        return FileResponse("static/settings-new.html")
-    return FileResponse("static/settings.html")
+async def settings_page(request: Request):
+    """Settings overview card grid. Per-user UX pref via cookie."""
+    return serve_ux_page(request, "static/settings-new.html", "static/settings.html")
 
 
 @app.get("/settings/storage", include_in_schema=False)
@@ -609,33 +608,40 @@ async def settings_section_page(section: str):
     """Future plans implement each section. Redirect to overview for now."""
     return RedirectResponse("/settings", status_code=302)
 
-# new-UX operator pages: help, log viewer, log management, log levels
+# Per-user-dispatched operator pages: help, log viewer, log management, log levels.
+# /help, /log-viewer, /log-mgmt, /log-levels are the canonical paths; the
+# "-new" variants are kept as aliases so any existing bookmarks continue to work.
+
+@app.get("/help", include_in_schema=False)
 @app.get("/help-new", include_in_schema=False)
 @app.get("/help-new.html", include_in_schema=False)
-async def help_new_page():
-    """New-UX help wiki (same content as /help.html, new-UX chrome)."""
-    return FileResponse("static/help-new.html")
+async def help_page(request: Request):
+    """Help wiki — dispatches to new-UX or original-UX based on user cookie."""
+    return serve_ux_page(request, "static/help-new.html", "static/help.html")
 
 
+@app.get("/log-viewer", include_in_schema=False)
 @app.get("/log-viewer-new", include_in_schema=False)
 @app.get("/log-viewer-new.html", include_in_schema=False)
-async def log_viewer_new_page():
-    """New-UX live log viewer."""
-    return FileResponse("static/log-viewer-new.html")
+async def log_viewer_page(request: Request):
+    """Live log viewer — dispatches to new-UX or original-UX based on user cookie."""
+    return serve_ux_page(request, "static/log-viewer-new.html", "static/log-viewer.html")
 
 
+@app.get("/log-mgmt", include_in_schema=False)
 @app.get("/log-mgmt-new", include_in_schema=False)
 @app.get("/log-mgmt-new.html", include_in_schema=False)
-async def log_mgmt_new_page():
-    """New-UX log management (file inventory, download, compress)."""
-    return FileResponse("static/log-mgmt-new.html")
+async def log_mgmt_page(request: Request):
+    """Log management — dispatches to new-UX or original-UX based on user cookie."""
+    return serve_ux_page(request, "static/log-mgmt-new.html", "static/log-management.html")
 
 
+@app.get("/log-levels", include_in_schema=False)
 @app.get("/log-levels-new", include_in_schema=False)
 @app.get("/log-levels-new.html", include_in_schema=False)
-async def log_levels_new_page():
-    """New-UX per-subsystem log level configuration."""
-    return FileResponse("static/log-levels-new.html")
+async def log_levels_page(request: Request):
+    """Log levels — dispatches to new-UX or original-UX based on user cookie."""
+    return serve_ux_page(request, "static/log-levels-new.html", "static/log-viewer.html")
 
 
 log.info("markflow.all_routes_registered")
@@ -673,20 +679,16 @@ async def health_check():
 
 
 @app.get("/convert", include_in_schema=False)
-async def convert_page():
-    """Serve the convert page. New UX when ENABLE_NEW_UX=true."""
-    if is_new_ux_enabled():
-        return FileResponse("static/convert-new.html")
-    return FileResponse("static/index.html")
+async def convert_page(request: Request):
+    """Serve the convert page. Per-user UX pref via cookie."""
+    return serve_ux_page(request, "static/convert-new.html", "static/index.html")
 
 
 # ── Root ──────────────────────────────────────────────────────────────────────
 @app.get("/", include_in_schema=False)
-async def root_index():
-    """Serve the home page. New UX rendered when ENABLE_NEW_UX=true."""
-    if is_new_ux_enabled():
-        return FileResponse("static/index-new.html")
-    return FileResponse("static/index.html")
+async def root_index(request: Request):
+    """Serve the home page. Per-user UX pref via cookie."""
+    return serve_ux_page(request, "static/index-new.html", "static/index.html")
 
 
 # ── Catch-all for SPA-style page navigation ───────────────────────────────────

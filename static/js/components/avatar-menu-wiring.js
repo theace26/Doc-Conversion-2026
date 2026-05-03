@@ -14,6 +14,13 @@
  *
  * Requires MFAvatar, MFAvatarMenu loaded first. MFDisplayPrefsDrawer is
  * required only if the user clicks Display preferences.
+ *
+ * URL strategy (v0.39.0+): server-side per-user dispatch (core/ux_dispatch.py)
+ * routes canonical paths (e.g. /help, /settings, /log-viewer) to the correct
+ * HTML file based on the mf_use_new_ux cookie. The URLS maps below point at
+ * those canonical server-dispatched paths; no .html suffixes needed.
+ * Original-UX-only pages still use .html paths because they have no new-UX
+ * equivalent yet and the server catch-all serves them directly.
  */
 (function (global) {
   'use strict';
@@ -26,23 +33,24 @@
     'ai':           '/providers.html',
     'db':           '/db-health.html',
     'logs':         '/log-management.html',
-    'all-settings': '/settings.html',
-    'help':         '/help.html'
+    'all-settings': '/settings',
+    'help':         '/help'
   };
 
-  // ID -> URL for new UX (settings-* pages).
+  // ID -> URL for new UX. Canonical server-dispatched paths where available;
+  // direct .html paths for pages that are new-UX-only and not yet dispatched.
   var URLS_NEW = {
-    'notifications': '/settings-notifications.html',
-    'storage':       '/settings-storage.html',
-    'pipeline':      '/settings-pipeline.html',
-    'ai':            '/settings-ai-providers.html',
-    'auth':          '/settings-auth.html',
-    'db':            '/settings-db-health.html',
-    'logs':          '/log-mgmt-new.html',
-    'log-viewer':    '/log-viewer-new.html',
-    'log-levels':    '/log-levels-new.html',
-    'all-settings':  '/settings-new.html',
-    'help':          '/help-new.html'
+    'notifications': '/settings/notifications',
+    'storage':       '/settings/storage',
+    'pipeline':      '/settings/pipeline',
+    'ai':            '/settings/ai-providers',
+    'auth':          '/settings/auth',
+    'db':            '/settings/db-health',
+    'logs':          '/log-mgmt',
+    'log-viewer':    '/log-viewer',
+    'log-levels':    '/log-levels',
+    'all-settings':  '/settings',
+    'help':          '/help'
   };
 
   // Friendly labels for items that fall through to the toast.

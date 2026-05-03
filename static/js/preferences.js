@@ -76,13 +76,25 @@
     'fall-new':'fall-orig','winter-new':'winter-orig'
   };
 
+  // Persist the mf_use_new_ux cookie so the server can read it without a DB
+  // lookup. Max-Age = 1 year; SameSite=Lax keeps it out of cross-origin reqs.
+  function syncUxCookie(use_new_ux) {
+    try {
+      var val = use_new_ux ? '1' : '0';
+      document.cookie = 'mf_use_new_ux=' + val + '; path=/; Max-Age=31536000; SameSite=Lax';
+    } catch (e) { /* storage blocked — non-fatal */ }
+  }
+
   function syncAttrs(updates) {
     var h = document.documentElement;
     if (!h) return;
     if (updates.theme !== undefined)      h.setAttribute('data-theme',      updates.theme);
     if (updates.font  !== undefined)      h.setAttribute('data-font',       updates.font);
     if (updates.text_scale !== undefined) h.setAttribute('data-text-scale', updates.text_scale);
-    if (updates.use_new_ux !== undefined) h.setAttribute('data-ux',         updates.use_new_ux ? 'new' : 'orig');
+    if (updates.use_new_ux !== undefined) {
+      h.setAttribute('data-ux', updates.use_new_ux ? 'new' : 'orig');
+      syncUxCookie(updates.use_new_ux);
+    }
   }
 
   function readLocal() {
@@ -165,6 +177,9 @@
         syncAttrs(prefs);
         writeLocal();
         fireAll();
+        // Ensure the UX cookie reflects the loaded pref so the next
+        // navigation uses the correct server-side dispatch path.
+        if ('use_new_ux' in prefs) syncUxCookie(prefs.use_new_ux);
         // After server data lands, honour auto-dark if enabled.
         if (prefs.auto_dark) applySystemTheme();
       })
@@ -204,6 +219,8 @@
     if (prefs[key] === value) return Promise.resolve();
     prefs[key] = value;
     var u = {}; u[key] = value; syncAttrs(u);
+    // syncAttrs already calls syncUxCookie when key === 'use_new_ux'; no
+    // extra call needed here since syncAttrs handles the cookie.
     writeLocal();
     fire(key);
     schedulePut(makeOne(key, value));
