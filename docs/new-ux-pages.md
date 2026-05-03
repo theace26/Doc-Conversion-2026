@@ -1,6 +1,6 @@
 # MarkFlow Page Inventory — New-UX Status
 
-> **Last updated:** 2026-05-03 (v0.39.0)
+> **Last updated:** 2026-05-03 (v0.40.0)
 >
 > Single source of truth for every page in the app, its UX status, and what
 > is needed to build a new-UX equivalent.
@@ -62,7 +62,8 @@ The shortest path: copy `docs/templates/new-ux-page.html` + `new-ux-page-boot.js
 
 | Page (URL) | Status | New-UX file | Original-UX file | Key API endpoints | Notes |
 |---|---|---|---|---|---|
-| `/activity` | `original-only` | — | `activity.html` | `/api/activity/*`, `/api/me` | No new-UX yet; route in main.py; ux-fallback injected |
+| `/operations` | `both` | `operations-new.html` | `status.html` | `/api/admin/active-jobs`, `/api/pipeline/stats`, `/api/activity/*` | Server-dispatched; merges `/status` + `/activity` under tabs (v0.40.0). Operator/admin top-nav points here. |
+| `/activity` | `original-only` | — | `activity.html` | `/api/activity/*`, `/api/me` | New-UX users land at `/operations` Trends tab; original-UX still serves /activity |
 | `/status.html` | `original-only` | — | `status.html` | `/api/admin/active-jobs`, `/api/pipeline/stats`, `/api/health` | Catch-all; ux-fallback injected |
 | `/history.html` | `original-only` | — | `history.html` | `/api/history` | Catch-all; ux-fallback injected |
 | `/bulk` | `both` | `bulk-new.html` | `bulk.html` | `/api/bulk/jobs` | Server-dispatched; new-UX overview list with filter/sort/pagination |
@@ -80,9 +81,12 @@ The shortest path: copy `docs/templates/new-ux-page.html` + `new-ux-page-boot.js
 | Page (URL) | Status | New-UX file | Original-UX file | Key API endpoints | Notes |
 |---|---|---|---|---|---|
 | `/results.html` | `original-only` | — | `results.html` | redirect → `/history.html` | Catch-all; auto-redirect page; ux-fallback injected |
-| `/review.html` | `original-only` | — | `review.html` | `/api/review/*` | Catch-all; ux-fallback injected |
-| `/viewer.html` | `original-only` | — | `viewer.html` | `/api/convert/result/*` | Catch-all; ux-fallback injected |
-| `/preview.html` | `original-only` | — | `preview.html` | `/api/convert/preview/*` | Catch-all; ux-fallback injected |
+| `/review` | `both` | `review-new.html` | `review.html` | `/api/review/queue`, `POST /api/review/{id}/accept\|reject` | Server-dispatched (v0.40.0); `?batch_id=` scopes queue |
+| `/viewer` | `both` | `viewer-new.html` | `viewer.html` | `/api/search/doc-info/*`, `/api/search/view/*`, `/api/search/source/*`, `/api/preview/related`, `/api/flags/*` | Server-dispatched (v0.40.0); reached from search-results / history |
+| `/preview` | `both` | `preview-new.html` | `preview.html` | `/api/files/{id}`, `/api/files/{id}/preview`, `/api/files/related`, `POST /api/files/{id}/force-process` | Server-dispatched (v0.40.0); selection-driven search |
+| `/viewer.html` | `original-only` | — | `viewer.html` | `/api/search/doc-info/*` | Catch-all; ux-fallback injected; new-UX at `/viewer` |
+| `/review.html` | `original-only` | — | `review.html` | `/api/review/*` | Catch-all; ux-fallback injected; new-UX at `/review` |
+| `/preview.html` | `original-only` | — | `preview.html` | `/api/convert/preview/*` | Catch-all; ux-fallback injected; new-UX at `/preview` |
 | `/flagged.html` | `original-only` | — | `flagged.html` | `/api/review/flagged` | Catch-all; ux-fallback injected |
 
 ---
@@ -92,11 +96,14 @@ The shortest path: copy `docs/templates/new-ux-page.html` + `new-ux-page-boot.js
 | Page (URL) | Status | New-UX file | Original-UX file | Key API endpoints | Notes |
 |---|---|---|---|---|---|
 | `/pipeline` | `redirect` | — | — | — | 301 → `/activity` |
-| `/pipeline-files.html` | `original-only` | — | `pipeline-files.html` | `/api/pipeline/files`, `/api/pipeline/stats` | Catch-all; ux-fallback injected |
-| `/locations.html` | `original-only` | — | `locations.html` | `/api/locations/*` | Catch-all; ux-fallback injected |
+| `/pipeline-files` | `both` | `pipeline-files-new.html` | `pipeline-files.html` | `/api/pipeline/files`, `/api/pipeline/stats` | Server-dispatched (v0.40.0) |
+| `/pipeline-files.html` | `original-only` | — | `pipeline-files.html` | `/api/pipeline/files`, `/api/pipeline/stats` | Catch-all; new-UX equivalent at `/pipeline-files` |
+| `/locations.html` | `original-only` | — | `locations.html` | `/api/locations/*` | Catch-all; new-UX equivalent at `/settings/locations` (v0.40.0) |
 | `/resources.html` | `original-only` | — | `resources.html` | `/api/resources/*` | Catch-all; ux-fallback injected |
-| `/unrecognized.html` | `original-only` | — | `unrecognized.html` | `/api/pipeline/unrecognized` | Catch-all; ux-fallback injected |
-| `/trash.html` | `original-only` | — | `trash.html` | `/api/lifecycle/trash` | Catch-all; ux-fallback injected |
+| `/unrecognized` | `both` | `unrecognized-new.html` | `unrecognized.html` | `/api/pipeline/unrecognized` | Server-dispatched (v0.40.0) |
+| `/unrecognized.html` | `original-only` | — | `unrecognized.html` | `/api/pipeline/unrecognized` | Catch-all; ux-fallback injected; new-UX at `/unrecognized` |
+| `/trash` | `both` | `trash-new.html` | `trash.html` | `/api/lifecycle/trash` | Server-dispatched (v0.40.0) |
+| `/trash.html` | `original-only` | — | `trash.html` | `/api/lifecycle/trash` | Catch-all; ux-fallback injected; new-UX at `/trash` |
 
 ---
 
@@ -114,6 +121,8 @@ The shortest path: copy `docs/templates/new-ux-page.html` + `new-ux-page-boot.js
 | `/settings/db-health` | `new-only` | `settings-db-health.html` | — | `/api/health`, `/api/admin/db/*` | No original-UX equivalent |
 | `/settings/log-management` | `new-only` | `settings-log-mgmt.html` | — | `/api/admin/logs/*` | No original-UX equivalent |
 | `/settings/appearance` | `new-only` | `settings-appearance.html` | — | `/api/user-prefs` | No original-UX equivalent |
+| `/settings/locations` | `new-only` | `settings-locations.html` | — | `/api/locations/*`, `/api/browse` | New-UX (v0.40.0); original-UX at `/locations.html` |
+| `/settings/admin` | `new-only` | `settings-admin.html` | — | `/api/admin/*` | New-UX (v0.40.0); admin role gated; original-UX at `/admin.html` |
 | `/storage.html` | `original-only` | — | `storage.html` | `/api/mounts/*`, `/api/storage/*` | Catch-all; use `/settings/storage` in new UX; ux-fallback injected |
 | `/providers.html` | `original-only` | — | `providers.html` | `/api/llm-providers/*` | Catch-all; use `/settings/ai-providers` in new UX; ux-fallback injected |
 | `/db-health.html` | `original-only` | — | `db-health.html` | `/api/health`, `/api/admin/db/*` | Catch-all; use `/settings/db-health` in new UX; ux-fallback injected |

@@ -71,6 +71,33 @@ Turn the toggle off to use a single theme regardless of OS. Your two saved choic
 
 **When this is useful:** if you keep your OS in light mode during the day and dark mode at night, Match system means MarkFlow tracks the change automatically without you flipping themes by hand.
 
+## New-UX Page Map (v0.40.0+)
+
+In the new interface, the operator workflow lives across these pages:
+
+| What you want to do | Where to go |
+|---|---|
+| Search the document index | `/` (home) |
+| Convert a new document | `/convert` (or top-nav Convert) |
+| See live job status + trends | `/operations` (top-nav Operations) — Active now tab + Trends tab |
+| Browse a single bulk job's files / errors / log | `/bulk/{id}` (click a row from `/bulk`) |
+| Drill into pipeline files by state | `/pipeline-files` |
+| Review low-confidence conversions | `/review` |
+| Inspect a single file | `/preview?id=<source_file_id>` |
+| Read a converted document | `/viewer?index=<index>&id=<doc_id>` |
+| Restore or empty trashed files | `/trash` |
+| Reclassify or ignore unrecognized files | `/unrecognized` |
+| Flagged items queue | `/flagged` |
+| Manage source locations | Settings → Locations (`/settings/locations`) |
+| Storage/mounts | Settings → Storage |
+| AI providers + cost caps | Settings → AI Providers |
+| Auth, notifications, db-health, log management, appearance | Settings → respective sub-page |
+| Admin tools (API keys, system actions, DB backup) | Settings → Admin (`/settings/admin`) — admin role required |
+| Help wiki | `/help` (avatar menu → Help) |
+| Live log tail / log levels | `/log-viewer` / `/log-mgmt` / `/log-levels` |
+
+Original-UX users see roughly the same surfaces under their original URLs (`/status`, `/activity`, `/bulk.html`, `/admin.html`, etc.) — bookmarks continue to work.
+
 ## Operator Settings
 
 Operators and admins can configure system-wide defaults in **Settings -> Appearance**:

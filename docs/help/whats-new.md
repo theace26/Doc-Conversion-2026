@@ -6,6 +6,26 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.40.0 — Eight new-UX pages built in one release
+
+**Operators now have a complete new-UX surface for the daily workflow.** Eight pages got new-UX twins in this release: Operations (the merged Active Jobs + Trends dashboard that replaces the separate Status and Activity pages), Pipeline Files (drill-down by state), Bulk (overview + tabbed detail consolidating bulk-review and job-detail), Viewer (dual-pane document reader with sidebar), Trash, Unrecognized, Review, Preview, plus Settings → Locations and Settings → Admin.
+
+**Top-nav simplified for operators and admins.** The "Activity" link is replaced by "Operations". The new Operations page has two tabs: "Active now" (live in-flight jobs, the old Status content) and "Trends" (charts and weekly performance, the old Activity content). One page, two tabs, instead of two separate top-level surfaces.
+
+**Bulk job pages consolidated from three to two in new UX.** `/bulk` shows the job list with filter/sort/pagination. Click a row → `/bulk/{id}` shows tabs for Overview (stats + pause/resume/cancel), Files, Errors, and Log (live SSE for active jobs). The original three-page split (`bulk.html` + `bulk-review.html` + `job-detail.html`) is preserved for original-UX users.
+
+**Locations and Admin moved under Settings.** Source-location CRUD is now at Settings → Locations. Admin tools (API keys, system actions, database tools) are at Settings → Admin (admin role required). Original `/locations.html` and `/admin.html` URLs continue to work.
+
+**New document Viewer.** Open a search result or history row → the new viewer shows the converted Markdown alongside the original file (PDF/image preview, audio/video player, or download link). Right rail shows metadata, fidelity tier (T1/T2/T3), and related files. One-click Force re-process and Flag for Review.
+
+**Heads-up for users**
+
+- Bookmarks to `/activity` and `/status` continue to work; new-UX users land on the same content under `/operations` tabs.
+- Bookmarks to `/bulk-review.html` and `/job-detail.html` continue to work in original UX; new-UX users will see the consolidated `/bulk/{id}` page.
+- Two new pages (Viewer, Preview) load Markdown rendering libraries from a CDN; if your environment blocks CDN scripts via Content Security Policy, those pages may fall back to plain-text rendering. A bundled-locally fix is queued for v0.40.1.
+
+---
+
 ## v0.39.0 — Per-user New UI toggle + Search Results renders properly
 
 **The "New interface" toggle in Display Preferences now actually switches the look.** Before this release, the toggle only changed local CSS classes — the served page itself was decided by an environment variable that only operators could change. Now every user can switch independently, and the choice persists across sessions and devices.

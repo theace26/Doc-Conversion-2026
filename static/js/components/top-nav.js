@@ -25,14 +25,14 @@
       { id: 'convert',  label: 'Convert',  href: '/convert' }
     ],
     operator: [
-      { id: 'search',   label: 'Search',   href: '/' },
-      { id: 'activity', label: 'Activity', href: '/activity' },
-      { id: 'convert',  label: 'Convert',  href: '/convert' }
+      { id: 'search',     label: 'Search',     href: '/' },
+      { id: 'operations', label: 'Operations', href: '/operations' },
+      { id: 'convert',    label: 'Convert',    href: '/convert' }
     ],
     admin:    [
-      { id: 'search',   label: 'Search',   href: '/' },
-      { id: 'activity', label: 'Activity', href: '/activity' },
-      { id: 'convert',  label: 'Convert',  href: '/convert' }
+      { id: 'search',     label: 'Search',     href: '/' },
+      { id: 'operations', label: 'Operations', href: '/operations' },
+      { id: 'convert',    label: 'Convert',    href: '/convert' }
     ]
   };
 

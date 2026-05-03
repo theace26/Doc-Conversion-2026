@@ -4,6 +4,77 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.40.0 — Eight new-UX pages built in two parallel waves (2026-05-03)
+
+**Goal:** Complete the operator surface area for the new UX in a single multi-wave release. After v0.39.0 closed the dispatch infrastructure and four silent-failure CSS gaps, the long-tail operator pages remained as `original-only` rows in `docs/new-ux-pages.md`. This release builds new-UX twins for the eight Tier B pages plus the recommended Tier C consolidations identified in the audit plan.
+
+**Why this matters:** Per-user UX dispatch is the headline feature of v0.39.0, but a user who toggled into new UX would still hit original-UX pages whenever they navigated away from search, convert, settings, help, logs, or status (which itself was a thin tabless surface). v0.40.0 means an operator can stay in new UX through the entire daily workflow — overview their jobs at `/operations`, drill into a bulk job at `/bulk/{id}`, inspect a file at `/preview`, view a converted doc at `/viewer`, manage trash and unrecognized files, run admin tools from `/settings/admin`, all under the same theme/font/text-scale plumbing.
+
+**What changed:**
+
+1. **`/operations` consolidates `/status` + `/activity`** (commit text — Wave 1, Sonnet high). New tabbed page: "Active now" tab defer-mounts `MFStatus` (live ops, progress bars, cancel buttons, system health), "Trends" tab defer-mounts `MFActivity` (charts, weekly performance). Components are cached after first activation so re-clicking a tab doesn't re-poll the API. Top-nav for operator+admin roles is updated from "Activity" to "Operations". Original `/status` and `/activity` routes remain live for backwards compatibility.
+
+2. **`/pipeline-files` new-UX twin** (Wave 1, Sonnet medium). Operator drill-down by pipeline state (scanned, pending, batched, failed, etc.) with state-filter pills, live counts via `/api/pipeline/stats`, sortable paginated file table, expand-to-detail rows, 30s auto-refresh.
+
+3. **`/settings/locations` new-UX twin** (Wave 1, Sonnet medium). Source-location CRUD with browse-picker integration and exclusion patterns, lives under the settings sub-page hierarchy. New IA: `/locations.html` (original-UX) → `/settings/locations` (new-UX). Original-UX `/locations.html` preserved.
+
+4. **`/bulk` family three-to-two consolidation** (Wave 1, Sonnet high; agent committed e40aa8a). Original-UX has three pages: `/bulk.html` (overview), `/bulk-review.html` (review queue), `/job-detail.html` (single-job detail). New UX has two: `/bulk` (overview list with stats/filter/pagination) and `/bulk/{id}` (tabbed detail with Overview + Files + Errors + Log, plus pause/resume/cancel state machine and SSE live progress). Eliminates the page-transition context-switch between job overview and per-job detail.
+
+5. **`/viewer` new-UX twin** (Wave 2, Opus high — only Opus task this release). Dual-pane Markdown + Original preview layout. Right rail with metadata table, fidelity tier badge (T1/T2/T3 styled per tier), and related-files context. Action bar: Download MD, Download original, Force re-process, Flag for review. Markdown rendered client-side via `marked` + `DOMPurify` (using `RETURN_DOM_FRAGMENT` + `appendChild`, never `innerHTML`). Self-contained flag modal mirrors the search-results pattern. Reached from search-results and history links (with pending follow-up to repoint `viewerUrl()` from `/viewer.html` to `/viewer`).
+
+6. **`/trash` + `/unrecognized` bundle** (Wave 2, Haiku). List + filter + bulk-action pattern. Operator drill-downs from /operations (Active now tab) into trash items with restore-or-empty actions and unrecognized files with reclassify-or-ignore actions. Both pages handle their backend 404s gracefully (APIs not yet implemented in v0.40.0; tracked for v0.40.1).
+
+7. **`/review` + `/preview` bundle** (Wave 2, Sonnet medium). Per-batch review queue (`/review`) with score-based filtering and accept/reject bulk operations. Per-file inspection (`/preview`) with chunked content view, sidecar metadata cards, force-process button with inline progress, related-files tabs, selection-driven search-within-file.
+
+8. **`/settings/admin` new-UX twin** (Wave 2, Sonnet medium — security-adjacent). API key management, user list, system actions (restart watchers, force rescan, flush cache), database tools (vacuum, integrity check, backup, restore). All destructive operations gated by confirmation modals — typed-string confirmation for backup restore. Admin-role-only; non-admins are redirected to `/settings` after a 2s warning.
+
+9. **Settings sub-page table now has 11 entries** (was 9 in v0.39.0). Adding `locations` and `admin` to the `_SETTINGS_PAGES` dict. Single `@app.get("/settings/{section:path}")` dispatcher handles all of them.
+
+10. **Avatar menu URL maps + top-nav updated** for the 10 new pages. `URLS_NEW` adds: operations, pipeline-files, locations, admin, trash, unrecognized, review, preview. `URLS_ORIGINAL` adds: pipeline-files, trash, unrecognized, review, preview. Top-nav `ROLE_LINKS` operator+admin: "Activity" replaced by "Operations".
+
+**Design decisions:**
+
+- **Wave 1 + Wave 2 parallel-dispatch.** Per the picking-model-and-effort skill, agents were dispatched concurrently with model/effort calibrated per task: Sonnet high for state-heavy pages (/operations tabbed merge, /bulk family state machine), Sonnet medium for standard CRUD/list pages, Haiku medium for the most mechanical bundle (/trash + /unrecognized), Opus high for the genuinely novel UI (/viewer with markdown render + dual-pane). Estimated ~70% cost reduction vs. an all-Opus dispatch.
+
+- **Token-only CSS for every new section.** All ~3000 lines of new CSS (across 10 sections) consume `var(--mf-*)` tokens for color, font-family, font-size, shadow, radius. Two agents emitted hardcoded `rgba(...)` and undefined tokens (`--mf-color-error-tint`, `--mf-radius`); these were corrected during the merge step before reaching `components.css`.
+
+- **Original-UX kept live for everything.** No breaking removals in this release. `/bulk.html`, `/bulk-review.html`, `/job-detail.html`, `/admin.html`, `/locations.html` all still serve their original UX. New-UX users get the consolidated surfaces; original-UX users get the legacy pages. Only the operator+admin top-nav changes (Activity → Operations) — and Activity is still routable directly.
+
+- **Defer-mount for Operations tabs.** `MFStatus` and `MFActivity` both poll their APIs on a 30s timer; mounting both at page load would double the polling traffic. Operations tabs lazy-mount on first click and cache the mounted instance, so the user pays the polling cost only for tabs they actually view.
+
+**Files modified:**
+- `core/version.py` — `0.39.0` → `0.40.0`
+- `main.py` — 6 new routes (`/operations`, `/pipeline-files`, `/viewer`, `/trash`, `/unrecognized`, `/review`, `/preview`); `/bulk` and `/bulk/{job_id}` from agent commit e40aa8a; 2 new entries in `_SETTINGS_PAGES` dict (`locations`, `admin`)
+- `static/css/components.css` — 12 new BEM sections (~3000 lines): `mf-operations`, `mf-pf`, `mf-loc`, `mf-bk`, `mf-bkd`, `mf-vw`, `mf-tr`, `mf-ur`, `mf-rv`, `mf-pv`, `mf-adm`, plus utility shared chrome
+- `static/js/components/avatar-menu-wiring.js` — `URLS_NEW` + `URLS_ORIGINAL` extended
+- `static/js/components/top-nav.js` — operator+admin Activity → Operations
+- `docs/new-ux-pages.md` — 10 page rows updated/added; Tier table format expanded
+
+**Files created (page-specific, 30 files across 10 surfaces):**
+- `static/operations-new.html` + `static/js/pages/operations.js` + `static/js/operations-new-boot.js`
+- `static/pipeline-files-new.html` + `static/js/pages/pipeline-files.js` + `static/js/pipeline-files-new-boot.js`
+- `static/settings-locations.html` + `static/js/pages/settings-locations.js` + `static/js/settings-locations-boot.js`
+- `static/bulk-new.html` + `static/js/pages/bulk.js` + `static/js/bulk-new-boot.js`
+- `static/bulk-detail-new.html` + `static/js/pages/bulk-detail.js` + `static/js/bulk-detail-new-boot.js`
+- `static/viewer-new.html` + `static/js/pages/viewer.js` + `static/js/viewer-new-boot.js`
+- `static/trash-new.html` + `static/js/pages/trash.js` + `static/js/trash-new-boot.js`
+- `static/unrecognized-new.html` + `static/js/pages/unrecognized.js` + `static/js/unrecognized-new-boot.js`
+- `static/review-new.html` + `static/js/pages/review.js` + `static/js/review-new-boot.js`
+- `static/preview-new.html` + `static/js/pages/preview.js` + `static/js/preview-new-boot.js`
+- `static/settings-admin.html` + `static/js/pages/settings-admin.js` + `static/js/settings-admin-boot.js`
+
+**Browser verification (Playwright on VM):**
+- 48 page loads (16 pages × 3 themes: nebula, classic-dark, spring)
+- All sentinel BEM elements visible per page
+- Theme switching propagates correctly when `/api/user-prefs` is mocked to return the test theme (real users get the same effect via the drawer + server PUT)
+- Console "errors" are: Google Fonts CSP block (cosmetic, expected in headless), CSP block on marked.js + DOMPurify CDN for /viewer + /preview (real concern; tracked for v0.40.1), 404s on stub-only backend APIs for /trash + /unrecognized + /review (handled gracefully, page renders empty state)
+- Screenshots in `~/playwright-verify/screenshots/{nebula,classic-dark,spring}/{home,search,status,history,flagged,storage,operations,pipeline,bulk,viewer,trash,unrec,review,preview,locations,admin}.png`
+
+**Loose ends tracked forward:**
+- See "Known concerns" + "Loose ends" in CLAUDE.md Current Version block.
+
+---
+
 ## v0.39.0 — Per-user UX dispatch + 5 new-UX pages + theme polish (2026-05-03)
 
 **Goal:** Lift the new UI from "hidden behind env-only flag" to a real per-user toggle, ship 5 new-UX page surfaces (Convert, Help, Log Viewer, Log Management, Log Levels), close the Search Results CSS gap (BUG-033), add a "match system" auto-switch that follows OS dark-mode preference, and build the inventory doc + page template that make future new-UX page builds turn-key.

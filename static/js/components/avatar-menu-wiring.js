@@ -28,31 +28,44 @@
   // ID -> URL for original UX (bare-named pages). Items not in the map fall
   // through to the "coming soon" toast.
   var URLS_ORIGINAL = {
-    'bulk':         '/bulk.html',
-    'storage':      '/storage.html',
-    'pipeline':     '/pipeline-files.html',
-    'ai':           '/providers.html',
-    'db':           '/db-health.html',
-    'logs':         '/log-management.html',
-    'all-settings': '/settings',
-    'help':         '/help'
+    'bulk':           '/bulk.html',
+    'storage':        '/storage.html',
+    'pipeline':       '/pipeline-files.html',
+    'pipeline-files': '/pipeline-files.html',
+    'ai':             '/providers.html',
+    'db':             '/db-health.html',
+    'logs':           '/log-management.html',
+    'all-settings':   '/settings',
+    'help':           '/help',
+    'trash':          '/trash.html',
+    'unrecognized':   '/unrecognized.html',
+    'review':         '/review.html',
+    'preview':        '/preview.html'
   };
 
   // ID -> URL for new UX. Canonical server-dispatched paths where available;
   // direct .html paths for pages that are new-UX-only and not yet dispatched.
   var URLS_NEW = {
-    'bulk':          '/bulk',
-    'notifications': '/settings/notifications',
-    'storage':       '/settings/storage',
-    'pipeline':      '/settings/pipeline',
-    'ai':            '/settings/ai-providers',
-    'auth':          '/settings/auth',
-    'db':            '/settings/db-health',
-    'logs':          '/log-mgmt',
-    'log-viewer':    '/log-viewer',
-    'log-levels':    '/log-levels',
-    'all-settings':  '/settings',
-    'help':          '/help'
+    'bulk':           '/bulk',
+    'notifications':  '/settings/notifications',
+    'storage':        '/settings/storage',
+    'pipeline':       '/settings/pipeline',
+    'pipeline-files': '/pipeline-files',
+    'ai':             '/settings/ai-providers',
+    'auth':           '/settings/auth',
+    'db':             '/settings/db-health',
+    'logs':           '/log-mgmt',
+    'log-viewer':     '/log-viewer',
+    'log-levels':     '/log-levels',
+    'all-settings':   '/settings',
+    'help':           '/help',
+    'operations':     '/operations',
+    'locations':      '/settings/locations',
+    'admin':          '/settings/admin',
+    'trash':          '/trash',
+    'unrecognized':   '/unrecognized',
+    'review':         '/review',
+    'preview':        '/preview'
   };
 
   // Friendly labels for items that fall through to the toast.

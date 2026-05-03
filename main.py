@@ -591,6 +591,49 @@ async def bulk_detail_page(request: Request, job_id: str):
     return serve_ux_page(request, "static/bulk-detail-new.html", "static/job-detail.html")
 
 
+@app.get("/operations", include_in_schema=False)
+async def operations_page(request: Request):
+    """Operations — new-UX consolidation of /status (Active Jobs) + /activity (Trends).
+    Original-UX users fall back to /status."""
+    return serve_ux_page(request, "static/operations-new.html", "static/status.html")
+
+
+@app.get("/pipeline-files", include_in_schema=False)
+async def pipeline_files_page(request: Request):
+    """Pipeline files drill-down — per-user UX dispatch."""
+    return serve_ux_page(request, "static/pipeline-files-new.html", "static/pipeline-files.html")
+
+
+@app.get("/viewer", include_in_schema=False)
+async def viewer_page(request: Request):
+    """Document viewer — per-user UX dispatch."""
+    return serve_ux_page(request, "static/viewer-new.html", "static/viewer.html")
+
+
+@app.get("/trash", include_in_schema=False)
+async def trash_page(request: Request):
+    """Trash queue — per-user UX dispatch."""
+    return serve_ux_page(request, "static/trash-new.html", "static/trash.html")
+
+
+@app.get("/unrecognized", include_in_schema=False)
+async def unrecognized_page(request: Request):
+    """Unrecognized files — per-user UX dispatch."""
+    return serve_ux_page(request, "static/unrecognized-new.html", "static/unrecognized.html")
+
+
+@app.get("/review", include_in_schema=False)
+async def review_page(request: Request):
+    """Review queue — per-user UX dispatch."""
+    return serve_ux_page(request, "static/review-new.html", "static/review.html")
+
+
+@app.get("/preview", include_in_schema=False)
+async def preview_page(request: Request):
+    """File preview — per-user UX dispatch."""
+    return serve_ux_page(request, "static/preview-new.html", "static/preview.html")
+
+
 # UX overhaul Plan 5: Settings overview + Storage detail
 @app.get("/settings", include_in_schema=False)
 async def settings_page(request: Request):
@@ -610,6 +653,8 @@ _SETTINGS_PAGES = {
     "db-health":          "static/settings-db-health.html",
     "log-management":     "static/settings-log-mgmt.html",
     "appearance":         "static/settings-appearance.html",
+    "locations":          "static/settings-locations.html",
+    "admin":              "static/settings-admin.html",
 }
 
 
