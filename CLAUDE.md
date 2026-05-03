@@ -69,31 +69,34 @@ live", `key-files.md`. For "is this bug already known", `bug-log.md`.
 
 ---
 
-## Current Version — v0.37.1
+## Current Version — v0.38.0
 
-**Theme system reaches legacy original-UX pages.** Resolves four sub-bugs (BUG-025 through BUG-028) clustered around the same root cause: v0.37.0's Display Preferences picker silently no-op'd on the 26 legacy HTML pages that load `static/markflow.css`, because that file was never plumbed into the v0.37.0 token system and had its own parallel `--surface`/`--text`/`--accent` block plus 7 `@media (prefers-color-scheme: dark)` overrides that actively fought `[data-theme]`. Fixed by a 19-commit refactor on `refactor/markflow-css-theme-aware`: deleted markflow.css's `:root` block + main OS-media-query block, rewrote the 6 remaining OS-media-query blocks as `html[data-theme="classic-dark"]` selector prefixes, renamed all 302 `var(--…)` references to `--mf-*` equivalents, substituted ~50 hardcoded color literals to tokens, and introduced 6 new tokens. Plus inline fixes from visual checkpoints (Display Prefs drawer button-wrap at X-Large; font list cleanup; h1/h2/h3 + section titles + drop-zone CTA promoted to accent color so theme switches visibly recolor titles on every page).
+**components.css theme-aware refactor — font picker, text-scale, and token coverage reach new-UX components.** Closes three goals (BUG-029 through BUG-032): the font picker was silently no-op'ing on new-UX components (28 sites bound to a hardcoded fallback token); the entire v0.37.1 color refactor was a silent no-op on 27 legacy pages (markflow.css never imported the design-token files); and 311 raw font-size literals across components.css and markflow.css were causing double-scaling under text-scale. Two bonus fixes pulled in from browser verification: invisible card boundaries on low-contrast themes (wrong shadow token), and inline-style token rot across 19 legacy HTML pages (~640 sites referencing pre-v0.37.0 token names deleted by v0.37.1).
 
 ### What operators and users see
 
-- Avatar menu -> Display preferences now affects EVERY page including index, bulk, storage, admin, help, resources — not just the new-UX surfaces.
-- Page titles, section headings, card headers, and drop-zone "click to browse" CTAs render in the theme's accent color (purple / orange / green / pink depending on theme), so theme changes are visible at a glance.
-- X-Large text size no longer breaks the Display Prefs drawer button row (now reflows 2x2).
-- Font picker simplified from 14 to 11 choices: removed Inter / IBM Plex Sans / Poppins / DM Sans (visually indistinguishable from System UI on Mac); added Comic Sans MS.
-- Original-UX pages NO LONGER auto-flip dark on a dark-OS machine — your theme choice in the drawer wins. Pick Classic Dark explicitly if you want dark on legacy pages.
-- `/api/version` reports `0.37.1`.
+- Font picker and text-scale now work uniformly on every page — new-UX and legacy alike.
+- Card boundaries are visible on all themes, including low-contrast spring/summer/fall/winter and their dark variants.
+- Legacy resources, flagged, search, viewer, job-detail, pipeline-files, and most other original-UX pages render correctly instead of showing invisible UI (the token rot fix).
+- The text-size grid is 11 tokens: 2xs (0.7rem), xs (0.78rem), sm (0.82rem), base (0.86rem), body (0.92rem), md (1.0rem), h3 (1.2rem), h2 (1.4rem), h1 (1.85rem), display (2.4rem), display-lg (3.0rem). Four `/* exception: */` keep-raw sites remain in components.css (`.mf-av-menu__gate` 0.5rem, `.mf-doc-list-row__fmt` 0.55rem, `.mf-card-grid--compact .mf-doc-card__snippet` 0.56rem, `.mf-home__headline--huge` 3.4rem).
+- `/api/version` reports `0.38.0`.
+
+### Heads-up for users
+
+Elements styled via `--mf-text-xs`, `--mf-text-sm`, `--mf-text-body`, or `--mf-text-micro` were silently double-scaling before v0.38.0 (their definitions AND the `html { font-size }` rule both applied `* var(--mf-text-scale)`). At xl text-scale those elements shrink by ~30% after the fix — this corrects a v0.37.0 bug. If the previous size is preferred, set text-scale to "large" or default in Display Preferences.
 
 ### Loose ends tracked forward
 
-1. **components.css needs the same font + text-scale wiring** -- new-UX components use `--mf-font-sans` (hardcoded) and hardcoded `0.86rem`-style font-sizes; the v0.37.1 fixes only reached markflow.css. Font picker and text-scale work on legacy pages but only partially on new-UX. Separate refactor.
-2. **Palette tweaks deferred** -- user plans to revise `design-themes.css` token VALUES (e.g., via Figma + Tokens Studio plugin). All surfaces are now on tokens, so this becomes a value-only edit, no hunt-and-substitute required.
-3. **BUG-019** -- remove deprecated `/api/trash/empty/status` and `/api/trash/restore-all/status` facades.
-4. **BUG-020** -- apply P1 (no-op-on-terminal) hardening to `BulkJob.tick()` and `lifecycle_scanner` `_scan_state` mutations.
-5. **BUG-021** -- periodic drift detection job comparing `bulk_jobs.processed` vs `active_operations.done`.
-6. **BUG-022** -- boot-time scheduler time-slot collision self-check.
-7. **BUG-023** -- audit deprecated public surfaces, apply v0.35.0 deprecation convention.
-8. **Failure-path explicit `completed_at` writes** -- bulk_job pre-flight failure handler should write `auto_conversion_runs.completed_at` directly.
-9. **LibreOffice headless flakes** on `.xls` (parallel-worker contention on `~/.config/libreoffice`). Tracked for hardening.
-10. **Worker heartbeat freezes** during long Whisper transcriptions. Cosmetic; not blocking.
+1. **Palette tweaks deferred** -- user plans to revise `design-themes.css` token VALUES (e.g., via Figma + Tokens Studio plugin). All surfaces are now on tokens, so this becomes a value-only edit, no hunt-and-substitute required.
+2. **BUG-019** -- remove deprecated `/api/trash/empty/status` and `/api/trash/restore-all/status` facades.
+3. **BUG-020** -- apply P1 (no-op-on-terminal) hardening to `BulkJob.tick()` and `lifecycle_scanner` `_scan_state` mutations.
+4. **BUG-021** -- periodic drift detection job comparing `bulk_jobs.processed` vs `active_operations.done`.
+5. **BUG-022** -- boot-time scheduler time-slot collision self-check.
+6. **BUG-023** -- audit deprecated public surfaces, apply v0.35.0 deprecation convention.
+7. **Failure-path explicit `completed_at` writes** -- bulk_job pre-flight failure handler should write `auto_conversion_runs.completed_at` directly.
+8. **LibreOffice headless flakes** on `.xls` (parallel-worker contention on `~/.config/libreoffice`). Tracked for hardening.
+9. **Worker heartbeat freezes** during long Whisper transcriptions. Cosmetic; not blocking.
+10. **Vector search golden eval** -- build golden test set once vector search is implemented.
 
 Full per-version detail (v0.34.6 and every prior release back to v0.13.x)
 lives in [`docs/version-history.md`](docs/version-history.md). **Do not

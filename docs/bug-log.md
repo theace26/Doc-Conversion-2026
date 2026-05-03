@@ -88,6 +88,19 @@ Planned during the Active Operations Registry (v0.35.0) implementation. Original
 
 ## Shipped (history)
 
+### v0.38.0 — components.css theme-aware refactor
+
+Four bugs closed in v0.38.0 (BUG-029 through BUG-032). Three were
+latent regressions from v0.37.1 and v0.37.0; one was a shadow token
+mismatch discovered during browser verification.
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-029 | shipped-v0.38.0 | high | v0.37.1 import regression — markflow.css and 27 legacy HTML pages never loaded design-tokens.css or design-themes.css, so all 364 `var(--mf-*)` token references and every `[data-theme]` override silently no-op'd | `static/markflow.css` used `var(--mf-*)` tokens throughout but had no `@import` for `design-tokens.css` or `design-themes.css`. The 27 legacy HTML pages that link only markflow.css (not components.css) never pulled the design files in via any other route either. Result: every token resolved to nothing; page background and text colors fell back to browser defaults on those pages despite the v0.37.1 refactor. Fix: prepended `@import "./css/design-tokens.css"` and `@import "./css/design-themes.css"` to markflow.css (Phase 0, commit `8101001`). |
+| BUG-030 | shipped-v0.38.0 | medium | Font picker silently no-op'd on all new-UX components — 28 components.css sites bound to `var(--mf-font-sans)` (hardcoded fallback) instead of `var(--mf-font-family)` (picker-bound token) | `design-tokens.css` defines `--mf-font-sans` as a static string (e.g., `system-ui, sans-serif`) that is never overridden. `design-themes.css` overrides `--mf-font-family` for each `[data-font="X"]` choice. `components.css` referenced `--mf-font-sans` at 28 selectors, so the font picker had no effect on new-UX components. Fix: rebound all 28 occurrences to `var(--mf-font-family)` (Phase 2, commit `fe5e803`). |
+| BUG-031 | shipped-v0.38.0 | medium | Invisible card boundaries on low-contrast themes — `.card` in markflow.css used `var(--mf-shadow-press)` (pressed/interactive-state shadow) instead of `var(--mf-shadow-card)` (per-theme elevation shadow) | `--mf-shadow-press` is defined as `0 1px 3px rgba(0,0,0,0.08)` — a nearly imperceptible depth cue intended for pressed button states, not card elevation. On low-contrast themes (spring, summer, fall, winter and dark variants) where surface and background colors are close, this rendered card boundaries invisible. `--mf-shadow-card` provides the intended per-theme elevation shadow. Fix: single-token swap in `.card` rule (commit `01fc0cf`). |
+| BUG-032 | shipped-v0.38.0 | high | Inline-style token rot on 19 legacy HTML pages — inline `<style>` blocks and JS `style="..."` attributes still referenced pre-v0.37.0 token names deleted by v0.37.1 | v0.37.1 deleted markflow.css's `:root` block, removing all the old short-name tokens (`--surface`, `--border`, `--text-muted`, `--accent`, `--ok`, `--error`, `--warn`, `--radius`, `--shadow`, etc.). But 19 legacy HTML pages had inline `<style>` blocks AND JS code that dynamically writes `style="color: var(--ok)"` etc. into the DOM — both reference live CSS custom properties. Neither was updated in v0.37.1. Result: ~640 inline usages resolved to nothing, causing invisible UI on resources, flagged, search, viewer, job-detail, pipeline-files, and most other original-UX pages. Fix: applied a 25-rule token-name mapping to both `<style>` and `<script>` blocks across all 19 pages (commit `617c237`). |
+
 ### v0.37.1 — v0.37.0 theme system didn't reach legacy original-UX pages
 
 The v0.37.0 Display Preferences feature was operator-visible on the new-UX

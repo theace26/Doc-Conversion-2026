@@ -4,6 +4,57 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.38.0 — components.css theme-aware refactor (2026-05-03)
+
+**Goal:** Extend the v0.37.1 theme-system fixes to cover `static/css/components.css` (new-UX components), close two latent regressions introduced during v0.37.1 (an import chain gap and inline-style token rot), unify font-size literals across both stylesheets onto a consistent 11-token grid, and resolve two bonus defects discovered during browser verification (card shadow mismatch, inline JS token references).
+
+**Why this matters:** v0.37.1 closed the theme gap on legacy pages but left three silent failures on the new-UX side. (1) The font picker no-op'd on every new-UX component because `components.css` bound to `--mf-font-sans` (a hardcoded design-tokens.css fallback) instead of `--mf-font-family` (the token that `design-themes.css` overrides for each font choice). (2) The entire v0.37.1 color refactor was invisible on the 27 legacy HTML pages that link only `markflow.css` — that file used 364 `var(--mf-*)` tokens but never imported `design-tokens.css` or `design-themes.css`, so every token resolved to nothing and the page background/text colors fell back to browser defaults. (3) 311 raw `font-size: Xrem` literals across 39 distinct values existed in the two stylesheets, several of which double-scaled because their `--mf-text-*` token definitions AND the `html { font-size }` rule both applied `* var(--mf-text-scale)`. Together these three failures meant the Display Preferences picker was more broken than v0.37.1 appeared to fix.
+
+**What changed:**
+
+1. **Phase 0 — `@import` fix for markflow.css (commit `8101001`).** Prepended `@import "./css/design-tokens.css"` and `@import "./css/design-themes.css"` to `static/markflow.css`. This one change made all 364 existing `var(--mf-*)` references in markflow.css resolve correctly on the 27 legacy pages that link only markflow.css — resolving BUG-029. Without this, the v0.37.1 refactor was a silent no-op on those pages.
+
+2. **Phase 1a — 11-token text-size grid in design-tokens.css (commit `6263313`).** Replaced the previous `--mf-text-*` scale-multiplier scheme with 11 plain-rem values: `--mf-text-2xs` (0.7rem), `xs` (0.78rem), `sm` (0.82rem), `base` (0.86rem), `body` (0.92rem), `md` (1.0rem), `h3` (1.2rem), `h2` (1.4rem), `h1` (1.85rem), `display` (2.4rem), `display-lg` (3.0rem). Eliminates the double-scaling bug: the old token values themselves included `* var(--mf-text-scale)`, so sites using them plus the `html { font-size: calc(16px * var(--mf-text-scale)) }` rule were scaled twice.
+
+3. **Phase 1b — move `html { font-size }` rule to design-themes.css (commit `cfca0b6`).** Relocated the `html { font-size: calc(16px * var(--mf-text-scale, 1)) }` rule from `design-tokens.css` to `design-themes.css` so the cascade order is correct — the rule now lives in the same file as the `[data-text-scale]` overrides that modify `--mf-text-scale`, preventing specificity surprises.
+
+4. **Phase 2 — rebind `--mf-font-sans` → `--mf-font-family` in components.css (commit `fe5e803`, resolves BUG-030).** 28 selectors in `components.css` referenced `var(--mf-font-sans)`, which is a static fallback string defined once in `design-tokens.css` and never overridden. The font picker works by overriding `--mf-font-family` in `design-themes.css`'s `[data-font="X"]` selectors. Rebound all 28 sites to `var(--mf-font-family)` so the font picker applies to every new-UX component.
+
+5. **Phase 3 — tokenize components.css font-sizes (commits `c1204ed`, `1a55a1f`, `1e4f96f`, `3b5d92e`).** Four-pass sweep across all ~1100 lines of `components.css`. 152 raw `font-size: Xrem` literals replaced with the nearest token from the 11-token grid. Decision tree: exact match → token; drift ≤0.04rem → snap to nearest; > 0.04rem drift or semantic edge case → keep raw with `/* exception: */` comment. 4 keep-raw exceptions: `.mf-av-menu__gate` (0.5rem), `.mf-doc-list-row__fmt` (0.55rem), `.mf-card-grid--compact .mf-doc-card__snippet` (0.56rem), `.mf-home__headline--huge` (3.4rem).
+
+6. **Phase 4 — tokenize markflow.css font-sizes (commits `ac7d8e5`, `0707ba7`, `0d3754e`, `6f76d6d`).** Same four-pass sweep across `static/markflow.css`. 117 raw literals tokenized; 0 keep-raw exceptions (markflow.css had no sub-0.7rem or above-3.0rem outliers).
+
+7. **Card shadow swap (commit `01fc0cf`, resolves BUG-031).** `.card` in markflow.css was using `box-shadow: var(--mf-shadow-press)` — the pressed/interactive-state shadow (`0 1px 3px rgba(0,0,0,0.08)`, nearly imperceptible). Swapped to `var(--mf-shadow-card)`, the per-theme elevation shadow. Resolves invisible card boundaries on legacy pages under low-contrast themes (spring, summer, fall, winter and their dark variants).
+
+8. **HTML inline-style token migration (commit `617c237`, resolves BUG-032).** 19 legacy HTML pages had inline `<style>` blocks and JS-driven `style="..."` attributes referencing pre-v0.37.0 token names (`var(--surface)`, `var(--border)`, `var(--text-muted)`, `var(--accent)`, `var(--ok)`, `var(--error)`, `var(--warn)`, `var(--radius)`, `var(--shadow)`, etc.) that v0.37.1's `:root` block deletion had silently invalidated. Applied a 25-rule sed mapping to both `<style>` blocks and `<script>` blocks (JS dynamically writes `style="color: var(--ok)"` into the DOM, so JS-string token references are real CSS usages). ~640 sites migrated across resources, flagged, search, viewer, job-detail, pipeline-files, and most other original-UX pages.
+
+9. **Phase 5 — 31 outlier per-site decisions (commit `17c2a5e`).** Change-index sidecar updated with documented rationale for each of the 31 font-size sites not handled mechanically in Phases 3–4. All 4 keep-raw exceptions in components.css have `/* exception: keep-raw — [reason] */` inline comments.
+
+**Design decisions:**
+
+- **Plain-rem token values (no multiplier in token definitions).** The old scheme stored `calc(Xrem * var(--mf-text-scale))` directly inside each `--mf-text-*` token, which double-scaled any site that also inherited the `html { font-size: calc(16px * var(--mf-text-scale)) }` rule. New scheme: tokens are plain rem values; the html rule is the single place text-scale is applied.
+- **Keep-raw exceptions documented inline.** Rather than forcing 4 edge-case font-sizes onto the nearest grid token (which would shift them more than the grid allows), they are left raw with `/* exception: keep-raw — [reason] */` comments. This makes future audits self-documenting without losing the substitution history.
+- **JS-string token references treated as CSS usages.** The inline-style migration correctly included `<script>` blocks, not just `<style>` blocks. JS strings like `el.style.color = 'var(--ok)'` write literal CSS into the DOM and must use current token names.
+- **Phase 0 import-first (not alias bridge).** Rather than adding `:root` alias forwarding (`--surface: var(--mf-surface)` etc.) to design-tokens.css, the fix was to import the design files into markflow.css directly. Rationale: alias bridges mask root-cause token drift over time; a single `@import` line is cleaner and surfaced the real gap.
+
+**Files modified:**
+- `static/markflow.css` — `@import` prepended; 117 font-size literals tokenized; `.card` shadow token corrected; inline-style token rot fixed on all 27+ legacy pages
+- `static/css/components.css` — 28 font-family rebindings; 152 font-size literals tokenized; 4 keep-raw exceptions commented
+- `static/css/design-tokens.css` — 11 plain-rem `--mf-text-*` token values replacing multiplier scheme
+- `static/css/design-themes.css` — `html { font-size }` rule relocated here from design-tokens.css
+- 19 `static/*.html` pages — inline `<style>` + `<script>` blocks migrated from pre-v0.37.0 token names to `--mf-*` equivalents
+
+**Files created / updated:**
+- `docs/superpowers/specs/2026-05-02-components-css-theme-aware-design.md` — design spec
+- `docs/superpowers/plans/2026-05-02-components-css-theme-aware.md` — 13-task implementation plan
+- `docs/superpowers/specs/2026-05-02-components-css-theme-aware-change-index.md` — full rollback artifact: every literal touched, every snap, every keep-raw exception; ~300 rows
+
+**Loose ends tracked forward:**
+- Palette tweaks deferred (user intends to revise `design-themes.css` token values via Figma + Tokens Studio). All surfaces are on tokens; this is now a value-only edit.
+- BUG-013 through BUG-024 in the open/planned section are unaffected by this release.
+
+---
+
 ## v0.37.1 — Theme system reaches legacy original-UX pages (2026-05-02)
 
 **Goal:** Make the v0.37.0 Display Preferences (theme / font / text-scale) visibly apply to the 26 legacy original-UX HTML pages, not just the new-UX surfaces. Resolves four sub-bugs (BUG-025 through BUG-028) clustered around the same root cause: `static/markflow.css` was never plumbed into the v0.37.0 `[data-theme]` token system and had its own parallel custom-prop block plus 7 `@media (prefers-color-scheme: dark)` overrides.
