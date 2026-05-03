@@ -1383,9 +1383,24 @@ html[data-theme="classic-dark"] .db-tool-error { background: #3b1010; color: #ef
 .help-sidebar .category-heading {
   font-size: var(--mf-text-2xs); font-weight: 600; text-transform: uppercase;
   letter-spacing: 0.05em; color: var(--mf-color-text-muted); margin: 1rem 0 0.5rem;
-  cursor: pointer; display: flex; align-items: center; gap: 0.25rem;
+  cursor: pointer; display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--mf-radius-sm);
+  user-select: none;
+  transition: color 0.12s, background 0.12s;
 }
-.help-sidebar .category-heading::before { content: "\25B8"; transition: transform 0.15s; }
+.help-sidebar .category-heading:hover {
+  color: var(--mf-color-text);
+  background: var(--mf-surface-alt);
+}
+.help-sidebar .category-heading::before {
+  content: "\25B8";   /* ▸ collapsed; rotates 90deg on .open to point down */
+  font-size: 0.9rem;
+  color: var(--mf-color-accent);
+  transition: transform 0.18s;
+  display: inline-block;
+  flex-shrink: 0;
+}
 .help-sidebar .category-heading.open::before { transform: rotate(90deg); }
 .help-sidebar .article-link {
   display: block; padding: 0.35rem 0.75rem; margin: 0.1rem 0;

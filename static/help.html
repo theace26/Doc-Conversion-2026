@@ -76,7 +76,7 @@
       toc.innerHTML = '';
       (index.categories || []).forEach(function(cat) {
         var heading = document.createElement('div');
-        heading.className = 'category-heading open';
+        heading.className = 'category-heading';
         heading.textContent = cat.name;
         heading.addEventListener('click', function() {
           this.classList.toggle('open');
@@ -86,6 +86,7 @@
 
         var list = document.createElement('div');
         list.className = 'category-articles';
+        list.hidden = true;
         (cat.articles || []).forEach(function(art) {
           var a = document.createElement('a');
           a.className = 'article-link';
@@ -99,6 +100,20 @@
           list.appendChild(a);
         });
         toc.appendChild(list);
+      });
+    }
+
+    // Auto-open the sidebar category that contains the given article slug.
+    function openCategoryFor(slug) {
+      var headings = document.querySelectorAll('.category-heading');
+      Array.prototype.forEach.call(headings, function(h) {
+        var list = h.nextElementSibling;
+        if (!list || !list.classList.contains('category-articles')) return;
+        var hasActive = !!list.querySelector('.article-link[data-slug="' + slug + '"]');
+        if (hasActive) {
+          h.classList.add('open');
+          list.hidden = false;
+        }
       });
     }
 
@@ -276,6 +291,7 @@
         document.querySelectorAll('.article-link').forEach(function(a) {
           a.classList.toggle('active', a.dataset.slug === slug);
         });
+        openCategoryFor(slug);
 
         window.location.hash = slug;
         content.scrollTop = 0;
