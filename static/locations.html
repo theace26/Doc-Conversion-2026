@@ -19,32 +19,32 @@
   <title>MarkFlow — Locations</title>
   <link rel="stylesheet" href="/static/markflow.css">
   <style>
-    .loc-card { padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 0.75rem; background: var(--surface); }
+    .loc-card { padding: 1rem; border: 1px solid var(--mf-border); border-radius: var(--mf-radius-thumb); margin-bottom: 0.75rem; background: var(--mf-surface); }
     .loc-card-header { display: flex; justify-content: space-between; align-items: center; }
     .loc-name { font-weight: 600; font-size: 1rem; }
-    .loc-path { font-family: monospace; font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem; }
-    .loc-notes { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.15rem; font-style: italic; }
+    .loc-path { font-family: monospace; font-size: 0.85rem; color: var(--mf-color-text-muted); margin-top: 0.25rem; }
+    .loc-notes { font-size: 0.85rem; color: var(--mf-color-text-muted); margin-top: 0.15rem; font-style: italic; }
     .loc-meta { display: flex; gap: 1rem; margin-top: 0.4rem; font-size: 0.82rem; }
     .loc-actions { display: flex; gap: 0.4rem; }
     .loc-status { display: inline-flex; align-items: center; gap: 0.25rem; }
-    .loc-status.ok { color: var(--ok); }
-    .loc-status.err { color: var(--error); }
-    .section-label { font-weight: 600; font-size: 0.9rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin: 1.5rem 0 0.5rem; padding-bottom: 0.25rem; border-bottom: 1px solid var(--border); }
-    .add-form { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem; align-items: center; padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); margin-bottom: 1rem; }
+    .loc-status.ok { color: var(--mf-color-success); }
+    .loc-status.err { color: var(--mf-color-error); }
+    .section-label { font-weight: 600; font-size: 0.9rem; color: var(--mf-color-text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin: 1.5rem 0 0.5rem; padding-bottom: 0.25rem; border-bottom: 1px solid var(--mf-border); }
+    .add-form { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem; align-items: center; padding: 1rem; border: 1px solid var(--mf-border); border-radius: var(--mf-radius-thumb); background: var(--mf-surface); margin-bottom: 1rem; }
     .add-form label { font-weight: 500; font-size: 0.9rem; }
-    .add-form input, .add-form select, .add-form textarea { padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 0.9rem; }
+    .add-form input, .add-form select, .add-form textarea { padding: 0.45rem 0.6rem; border: 1px solid var(--mf-border); border-radius: var(--mf-radius-sm); background: var(--mf-surface); color: var(--mf-color-text); font-size: 0.9rem; }
     .add-form textarea { resize: vertical; min-height: 2.5rem; font-family: inherit; }
     .add-form .form-actions { grid-column: 1 / -1; margin-top: 0.5rem; display: flex; gap: 0.5rem; }
     .path-row { display: flex; gap: 0.5rem; align-items: center; }
     .path-row input { flex: 1; }
     .validate-result { grid-column: 2; font-size: 0.82rem; margin-top: -0.25rem; }
-    .validate-result.ok { color: var(--ok); }
-    .validate-result.err { color: var(--error); }
+    .validate-result.ok { color: var(--mf-color-success); }
+    .validate-result.err { color: var(--mf-color-error); }
     .confirm-row { display: inline-flex; gap: 0.5rem; align-items: center; font-size: 0.85rem; }
-    .empty-state { text-align: center; padding: 2rem; color: var(--text-muted); }
-    .setup-banner { background: var(--surface-alt); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; text-align: center; margin-bottom: 1.5rem; }
+    .empty-state { text-align: center; padding: 2rem; color: var(--mf-color-text-muted); }
+    .setup-banner { background: var(--mf-surface-alt); border: 1px solid var(--mf-border); border-radius: var(--mf-radius-thumb); padding: 1.5rem; text-align: center; margin-bottom: 1.5rem; }
     .setup-banner p { margin: 0.5rem 0; font-size: 0.95rem; }
-    .spinner-sm { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; }
+    .spinner-sm { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--mf-border); border-top-color: var(--mf-color-accent); border-radius: 50%; animation: spin 0.6s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
@@ -67,7 +67,7 @@
     <div id="error-banner" role="alert" hidden></div>
 
     <div id="opened-from-banner" hidden style="margin-bottom:0.5rem">
-      <a href="#" id="close-tab-link" style="font-size:0.85rem;color:var(--text-muted);text-decoration:none;display:inline-flex;align-items:center;gap:0.3rem">
+      <a href="#" id="close-tab-link" style="font-size:0.85rem;color:var(--mf-color-text-muted);text-decoration:none;display:inline-flex;align-items:center;gap:0.3rem">
         &larr; Close &amp; return to Bulk Jobs
       </a>
     </div>

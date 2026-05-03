@@ -26,66 +26,66 @@
   <style>
     .job-form { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem; align-items: center; }
     .job-form label { font-weight: 500; font-size: 0.9rem; }
-    .job-form input, .job-form select { padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 0.9rem; }
+    .job-form input, .job-form select { padding: 0.45rem 0.6rem; border: 1px solid var(--mf-border); border-radius: var(--mf-radius-sm); background: var(--mf-surface); color: var(--mf-color-text); font-size: 0.9rem; }
     .job-form .checkbox-row { display: flex; align-items: center; gap: 0.4rem; grid-column: 2; }
     .job-form .form-actions { grid-column: 1 / -1; margin-top: 0.5rem; }
     .progress-section { margin: 1.5rem 0; }
-    .progress-bar-wrap { background: var(--surface-alt); border-radius: var(--radius); height: 1.5rem; overflow: hidden; margin: 0.5rem 0; }
-    .progress-bar-fill { height: 100%; background: var(--accent); transition: width 0.3s ease; border-radius: var(--radius); display: flex; align-items: center; justify-content: center; font-size: 0.75rem; color: var(--text-on-accent); font-weight: 600; }
-    .progress-bar-fill.indeterminate { width: 100%; background: repeating-linear-gradient(90deg, var(--accent) 0%, var(--accent-hover) 50%, var(--accent) 100%); background-size: 200% 100%; animation: shimmer 1.5s ease infinite; }
+    .progress-bar-wrap { background: var(--mf-surface-alt); border-radius: var(--mf-radius-thumb); height: 1.5rem; overflow: hidden; margin: 0.5rem 0; }
+    .progress-bar-fill { height: 100%; background: var(--mf-color-accent); transition: width 0.3s ease; border-radius: var(--mf-radius-thumb); display: flex; align-items: center; justify-content: center; font-size: 0.75rem; color: var(--mf-color-text-on-accent); font-weight: 600; }
+    .progress-bar-fill.indeterminate { width: 100%; background: repeating-linear-gradient(90deg, var(--mf-color-accent) 0%, var(--mf-color-accent-hover) 50%, var(--mf-color-accent) 100%); background-size: 200% 100%; animation: shimmer 1.5s ease infinite; }
     @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
     .counters { display: flex; gap: 1.5rem; flex-wrap: wrap; font-size: 0.9rem; }
     .counters .counter { display: flex; flex-direction: column; align-items: center; }
     .counters .counter-value { font-weight: 700; font-size: 1.3rem; }
-    .counters .counter-label { font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; }
-    .job-history-item { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; transition: background 0.15s; }
-    .job-history-item:hover { background: var(--surface-alt); }
+    .counters .counter-label { font-size: 0.78rem; color: var(--mf-color-text-muted); text-transform: uppercase; }
+    .job-history-item { padding: 0.75rem 1rem; border-bottom: 1px solid var(--mf-border); display: flex; justify-content: space-between; align-items: center; transition: background 0.15s; }
+    .job-history-item:hover { background: var(--mf-surface-alt); }
     .job-history-item:last-child { border-bottom: none; }
-    .job-status { padding: 0.15em 0.5em; border-radius: var(--radius-sm); font-size: 0.78rem; font-weight: 600; text-transform: uppercase; }
-    .job-status.completed { background: rgba(22,163,74,0.12); color: var(--ok); }
-    .job-status.running, .job-status.scanning { background: rgba(79,91,213,0.12); color: var(--accent); }
-    .job-status.failed { background: rgba(220,38,38,0.12); color: var(--error); }
-    .job-status.cancelled { background: rgba(107,112,132,0.12); color: var(--text-muted); }
-    .job-status.paused { background: rgba(217,119,6,0.12); color: var(--warn); }
+    .job-status { padding: 0.15em 0.5em; border-radius: var(--mf-radius-sm); font-size: 0.78rem; font-weight: 600; text-transform: uppercase; }
+    .job-status.completed { background: rgba(22,163,74,0.12); color: var(--mf-color-success); }
+    .job-status.running, .job-status.scanning { background: rgba(79,91,213,0.12); color: var(--mf-color-accent); }
+    .job-status.failed { background: rgba(220,38,38,0.12); color: var(--mf-color-error); }
+    .job-status.cancelled { background: rgba(107,112,132,0.12); color: var(--mf-color-text-muted); }
+    .job-status.paused { background: rgba(217,119,6,0.12); color: var(--mf-color-warn); }
 
     /* Job config modal */
-    .cfg-section-title { font-weight: 600; font-size: 0.9rem; cursor: pointer; padding: 0.5rem 0; color: var(--text); user-select: none; }
-    .cfg-section-title:hover { color: var(--accent); }
-    details + details { border-top: 1px solid var(--border); }
+    .cfg-section-title { font-weight: 600; font-size: 0.9rem; cursor: pointer; padding: 0.5rem 0; color: var(--mf-color-text); user-select: none; }
+    .cfg-section-title:hover { color: var(--mf-color-accent); }
+    details + details { border-top: 1px solid var(--mf-border); }
     details[open] > .cfg-grid { padding: 0.5rem 0 0.75rem; }
     .cfg-grid { display: grid; grid-template-columns: 140px 1fr; gap: 0.5rem 0.75rem; align-items: center; font-size: 0.85rem; }
     .cfg-grid label { font-weight: 500; font-size: 0.85rem; }
-    .cfg-input { padding: 0.35rem 0.55rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 0.85rem; width: 100%; }
+    .cfg-input { padding: 0.35rem 0.55rem; border: 1px solid var(--mf-border); border-radius: var(--mf-radius-sm); background: var(--mf-surface); color: var(--mf-color-text); font-size: 0.85rem; width: 100%; }
     .cfg-checkbox { display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; font-size: 0.85rem; }
-    .cfg-hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.15rem; }
+    .cfg-hint { font-size: 0.75rem; color: var(--mf-color-text-muted); margin-top: 0.15rem; }
     .control-btns { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
 
     /* Clickable counter values */
     .counter-value.clickable { cursor: pointer; transition: opacity 0.15s; }
     .counter-value.clickable:hover { opacity: 0.7; text-decoration: underline; }
-    .counter-value.clickable.cv-converted { color: var(--ok); }
-    .counter-value.clickable.cv-failed { color: var(--error); }
-    .counter-value.clickable.cv-skipped { color: var(--text-muted); }
+    .counter-value.clickable.cv-converted { color: var(--mf-color-success); }
+    .counter-value.clickable.cv-failed { color: var(--mf-color-error); }
+    .counter-value.clickable.cv-skipped { color: var(--mf-color-text-muted); }
 
     /* File list panel */
     #file-list-panel { overflow: hidden; max-height: 0; opacity: 0; transition: max-height 0.35s ease, opacity 0.25s ease, margin 0.25s ease; margin-top: 0; }
     #file-list-panel.open { max-height: 600px; opacity: 1; margin-top: 0.75rem; }
     #file-list-panel .flp-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
     #file-list-panel .flp-title { font-weight: 600; font-size: 0.85rem; text-transform: uppercase; }
-    #file-list-panel .flp-close { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 1.1rem; padding: 0.2rem 0.4rem; }
-    #file-list-panel .flp-close:hover { color: var(--text); }
-    #file-list-panel .flp-loading { font-size: 0.85rem; color: var(--text-muted); padding: 0.5rem 0; }
+    #file-list-panel .flp-close { background: none; border: none; cursor: pointer; color: var(--mf-color-text-muted); font-size: 1.1rem; padding: 0.2rem 0.4rem; }
+    #file-list-panel .flp-close:hover { color: var(--mf-color-text); }
+    #file-list-panel .flp-loading { font-size: 0.85rem; color: var(--mf-color-text-muted); padding: 0.5rem 0; }
     .flp-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-    .flp-table th { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 2px solid var(--border); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); }
-    .flp-table td { padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .flp-table th { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 2px solid var(--mf-border); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; color: var(--mf-color-text-muted); }
+    .flp-table td { padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--mf-border); vertical-align: top; }
     .flp-table tr:last-child td { border-bottom: none; }
     .flp-table .flp-fname { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .flp-table .flp-path { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 0.78rem; }
-    .flp-table .flp-err { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--error); font-size: 0.78rem; }
-    .flp-table .flp-size { white-space: nowrap; color: var(--text-muted); }
+    .flp-table .flp-path { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mf-color-text-muted); font-size: 0.78rem; }
+    .flp-table .flp-err { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mf-color-error); font-size: 0.78rem; }
+    .flp-table .flp-size { white-space: nowrap; color: var(--mf-color-text-muted); }
     #file-list-panel .flp-scroll { max-height: 400px; overflow-y: auto; }
-    #file-list-panel .flp-load-more { display: block; width: 100%; margin-top: 0.5rem; padding: 0.4rem; text-align: center; background: var(--surface-alt); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; font-size: 0.82rem; color: var(--text-muted); }
-    #file-list-panel .flp-load-more:hover { background: var(--surface); color: var(--text); }
+    #file-list-panel .flp-load-more { display: block; width: 100%; margin-top: 0.5rem; padding: 0.4rem; text-align: center; background: var(--mf-surface-alt); border: 1px solid var(--mf-border); border-radius: var(--mf-radius-sm); cursor: pointer; font-size: 0.82rem; color: var(--mf-color-text-muted); }
+    #file-list-panel .flp-load-more:hover { background: var(--mf-surface); color: var(--mf-color-text); }
   </style>
 </head>
 <body>
@@ -132,7 +132,7 @@
     <div id="scan-detail-backdrop"
          style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:200;align-items:center;justify-content:center;padding:1rem"
          role="dialog" aria-modal="true" aria-labelledby="scan-detail-title">
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem 1.5rem;max-width:560px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,0.4)">
+      <div style="background:var(--mf-surface);border:1px solid var(--mf-border);border-radius:var(--mf-radius-thumb);padding:1.25rem 1.5rem;max-width:560px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,0.4)">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;margin-bottom:0.85rem">
           <h3 id="scan-detail-title" style="margin:0;display:flex;align-items:center;gap:0.4rem">
             <span id="scan-detail-icon" aria-hidden="true">&#128269;</span>
@@ -174,7 +174,7 @@
     </div>
 
     <!-- OCR Gap-Fill banner (shown when un-OCR'd PDFs exist) -->
-    <div id="gap-fill-banner" class="card mb-2" style="border:2px solid var(--warn);padding:1.25rem" hidden>
+    <div id="gap-fill-banner" class="card mb-2" style="border:2px solid var(--mf-color-warn);padding:1.25rem" hidden>
       <p style="margin:0 0 0.5rem 0"><strong>&#9888; <span id="gf-count">0</span> PDFs were converted without OCR.</strong></p>
       <p class="text-sm text-muted" style="margin:0 0 1rem 0">Run an OCR gap-fill pass to add OCR data to these files.</p>
       <div class="btn-group" style="display:flex;gap:0.5rem;align-items:center">
@@ -199,7 +199,7 @@
         <label for="source-loc">Source location</label>
         <div>
           <div style="display:flex;gap:0.5rem;align-items:center">
-            <select id="source-loc" style="flex:1;padding:0.45rem 0.6rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:0.9rem"></select>
+            <select id="source-loc" style="flex:1;padding:0.45rem 0.6rem;border:1px solid var(--mf-border);border-radius:var(--mf-radius-sm);background:var(--mf-surface);color:var(--mf-color-text);font-size:0.9rem"></select>
             <a href="/locations.html" target="_blank" class="text-sm" style="white-space:nowrap">Manage</a>
           </div>
           <div style="margin-top:0.35rem">
@@ -212,14 +212,14 @@
         <label for="output-loc">Output location</label>
         <div>
           <div style="display:flex;gap:0.5rem;align-items:center">
-            <select id="output-loc" style="flex:1;padding:0.45rem 0.6rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:0.9rem"></select>
+            <select id="output-loc" style="flex:1;padding:0.45rem 0.6rem;border:1px solid var(--mf-border);border-radius:var(--mf-radius-sm);background:var(--mf-surface);color:var(--mf-color-text);font-size:0.9rem"></select>
             <a href="/locations.html" target="_blank" class="text-sm" style="white-space:nowrap">Manage</a>
           </div>
           <div id="output-path-hint" class="text-sm text-mono text-muted" style="margin-top:0.2rem;font-size:0.78rem"></div>
         </div>
         <div class="form-actions" style="grid-column:1/-1;margin-top:0.75rem">
           <button class="btn btn-primary" id="start-btn">Start Job</button>
-          <span id="start-error" class="text-sm" style="color:var(--error);margin-left:0.75rem" hidden></span>
+          <span id="start-error" class="text-sm" style="color:var(--mf-color-error);margin-left:0.75rem" hidden></span>
         </div>
       </div>
     </section>
@@ -329,7 +329,7 @@
         </details>
 
         <!-- Actions -->
-        <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border)">
+        <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--mf-border)">
           <button class="btn" id="cfg-cancel-btn">Cancel</button>
           <button class="btn btn-primary" id="cfg-start-btn">Start Job</button>
         </div>
@@ -374,7 +374,7 @@
           <div class="counter" id="c-unrecognized-wrap" style="display:none"><a id="c-unrecognized-link" href="/unrecognized.html" style="text-decoration:none;color:inherit"><span class="counter-value" id="c-unrecognized">0</span><span class="counter-label">Unrecognized</span></a></div>
         </div>
         <div id="file-list-panel"></div>
-        <div id="review-queue-counter" class="text-sm" style="margin-top:0.5rem;color:var(--warn)" hidden>
+        <div id="review-queue-counter" class="text-sm" style="margin-top:0.5rem;color:var(--mf-color-warn)" hidden>
           ⚠ <span id="rq-count">0</span> files need attention after job completes
         </div>
         <!-- Active workers panel -->
@@ -392,7 +392,7 @@
           <button class="btn btn-ghost" id="cancel-btn" onclick="cancelJob()">Cancel</button>
         </div>
         <!-- Path issues alert — shown during/after scan when issues found -->
-        <div id="path-issues-alert" style="margin-top:1rem;padding:1rem;border-radius:var(--radius-sm);border:1px solid var(--warn);background:rgba(217,119,6,0.06)" hidden>
+        <div id="path-issues-alert" style="margin-top:1rem;padding:1rem;border-radius:var(--mf-radius-sm);border:1px solid var(--mf-color-warn);background:rgba(217,119,6,0.06)" hidden>
           <p style="margin:0 0 0.5rem"><strong>&#9888; Path issues detected during scan:</strong></p>
           <ul id="path-issues-list" class="text-sm" style="margin:0 0 0.75rem 1.2rem;line-height:1.6"></ul>
           <div style="display:flex;gap:0.5rem">
@@ -401,12 +401,12 @@
           </div>
         </div>
         <!-- Path issues detail panel (expandable) -->
-        <div id="path-issues-detail" style="margin-top:0.75rem;max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.75rem;font-size:0.82rem" hidden>
+        <div id="path-issues-detail" style="margin-top:0.75rem;max-height:300px;overflow-y:auto;border:1px solid var(--mf-border);border-radius:var(--mf-radius-sm);padding:0.75rem;font-size:0.82rem" hidden>
           <div id="path-issues-content">Loading...</div>
         </div>
 
         <!-- Review queue banner — shown after job completes with review items -->
-        <div id="review-banner" class="card" style="margin-top:1rem;border:2px solid var(--warn);padding:1.25rem" hidden>
+        <div id="review-banner" class="card" style="margin-top:1rem;border:2px solid var(--mf-color-warn);padding:1.25rem" hidden>
           <p style="margin:0 0 0.5rem 0"><strong>⚠ <span id="rb-count">0</span> files were skipped</strong> during conversion because their estimated OCR confidence was below your threshold.</p>
           <p class="text-sm text-muted" style="margin:0 0 1rem 0">These files have not been converted yet. Review them to decide what to do with each one.</p>
           <div class="btn-group">
@@ -948,11 +948,11 @@
         const statusLabel = (j.status || 'pending').charAt(0).toUpperCase() + (j.status || 'pending').slice(1);
         const errors = j.failed || 0;
         const errorsLink = errors > 0
-          ? ` <a href="/job-detail.html?id=${j.id}&tab=errors" class="text-sm" style="color:var(--error)" onclick="event.stopPropagation()">${errors.toLocaleString()} errors</a>`
+          ? ` <a href="/job-detail.html?id=${j.id}&tab=errors" class="text-sm" style="color:var(--mf-color-error)" onclick="event.stopPropagation()">${errors.toLocaleString()} errors</a>`
           : '';
         const rqCount = j.review_queue_count || 0;
         const reviewLink = (rqCount > 0 && j.status === 'completed')
-          ? ` <a href="/bulk-review.html?job_id=${j.id}" class="text-sm" style="color:var(--warn)" onclick="event.stopPropagation()">${rqCount} need review</a>`
+          ? ` <a href="/bulk-review.html?job_id=${j.id}" class="text-sm" style="color:var(--mf-color-warn)" onclick="event.stopPropagation()">${rqCount} need review</a>`
           : '';
         const converted = (j.converted || 0).toLocaleString();
         const total = j.total_files ? j.total_files.toLocaleString() : null;
@@ -966,7 +966,7 @@
             <span class="job-status ${statusClass}">${statusLabel}</span>
             <span class="text-sm text-muted" style="margin-left:0.5rem">Started ${formatLocalTime(j.started_at)}</span>
             ${finishedText ? `<span class="text-sm text-muted" style="margin-left:0.25rem">— Finished ${finishedText}</span>` : ''}
-            ${durationText ? `<span class="text-sm" style="margin-left:0.25rem; color:var(--accent)">(${durationText})</span>` : ''}
+            ${durationText ? `<span class="text-sm" style="margin-left:0.25rem; color:var(--mf-color-accent)">(${durationText})</span>` : ''}
           </div>
           <div class="text-sm" style="text-align:right">
             ${statsText}${errorsLink}${reviewLink}
@@ -1001,7 +1001,7 @@
       }
     } catch (e) {
       document.getElementById('job-list').innerHTML =
-        '<p class="text-sm" style="padding:1rem;color:var(--error)">Failed to load job history.</p>';
+        '<p class="text-sm" style="padding:1rem;color:var(--mf-color-error)">Failed to load job history.</p>';
     }
   }
 
@@ -1030,10 +1030,10 @@
     document.getElementById('job-form-section').hidden = false;
 
     if (!hasSource) {
-      warnEl.innerHTML = '<p class="text-sm" style="color:var(--warn);margin-bottom:0.75rem">No source locations defined yet. <a href="/locations.html">Add one</a></p>';
+      warnEl.innerHTML = '<p class="text-sm" style="color:var(--mf-color-warn);margin-bottom:0.75rem">No source locations defined yet. <a href="/locations.html">Add one</a></p>';
     }
     if (!hasOutput) {
-      warnEl.innerHTML += '<p class="text-sm" style="color:var(--warn);margin-bottom:0.75rem">No output locations defined yet. <a href="/locations.html">Add one</a></p>';
+      warnEl.innerHTML += '<p class="text-sm" style="color:var(--mf-color-warn);margin-bottom:0.75rem">No output locations defined yet. <a href="/locations.html">Add one</a></p>';
     }
 
     // Disable start if either dropdown is empty
@@ -1108,7 +1108,7 @@
       list.innerHTML = items.join('');
       alert.hidden = false;
       if (d.strategy_applied === 'error' && d.collisions > 0) {
-        alert.style.borderColor = 'var(--error)';
+        alert.style.borderColor = 'var(--mf-color-error)';
       }
       if (activeJobId) {
         const csvLink = document.getElementById('path-csv-link');
@@ -1139,14 +1139,14 @@
         if (i.collision_peer) detail += `<br>Collided with: ${i.collision_peer}`;
         if (i.resolved_path) detail += `<br>Output: ${i.resolved_path}`;
         if (i.issue_type === 'path_too_long') detail += `<br>Path: ${i.output_path}`;
-        return `<div style="padding:0.4rem 0;border-bottom:1px solid var(--border)">
+        return `<div style="padding:0.4rem 0;border-bottom:1px solid var(--mf-border)">
           <strong>${icon} ${typeLabel}</strong> ${res}<br>
           <span class="text-muted">${i.source_path}</span>${detail}
         </div>`;
       }).join('');
       pathDetailsLoaded = true;
     } catch (e) {
-      document.getElementById('path-issues-content').innerHTML = `<p style="color:var(--error)">${e.message}</p>`;
+      document.getElementById('path-issues-content').innerHTML = `<p style="color:var(--mf-color-error)">${e.message}</p>`;
     }
   }
 
@@ -1529,7 +1529,7 @@
         clearElement(panel);
         const err = document.createElement('div');
         err.className = 'flp-loading';
-        err.style.color = 'var(--error)';
+        err.style.color = 'var(--mf-color-error)';
         err.textContent = 'Failed to load files: ' + (e.message || 'unknown error');
         panel.appendChild(err);
       }
@@ -1543,8 +1543,8 @@
 
     const title = document.createElement('span');
     title.className = 'flp-title';
-    const statusColors = { converted: 'var(--ok)', failed: 'var(--error)', skipped: 'var(--text-muted)' };
-    title.style.color = statusColors[status] || 'var(--text)';
+    const statusColors = { converted: 'var(--mf-color-success)', failed: 'var(--mf-color-error)', skipped: 'var(--mf-color-text-muted)' };
+    title.style.color = statusColors[status] || 'var(--mf-color-text)';
     title.textContent = status.charAt(0).toUpperCase() + status.slice(1) + ' Files (' + (_flpTotal || 0).toLocaleString() + ')';
     header.appendChild(title);
 

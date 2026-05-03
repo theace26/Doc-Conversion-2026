@@ -227,7 +227,7 @@
       <div id="events-loading" class="text-muted" style="padding:1rem 0">Loading...</div>
       <div id="events-scroll" style="max-height:600px;overflow-y:auto">
         <table class="table" id="events-table" hidden>
-          <thead style="position:sticky;top:0;z-index:1;background:var(--surface)">
+          <thead style="position:sticky;top:0;z-index:1;background:var(--mf-surface)">
             <tr><th style="width:140px">Time</th><th style="width:130px">Type</th><th>Description</th></tr>
           </thead>
           <tbody id="events-tbody"></tbody>
@@ -262,17 +262,17 @@
           </div>
           <div class="summary-kpi">
             <div class="summary-kpi__title">Highest</div>
-            <div class="summary-kpi__value" id="ocr-max" style="color:var(--ok)">--</div>
+            <div class="summary-kpi__value" id="ocr-max" style="color:var(--mf-color-success)">--</div>
             <div class="summary-kpi__sub">best file confidence</div>
           </div>
           <div class="summary-kpi">
             <div class="summary-kpi__title">Lowest</div>
-            <div class="summary-kpi__value" id="ocr-min" style="color:var(--error)">--</div>
+            <div class="summary-kpi__value" id="ocr-min" style="color:var(--mf-color-error)">--</div>
             <div class="summary-kpi__sub">worst file confidence</div>
           </div>
           <div class="summary-kpi">
             <div class="summary-kpi__title">Below Threshold</div>
-            <div class="summary-kpi__value" id="ocr-below" style="color:var(--warn)">--</div>
+            <div class="summary-kpi__value" id="ocr-below" style="color:var(--mf-color-warn)">--</div>
             <div class="summary-kpi__sub" id="ocr-below-sub">--</div>
           </div>
         </div>
@@ -375,10 +375,10 @@
   <script src="/static/app.js"></script>
   <style>
     .res-section {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
+      background: var(--mf-surface);
+      border: 1px solid var(--mf-border);
+      border-radius: var(--mf-radius-thumb);
+      box-shadow: var(--mf-shadow-card);
       padding: 1.5rem;
       margin-bottom: 1.5rem;
     }
@@ -400,25 +400,25 @@
     .range-selector {
       display: flex;
       gap: 2px;
-      background: var(--border);
-      border-radius: var(--radius-sm);
+      background: var(--mf-border);
+      border-radius: var(--mf-radius-sm);
       padding: 2px;
     }
     .range-selector button {
       padding: 0.25rem 0.6rem;
       border: none;
       background: transparent;
-      color: var(--text-muted);
+      color: var(--mf-color-text-muted);
       font-size: 0.8rem;
       font-weight: 500;
       cursor: pointer;
       border-radius: 3px;
-      transition: var(--transition);
+      transition: var(--mf-transition-med);
     }
     .range-selector button.active,
     .range-selector button:hover {
-      background: var(--surface);
-      color: var(--text);
+      background: var(--mf-surface);
+      color: var(--mf-color-text);
     }
 
     /* Summary KPIs */
@@ -429,16 +429,16 @@
       margin-bottom: 1.25rem;
     }
     .summary-kpi {
-      background: var(--surface-alt);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
+      background: var(--mf-surface-alt);
+      border: 1px solid var(--mf-border);
+      border-radius: var(--mf-radius-thumb);
       padding: 1rem;
     }
     .summary-kpi__title {
       font-size: 0.8rem;
       font-weight: 600;
       text-transform: uppercase;
-      color: var(--text-muted);
+      color: var(--mf-color-text-muted);
       margin-bottom: 0.25rem;
     }
     .summary-kpi__value {
@@ -448,13 +448,13 @@
     }
     .summary-kpi__sub {
       font-size: 0.8rem;
-      color: var(--text-muted);
+      color: var(--mf-color-text-muted);
       margin-top: 0.25rem;
     }
     .summary-prose {
-      background: var(--surface-alt);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
+      background: var(--mf-surface-alt);
+      border: 1px solid var(--mf-border);
+      border-radius: var(--mf-radius-thumb);
       padding: 1rem 1.25rem;
       font-style: italic;
       line-height: 1.6;
@@ -462,7 +462,7 @@
     }
     .summary-controls {
       font-size: 0.85rem;
-      color: var(--text-muted);
+      color: var(--mf-color-text-muted);
     }
 
     /* Charts */
@@ -476,9 +476,9 @@
     }
     .chart-container {
       position: relative;
-      background: var(--surface-alt);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
+      background: var(--mf-surface-alt);
+      border: 1px solid var(--mf-border);
+      border-radius: var(--mf-radius-thumb);
       padding: 1rem;
     }
     .chart-container h3 { margin-bottom: 0.5rem; font-size: 0.95rem; }
@@ -493,9 +493,9 @@
     }
     @media (max-width: 900px) { .tm-grid { grid-template-columns: 1fr; } }
     .tm-cpu-panel, .tm-mem-panel, .tm-threads-panel {
-      background: var(--surface-alt);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
+      background: var(--mf-surface-alt);
+      border: 1px solid var(--mf-border);
+      border-radius: var(--mf-radius-thumb);
       padding: 1rem;
     }
     .tm-cores-grid {
@@ -514,7 +514,7 @@
     .tm-core-track {
       width: 100%;
       height: 40px;
-      background: var(--border);
+      background: var(--mf-border);
       border-radius: 3px;
       position: relative;
       overflow: hidden;
@@ -527,17 +527,17 @@
       border-radius: 3px;
       transition: height 0.3s ease, background 0.3s ease;
     }
-    .tm-core-label { font-size: 0.7rem; color: var(--text-muted); }
+    .tm-core-label { font-size: 0.7rem; color: var(--mf-color-text-muted); }
     .tm-core-pct   { font-size: 0.7rem; font-weight: 600; }
     .tm-badge {
       font-size: 0.85rem;
       font-weight: 500;
-      color: var(--text-muted);
+      color: var(--mf-color-text-muted);
       margin-left: 0.5rem;
     }
     .tm-mem-bar-track {
       height: 16px;
-      background: var(--border);
+      background: var(--mf-border);
       border-radius: 4px;
       overflow: hidden;
       margin: 0.5rem 0;
@@ -548,17 +548,17 @@
       transition: width 0.3s ease, background 0.3s ease;
     }
     .tm-big-number { font-size: 2rem; font-weight: 700; display: block; }
-    .tm-note { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem; }
+    .tm-note { font-size: 0.8rem; color: var(--mf-color-text-muted); margin-top: 0.25rem; }
 
     /* Per-page buttons (matches search.html) */
-    .perpage-btns { display: flex; gap: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .perpage-btns { display: flex; gap: 0; border: 1px solid var(--mf-border); border-radius: var(--mf-radius-thumb); overflow: hidden; }
     .perpage-btns button {
-      padding: 0.25rem 0.6rem; border: none; border-right: 1px solid var(--border);
-      background: var(--surface); color: var(--text); cursor: pointer; font-size: 0.8rem;
+      padding: 0.25rem 0.6rem; border: none; border-right: 1px solid var(--mf-border);
+      background: var(--mf-surface); color: var(--mf-color-text); cursor: pointer; font-size: 0.8rem;
     }
     .perpage-btns button:last-child { border-right: none; }
-    .perpage-btns button.active { background: var(--accent); color: #fff; }
-    .perpage-btns button:hover:not(.active) { background: var(--hover); }
+    .perpage-btns button.active { background: var(--mf-color-accent); color: #fff; }
+    .perpage-btns button:hover:not(.active) { background: var(--mf-color-accent-tint); }
 
     /* Activity log */
     .event-badge {
@@ -584,19 +584,19 @@
     .event-meta {
       display: none;
       padding: 0.5rem;
-      background: var(--bg);
+      background: var(--mf-bg-page);
       border-radius: 4px;
-      font-family: var(--font-mono);
+      font-family: var(--mf-font-mono);
       font-size: 0.8rem;
       white-space: pre-wrap;
       margin-top: 0.25rem;
     }
     .event-row--expanded .event-meta { display: block; }
     .event-row { cursor: pointer; }
-    .event-row:hover td { background: var(--surface-alt); }
+    .event-row:hover td { background: var(--mf-surface-alt); }
     .event-duration {
       font-size: 0.8rem;
-      color: var(--text-muted);
+      color: var(--mf-color-text-muted);
       margin-left: 0.5rem;
     }
 
@@ -607,25 +607,25 @@
       gap: 1rem;
     }
     .kpi-card {
-      background: var(--surface-alt);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
+      background: var(--mf-surface-alt);
+      border: 1px solid var(--mf-border);
+      border-radius: var(--mf-radius-thumb);
       padding: 0.75rem 1rem;
       text-align: center;
     }
     .kpi-value { display: block; font-size: 1.3rem; font-weight: 700; }
-    .kpi-label { display: block; font-size: 0.8rem; color: var(--text-muted); }
-    .kpi-success .kpi-value { color: var(--ok); }
-    .kpi-warn   .kpi-value { color: var(--warn); }
-    .kpi-danger  .kpi-value { color: var(--error); }
-    .kpi-info    .kpi-value { color: var(--info); }
+    .kpi-label { display: block; font-size: 0.8rem; color: var(--mf-color-text-muted); }
+    .kpi-success .kpi-value { color: var(--mf-color-success); }
+    .kpi-warn   .kpi-value { color: var(--mf-color-warn); }
+    .kpi-danger  .kpi-value { color: var(--mf-color-error); }
+    .kpi-info    .kpi-value { color: var(--mf-color-info); }
 
     /* OCR Gauge */
     .ocr-gauge-container { margin: 0.5rem 0 0.5rem; }
     .ocr-gauge-track {
       position: relative;
       height: 20px;
-      background: linear-gradient(to right, var(--error), var(--warn), var(--ok));
+      background: linear-gradient(to right, var(--mf-color-error), var(--mf-color-warn), var(--mf-color-success));
       border-radius: 4px;
       overflow: visible;
     }
@@ -634,7 +634,7 @@
       top: -3px;
       width: 4px;
       height: 26px;
-      background: var(--text);
+      background: var(--mf-color-text);
       border-radius: 2px;
       transition: left 0.3s ease;
       z-index: 2;
@@ -651,7 +651,7 @@
       display: flex;
       justify-content: space-between;
       font-size: 0.7rem;
-      color: var(--text-muted);
+      color: var(--mf-color-text-muted);
       margin-top: 2px;
     }
 
@@ -664,15 +664,15 @@
       .throttle-dir--up   { background: #052e16; color: #86efac; }
     }
     .throttle-summary-card {
-      background: var(--surface-alt);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
+      background: var(--mf-surface-alt);
+      border: 1px solid var(--mf-border);
+      border-radius: var(--mf-radius-thumb);
       padding: 0.75rem 1rem;
       margin-bottom: 0.75rem;
       font-size: 0.85rem;
     }
     .throttle-summary-card .throttle-badge-aborted {
-      color: var(--error);
+      color: var(--mf-color-error);
       font-weight: 600;
     }
 
@@ -682,10 +682,10 @@
       position: absolute;
       right: 0;
       top: 100%;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow-lg);
+      background: var(--mf-surface);
+      border: 1px solid var(--mf-border);
+      border-radius: var(--mf-radius-thumb);
+      box-shadow: var(--mf-shadow-popover);
       min-width: 160px;
       z-index: 10;
       padding: 0.25rem 0;
@@ -693,11 +693,11 @@
     .dropdown-menu a {
       display: block;
       padding: 0.5rem 1rem;
-      color: var(--text);
+      color: var(--mf-color-text);
       font-size: 0.85rem;
     }
     .dropdown-menu a:hover {
-      background: var(--surface-alt);
+      background: var(--mf-surface-alt);
       text-decoration: none;
     }
   </style>
@@ -710,7 +710,7 @@
     function setText(id, val)   { var el = document.getElementById(id); if (el) el.textContent = val ?? '--'; }
     function fmt(n)             { return n != null ? n.toLocaleString() : '--'; }
     function fmtMb(mb)          { return mb >= 1024 ? (mb/1024).toFixed(1) + ' GB' : mb + ' MB'; }
-    function cpuColor(pct)      { if (pct < 50) return 'var(--ok)'; if (pct < 80) return 'var(--warn)'; return 'var(--error)'; }
+    function cpuColor(pct)      { if (pct < 50) return 'var(--mf-color-success)'; if (pct < 80) return 'var(--mf-color-warn)'; return 'var(--mf-color-error)'; }
     function escapeHtml(s)      { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 
     function formatRelativeTime(iso) {
@@ -861,7 +861,7 @@
             {
               label: 'MarkFlow CPU %',
               data: cpuProc,
-              borderColor: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#4f5bd5',
+              borderColor: getComputedStyle(document.documentElement).getPropertyValue('--mf-color-accent').trim() || '#4f5bd5',
               borderWidth: 1.5,
               pointRadius: 0,
               tension: 0.3,
@@ -923,7 +923,7 @@
             {
               label: 'MarkFlow RSS (MB)',
               data: rssMB,
-              borderColor: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#4f5bd5',
+              borderColor: getComputedStyle(document.documentElement).getPropertyValue('--mf-color-accent').trim() || '#4f5bd5',
               borderWidth: 1.5,
               pointRadius: 0,
               tension: 0.3,
@@ -1216,9 +1216,9 @@
 
         // Color the avg KPI based on quality
         var avgEl = document.getElementById('ocr-avg');
-        if (d.avg_confidence >= 80) avgEl.style.color = 'var(--ok)';
-        else if (d.avg_confidence >= 60) avgEl.style.color = 'var(--warn)';
-        else avgEl.style.color = 'var(--error)';
+        if (d.avg_confidence >= 80) avgEl.style.color = 'var(--mf-color-success)';
+        else if (d.avg_confidence >= 60) avgEl.style.color = 'var(--mf-color-warn)';
+        else avgEl.style.color = 'var(--mf-color-error)';
 
         // Timeline chart
         if (d.timeline && d.timeline.length > 0) {
@@ -1251,7 +1251,7 @@
             {
               label: 'Avg',
               data: avgData,
-              borderColor: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#4f5bd5',
+              borderColor: getComputedStyle(document.documentElement).getPropertyValue('--mf-color-accent').trim() || '#4f5bd5',
               borderWidth: 2,
               pointRadius: 2,
               tension: 0.3,
@@ -1470,7 +1470,7 @@
       users.forEach(function(u) {
         var li = document.createElement('li');
         li.style.padding = '0.4rem 0';
-        li.style.borderBottom = '1px solid var(--border)';
+        li.style.borderBottom = '1px solid var(--mf-border)';
         li.style.fontSize = '0.85rem';
         li.style.display = 'flex';
         li.style.justifyContent = 'space-between';
@@ -1513,7 +1513,7 @@
         var n = pair[1];
         var li = document.createElement('li');
         li.style.padding = '0.4rem 0';
-        li.style.borderBottom = '1px solid var(--border)';
+        li.style.borderBottom = '1px solid var(--mf-border)';
         li.style.fontSize = '0.85rem';
         li.style.display = 'flex';
         li.style.justifyContent = 'space-between';

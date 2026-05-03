@@ -19,24 +19,24 @@
   <title>MarkFlow — AI Providers</title>
   <link rel="stylesheet" href="/static/markflow.css">
   <style>
-    .provider-card { padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
+    .provider-card { padding: 1rem 1.25rem; border-bottom: 1px solid var(--mf-border); }
     .provider-card:last-child { border-bottom: none; }
     .provider-card .provider-header { display: flex; justify-content: space-between; align-items: center; }
     .provider-card .provider-name { font-weight: 600; font-size: 1rem; }
-    .provider-card .provider-meta { font-size: 0.82rem; color: var(--text-muted); }
+    .provider-card .provider-meta { font-size: 0.82rem; color: var(--mf-color-text-muted); }
     .provider-card .provider-actions { display: flex; gap: 0.4rem; }
-    .active-badge { display: inline-block; padding: 0.1em 0.5em; border-radius: var(--radius-sm); font-size: 0.72rem; font-weight: 700; text-transform: uppercase; background: rgba(22,163,74,0.12); color: var(--ok); margin-left: 0.5rem; }
-    .verified-badge { color: var(--ok); font-size: 0.82rem; }
-    .unverified-badge { color: var(--text-muted); font-size: 0.82rem; }
-    .add-form { display: none; padding: 1.25rem; border-top: 1px solid var(--border); }
+    .active-badge { display: inline-block; padding: 0.1em 0.5em; border-radius: var(--mf-radius-sm); font-size: 0.72rem; font-weight: 700; text-transform: uppercase; background: rgba(22,163,74,0.12); color: var(--mf-color-success); margin-left: 0.5rem; }
+    .verified-badge { color: var(--mf-color-success); font-size: 0.82rem; }
+    .unverified-badge { color: var(--mf-color-text-muted); font-size: 0.82rem; }
+    .add-form { display: none; padding: 1.25rem; border-top: 1px solid var(--mf-border); }
     .add-form.open { display: block; }
     .add-form .form-group { margin-bottom: 0.75rem; }
     .add-form label { display: block; font-weight: 500; font-size: 0.88rem; margin-bottom: 0.25rem; }
-    .add-form input, .add-form select { width: 100%; padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 0.9rem; }
-    .verify-result { margin-top: 0.5rem; padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); font-size: 0.85rem; }
-    .verify-result.success { background: rgba(22,163,74,0.08); color: var(--ok); }
-    .verify-result.failure { background: rgba(220,38,38,0.08); color: var(--error); }
-    .key-toggle { cursor: pointer; font-size: 0.8rem; color: var(--accent); margin-left: 0.5rem; }
+    .add-form input, .add-form select { width: 100%; padding: 0.45rem 0.6rem; border: 1px solid var(--mf-border); border-radius: var(--mf-radius-sm); background: var(--mf-surface); color: var(--mf-color-text); font-size: 0.9rem; }
+    .verify-result { margin-top: 0.5rem; padding: 0.5rem 0.75rem; border-radius: var(--mf-radius-sm); font-size: 0.85rem; }
+    .verify-result.success { background: rgba(22,163,74,0.08); color: var(--mf-color-success); }
+    .verify-result.failure { background: rgba(220,38,38,0.08); color: var(--mf-color-error); }
+    .key-toggle { cursor: pointer; font-size: 0.8rem; color: var(--mf-color-accent); margin-left: 0.5rem; }
   </style>
 </head>
 <body>
@@ -53,7 +53,7 @@
       <span>&#8592;</span>
       <a id="return-link" href="#" style="color:#818cf8;text-decoration:underline;font-weight:600;">Return to previous page</a>
       <span style="flex:1"></span>
-      <span style="color:var(--text-muted);font-size:0.8rem;">Resolve provider issues below, then return to continue your workflow.</span>
+      <span style="color:var(--mf-color-text-muted);font-size:0.8rem;">Resolve provider issues below, then return to continue your workflow.</span>
     </div>
 
     <div style="display:flex;justify-content:space-between;align-items:center">
@@ -366,7 +366,7 @@
       _renderProviderCards(list, providers);
     } catch (e) {
       document.getElementById('provider-list').innerHTML =
-        '<p class="text-sm" style="padding:1rem;color:var(--error)">Failed to load providers.</p>';
+        '<p class="text-sm" style="padding:1rem;color:var(--mf-color-error)">Failed to load providers.</p>';
     }
   }
 
@@ -451,7 +451,7 @@
 
       actions.appendChild(_btn('Delete', function() {
         deleteProvider(p.id, !!p.is_active);
-      }, 'var(--error)'));
+      }, 'var(--mf-color-error)'));
 
       header.appendChild(actions);
       card.appendChild(header);

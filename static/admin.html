@@ -105,7 +105,7 @@
           <div class="stat-row"><span>Success Rate</span><strong id="stat-success-rate">--</strong></div>
           <div class="stat-row"><span>Last 24 hours</span><strong id="stat-24h">--</strong></div>
           <div class="stat-row"><span>Last 7 days</span><strong id="stat-7d">--</strong></div>
-          <hr style="border:none;border-top:1px solid var(--border);margin:8px 0"/>
+          <hr style="border:none;border-top:1px solid var(--mf-border);margin:8px 0"/>
           <h4>Top Formats</h4>
           <div id="top-formats-list" class="format-list"></div>
         </div>
@@ -230,7 +230,7 @@
     <!-- ══════════════════════════════════════════════════════════════════════ -->
     <section class="admin-section" id="db-tools">
       <h2>Database Tools</h2>
-      <p class="section-desc" style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem">
+      <p class="section-desc" style="font-size:0.85rem;color:var(--mf-color-text-muted);margin-bottom:1rem">
         Run against the active database. For full details see
         <a href="/db-health.html">DB Health</a>.
       </p>
@@ -269,7 +269,7 @@
     <!-- ══════════════════════════════════════════════════════════════════════ -->
     <section class="admin-section" id="task-manager">
       <h2>Task Manager</h2>
-      <div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">
+      <div style="padding: 1.5rem; text-align: center; color: var(--mf-color-text-muted);">
         <p style="margin-bottom: 0.75rem;">Live system metrics have moved to the <strong>Resources</strong> page.</p>
         <a href="/resources.html" class="btn btn-primary">Go to Resources &rarr;</a>
       </div>
@@ -367,17 +367,17 @@
   <script src="/static/js/cost-estimator.js?v=0.35.0"></script>
   <style>
     .admin-section {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
+      background: var(--mf-surface);
+      border: 1px solid var(--mf-border);
+      border-radius: var(--mf-radius-thumb);
+      box-shadow: var(--mf-shadow-card);
       padding: 1.5rem;
       margin-bottom: 1.5rem;
     }
     .admin-subsection {
       margin-top: 1rem;
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
+      border: 1px solid var(--mf-border);
+      border-radius: var(--mf-radius-thumb);
       padding: 0;
     }
     .admin-subsection summary {
@@ -387,7 +387,7 @@
       font-size: 0.95rem;
     }
     .admin-subsection[open] summary {
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid var(--mf-border);
     }
     .info-grid {
       display: grid;
@@ -401,7 +401,7 @@
     }
     .info-label {
       font-size: 0.8rem;
-      color: var(--text-muted);
+      color: var(--mf-color-text-muted);
       text-transform: uppercase;
       letter-spacing: 0.05em;
     }
@@ -410,7 +410,7 @@
       align-items: center;
       gap: 0.5rem;
       margin-top: 0.5rem;
-      background: var(--bg-secondary);
+      background: var(--mf-surface-soft);
       padding: 0.5rem 0.75rem;
       border-radius: 4px;
       word-break: break-all;
@@ -438,13 +438,13 @@
     }
     .status-active { color: var(--ok, #28a745); }
     .status-revoked { color: var(--error, #dc3545); text-decoration: line-through; }
-    .field-hint { display: block; font-size: 0.8rem; color: var(--text-muted); margin-top: 2px; }
+    .field-hint { display: block; font-size: 0.8rem; color: var(--mf-color-text-muted); margin-top: 2px; }
 
     /* Disk Usage */
     .disk-volume-box {
       background: var(--bg-secondary, #f7f7f8);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
+      border: 1px solid var(--mf-border);
+      border-radius: var(--mf-radius-thumb);
       padding: 1rem;
       margin-bottom: 1.25rem;
     }
@@ -469,16 +469,16 @@
       background: var(--warning, #f59e0b);
     }
     .disk-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
+      background: var(--mf-surface);
+      border: 1px solid var(--mf-border);
+      border-radius: var(--mf-radius-thumb);
       padding: 0.75rem 1rem;
       min-width: 140px;
       flex: 1 1 140px;
     }
     .disk-card__label { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.25rem; }
     .disk-card__size { font-size: 1.15rem; font-weight: 700; }
-    .disk-card__sub { font-size: 0.8rem; color: var(--text-muted); margin-top: 2px; }
+    .disk-card__sub { font-size: 0.8rem; color: var(--mf-color-text-muted); margin-top: 2px; }
     .disk-card--warn { border-color: var(--warning, #f59e0b); }
   </style>
 

@@ -20,11 +20,11 @@
   <link rel="stylesheet" href="/static/markflow.css">
   <style>
     .cat-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }
-    .cat-card { padding: 0.75rem 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); cursor: pointer; transition: border-color var(--transition); }
-    .cat-card:hover, .cat-card.active { border-color: var(--accent); }
+    .cat-card { padding: 0.75rem 1rem; border: 1px solid var(--mf-border); border-radius: var(--mf-radius-thumb); background: var(--mf-surface); cursor: pointer; transition: border-color var(--mf-transition-med); }
+    .cat-card:hover, .cat-card.active { border-color: var(--mf-color-accent); }
     .cat-card-name { font-weight: 600; font-size: 0.85rem; text-transform: capitalize; }
     .cat-card-count { font-size: 1.2rem; font-weight: 700; margin-top: 0.25rem; }
-    .cat-card-size { font-size: 0.78rem; color: var(--text-muted); }
+    .cat-card-size { font-size: 0.78rem; color: var(--mf-color-text-muted); }
   </style>
 </head>
 <body>
@@ -176,7 +176,7 @@
       document.getElementById('empty-state').hidden = hasFiles || data.total > 0;
     } catch (e) {
       document.getElementById('file-body').innerHTML =
-        `<tr><td colspan="5" style="color:var(--error)">${e.message}</td></tr>`;
+        `<tr><td colspan="5" style="color:var(--mf-color-error)">${e.message}</td></tr>`;
     }
   }
 
