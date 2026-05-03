@@ -1456,12 +1456,41 @@ html[data-theme="classic-dark"] .db-tool-error { background: #3b1010; color: #ef
   font-weight: normal;
 }
 
+/* Code block copy button (help wiki) */
+.code-block-wrap {
+  position: relative;
+  margin-bottom: 1rem;
+}
+.code-block-wrap pre {
+  margin-bottom: 0;
+}
+.code-copy-btn {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  padding: 0.25rem 0.65rem;
+  font-family: var(--mf-font-family);
+  font-size: var(--mf-text-xs);
+  font-weight: 500;
+  color: var(--mf-color-text);
+  background: var(--mf-surface);
+  border: 1px solid var(--mf-border);
+  border-radius: var(--mf-radius-sm);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s, background 0.15s, border-color 0.15s;
+}
+.code-block-wrap:hover .code-copy-btn { opacity: 1; }
+.code-copy-btn:hover { background: var(--mf-surface-alt); border-color: var(--mf-color-accent); }
+.code-copy-btn.copied { color: var(--mf-color-text-on-accent); background: var(--mf-color-success); border-color: var(--mf-color-success); opacity: 1; }
+
 .help-content {
   padding: clamp(1rem, 3vw, 3rem) clamp(1rem, 4vw, 4rem);
   max-width: min(100%, 110rem);
   overflow-y: auto;
 }
-.help-content > p, .help-content > ul, .help-content > ol { max-width: 75ch; }
+/* Paragraphs fill the available width — user prefers wide-screen reading
+   over the conventional 75ch line-length cap. */
 .help-content h1 { font-size: var(--mf-text-h1); font-weight: 700; margin-bottom: 0.5rem; }
 .help-content h2 { font-size: var(--mf-text-h2); font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--mf-border); }
 .help-content h3 { font-size: var(--mf-text-h3); font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.5rem; }

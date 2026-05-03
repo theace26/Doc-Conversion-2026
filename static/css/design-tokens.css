@@ -23,7 +23,13 @@
   /* === Color — neutrals === */
   --mf-color-text:             #0a0a0a;
   --mf-color-text-soft:        #3a3a3a;
-  --mf-color-text-muted:       #5a5a5a;
+  /* --mf-color-text-muted is the secondary text tier (sidebar items, captions,
+     descriptions). Derived via color-mix so dark themes that only override
+     --mf-color-text + --mf-bg-page automatically get a properly-contrasted muted
+     value (was: many dark themes hardcoded muted values like #406060 that blended
+     into their dark page-bg). Themes that need a hand-tuned muted can still
+     override this in their theme block. */
+  --mf-color-text-muted:       color-mix(in srgb, var(--mf-color-text) 65%, var(--mf-bg-page) 35%);
   --mf-color-text-faint:       #888888;
   --mf-color-text-fainter:     #aaaaaa;
 

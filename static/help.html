@@ -203,6 +203,57 @@
       content.appendChild(section);
     }
 
+    // ── Copy buttons for code blocks ─────────────────────────────────────
+    function addCopyButtons() {
+      var content = document.getElementById('help-content');
+      var blocks = content.querySelectorAll('pre');
+      Array.prototype.forEach.call(blocks, function(pre) {
+        if (pre.parentNode.classList && pre.parentNode.classList.contains('code-block-wrap')) return;  // already wrapped
+
+        var wrap = document.createElement('div');
+        wrap.className = 'code-block-wrap';
+        pre.parentNode.insertBefore(wrap, pre);
+        wrap.appendChild(pre);
+
+        var btn = document.createElement('button');
+        btn.className = 'code-copy-btn';
+        btn.type = 'button';
+        btn.textContent = 'Copy';
+        btn.setAttribute('aria-label', 'Copy code to clipboard');
+        btn.addEventListener('click', function() {
+          var code = pre.textContent;
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(code).then(function() {
+              btn.textContent = 'Copied!';
+              btn.classList.add('copied');
+              setTimeout(function() { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+            }).catch(function() {
+              btn.textContent = 'Failed';
+              setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+            });
+          } else {
+            // Fallback for non-secure contexts
+            var ta = document.createElement('textarea');
+            ta.value = code;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            try {
+              document.execCommand('copy');
+              btn.textContent = 'Copied!';
+              btn.classList.add('copied');
+              setTimeout(function() { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+            } catch (e) {
+              btn.textContent = 'Failed';
+            }
+            document.body.removeChild(ta);
+          }
+        });
+        wrap.appendChild(btn);
+      });
+    }
+
     // ── Load article ─────────────────────────────────────────────────────
     async function loadArticle(slug) {
       var content = document.getElementById('help-content');
@@ -230,6 +281,7 @@
         content.scrollTop = 0;
         renderInPageTOC(slug);
         renderRelatedTopics(slug);
+        addCopyButtons();
       } catch (e) {
         content.innerHTML = '<h1>Article Not Found</h1><p>The help article "' + slug + '" doesn\'t exist yet.</p>' +
           '<p><a href="#getting-started">Go to Getting Started</a></p>';
