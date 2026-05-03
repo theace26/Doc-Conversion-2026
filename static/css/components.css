@@ -119,7 +119,7 @@
 
 /* === role pill === */
 .mf-role-pill {
-  font-size: 0.6rem;
+  font-size: var(--mf-text-2xs);
   font-weight: 700;
   padding: 0.12rem 0.45rem;
   border-radius: var(--mf-radius-pill);
@@ -145,7 +145,7 @@
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--mf-color-text);
-  font-size: 1.05rem;
+  font-size: var(--mf-text-md);
   text-decoration: none;
   display: inline-flex;
   align-items: center;
@@ -170,7 +170,7 @@
 
 /* === version chip (dev only — hidden in prod by design-tokens.css selector) === */
 .mf-ver-chip {
-  font-size: 0.62rem;
+  font-size: var(--mf-text-2xs);
   font-weight: 700;
   color: var(--mf-color-warn);
   background: var(--mf-color-warn-bg);
@@ -268,7 +268,7 @@
   display: flex; align-items: center; gap: 0.4rem;
 }
 .mf-av-menu__sec-label {
-  font-size: 0.62rem; font-weight: 700;
+  font-size: var(--mf-text-2xs); font-weight: 700;
   color: var(--mf-color-text-fainter);
   text-transform: uppercase;
   letter-spacing: 0.07em;
@@ -276,7 +276,7 @@
   display: flex; justify-content: space-between; align-items: center;
 }
 .mf-av-menu__gate {
-  font-size: 0.5rem;
+  font-size: 0.5rem; /* exception: feature-flag indicator pill, sub-icon scale */
   background: var(--mf-color-warn-bg);
   color: var(--mf-color-warn);
   padding: 0.12rem 0.4rem;
@@ -421,7 +421,7 @@
 
 .mf-doc-card__snippet {
   padding: 0.6rem 0.7rem 0.5rem;
-  font-size: 0.65rem;
+  font-size: var(--mf-text-2xs);
   color: var(--mf-color-text-soft);
   line-height: 1.45;
   font-family: var(--mf-font-serif);
@@ -499,7 +499,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.55rem;
+  font-size: 0.55rem; /* exception: format badge tight density */
   font-weight: 800;
   letter-spacing: 0.04em;
   color: var(--mf-surface);
@@ -554,9 +554,9 @@
   gap: 0.6rem;
 }
 .mf-card-grid--compact .mf-doc-card__band { height: 38%; }
-.mf-card-grid--compact .mf-doc-card__band-label { font-size: 0.6rem; }
-.mf-card-grid--compact .mf-doc-card__snippet { padding: 0.4rem 0.5rem 0.35rem; font-size: 0.56rem; }
-.mf-card-grid--compact .mf-doc-card__snippet-h { font-size: 0.62rem; }
+.mf-card-grid--compact .mf-doc-card__band-label { font-size: var(--mf-text-2xs); }
+.mf-card-grid--compact .mf-doc-card__snippet { padding: 0.4rem 0.5rem 0.35rem; font-size: 0.56rem; /* exception: 8-col compact density */ }
+.mf-card-grid--compact .mf-doc-card__snippet-h { font-size: var(--mf-text-2xs); }
 .mf-card-grid--compact .mf-doc-card__fav { width: 20px; height: 20px; font-size: var(--mf-text-2xs); }
 
 .mf-card-grid--list {
@@ -653,7 +653,7 @@
   border-left: 2px solid var(--mf-color-accent);
 }
 .mf-hover-preview__summary-lab {
-  font-size: 0.62rem;
+  font-size: var(--mf-text-2xs);
   font-weight: 700;
   color: var(--mf-color-accent);
   letter-spacing: 0.08em;
@@ -696,7 +696,7 @@
   font-family: var(--mf-font-family);
 }
 .mf-ctx__sec-label {
-  font-size: 0.62rem;
+  font-size: var(--mf-text-2xs);
   font-weight: 700;
   color: var(--mf-color-text-fainter);
   text-transform: uppercase;
@@ -751,7 +751,7 @@
   background: var(--mf-surface-soft);
   color: var(--mf-color-accent);
 }
-.mf-ctx__exp-chev { font-size: 0.62rem; transition: transform 0.15s; }
+.mf-ctx__exp-chev { font-size: var(--mf-text-2xs); transition: transform 0.15s; }
 .mf-ctx__exp--open .mf-ctx__exp-chev { transform: rotate(180deg); }
 
 /* === multi-select checkbox on doc-card === */
@@ -962,7 +962,7 @@
   color: inherit;
 }
 .mf-row__title {
-  font-size: 1.25rem;
+  font-size: var(--mf-text-h3);
   font-weight: 700;
   letter-spacing: -0.018em;
   color: var(--mf-color-text);
@@ -1057,12 +1057,12 @@
   margin: 0.4rem 0 1.4rem;
 }
 .mf-home__headline--huge {
-  font-size: 3.4rem;
+  font-size: 3.4rem; /* exception: hero headline — preserved per design intent */
   margin: 0 0 0.5rem;
 }
 .mf-home__subtitle {
   color: var(--mf-color-text-muted);
-  font-size: 1.1rem;
+  font-size: var(--mf-text-md);
   margin: 0 auto 2.5rem;
   max-width: 42ch;
   font-family: var(--mf-font-family);
@@ -1181,14 +1181,14 @@
   margin-bottom: 1.6rem;
 }
 .mf-act__spark-svg { width: 100%; height: 80px; }
-.mf-act__sec-label, .mf-act__sec-h {
+.mf-act__sec-label {
   font-size: var(--mf-text-2xs);
   font-weight: 700;
   color: var(--mf-color-text-faint);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
-.mf-act__sec-h { font-size: 1.3rem; font-weight: 700; letter-spacing: -0.018em; color: var(--mf-color-text); text-transform: none; margin: 1.8rem 0 0.85rem; }
+.mf-act__sec-h { font-size: var(--mf-text-h3); font-weight: 700; letter-spacing: -0.018em; color: var(--mf-color-text); text-transform: none; margin: 1.8rem 0 0.85rem; }
 
 .mf-act__section { margin-bottom: 1.4rem; }
 .mf-act__empty {
@@ -1305,7 +1305,7 @@
   top: 1.4rem;
   right: 1.3rem;
   color: var(--mf-color-text-faint);
-  font-size: 1.1rem;
+  font-size: var(--mf-text-md);
   opacity: 0;
   transition: opacity 0.15s, transform 0.15s;
 }
@@ -1610,7 +1610,7 @@
   display: inline-flex;
   padding: 0.15rem 0.5rem;
   border-radius: var(--mf-radius-pill);
-  font-size: 0.65rem;
+  font-size: var(--mf-text-2xs);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1621,7 +1621,7 @@
   display: inline-flex;
   padding: 0.15rem 0.5rem;
   border-radius: var(--mf-radius-pill);
-  font-size: 0.65rem;
+  font-size: var(--mf-text-2xs);
   font-weight: 700;
   background: var(--mf-color-success-bg);
   color: var(--mf-color-success);
@@ -1816,7 +1816,7 @@
   display: inline-flex;
   padding: 0.15rem 0.5rem;
   border-radius: var(--mf-radius-pill);
-  font-size: 0.65rem;
+  font-size: var(--mf-text-2xs);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1860,7 +1860,7 @@
   margin-bottom: 0.4rem;
 }
 .mf-cost__tile-value {
-  font-size: 1.7rem;
+  font-size: var(--mf-text-h1);
   font-weight: 700;
   color: var(--mf-text-primary);
   letter-spacing: -0.02em;
@@ -2021,7 +2021,7 @@
 }
 
 .mf-ob__headline {
-  font-size: 1.8rem;
+  font-size: var(--mf-text-h1);
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--mf-text-primary);
@@ -2073,7 +2073,7 @@
   right: 0.5rem;
   background: var(--mf-color-accent);
   color: var(--mf-surface);
-  font-size: 0.65rem;
+  font-size: var(--mf-text-2xs);
   font-weight: 700;
   padding: 0.15rem 0.5rem;
   border-radius: var(--mf-radius-pill);

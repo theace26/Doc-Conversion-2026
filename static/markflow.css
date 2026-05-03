@@ -26,9 +26,9 @@ a { color: var(--mf-color-accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 /* ── Typography ─────────────────────────────────────────────────────────────── */
-h1 { font-size: 1.75rem; font-weight: 700; line-height: 1.2; margin-bottom: 0.25rem; color: var(--mf-color-accent); }
+h1 { font-size: var(--mf-text-h1); font-weight: 700; line-height: 1.2; margin-bottom: 0.25rem; color: var(--mf-color-accent); }
 h2 { font-size: var(--mf-text-h2); font-weight: 600; line-height: 1.3; margin-bottom: 0.25rem; color: var(--mf-color-accent); }
-h3 { font-size: 1.1rem;  font-weight: 600; line-height: 1.4; color: var(--mf-color-accent); }
+h3 { font-size: var(--mf-text-h3);  font-weight: 600; line-height: 1.4; color: var(--mf-color-accent); }
 h4 { font-size: var(--mf-text-md);    font-weight: 600; }
 p  { margin-bottom: 0.5rem; }
 small, .text-sm { font-size: var(--mf-text-base); }
@@ -63,7 +63,7 @@ small, .text-sm { font-size: var(--mf-text-base); }
 
 .nav-logo {
   font-weight: 700;
-  font-size: 1.15rem;
+  font-size: var(--mf-text-h3);
   color: var(--mf-color-text);
   letter-spacing: -0.01em;
 }
@@ -1072,7 +1072,7 @@ html[data-theme="classic-dark"] .storage-verify .sv-warn   { color: #fcd34d; }
 .kpi-card.kpi-danger  { border-color: var(--mf-color-error, #f44336); }
 .kpi-card.kpi-info    { border-color: var(--mf-color-accent, #4a90e2); }
 
-.kpi-value { font-size: 1.8rem; font-weight: 700; line-height: 1.1; }
+.kpi-value { font-size: var(--mf-text-h1); font-weight: 700; line-height: 1.1; }
 .kpi-label { font-size: var(--mf-text-2xs); color: var(--mf-color-text-muted); margin-top: 4px; }
 
 .stats-detail-grid {
@@ -1139,7 +1139,7 @@ html[data-theme="classic-dark"] .flag-banner {
   border-radius: 999px;
   background: var(--mf-color-accent);
   color: var(--mf-color-text-on-accent);
-  font-size: 0.65rem;
+  font-size: var(--mf-text-2xs);
   font-weight: 700;
   line-height: 1;
   margin-left: 0.35rem;
@@ -1390,9 +1390,9 @@ html[data-theme="classic-dark"] .db-tool-error { background: #3b1010; color: #ef
 .help-sidebar .article-link:hover { background: var(--mf-surface-alt); }
 .help-sidebar .article-link.active { background: var(--mf-color-accent); color: var(--mf-color-text-on-accent); font-weight: 500; }
 .help-content { padding: 2rem 3rem; max-width: 800px; overflow-y: auto; }
-.help-content h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; }
+.help-content h1 { font-size: var(--mf-text-h1); font-weight: 700; margin-bottom: 0.5rem; }
 .help-content h2 { font-size: var(--mf-text-h2); font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--mf-border); }
-.help-content h3 { font-size: 1.1rem; font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.5rem; }
+.help-content h3 { font-size: var(--mf-text-h3); font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.5rem; }
 .help-content p { line-height: 1.7; margin-bottom: 1rem; }
 .help-content code { background: var(--mf-surface-alt); padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.875em; }
 .help-content pre { background: var(--mf-surface-alt); padding: 1rem; border-radius: var(--mf-radius-thumb); overflow-x: auto; margin-bottom: 1rem; border: 1px solid var(--mf-border); }
