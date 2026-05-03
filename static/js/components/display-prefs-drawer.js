@@ -383,11 +383,17 @@
           var useNew = currentUx !== 'new';
           MFPrefs.setMany({use_new_ux: useNew});
           var path = window.location.pathname;
-          var dest = useNew ? (ORIG_TO_NEW[path] || null) : (NEW_TO_ORIG[path] || null);
-          if (dest && dest !== path) {
-            window.location.href = dest;  // navigate to equivalent in the other UX
+          // Many legacy pages have no new-UX twin (status, search, history,
+          // flagged, ...). Fall back to the landing page of the target UX so
+          // the toggle ALWAYS actually moves the user into the chosen UX,
+          // not silently no-op when the current page has no per-page twin.
+          var dest = useNew
+            ? (ORIG_TO_NEW[path] || '/index-new.html')
+            : (NEW_TO_ORIG[path] || '/index.html');
+          if (dest !== path) {
+            window.location.href = dest;
           } else {
-            buildBody();  // no equivalent or already correct — just refresh drawer
+            buildBody();  // already on the target UX — just refresh drawer
           }
           return;
         }
