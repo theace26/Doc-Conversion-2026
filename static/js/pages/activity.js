@@ -173,6 +173,60 @@
     return wrap;
   }
 
+  // Inline toast helper. Mirrors avatar-menu-wiring's pattern.
+  function showToast(message, tone) {
+    var t = document.createElement('div');
+    t.className = 'mf-toast mf-toast--' + (tone || 'info');
+    t.textContent = message;
+    document.body.appendChild(t);
+    requestAnimationFrame(function () { t.classList.add('mf-toast--visible'); });
+    setTimeout(function () {
+      t.classList.remove('mf-toast--visible');
+      setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 250);
+    }, 2400);
+  }
+
+  function setBusy(card, busy) {
+    if (busy) card.classList.add('mf-act__ctrl--busy');
+    else card.classList.remove('mf-act__ctrl--busy');
+    card.style.pointerEvents = busy ? 'none' : '';
+    card.style.opacity = busy ? '0.7' : '';
+  }
+
+  function handleControlAction(card, actionId) {
+    if (actionId === 'logs') {
+      window.location.href = '/settings-log-mgmt.html';
+      return;
+    }
+    if (actionId === 'db-health') {
+      window.location.href = '/settings-db-health.html';
+      return;
+    }
+    if (actionId === 'run-scan-now') {
+      setBusy(card, true);
+      fetch('/api/scanner/run-now', { method: 'POST', credentials: 'same-origin' })
+        .then(function (r) {
+          setBusy(card, false);
+          if (!r.ok) {
+            showToast('Scan trigger failed (' + r.status + ')', 'error');
+            return;
+          }
+          showToast('Scan started', 'success');
+        })
+        .catch(function (e) {
+          setBusy(card, false);
+          showToast('Scan trigger error', 'error');
+          console.warn('mf-activity: run-scan-now failed', e);
+        });
+      return;
+    }
+    if (actionId === 'pipeline-toggle') {
+      showToast('Pipeline toggle — coming soon', 'info');
+      return;
+    }
+    showToast(actionId + ' — coming soon', 'info');
+  }
+
   function buildControls() {
     var wrap = el('div', 'mf-act__section');
     var lab = el('h3', 'mf-act__sec-h'); lab.textContent = 'Pipeline controls';
@@ -186,9 +240,19 @@
     ].forEach(function (def) {
       var card = el('div', 'mf-act__ctrl');
       card.setAttribute('data-action', def.id);
+      card.setAttribute('role', 'button');
+      card.setAttribute('tabindex', '0');
+      card.style.cursor = 'pointer';
       var nm = el('div', 'mf-act__ctrl-name'); nm.textContent = def.label;
       var sub = el('div', 'mf-act__ctrl-sub'); sub.textContent = def.sub;
       card.appendChild(nm); card.appendChild(sub);
+      card.addEventListener('click', function () { handleControlAction(card, def.id); });
+      card.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter' || ev.key === ' ') {
+          ev.preventDefault();
+          handleControlAction(card, def.id);
+        }
+      });
       grid.appendChild(card);
     });
     wrap.appendChild(grid);
