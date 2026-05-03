@@ -137,22 +137,105 @@
       var headings = content.querySelectorAll('h2[id], h3[id]');
       if (headings.length < 2) return;  // not worth building TOC for tiny articles
 
+      // Determine active hash for auto-opening the right group
+      var activeHash = window.location.hash ? window.location.hash.slice(1) : null;
+
       var subToc = document.createElement('div');
       subToc.className = 'article-subtoc';
 
+      // Walk headings and build grouped structure: h2s with collapsible h3 children
+      var currentH2Wrap = null;
+      var currentH2Id = null;
+      var currentChildren = null;
+      var currentHasChildren = false;
+      var pendingH3s = [];  // buffer h3s until we can attach them
+
+      function flushH2(h2Wrap, childrenDiv, hasChildren, h3Nodes) {
+        if (!h2Wrap) return;
+        if (hasChildren && h3Nodes.length > 0) {
+          // Build toggle button and children container
+          var toggleBtn = document.createElement('button');
+          toggleBtn.className = 'article-subtoc-toggle';
+          toggleBtn.setAttribute('type', 'button');
+          toggleBtn.setAttribute('aria-label', 'Toggle sub-sections');
+          toggleBtn.textContent = '▸';  // ▸
+
+          h2Wrap.appendChild(toggleBtn);
+          subToc.appendChild(h2Wrap);
+
+          var childDiv = document.createElement('div');
+          childDiv.className = 'article-subtoc-children';
+          childDiv.hidden = true;  // collapsed by default
+
+          h3Nodes.forEach(function(node) { childDiv.appendChild(node); });
+          subToc.appendChild(childDiv);
+
+          // Auto-open if the active hash is among the children
+          var shouldOpen = h3Nodes.some(function(node) {
+            return activeHash && node.getAttribute('href') === '#' + activeHash;
+          });
+          if (shouldOpen) {
+            childDiv.hidden = false;
+            toggleBtn.className = 'article-subtoc-toggle open';
+          }
+
+          toggleBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var isOpen = !childDiv.hidden;
+            childDiv.hidden = isOpen;
+            toggleBtn.className = 'article-subtoc-toggle' + (isOpen ? '' : ' open');
+          });
+        } else {
+          subToc.appendChild(h2Wrap);
+        }
+      }
+
       Array.prototype.forEach.call(headings, function(h) {
-        var item = document.createElement('a');
-        item.className = 'article-subtoc-item article-subtoc-' + h.tagName.toLowerCase();
-        item.href = '#' + h.id;
-        item.textContent = h.textContent;
-        item.addEventListener('click', function(e) {
-          e.preventDefault();
-          h.scrollIntoView({behavior: 'smooth', block: 'start'});
-          // Optionally update URL hash (lets users bookmark deep-link)
-          history.replaceState(null, '', '#' + h.id);
-        });
-        subToc.appendChild(item);
+        if (h.tagName.toLowerCase() === 'h2') {
+          // Flush previous h2 group first
+          flushH2(currentH2Wrap, currentChildren, currentHasChildren, pendingH3s);
+
+          var wrap = document.createElement('div');
+          wrap.className = 'article-subtoc-h2-wrap';
+
+          var link = document.createElement('a');
+          link.className = 'article-subtoc-item article-subtoc-h2';
+          link.href = '#' + h.id;
+          link.textContent = h.textContent;
+          (function(heading) {
+            link.addEventListener('click', function(e) {
+              e.preventDefault();
+              heading.scrollIntoView({behavior: 'smooth', block: 'start'});
+              history.replaceState(null, '', '#' + heading.id);
+            });
+          }(h));
+          wrap.appendChild(link);
+
+          currentH2Wrap = wrap;
+          currentH2Id = h.id;
+          currentChildren = null;
+          currentHasChildren = false;
+          pendingH3s = [];
+        } else {
+          // h3 — buffer under current h2
+          var item = document.createElement('a');
+          item.className = 'article-subtoc-item article-subtoc-h3';
+          item.href = '#' + h.id;
+          item.textContent = h.textContent;
+          (function(heading) {
+            item.addEventListener('click', function(e) {
+              e.preventDefault();
+              heading.scrollIntoView({behavior: 'smooth', block: 'start'});
+              history.replaceState(null, '', '#' + heading.id);
+            });
+          }(h));
+          pendingH3s.push(item);
+          currentHasChildren = true;
+        }
       });
+
+      // Flush the last h2 group
+      flushH2(currentH2Wrap, currentChildren, currentHasChildren, pendingH3s);
 
       // Insert after the active link
       activeLink.parentNode.insertBefore(subToc, activeLink.nextSibling);

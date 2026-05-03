@@ -71,6 +71,27 @@
     pas:'Pastel', sea:'Seasonal'
   };
 
+  // Page-equivalence between original-UX and new-UX URLs.
+  var ORIG_TO_NEW = {
+    '/index.html':                   '/index-new.html',
+    '/settings.html':                '/settings-new.html',
+    '/settings-storage.html':        '/settings-storage.html',
+    '/settings-pipeline.html':       '/settings-pipeline.html',
+    '/settings-ai-providers.html':   '/settings-ai-providers.html',
+    '/settings-notifications.html':  '/settings-notifications.html',
+    '/settings-auth.html':           '/settings-auth.html',
+    '/settings-db-health.html':      '/settings-db-health.html',
+    '/settings-log-mgmt.html':       '/settings-log-mgmt.html',
+    '/settings-cost-cap.html':       '/settings-cost-cap.html',
+    '/settings-appearance.html':     '/settings-appearance.html',
+    '/':                             '/index-new.html'
+  };
+  var NEW_TO_ORIG = {
+    '/index-new.html':               '/index.html',
+    '/settings-new.html':            '/settings.html',
+    '/':                             '/index.html'
+  };
+
   // Luminance-based classification of all themes (no-mate themes included).
   var LIGHT_THEMES = [
     'classic-light', 'sage', 'slate', 'sandstone',
@@ -361,7 +382,13 @@
         if (ux) {
           var useNew = currentUx !== 'new';
           MFPrefs.setMany({use_new_ux: useNew});
-          buildBody();
+          var path = window.location.pathname;
+          var dest = useNew ? (ORIG_TO_NEW[path] || null) : (NEW_TO_ORIG[path] || null);
+          if (dest && dest !== path) {
+            window.location.href = dest;  // navigate to equivalent in the other UX
+          } else {
+            buildBody();  // no equivalent or already correct — just refresh drawer
+          }
           return;
         }
       });

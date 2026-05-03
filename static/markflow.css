@@ -1427,6 +1427,33 @@ html[data-theme="classic-dark"] .db-tool-error { background: #3b1010; color: #ef
 }
 .article-subtoc-item:hover { color: var(--mf-color-accent); background: var(--mf-surface-alt); text-decoration: none; }
 .article-subtoc-h3 { padding-left: 1.25rem; font-size: var(--mf-text-xs); }
+.article-subtoc-h2-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.article-subtoc-h2-wrap .article-subtoc-item { flex: 1; }
+.article-subtoc-toggle {
+  background: none;
+  border: none;
+  color: var(--mf-color-accent);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0.2rem 0.4rem;
+  transition: transform 0.18s, background 0.12s;
+  border-radius: var(--mf-radius-sm);
+  flex-shrink: 0;
+}
+.article-subtoc-toggle:hover { background: var(--mf-surface-alt); }
+.article-subtoc-toggle.open { transform: rotate(90deg); }
+.article-subtoc-children {
+  display: flex;
+  flex-direction: column;
+  margin-left: 0.5rem;
+  padding-left: 0.75rem;
+  border-left: 1px dashed var(--mf-border);
+  gap: 0.1rem;
+}
 
 /* Auto-appended "Related topics" section at the bottom of help articles
    that don't have their own curated Related section. */
