@@ -2316,6 +2316,21 @@
 .mf-disp-drawer__swatch:hover { transform: scale(1.08); }
 .mf-disp-drawer__swatch--active { border-color: var(--mf-color-accent); }
 .mf-disp-drawer__swatch--dim { opacity: 0.45; }
+.mf-disp-drawer__swatch-role {
+  position: absolute;
+  bottom: 0.15rem;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: var(--mf-text-2xs);
+  font-weight: 700;
+  color: var(--mf-color-text-on-accent);
+  background: var(--mf-color-accent);
+  padding: 0.05rem 0.4rem;
+  border-radius: var(--mf-radius-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
 .mf-disp-drawer__swatch-bg { position: absolute; inset: 0; }
 .mf-disp-drawer__swatch-acc {
   position: absolute;
