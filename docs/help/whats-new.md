@@ -6,6 +6,14 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.40.1 — Viewer + Preview Markdown rendering fix
+
+Same-day bug-fix release on top of v0.40.0. The new Viewer and Preview pages were failing to render Markdown because the project's Content Security Policy was blocking the `marked.js` and `DOMPurify` libraries that the pages load from a CDN. Allowlisted those scripts and the Google Fonts source. Both pages now render Markdown correctly.
+
+Also: clicks from search results to the document viewer now route to the new-UX viewer (instead of the original-UX viewer page) when the user has the new interface enabled.
+
+---
+
 ## v0.40.0 — Eight new-UX pages built in one release
 
 **Operators now have a complete new-UX surface for the daily workflow.** Eight pages got new-UX twins in this release: Operations (the merged Active Jobs + Trends dashboard that replaces the separate Status and Activity pages), Pipeline Files (drill-down by state), Bulk (overview + tabbed detail consolidating bulk-review and job-detail), Viewer (dual-pane document reader with sidebar), Trash, Unrecognized, Review, Preview, plus Settings → Locations and Settings → Admin.

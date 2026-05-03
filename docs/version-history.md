@@ -4,6 +4,24 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.40.1 — Bug-hunt sweep follow-ups (2026-05-03)
+
+**Three quick fixes uncovered by the v0.40.0 bug-hunt sweep, all shipped on the same day as v0.40.0:**
+
+1. **CSP allowlist for marked.js + DOMPurify + Google Fonts.** `api/middleware.py` `script-src` and `style-src` directives extended to permit `https://cdn.jsdelivr.net` (marked + DOMPurify, used by `/viewer` and `/preview`) and `https://fonts.googleapis.com` + `https://fonts.gstatic.com` (Google Fonts block in every new-UX page). Resolves CSP block errors that were causing /viewer + /preview to fall back to plain-text Markdown rendering. Verified by Playwright re-run: console errors dropped from 48 → 18 across the same 48 page loads.
+
+2. **`viewerUrl()` repointed from `/viewer.html` to `/viewer`.** `static/js/pages/search-results.js:78` `API_VIEWER_BASE` constant updated. Now search-results clicks land on the new-UX viewer (under per-user UX dispatch), not the legacy original-UX viewer. History page already used the dispatched `/viewer` URL, no change needed there.
+
+3. **`/api/search/doc-info/{index}/{doc_id}` now returns `source_path`.** Two-line addition to `api/routes/search.py:393` — `_resolve_source_path()` was already being called to determine `has_source`, but the absolute path wasn't included in the response. Without it, the new viewer's "Force re-process" and "Flag for review" buttons fell back to `source_filename` for path lookups, which caused 404 toasts when the source path didn't match the DB row's `source_path` column. Now the viewer can pass the canonical absolute path directly.
+
+**Files modified:** `api/middleware.py`, `api/routes/search.py`, `core/version.py`, `static/js/pages/search-results.js`, plus version history + whats-new + CLAUDE.md per release discipline.
+
+**Loose ends still tracked forward:**
+- Backend stubs missing for `/api/lifecycle/trash`, `/api/pipeline/unrecognized`, `/api/review/queue` — pages render empty state. Backend ticket.
+- /preview sentinel still doesn't pass under Playwright (likely the `?id=1` test param fetches a non-existent file and renders something other than the loading/error/toolbar selectors). Cosmetic verification gap; page works for real ids.
+
+---
+
 ## v0.40.0 — Eight new-UX pages built in two parallel waves (2026-05-03)
 
 **Goal:** Complete the operator surface area for the new UX in a single multi-wave release. After v0.39.0 closed the dispatch infrastructure and four silent-failure CSS gaps, the long-tail operator pages remained as `original-only` rows in `docs/new-ux-pages.md`. This release builds new-UX twins for the eight Tier B pages plus the recommended Tier C consolidations identified in the audit plan.

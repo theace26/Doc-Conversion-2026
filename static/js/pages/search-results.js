@@ -75,7 +75,7 @@
   var API_AUTOCOMPLETE     = '/api/search/autocomplete';
   var API_INDEX_STATUS     = '/api/search/index/status';
   var API_BATCH_DOWNLOAD   = '/api/search/batch-download';
-  var API_VIEWER_BASE      = '/viewer.html';
+  var API_VIEWER_BASE      = '/viewer';
 
 
   /* ── Mount ───────────────────────────────────────────────────────────────── */

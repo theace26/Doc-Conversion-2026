@@ -423,6 +423,7 @@ async def doc_info(
         "title": doc.get("title") or source_filename or "",
         "source_filename": source_filename,
         "source_format": source_format,
+        "source_path": str(source_path) if source_path else "",
         "has_source": has_source,
         "can_inline": can_inline,
         "source_size": source_size,

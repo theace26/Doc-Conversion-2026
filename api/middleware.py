@@ -43,10 +43,15 @@ _SECURITY_HEADERS: dict[str, str] = {
     # pages have onclick= handlers; tightening further is a v0.30.x task.
     "Content-Security-Policy": (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "
-        "style-src 'self' 'unsafe-inline'; "
+        # cdn.jsdelivr.net is allowed for marked.js + DOMPurify which the
+        # new-UX /viewer + /preview pages load for client-side Markdown
+        # render (always sanitized via DOMPurify before DOM insertion).
+        # fonts.googleapis.com + fonts.gstatic.com cover the Google Fonts
+        # block that every new-UX page links to.
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' data: https://fonts.gstatic.com; "
         "img-src 'self' data: blob:; "
-        "font-src 'self' data:; "
         "connect-src 'self'; "
         "frame-ancestors 'none'; "
         "base-uri 'self'; "

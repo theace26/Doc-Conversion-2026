@@ -69,7 +69,7 @@ live", `key-files.md`. For "is this bug already known", `bug-log.md`.
 
 ---
 
-## Current Version — v0.40.0
+## Current Version — v0.40.1
 
 **8 new-UX pages built in two parallel waves: `/operations`, `/pipeline-files`, `/settings/locations`, `/bulk` (overview + tabbed detail), `/viewer`, `/trash`, `/unrecognized`, `/review`, `/preview`, `/settings/admin`.** This is the largest single new-UX delivery to date — completes the operator surface area planned in `docs/superpowers/plans/2026-05-03-new-ux-priority-pages.md`. New top-nav for operators/admins now reads **Search | Operations | Convert** (Operations replaces Activity and merges /status + /activity under tabs). Three-page bulk family consolidated to two pages (`/bulk` overview + `/bulk/{id}` tabbed detail). Locations and admin tools moved under settings sub-pages. Browser-verified across nebula, classic-dark, and spring themes via Playwright on the VM (48 page loads, all sentinels resolve).
 
