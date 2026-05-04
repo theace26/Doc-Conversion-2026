@@ -30,9 +30,10 @@ All times are container-local (typically UTC). Trigger types: `Cron`
 | 20 | 882 | `mount_health` | Interval 5min | NFS/SMB share probe |
 | 21 | 895 | `check_llm_costs_staleness` | Cron 03:30 daily | Warn if llm_costs.json stale |
 | **22** | **NEW** | **`purge_old_active_ops`** | **Cron 03:50 daily** | **NEW v0.35.0 — delete finished ops > 7d** |
+| 23 | NEW | `active_ops_drift_check` | Cron 03:55 daily | Compare active_ops in-memory counters against DB ground truth |
 
 **Cron-time slots taken (avoid for new daily jobs):**
-- Daily: 03:00, 03:30, **03:50** (new), 04:00
+- Daily: 03:00, 03:30, **03:50** (new), **03:55** (new), 04:00
 - Sunday-only: 02:00, 02:15, 02:30
 - Hourly: :05
 

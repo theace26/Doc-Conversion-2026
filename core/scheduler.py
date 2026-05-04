@@ -661,6 +661,71 @@ async def check_llm_costs_staleness() -> None:
         log.error("llm_costs.staleness_check_failed", error=str(exc))
 
 
+async def _drift_check() -> None:
+    """Compare active_ops in-memory counters against the DB for running ops.
+
+    bulk.job ops: active_ops.done vs bulk_jobs.converted + skipped + failed
+    pipeline.scan ops: active_ops.done vs scan_runs.files_scanned
+
+    Does NOT yield to active bulk jobs — this check is most meaningful
+    while a job is in flight. Read-only; never mutates state.
+    """
+    try:
+        from core.active_ops import list_ops
+        from core.database import db_fetch_one
+
+        running = await list_ops(include_finished=False)
+
+        for op in running:
+            if op.op_type == "bulk.job":
+                job_id = (op.extra or {}).get("job_id")
+                if not job_id:
+                    continue
+                row = await db_fetch_one(
+                    "SELECT COALESCE(converted,0) + COALESCE(skipped,0)"
+                    " + COALESCE(failed,0) AS db_done"
+                    " FROM bulk_jobs WHERE id = ?",
+                    (job_id,),
+                )
+                if row is None:
+                    continue
+                drift = op.done - row["db_done"]
+                if abs(drift) > 10:
+                    log.warning(
+                        "active_ops.drift_detected",
+                        op_id=op.op_id,
+                        op_type=op.op_type,
+                        active_ops_done=op.done,
+                        db_done=row["db_done"],
+                        drift=drift,
+                    )
+
+            elif op.op_type == "pipeline.scan":
+                scan_run_id = (op.extra or {}).get("scan_run_id")
+                if not scan_run_id:
+                    continue
+                row = await db_fetch_one(
+                    "SELECT COALESCE(files_scanned, 0) AS db_done"
+                    " FROM scan_runs WHERE id = ?",
+                    (scan_run_id,),
+                )
+                if row is None:
+                    continue
+                drift = op.done - row["db_done"]
+                if abs(drift) > 10:
+                    log.warning(
+                        "active_ops.drift_detected",
+                        op_id=op.op_id,
+                        op_type=op.op_type,
+                        active_ops_done=op.done,
+                        db_done=row["db_done"],
+                        drift=drift,
+                    )
+
+    except Exception as exc:
+        log.error("scheduler.drift_check_failed", error=str(exc))
+
+
 def start_scheduler() -> None:
     """Register all jobs and start the scheduler. Called from lifespan."""
     from core.metrics_collector import collect_metrics, collect_disk_snapshot, purge_old_metrics
@@ -919,6 +984,20 @@ def start_scheduler() -> None:
         purge_old_active_ops,
         trigger=CronTrigger(hour=3, minute=50),
         id="purge_old_active_ops",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=300,
+    )
+
+    # v0.41.0: Active-ops drift detection — daily at 03:55
+    # Compares in-memory counters against DB ground truth for all running ops.
+    # Slot 03:55 is 5 min after purge_old_active_ops (03:50) and 5 min
+    # before purge_aged_trash (04:00). Read-only; never yields to bulk jobs.
+    scheduler.add_job(
+        _drift_check,
+        trigger=CronTrigger(hour=3, minute=55),
+        id="active_ops_drift_check",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
