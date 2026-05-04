@@ -9,6 +9,7 @@ PUT    /api/admin/resources         — Apply CPU affinity, worker count, proces
 GET    /api/admin/system/metrics    — Live CPU/memory/thread metrics
 GET    /api/admin/stats             — Aggregated repository statistics dashboard
 GET    /api/admin/disk-usage        — Disk usage breakdown by MarkFlow directory
+GET    /api/admin/vector-status     — Qdrant config (QDRANT_HOST / QDRANT_COLLECTION) + reachability
 """
 
 import asyncio
@@ -556,6 +557,34 @@ async def admin_stats(
         "scheduler": scheduler_status,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+# ── GET /api/admin/vector-status ─────────────────────────────────────────────
+
+@router.get("/vector-status")
+async def vector_status(
+    user: AuthenticatedUser = Depends(require_role(UserRole.OPERATOR)),
+):
+    """Qdrant vector store configuration and live reachability probe."""
+    host = os.environ.get("QDRANT_HOST", "").strip()
+    collection = os.environ.get("QDRANT_COLLECTION", "markflow").strip()
+
+    if not host:
+        return {"configured": False, "host": "", "collection": collection, "reachable": False}
+
+    reachable = False
+    try:
+        from qdrant_client import AsyncQdrantClient
+        if host.startswith("http://") or host.startswith("https://"):
+            probe = AsyncQdrantClient(url=host, timeout=3)
+        else:
+            probe = AsyncQdrantClient(host=host, timeout=3)
+        await asyncio.wait_for(probe.get_collections(), timeout=4.0)
+        reachable = True
+    except Exception:
+        pass
+
+    return {"configured": True, "host": host, "collection": collection, "reachable": reachable}
 
 
 # ── GET /api/admin/disk-usage ─────────────────────────────────────────────

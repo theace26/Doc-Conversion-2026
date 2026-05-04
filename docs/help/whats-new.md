@@ -6,6 +6,14 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.41.2 — AI Providers settings sub-sections now show live data
+
+**Image Analysis Routing now shows which provider handles images.** The section was always showing "Not configured" even when a provider with AI Assist enabled was configured. Fixed.
+
+**Vector Indexing now shows your Qdrant configuration.** The section previously showed no data. It now shows the configured Qdrant host, collection name, and whether the instance is currently reachable.
+
+---
+
 ## v0.41.1 — Pipeline and AI Providers settings fixes
 
 **Pipeline settings now saves correctly.** The Lifecycle & retention, Trash & cleanup, Stale data check, and Pipeline watchdog sections all returned errors on Save. This is fixed — changes to grace periods, retention, watchdog, and stale-check settings now apply immediately.

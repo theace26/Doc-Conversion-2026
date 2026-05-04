@@ -47,11 +47,13 @@
     fetchOrEmpty('/api/llm-providers', { providers: [] }),
     fetchOrEmpty('/api/llm-providers/registry', { registry: [] }),
     fetchOrEmpty('/api/preferences', {}),
+    fetchOrEmpty('/api/admin/vector-status', { configured: false, host: '', collection: 'markflow', reachable: false }),
   ]).then(function (results) {
     var me = results[1];
     var providersData = results[2];
     var registryData = results[3];
     var prefsData = results[4];
+    var vectorStatus = results[5];
 
     if (me.role === 'member') {
       window.location.href = '/';
@@ -93,7 +95,7 @@
         });
 
     var prefs = prefsData.preferences || prefsData || {};
-    MFAIProvidersDetail.mount(aiRoot, { providers: providers, registry: registry, prefs: prefs });
+    MFAIProvidersDetail.mount(aiRoot, { providers: providers, registry: registry, prefs: prefs, vectorStatus: vectorStatus });
 
   }).catch(function (e) {
     console.error('mf: ai-providers-settings boot failed', e);

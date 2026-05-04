@@ -69,20 +69,22 @@ live", `key-files.md`. For "is this bug already known", `bug-log.md`.
 
 ---
 
-## Current Version — v0.41.1
+## Current Version — v0.41.2
 
-**Settings page regression fixes: BUG-025 + BUG-026.** Two high-severity
-new-UX settings page regressions fixed. Pipeline settings page was 422-ing on
-every save due to 8 wrong preference key names (4 remapped to existing backend
-keys, 4 genuinely missing keys added to `DEFAULT_PREFERENCES`). AI Providers
-settings page crashed on load due to registry dict vs array mismatch in boot
-script and `provider_type` vs `provider` field name mismatch.
-`/api/version` reports `0.41.1`.
+**AI Providers sub-sections fix: BUG-027.** Two non-functional sub-sections in
+the AI Providers settings page. Image Analysis Routing always showed "Not
+configured" because `_renderImage` filtered on `p.is_ai_assist` (undefined) instead
+of `p.use_for_ai_assist` (int 0/1 from API). Vector Indexing showed no data because
+`_renderVector` read `prefs.vector_indexer_url` (never existed) instead of the
+`QDRANT_HOST` env var. Fixed by correcting the field name and adding a new
+`GET /api/admin/vector-status` endpoint that returns live Qdrant config +
+reachability. `/api/version` reports `0.41.2`.
 
 ### What operators and users see
 
-Pipeline settings (Lifecycle, Trash, Stale check, Watchdog sections) now save
-correctly. AI Providers settings page now loads and displays configured providers.
+Image Analysis Routing now correctly shows which provider handles image analysis.
+Vector Indexing now shows the configured Qdrant endpoint, collection, and whether
+it is currently reachable.
 
 ### Loose ends tracked forward
 

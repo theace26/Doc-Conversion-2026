@@ -4,6 +4,33 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.41.2 — AI Providers settings sub-sections fix: BUG-027 (2026-05-04)
+
+**Summary:** Two non-functional sub-sections in the AI Providers settings page after
+the v0.41.1 fix made the page load. The page itself loaded and the Active Provider
+Chain section worked, but Image Analysis Routing and Vector Indexing showed empty
+or stale placeholder data.
+
+**BUG-027 — Image routing and vector indexing sub-sections non-functional** (`settings-ai-providers.js`, `settings-ai-providers-boot.js`, `api/routes/admin.py`)
+
+*Image Analysis Routing* section always showed "Not configured". Root cause:
+`_renderImage` filtered providers with `p.is_ai_assist`, but the API field is
+`p.use_for_ai_assist` (integer 0 or 1). The filter always returned an empty
+array. Fixed to `p.use_for_ai_assist === 1 || p.use_for_ai_assist === true`.
+
+*Vector Indexing* section always showed "Not configured" / empty endpoint because
+`_renderVector` read `prefs.vector_indexer_url` — a preference that never existed.
+The Qdrant URL comes from the `QDRANT_HOST` environment variable, not the
+preferences table. Fixed by adding a new `GET /api/admin/vector-status` endpoint
+(operator+ role) that reads `QDRANT_HOST` and `QDRANT_COLLECTION` from the
+environment, performs a live reachability probe via `AsyncQdrantClient.get_collections()`
+with a 3-second timeout, and returns `{configured, host, collection, reachable}`.
+The boot script now fetches this endpoint as a 6th parallel request and passes it
+to the component as `vectorStatus`. `_renderVector` now displays the actual
+configured host, collection name, and reachability status.
+
+---
+
 ## v0.41.1 — Settings page regression fixes: BUG-025 + BUG-026 (2026-05-04)
 
 **Summary:** Two high-severity regressions in the new-UX settings pages, both

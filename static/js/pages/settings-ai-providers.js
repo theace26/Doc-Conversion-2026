@@ -267,7 +267,7 @@
 
   function _renderImage(contentSlot, opts) {
     var providers = opts.providers || [];
-    var aiAssistProviders = providers.filter(function (p) { return p.is_ai_assist; });
+    var aiAssistProviders = providers.filter(function (p) { return p.use_for_ai_assist === 1 || p.use_for_ai_assist === true; });
 
     var label = el('label', 'mf-stg__field-label');
     label.textContent = 'Images are processed by';
@@ -287,18 +287,29 @@
   }
 
   function _renderVector(contentSlot, opts) {
-    var prefs = opts.prefs || {};
+    var vs = opts.vectorStatus || {};
 
-    var label = el('label', 'mf-stg__field-label');
-    label.textContent = 'Qdrant endpoint';
-    contentSlot.appendChild(label);
+    var endpointLabel = el('label', 'mf-stg__field-label');
+    endpointLabel.textContent = 'Qdrant endpoint';
+    contentSlot.appendChild(endpointLabel);
 
-    var input = el('input', 'mf-stg__field-input');
-    input.type = 'text';
-    input.readOnly = true;
-    input.value = prefs.vector_indexer_url || 'Not configured';
-    input.style.fontFamily = 'var(--mf-font-mono, monospace)';
-    contentSlot.appendChild(input);
+    var endpointInput = el('input', 'mf-stg__field-input');
+    endpointInput.type = 'text';
+    endpointInput.readOnly = true;
+    endpointInput.value = vs.host || 'Not configured (QDRANT_HOST not set)';
+    endpointInput.style.fontFamily = 'var(--mf-font-mono, monospace)';
+    contentSlot.appendChild(endpointInput);
+
+    var collLabel = el('label', 'mf-stg__field-label');
+    collLabel.textContent = 'Collection';
+    contentSlot.appendChild(collLabel);
+
+    var collInput = el('input', 'mf-stg__field-input');
+    collInput.type = 'text';
+    collInput.readOnly = true;
+    collInput.value = vs.collection || 'markflow';
+    collInput.style.fontFamily = 'var(--mf-font-mono, monospace)';
+    contentSlot.appendChild(collInput);
 
     var statusLabel = el('label', 'mf-stg__field-label');
     statusLabel.textContent = 'Status';
@@ -307,7 +318,13 @@
     var statusInput = el('input', 'mf-stg__field-input');
     statusInput.type = 'text';
     statusInput.readOnly = true;
-    statusInput.value = 'Unknown (check server logs)';
+    if (!vs.configured) {
+      statusInput.value = 'Not configured';
+    } else if (vs.reachable) {
+      statusInput.value = 'Reachable';
+    } else {
+      statusInput.value = 'Unreachable';
+    }
     contentSlot.appendChild(statusInput);
   }
 
