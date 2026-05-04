@@ -655,6 +655,7 @@ _SETTINGS_PAGES = {
     "appearance":         "static/settings-appearance.html",
     "locations":          "static/settings-locations.html",
     "admin":              "static/settings-admin.html",
+    "advanced":           "static/settings-advanced.html",
 }
 
 
