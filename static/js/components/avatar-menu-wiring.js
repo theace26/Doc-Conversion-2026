@@ -54,7 +54,7 @@
     'ai':             '/settings/ai-providers',
     'auth':           '/settings/auth',
     'db':             '/settings/db-health',
-    'logs':           '/log-mgmt',
+    'logs':           '/settings/advanced',
     'log-viewer':     '/log-viewer',
     'log-levels':     '/log-levels',
     'all-settings':   '/settings',
