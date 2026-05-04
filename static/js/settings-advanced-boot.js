@@ -24,13 +24,14 @@
 
   Promise.all([MFPrefs.load(), fetchMe()]).then(function (results) {
     var me = results[1];
-    var build = me.build;
-    var user = { name: me.name, role: me.role, scope: me.scope };
 
     if (me.role !== 'admin') {
       window.location.href = '/settings';
       return;
     }
+
+    var build = me.build;
+    var user = { name: me.name, role: me.role, scope: me.scope };
 
     var layoutPop = MFLayoutPopover.create({
       current: MFPrefs.get('layout') || 'minimal',
