@@ -69,19 +69,20 @@ live", `key-files.md`. For "is this bug already known", `bug-log.md`.
 
 ---
 
-## Current Version — v0.41.0
+## Current Version — v0.41.1
 
-**Cleanup batch: BUG-019 → BUG-024.** Six low-severity planned bugs closed.
-Two deprecated HTTP endpoints removed (`/api/trash/empty/status`,
-`/api/trash/restore-all/status` — sunset date passed). P1 terminal-state
-guards added to lifecycle scanner and BulkJob. Two new scheduler observability
-jobs: active-ops drift detection (03:55 daily) and boot-time time-slot collision
-self-check. Deprecation surface audit confirmed clean. 5 broken test fixtures fixed.
-`/api/version` reports `0.41.0`.
+**Settings page regression fixes: BUG-025 + BUG-026.** Two high-severity
+new-UX settings page regressions fixed. Pipeline settings page was 422-ing on
+every save due to 8 wrong preference key names (4 remapped to existing backend
+keys, 4 genuinely missing keys added to `DEFAULT_PREFERENCES`). AI Providers
+settings page crashed on load due to registry dict vs array mismatch in boot
+script and `provider_type` vs `provider` field name mismatch.
+`/api/version` reports `0.41.1`.
 
 ### What operators and users see
 
-No user-visible changes. Internal maintenance release.
+Pipeline settings (Lifecycle, Trash, Stale check, Watchdog sections) now save
+correctly. AI Providers settings page now loads and displays configured providers.
 
 ### Loose ends tracked forward
 
@@ -90,6 +91,7 @@ No user-visible changes. Internal maintenance release.
 3. **Backend APIs** — `/api/lifecycle/trash`, `/api/pipeline/unrecognized`, `/api/review/queue` return 404 (pages handle gracefully)
 4. **CDN bundle** — `marked.js` + `DOMPurify` in Viewer/Preview still loaded from CDN; extend `script-src` in `api/middleware.py` or bundle locally
 5. **Security audit** — 62 findings; ~54 outstanding — pre-prod blocker
+6. **Storage settings stubs** — Cloud prefetch, Credentials, Write guard, Sync & verification sections show "Coming soon" placeholder in new-UX settings/storage
 
 Full per-version detail (v0.34.6 and every prior release back to v0.13.x)
 lives in [`docs/version-history.md`](docs/version-history.md). **Do not

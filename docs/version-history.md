@@ -4,6 +4,46 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.41.1 — Settings page regression fixes: BUG-025 + BUG-026 (2026-05-04)
+
+**Summary:** Two high-severity regressions in the new-UX settings pages, both
+introduced in the v0.40.0 new-UX delivery and not caught until manual testing.
+
+**BUG-025 — Pipeline settings 422 on every save** (`settings-pipeline.js`, `core/db/preferences.py`, `api/routes/preferences.py`)
+
+The Pipeline settings page (Lifecycle & retention, Trash & cleanup, Stale data
+check, Pipeline watchdog sections) threw `PUT /api/preferences/<key> failed: 422`
+on every Save click. Root cause: the frontend used 8 preference key names that
+don't exist in `DEFAULT_PREFERENCES`. Four had matching backend keys with
+different names (and one with a unit mismatch — hours vs days); four had no
+backend keys at all.
+
+Fixes applied:
+- `lifecycle_grace_days` → `lifecycle_grace_period_hours` (display in days, store in hours; ÷24 on load, ×24 on save)
+- `lifecycle_retention_days` → `lifecycle_trash_retention_days`
+- `trash_auto_delete` → `trash_auto_purge_enabled`
+- `trash_retention_days` → `lifecycle_trash_retention_days`
+- Added four missing keys to `DEFAULT_PREFERENCES` and preferences schema: `stale_check_enabled` (toggle, default `true`), `stale_check_threshold_days` (number, default 30), `watchdog_enabled` (toggle, default `true`), `watchdog_timeout_minutes` (number, default 120)
+
+**BUG-026 — AI Providers settings page crash on load** (`settings-ai-providers-boot.js`, `settings-ai-providers.js`)
+
+The Settings → AI Providers page showed "AI provider settings unavailable.
+Check console." immediately on load. Root cause: `GET /api/llm-providers/registry`
+returns `{"registry": {"anthropic": {...}}}` — a dict keyed by provider type —
+but the boot script passed `registryData.registry` (the dict) directly to
+`_buildSections`, which called `.forEach()` on it. Dicts don't have `.forEach`
+→ TypeError → the entire `Promise.all` catch block fired.
+
+Secondary bug: three sites in the component used `p.provider_type` but the
+API field is `p.provider`.
+
+Fixes applied:
+- Boot script now converts registry dict → array with `Object.keys(...).map(...)`
+- `_buildSections` uses `p.provider_type || p.provider` for type lookup
+- Two render sites updated: type badge and provider detail row
+
+---
+
 ## v0.41.0 — Cleanup batch: BUG-019 → BUG-024 (2026-05-04)
 
 **Summary:** Six low-severity planned bugs resolved in a single maintenance

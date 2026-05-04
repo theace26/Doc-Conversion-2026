@@ -69,6 +69,13 @@ they don't get rolled into the registry commit but are not lost.
 
 Planned during the Active Operations Registry (v0.35.0) implementation. Originally reserved as BUG-015..019, but v0.34.7–v0.34.9 releases consumed those numbers; renumbered to BUG-019..023. All six closed in v0.41.0 — see Shipped section.
 
+### v0.41.x new-UX settings page regressions (found 2026-05-04)
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-025 | shipped-v0.41.1 | high | Pipeline settings page 422 on every save — 8 wrong preference key names | `settings-pipeline.js` used `lifecycle_grace_days`, `lifecycle_retention_days`, `trash_auto_delete`, `trash_retention_days`, `stale_check_enabled`, `stale_check_threshold_days`, `watchdog_enabled`, `watchdog_timeout_minutes` — none of which exist in `DEFAULT_PREFERENCES`. Correct keys: `lifecycle_grace_period_hours` (+ hours↔days unit conversion), `lifecycle_trash_retention_days`, `trash_auto_purge_enabled`. The four stale_check/watchdog keys were genuinely missing and added to `core/db/preferences.py` + schema. |
+| BUG-026 | shipped-v0.41.1 | high | AI Providers settings page crashes on load — registry dict vs array mismatch | `settings-ai-providers-boot.js` passed registry API response (`{"anthropic":{...}}` dict) directly to `_buildSections` which called `.forEach()` on it → TypeError → entire page showed "unavailable" error. Boot script now converts dict→array. Also fixed `provider_type` vs `provider` field name mismatch in three rendering sites. |
+
 ### Security audit findings (long-running)
 
 | ID | Status | Sev | Summary | Details |

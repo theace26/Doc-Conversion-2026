@@ -6,6 +6,14 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.41.1 — Pipeline and AI Providers settings fixes
+
+**Pipeline settings now saves correctly.** The Lifecycle & retention, Trash & cleanup, Stale data check, and Pipeline watchdog sections all returned errors on Save. This is fixed — changes to grace periods, retention, watchdog, and stale-check settings now apply immediately.
+
+**AI Providers settings page now loads.** The Settings → AI Providers page was showing "AI provider settings unavailable" on every visit. It now loads and displays configured providers correctly.
+
+---
+
 ## v0.40.1 — Viewer + Preview Markdown rendering fix
 
 Same-day bug-fix release on top of v0.40.0. The new Viewer and Preview pages were failing to render Markdown because the project's Content Security Policy was blocking the `marked.js` and `DOMPurify` libraries that the pages load from a CDN. Allowlisted those scripts and the Google Fonts source. Both pages now render Markdown correctly.
