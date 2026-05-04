@@ -69,44 +69,27 @@ live", `key-files.md`. For "is this bug already known", `bug-log.md`.
 
 ---
 
-## Current Version — v0.40.1
+## Current Version — v0.41.0
 
-**8 new-UX pages built in two parallel waves: `/operations`, `/pipeline-files`, `/settings/locations`, `/bulk` (overview + tabbed detail), `/viewer`, `/trash`, `/unrecognized`, `/review`, `/preview`, `/settings/admin`.** This is the largest single new-UX delivery to date — completes the operator surface area planned in `docs/superpowers/plans/2026-05-03-new-ux-priority-pages.md`. New top-nav for operators/admins now reads **Search | Operations | Convert** (Operations replaces Activity and merges /status + /activity under tabs). Three-page bulk family consolidated to two pages (`/bulk` overview + `/bulk/{id}` tabbed detail). Locations and admin tools moved under settings sub-pages. Browser-verified across nebula, classic-dark, and spring themes via Playwright on the VM (48 page loads, all sentinels resolve).
+**Cleanup batch: BUG-019 → BUG-024.** Six low-severity planned bugs closed.
+Two deprecated HTTP endpoints removed (`/api/trash/empty/status`,
+`/api/trash/restore-all/status` — sunset date passed). P1 terminal-state
+guards added to lifecycle scanner and BulkJob. Two new scheduler observability
+jobs: active-ops drift detection (03:55 daily) and boot-time time-slot collision
+self-check. Deprecation surface audit confirmed clean. 5 broken test fixtures fixed.
+`/api/version` reports `0.41.0`.
 
 ### What operators and users see
 
-- **Operations dashboard** — new tabbed page combining live "Active now" jobs (formerly /status) and historical "Trends" charts (formerly /activity). Top-nav consolidated from 4 items to 3.
-- **Bulk job consolidation** — 3 pages collapsed to 2: `/bulk` (overview list with filter/sort/pagination + stats strip) and `/bulk/{id}` (tabbed detail: Overview + Files + Errors + Log, with pause/resume/cancel state machine and SSE live progress).
-- **Document viewer** (`/viewer`) — dual-pane Markdown + Original layout, sidebar with metadata/fidelity badge/related-files, force-process and flag actions inline. Reached from search results and history.
-- **Pipeline drill-down** (`/pipeline-files`) — operator surface for inspecting files by pipeline state (scanned, pending, batched, failed, etc.) with state-filter pills and live counts.
-- **Locations under settings** — `/settings/locations` is the new canonical home for source-location CRUD; original `/locations.html` preserved for backwards compatibility.
-- **Admin tools under settings** — `/settings/admin` provides API key management, user list, system actions (restart watchers, force rescan), and database tools (vacuum, integrity, backup/restore with typed confirmation). Admin role gated; non-admins are redirected to /settings.
-- **Trash, Unrecognized, Review, Preview** — long-tail operator surfaces all in new UX with table + filter + bulk actions patterns.
-- `/api/version` reports `0.40.0`.
-
-### Heads-up for users
-
-The top-nav "Activity" link is replaced by "Operations" for operators and admins. Bookmarks to `/activity` continue to work (original-UX users land on `/activity.html`; new-UX users see the same dashboard at `/operations` Trends tab). Bookmarks to `/status` are unchanged. The Bulk/Job-Detail/Bulk-Review three-page split is still available in original UX; new-UX users get the consolidated 2-page surface at `/bulk` and `/bulk/{id}`.
-
-### Known concerns from v0.40.0 verification
-
-- **Viewer + Preview load `marked.js` and `DOMPurify` from CDN** — current CSP blocks these in some contexts. Either bundle locally or extend the `script-src` directive in `api/middleware.py`. Tracked for v0.40.1.
-- **Three pages render an empty state because their backend APIs aren't fully implemented yet**: `/api/lifecycle/trash` (used by /trash), `/api/pipeline/unrecognized` (used by /unrecognized), `/api/review/queue` (used by /review). Pages handle the 404 gracefully; no console crash. Backend work tracked separately.
-- **Viewer `/api/search/doc-info/*` doesn't return `source_path`** — the new viewer's Force re-process and Flag-for-review buttons may emit 404 toasts because they fall back to `source_filename`. Two-line backend fix queued for v0.40.1 (include `str(source_path)` in doc-info response).
-- **`viewerUrl()` in `static/js/pages/search-results.js` and `history.js` still link to `/viewer.html`** — they should link to `/viewer` so cookie dispatch routes new-UX users to the new viewer. Two-line frontend fix queued.
+No user-visible changes. Internal maintenance release.
 
 ### Loose ends tracked forward
 
-1. **CSP allowlist for marked + DOMPurify** (or local bundling) — needed for /viewer and /preview markdown rendering. v0.40.1.
-2. **Backend stubs for trash/unrecognized/review queues** — APIs return 404 today; pages render empty state. Separate backend ticket.
-3. **`viewerUrl()` repoint** in search-results.js + history.js: `/viewer.html` → `/viewer`. v0.40.1.
-4. **Doc-info source_path** — surface absolute path so viewer's force-process/flag buttons work. v0.40.1.
-5. **Palette tweaks deferred** -- user plans to revise `design-themes.css` token VALUES via Figma + Tokens Studio.
-6. **BUG-019..024** — open / planned in `bug-log.md`.
-7. **Failure-path explicit `completed_at` writes** -- bulk_job pre-flight failure handler should write `auto_conversion_runs.completed_at` directly.
-8. **LibreOffice headless flakes** on `.xls` (parallel-worker contention on `~/.config/libreoffice`).
-9. **Worker heartbeat freezes** during long Whisper transcriptions. Cosmetic; not blocking.
-10. **Vector search golden eval** -- build golden test set once vector search is implemented.
+1. **BUG-013** — `tests/test_phase9/test_scheduler.py` imports renamed `_is_business_hours` symbol (open, low)
+2. **BUG-014** — `pipeline-card.js` POSTs to non-existent `/api/pipeline/rebuild-index` (open, medium)
+3. **Backend APIs** — `/api/lifecycle/trash`, `/api/pipeline/unrecognized`, `/api/review/queue` return 404 (pages handle gracefully)
+4. **CDN bundle** — `marked.js` + `DOMPurify` in Viewer/Preview still loaded from CDN; extend `script-src` in `api/middleware.py` or bundle locally
+5. **Security audit** — 62 findings; ~54 outstanding — pre-prod blocker
 
 Full per-version detail (v0.34.6 and every prior release back to v0.13.x)
 lives in [`docs/version-history.md`](docs/version-history.md). **Do not

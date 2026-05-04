@@ -4,6 +4,64 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.41.0 — Cleanup batch: BUG-019 → BUG-024 (2026-05-04)
+
+**Summary:** Six low-severity planned bugs resolved in a single maintenance
+pass. No new user-visible features. One breaking change: two deprecated HTTP
+endpoints removed (sunset date passed). Two new observability features added
+to the scheduler (drift detection + collision self-check).
+
+### What changed
+
+**BUG-019 — Deprecated trash status endpoints removed**
+`GET /api/trash/empty/status` and `GET /api/trash/restore-all/status` had
+been serving with `Deprecation: true` + `Sunset: 2026-06-01` headers since
+v0.35.0. The sunset date has passed. Both handlers and their unused `Response`
++ `BackgroundTasks` imports were removed from `api/routes/trash.py`. Clients
+should use `GET /api/active-ops` filtered by `op_type=trash.empty` or
+`op_type=trash.restore_all`.
+
+**BUG-020 — P1 terminal-state guards**
+`core/lifecycle_scanner._update_scan_progress()` now early-returns with
+`log.warning("lifecycle_scan.progress_after_terminal")` if `_scan_state["running"]`
+is already False. `BulkJob._worker`'s active-ops tick now gates on
+`not self._cancel_event.is_set()` before calling `update_op`, eliminating
+spurious `active_ops.update_after_finish` WARN logs that previously fired
+for every queued worker iteration after a job cancellation.
+
+**BUG-021 — Active-ops drift detection scheduler job**
+New `active_ops_drift_check` cron job at 03:55 daily. For each running op,
+queries the DB ground truth (`bulk_jobs.converted + skipped + failed` for
+`bulk.job` ops; `scan_runs.files_scanned` for `pipeline.scan` ops) and logs
+`active_ops.drift_detected` at WARNING when the in-memory `done` counter
+diverges by more than 10 from the DB value.
+
+**BUG-022 — Boot-time scheduler collision self-check**
+`_check_scheduler_collisions()` called at the end of `start_scheduler()`
+after all jobs are registered. Walks all CronTrigger jobs with integer
+daily time slots, sorts by time-of-day, and logs `scheduler.time_slot_collision`
+for any adjacent pair with a gap of < 5 minutes.
+
+**BUG-023 — Deprecation surface audit**
+Full audit confirmed: after BUG-019's removals, no HTTP endpoints carry
+deprecated status. `LiveBanner.register()` (JS, `live-banner.js`) already
+had `console.warn` since v0.35.0. No outstanding surfaces found.
+
+**BUG-024 — Test fixture constructor fix**
+Five `BulkJob(source_path=...)` call sites in `tests/test_bulk_worker.py`
+updated to `BulkJob(source_paths=...)`. The constructor takes `source_paths`
+(plural) as its second positional parameter.
+
+### Files changed
+
+`api/routes/trash.py`, `core/bulk_worker.py`, `core/lifecycle_scanner.py`,
+`core/scheduler.py`, `core/version.py`, `docs/bug-log.md`,
+`docs/scheduler-time-slots.md`, `docs/version-history.md`, `CLAUDE.md`,
+`tests/test_active_ops_integration.py`, `tests/test_bug019_trash_endpoint_removal.py`,
+`tests/test_bug022_scheduler_collision.py`, `tests/test_bulk_worker.py`
+
+---
+
 ## v0.40.1 — Bug-hunt sweep follow-ups (2026-05-03)
 
 **Three quick fixes uncovered by the v0.40.0 bug-hunt sweep, all shipped on the same day as v0.40.0:**

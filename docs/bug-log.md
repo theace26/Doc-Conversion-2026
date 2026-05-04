@@ -67,16 +67,7 @@ they don't get rolled into the registry commit but are not lost.
 
 ### v0.36.x planned (active-ops registry follow-ups)
 
-Planned during the Active Operations Registry (v0.35.0) implementation. Originally reserved as BUG-015..019, but v0.34.7–v0.34.9 releases consumed those numbers; renumbered to BUG-019..023.
-
-| ID | Status | Sev | Summary | Details |
-|----|--------|-----|---------|---------|
-| BUG-019 | planned | low | Remove deprecated `/api/trash/empty/status` and `/api/trash/restore-all/status` after the v0.35.0 facade window. Endpoints currently return registry-derived data with `Deprecation: true` + `Sunset` headers. | spec §14, §17 P9 |
-| BUG-020 | planned | low | Apply P1 (no-op-on-terminal) hardening to `BulkJob.tick()` and `lifecycle_scanner` `_scan_state` mutations. Currently partial. | spec §17 P1 |
-| BUG-021 | planned | low | Periodic drift detection job (scheduler 03:55) that compares `bulk_jobs.processed` vs `active_operations.done` and `scan_runs` vs `active_operations` for the same `op_id`; logs `active_ops.drift_detected` on mismatch. | spec §17 P3 |
-| BUG-022 | planned | low | Boot-time self-check that walks the scheduler job table and logs `scheduler.time_slot_collision` if two jobs are within 5 min of each other (and neither yields to the other). | spec §17 P7 |
-| BUG-023 | planned | low | Audit deprecated public surfaces in the codebase and apply the v0.35.0 deprecation convention (`console.warn` for JS; `Deprecation` + `Sunset` headers for HTTP). | spec §17 P9 |
-| BUG-024 | open | low | `tests/test_bulk_worker.py` calls `BulkJob(source_path=...)` but `BulkJob.__init__` takes `source_paths=` (plural). 5 tests fail at instantiation: `test_job_registry`, `test_bulk_job_run_empty_source`, `test_bulk_job_cancel`, `test_bulk_job_pause_resume`, `test_bulk_job_failed_file_does_not_stop_job`. Fix: update the 5 call sites in `tests/test_bulk_worker.py` to use `source_paths=`. Discovered during v0.35.0 smoke test (2026-04-30). |
+Planned during the Active Operations Registry (v0.35.0) implementation. Originally reserved as BUG-015..019, but v0.34.7–v0.34.9 releases consumed those numbers; renumbered to BUG-019..023. All six closed in v0.41.0 — see Shipped section.
 
 ### Security audit findings (long-running)
 
@@ -87,6 +78,19 @@ Planned during the Active Operations Registry (v0.35.0) implementation. Original
 ---
 
 ## Shipped (history)
+
+### v0.41.0 — Cleanup batch: BUG-019 through BUG-024
+
+Six low-severity planned bugs closed in a single maintenance pass.
+
+| ID | Status | Sev | Summary | Details |
+|----|--------|-----|---------|---------|
+| BUG-019 | shipped-v0.41.0 | low | Removed deprecated `/api/trash/empty/status` and `/api/trash/restore-all/status` | Endpoints had Deprecation+Sunset headers since v0.35.0; sunset date (2026-06-01) passed. Callers should use `GET /api/active-ops` filtered by op_type. |
+| BUG-020 | shipped-v0.41.0 | low | P1 terminal-state guards on `lifecycle_scanner._update_scan_progress` and `BulkJob._worker` active-ops tick | `_update_scan_progress` now returns early with log.warning if `_scan_state["running"]` is False. BulkJob tick skips `update_op` if `_cancel_event` is set, eliminating spurious `active_ops.update_after_finish` log noise. |
+| BUG-021 | shipped-v0.41.0 | low | Drift detection scheduler job at 03:55 | New `active_ops_drift_check` cron job compares `active_operations.done` against DB ground truth for running ops. Logs `active_ops.drift_detected` at WARNING when divergence > 10. |
+| BUG-022 | shipped-v0.41.0 | low | Boot-time scheduler time-slot collision self-check | `_check_scheduler_collisions()` called at end of `start_scheduler()`. Logs `scheduler.time_slot_collision` for daily cron jobs with < 5-min gaps. |
+| BUG-023 | shipped-v0.41.0 | low | Deprecation surface audit | Audit confirmed: after BUG-019 removal, no HTTP endpoints carry deprecated status. `LiveBanner.register()` (JS) already had `console.warn`. No outstanding surfaces. |
+| BUG-024 | shipped-v0.41.0 | low | Fixed 5 `test_bulk_worker.py` fixtures using wrong keyword argument | Tests used `source_path=` (singular); constructor takes `source_paths=` (plural). |
 
 ### v0.39.0 — Per-user UX dispatch + new-UX page CSS gap closed
 
