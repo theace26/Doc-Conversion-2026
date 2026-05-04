@@ -56,7 +56,7 @@ def test_map_sidecar_dir():
 def test_job_registry():
     job = BulkJob(
         job_id="test1",
-        source_path=Path("/src"),
+        source_paths=Path("/src"),
         output_path=Path("/out"),
     )
     assert get_active_job("test1") is None
@@ -79,7 +79,7 @@ async def test_bulk_job_run_empty_source(tmp_path):
     job_id = await create_bulk_job(str(source), str(output))
     job = BulkJob(
         job_id=job_id,
-        source_path=source,
+        source_paths=source,
         output_path=output,
         worker_count=1,
     )
@@ -101,7 +101,7 @@ async def test_bulk_job_cancel(tmp_path):
     job_id = await create_bulk_job(str(source), str(output))
     job = BulkJob(
         job_id=job_id,
-        source_path=source,
+        source_paths=source,
         output_path=output,
         worker_count=1,
     )
@@ -124,7 +124,7 @@ async def test_bulk_job_pause_resume(tmp_path):
     job_id = await create_bulk_job(str(source), str(output))
     job = BulkJob(
         job_id=job_id,
-        source_path=source,
+        source_paths=source,
         output_path=output,
         worker_count=1,
     )
@@ -166,7 +166,7 @@ async def test_bulk_job_failed_file_does_not_stop_job(tmp_path):
     job_id = await create_bulk_job(str(source), str(output))
     job = BulkJob(
         job_id=job_id,
-        source_path=source,
+        source_paths=source,
         output_path=output,
         worker_count=1,
     )
