@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 import asyncio
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException
 
 from core.auth import AuthenticatedUser, UserRole, require_role
 
@@ -96,23 +96,6 @@ async def empty_trash(
     return {"status": "started", "total": total}
 
 
-@router.get("/empty/status")
-async def empty_trash_status(
-    response: Response,
-    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
-) -> dict:
-    """DEPRECATED facade — use ``GET /api/active-ops`` with op_type filter
-    ``trash.empty`` instead.  Kept for one release; removal scheduled for
-    v0.36.x (track via new BUG-NNN row at v0.36 release time).
-    """
-    response.headers["Deprecation"] = "true"
-    response.headers["Sunset"] = "Sun, 01 Jun 2026 00:00:00 GMT"
-    response.headers["Link"] = '</api/active-ops>; rel="successor-version"'
-
-    from core.lifecycle_manager import get_empty_trash_status
-    return await get_empty_trash_status()
-
-
 @router.post("/restore-all")
 async def restore_all_trash(
     user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
@@ -140,23 +123,6 @@ async def restore_all_trash(
 
     asyncio.create_task(restore_all_trash())
     return {"status": "started", "total": total}
-
-
-@router.get("/restore-all/status")
-async def restore_all_status(
-    response: Response,
-    user: AuthenticatedUser = Depends(require_role(UserRole.MANAGER)),
-) -> dict:
-    """DEPRECATED facade — use ``GET /api/active-ops`` with op_type filter
-    ``trash.restore_all`` instead.  Kept for one release; removal scheduled
-    for v0.36.x (track via new BUG-NNN row at v0.36 release time).
-    """
-    response.headers["Deprecation"] = "true"
-    response.headers["Sunset"] = "Sun, 01 Jun 2026 00:00:00 GMT"
-    response.headers["Link"] = '</api/active-ops>; rel="successor-version"'
-
-    from core.lifecycle_manager import get_restore_all_status
-    return await get_restore_all_status()
 
 
 @router.get("")

@@ -143,8 +143,7 @@ async def test_trash_empty_registers_op_replacing_old_dict(
     authed_manager_real, sample_in_trash_source_file_id,
 ):
     """POST /api/trash/empty registers a trash.empty op visible in
-    /api/active-ops, AND the deprecated /api/trash/empty/status facade
-    still returns the legacy shape with a ``Deprecation: true`` header.
+    /api/active-ops.
 
     Uses HTTP only via authed_manager_real because the endpoint spawns
     work via ``asyncio.create_task`` — under ASGITransport that runs
@@ -156,6 +155,9 @@ async def test_trash_empty_registers_op_replacing_old_dict(
     registers the op).  Without it, the endpoint short-circuits with
     "status: done" when count_source_files_by_lifecycle_status returns
     0, and no op ever registers.
+
+    BUG-019: the deprecated /api/trash/empty/status facade was removed
+    in v0.41.0 (sunset 2026-06-01 passed); facade assertions removed here.
     """
     resp = await authed_manager_real.post("/api/trash/empty")
     assert resp.status_code == 200, f"POST /empty -> {resp.status_code}: {resp.text}"
@@ -176,29 +178,22 @@ async def test_trash_empty_registers_op_replacing_old_dict(
     assert op["cancellable"] is True
     assert op["icon"] != ""
 
-    # Deprecated facade still works + carries Deprecation header
-    facade = await authed_manager_real.get("/api/trash/empty/status")
-    assert facade.status_code == 200
-    body = facade.json()
-    assert {"running", "total", "done", "errors"}.issubset(body.keys()), (
-        f"Facade missing legacy keys, got: {sorted(body.keys())}"
-    )
-    assert facade.headers.get("Deprecation", "").lower() == "true"
-
 
 @pytest.mark.asyncio
 async def test_trash_restore_all_registers_op(
     authed_manager_real, sample_in_trash_source_file_id,
 ):
     """POST /api/trash/restore-all registers a trash.restore_all op
-    visible in /api/active-ops, AND the deprecated
-    /api/trash/restore-all/status facade still returns the legacy shape
-    with a ``Deprecation: true`` header.
+    visible in /api/active-ops.
 
     Same shape as test_trash_empty_registers_op_replacing_old_dict
     (recon §D.2 — restore-all has the same chunk/loop semantics, no
     pre-existing cancel mechanism, and the same legacy dict pattern
     as empty-trash).
+
+    BUG-019: the deprecated /api/trash/restore-all/status facade was
+    removed in v0.41.0 (sunset 2026-06-01 passed); facade assertions
+    removed here.
     """
     resp = await authed_manager_real.post("/api/trash/restore-all")
     assert resp.status_code == 200, f"POST /restore-all -> {resp.status_code}: {resp.text}"
@@ -217,14 +212,6 @@ async def test_trash_restore_all_registers_op(
     assert op["origin_url"] == "/trash.html"
     assert op["cancellable"] is True
     assert op["icon"] != ""
-
-    facade = await authed_manager_real.get("/api/trash/restore-all/status")
-    assert facade.status_code == 200
-    body = facade.json()
-    assert {"running", "total", "done", "errors"}.issubset(body.keys()), (
-        f"Facade missing legacy keys, got: {sorted(body.keys())}"
-    )
-    assert facade.headers.get("Deprecation", "").lower() == "true"
 
 
 @pytest.mark.asyncio
