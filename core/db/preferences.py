@@ -83,6 +83,12 @@ DEFAULT_PREFERENCES: dict[str, str] = {
     "analysis_enabled": "true",
     "analysis_batch_size": "10",
     "analysis_submission_paused": "false",
+    # Stale data check (configurable via Pipeline settings)
+    "stale_check_enabled": "true",
+    "stale_check_threshold_days": "30",
+    # Pipeline watchdog (configurable via Pipeline settings)
+    "watchdog_enabled": "true",
+    "watchdog_timeout_minutes": "120",
     # Cloud file prefetch (v0.15.1)
     "cloud_prefetch_enabled": "false",
     "cloud_prefetch_concurrency": "5",

@@ -84,7 +84,13 @@
     );
 
     var providers = providersData.providers || providersData.items || providersData || [];
-    var registry = registryData.registry || registryData || [];
+    // API returns registry as a dict keyed by type; convert to array expected by component
+    var rawRegistry = registryData.registry || registryData || {};
+    var registry = Array.isArray(rawRegistry)
+      ? rawRegistry
+      : Object.keys(rawRegistry).map(function (type) {
+          return Object.assign({ type: type }, rawRegistry[type]);
+        });
 
     var prefs = prefsData.preferences || prefsData || {};
     MFAIProvidersDetail.mount(aiRoot, { providers: providers, registry: registry, prefs: prefs });

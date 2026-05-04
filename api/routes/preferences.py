@@ -201,6 +201,30 @@ _PREFERENCE_SCHEMA: dict[str, dict] = {
         "label": "Trash retention (days)",
         "description": "How long files stay in trash before permanent deletion. Default: 60 days.",
     },
+    "stale_check_enabled": {
+        "type": "toggle",
+        "label": "Stale data check enabled",
+        "description": "Run periodic check that flags files not seen by the scanner for N days.",
+    },
+    "stale_check_threshold_days": {
+        "type": "number",
+        "min": 1,
+        "max": 3650,
+        "label": "Stale threshold (days)",
+        "description": "Files not scanned for this many days are flagged as stale.",
+    },
+    "watchdog_enabled": {
+        "type": "toggle",
+        "label": "Pipeline watchdog enabled",
+        "description": "Periodically verify pipeline health and auto-reset after timeout.",
+    },
+    "watchdog_timeout_minutes": {
+        "type": "number",
+        "min": 1,
+        "max": 1440,
+        "label": "Watchdog timeout (minutes)",
+        "description": "Maximum time a scan may run before the watchdog flags it as stale.",
+    },
     "worker_count": {
         "type": "number",
         "min": 1,

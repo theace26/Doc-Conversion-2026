@@ -36,9 +36,10 @@
     var seenTypes = [];
     var typeSet = {};
     (providers || []).forEach(function (p) {
-      if (p.provider_type && !typeSet[p.provider_type]) {
-        typeSet[p.provider_type] = true;
-        seenTypes.push(p.provider_type);
+      var t = p.provider_type || p.provider;
+      if (t && !typeSet[t]) {
+        typeSet[t] = true;
+        seenTypes.push(t);
       }
     });
 
@@ -178,7 +179,7 @@
 
       var tdType = el('td');
       var typeBadge = el('span', 'mf-ai__type-badge');
-      typeBadge.textContent = provider.provider_type || '';
+      typeBadge.textContent = provider.provider_type || provider.provider || '';
       tdType.appendChild(typeBadge);
       row.appendChild(tdType);
 
@@ -221,7 +222,7 @@
 
   function _renderProviderType(contentSlot, type, opts, displayName) {
     var providers = (opts.providers || []).filter(function (p) {
-      return p.provider_type === type;
+      return (p.provider_type || p.provider) === type;
     });
 
     providers.forEach(function (provider) {
@@ -229,7 +230,7 @@
         { label: 'Name',          value: provider.name || '' },
         { label: 'API key',       value: provider.api_key_masked || '••••••••' },
         { label: 'Model',         value: provider.model || '' },
-        { label: 'Provider type', value: provider.provider_type || '' },
+        { label: 'Provider type', value: provider.provider_type || provider.provider || '' },
       ];
 
       fields.forEach(function (f) {

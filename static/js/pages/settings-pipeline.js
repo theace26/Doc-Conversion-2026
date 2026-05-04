@@ -212,20 +212,25 @@
   function _renderLifecycle(contentSlot, opts) {
     var prefs = opts.prefs || {};
 
+    // Backend stores grace in hours; UI shows days (÷24 on load, ×24 on save)
+    var graceHours = parseInt(prefs.lifecycle_grace_period_hours || '36', 10);
+    var graceDaysInit = Math.round(graceHours / 24) || '';
+
     var graceLabel = _makeFieldLabel('Grace period (days)');
     contentSlot.appendChild(graceLabel);
-    var graceInput = _makeNumberInput(prefs.lifecycle_grace_days || '', 1, 365);
+    var graceInput = _makeNumberInput(graceDaysInit, 1, 365);
     contentSlot.appendChild(graceInput);
 
     var retentionLabel = _makeFieldLabel('Retention period (days)');
     contentSlot.appendChild(retentionLabel);
-    var retentionInput = _makeNumberInput(prefs.lifecycle_retention_days || '', 1, 3650);
+    var retentionInput = _makeNumberInput(prefs.lifecycle_trash_retention_days || '', 1, 3650);
     contentSlot.appendChild(retentionInput);
 
     function doSave(feedback) {
+      var graceHoursVal = String(parseInt(graceInput.value, 10) * 24);
       Promise.resolve()
-        .then(function () { return _putPref('lifecycle_grace_days', graceInput.value); })
-        .then(function () { return _putPref('lifecycle_retention_days', retentionInput.value); })
+        .then(function () { return _putPref('lifecycle_grace_period_hours', graceHoursVal); })
+        .then(function () { return _putPref('lifecycle_trash_retention_days', retentionInput.value); })
         .then(function () {
           feedback.classList.remove('mf-pip__save-feedback--error');
           feedback.textContent = 'Saved';
@@ -237,8 +242,8 @@
     }
 
     function doDiscard() {
-      graceInput.value = prefs.lifecycle_grace_days || '';
-      retentionInput.value = prefs.lifecycle_retention_days || '';
+      graceInput.value = graceDaysInit;
+      retentionInput.value = prefs.lifecycle_trash_retention_days || '';
     }
 
     contentSlot.appendChild(_makeSaveBar(doSave, doDiscard));
@@ -247,7 +252,7 @@
   function _renderTrash(contentSlot, opts) {
     var prefs = opts.prefs || {};
 
-    var autoDelete = prefs.trash_auto_delete === 'true' || prefs.trash_auto_delete === true;
+    var autoDelete = prefs.trash_auto_purge_enabled === 'true' || prefs.trash_auto_purge_enabled === true;
 
     var toggleRow = el('div', 'mf-pip__toggle-row');
     var toggle = _makeToggle(autoDelete);
@@ -262,13 +267,13 @@
 
     var retentionLabel = _makeFieldLabel('Keep in trash (days)');
     contentSlot.appendChild(retentionLabel);
-    var retentionInput = _makeNumberInput(prefs.trash_retention_days || '', 1, 3650);
+    var retentionInput = _makeNumberInput(prefs.lifecycle_trash_retention_days || '', 1, 3650);
     contentSlot.appendChild(retentionInput);
 
     function doSave(feedback) {
       Promise.resolve()
-        .then(function () { return _putPref('trash_auto_delete', String(_toggleOn(toggle))); })
-        .then(function () { return _putPref('trash_retention_days', retentionInput.value); })
+        .then(function () { return _putPref('trash_auto_purge_enabled', String(_toggleOn(toggle))); })
+        .then(function () { return _putPref('lifecycle_trash_retention_days', retentionInput.value); })
         .then(function () {
           feedback.classList.remove('mf-pip__save-feedback--error');
           feedback.textContent = 'Saved';
@@ -281,7 +286,7 @@
 
     function doDiscard() {
       _setToggle(toggle, autoDelete);
-      retentionInput.value = prefs.trash_retention_days || '';
+      retentionInput.value = prefs.lifecycle_trash_retention_days || '';
     }
 
     contentSlot.appendChild(_makeSaveBar(doSave, doDiscard));
