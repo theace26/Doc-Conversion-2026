@@ -64,5 +64,3 @@ nearly collided with the 03:30 LLM-cost check. Moving to 03:50
 preserved a 20-min gap. Without this table, future additions would
 hit similar conflicts. See spec §17 P7.
 
-A boot-time self-check that flags collisions automatically is
-queued as a future ticket.

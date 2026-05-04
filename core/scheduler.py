@@ -726,6 +726,52 @@ async def _drift_check() -> None:
         log.error("scheduler.drift_check_failed", error=str(exc))
 
 
+def _check_scheduler_collisions() -> None:
+    """Log a warning for any two daily cron jobs within 5 min of each other.
+
+    Only checks simple daily cron jobs (day_of_week='*', integer hour+minute).
+    Weekly jobs (day_of_week != '*'), interval triggers, and complex cron
+    expressions (ranges, steps) are skipped — they don't compete for the
+    same daily slots.
+
+    Called at the end of start_scheduler() after all jobs are registered.
+    """
+    THRESHOLD_MIN = 5
+    cron_slots: list[tuple[int, str]] = []  # (minutes_since_midnight, job_id)
+
+    for job in scheduler.get_jobs():
+        trigger = job.trigger
+        if not isinstance(trigger, CronTrigger):
+            continue
+        hour_str = "*"
+        minute_str = "*"
+        dow_str = "*"
+        for field in trigger.fields:
+            if field.name == "hour":
+                hour_str = str(field)
+            elif field.name == "minute":
+                minute_str = str(field)
+            elif field.name == "day_of_week":
+                dow_str = str(field)
+        # Only check simple integer daily slots (skip weekly, hourly, complex)
+        if not (hour_str.isdigit() and minute_str.isdigit() and dow_str == "*"):
+            continue
+        cron_slots.append((int(hour_str) * 60 + int(minute_str), job.id))
+
+    cron_slots.sort()
+    for i in range(len(cron_slots) - 1):
+        t1, id1 = cron_slots[i]
+        t2, id2 = cron_slots[i + 1]
+        gap = t2 - t1
+        if gap < THRESHOLD_MIN:
+            log.warning(
+                "scheduler.time_slot_collision",
+                job_a=id1,
+                job_b=id2,
+                gap_minutes=gap,
+            )
+
+
 def start_scheduler() -> None:
     """Register all jobs and start the scheduler. Called from lifespan."""
     from core.metrics_collector import collect_metrics, collect_disk_snapshot, purge_old_metrics
@@ -1007,6 +1053,7 @@ def start_scheduler() -> None:
     scheduler.start()
     # Self-counting so add_job calls don't need to bump a literal here.
     log.info("scheduler.started", jobs=len(scheduler.get_jobs()))
+    _check_scheduler_collisions()
 
 
 def get_pipeline_status() -> dict:
