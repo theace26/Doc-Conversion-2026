@@ -1323,6 +1323,14 @@
 }
 .mf-settings__card-title { margin: 0 0 0.3rem; font-size: var(--mf-text-md); font-weight: 600; color: var(--mf-color-text); }
 .mf-settings__card-desc { margin: 0; font-size: var(--mf-text-base); color: var(--mf-color-text-muted); line-height: 1.4; }
+.mf-settings__back-link {
+  display: inline-block;
+  margin-bottom: var(--mf-space-4);
+  color: var(--mf-color-text-muted);
+  font-size: var(--mf-text-sm);
+  text-decoration: none;
+}
+.mf-settings__back-link:hover { color: var(--mf-color-text); }
 
 /* === storage detail page === */
 .mf-stg__body { padding: 2.2rem var(--mf-page-pad-x) 3rem; max-width: var(--mf-content-max); margin: 0 auto; font-family: var(--mf-font-family); }
