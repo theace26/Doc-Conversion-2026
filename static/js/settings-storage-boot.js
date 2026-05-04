@@ -47,11 +47,13 @@
     fetchOrEmpty('/api/storage/shares', { shares: [] }),
     fetchOrEmpty('/api/storage/output', { path: '' }),
     fetchOrEmpty('/api/storage/sources', { sources: [] }),
+    fetchOrEmpty('/api/preferences', {}),
   ]).then(function (results) {
     var me = results[1];
     var sharesData = results[2];
     var outputData = results[3];
     var sourcesData = results[4];
+    var prefsData = results[5];
 
     if (me.role === 'member') {
       window.location.href = '/';
@@ -83,10 +85,12 @@
       { onClick: function (btn) { layoutPop.openAt(btn); } }
     );
 
+    var prefs = prefsData.preferences || prefsData || {};
     MFStorageDetail.mount(storageRoot, {
       shares: sharesData.shares || [],
       output: outputData,
       sources: sourcesData.sources || [],
+      prefs: prefs,
     });
 
   }).catch(function (e) {

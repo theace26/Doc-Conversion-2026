@@ -69,22 +69,20 @@ live", `key-files.md`. For "is this bug already known", `bug-log.md`.
 
 ---
 
-## Current Version — v0.41.2
+## Current Version — v0.41.3
 
-**AI Providers sub-sections fix: BUG-027.** Two non-functional sub-sections in
-the AI Providers settings page. Image Analysis Routing always showed "Not
-configured" because `_renderImage` filtered on `p.is_ai_assist` (undefined) instead
-of `p.use_for_ai_assist` (int 0/1 from API). Vector Indexing showed no data because
-`_renderVector` read `prefs.vector_indexer_url` (never existed) instead of the
-`QDRANT_HOST` env var. Fixed by correcting the field name and adding a new
-`GET /api/admin/vector-status` endpoint that returns live Qdrant config +
-reachability. `/api/version` reports `0.41.2`.
+**Storage settings sections built out.** Cloud prefetch, Credentials, Write guard,
+and Sync & verification in Settings → Storage previously showed "Coming soon" stubs.
+All four now show functional content. Cloud prefetch exposes all 6 `cloud_prefetch_*`
+preferences (schema entries + manager-role gating added). Credentials lists network
+shares with saved-credential status. Write guard shows the active output directory
+and enforcement status. Sync & verification is informational (automatic, no config).
+`/api/version` reports `0.41.3`.
 
 ### What operators and users see
 
-Image Analysis Routing now correctly shows which provider handles image analysis.
-Vector Indexing now shows the configured Qdrant endpoint, collection, and whether
-it is currently reachable.
+All four Storage settings sections now show real content instead of "Coming soon."
+Cloud prefetch settings can be configured and saved.
 
 ### Loose ends tracked forward
 
@@ -93,7 +91,6 @@ it is currently reachable.
 3. **Backend APIs** — `/api/lifecycle/trash`, `/api/pipeline/unrecognized`, `/api/review/queue` return 404 (pages handle gracefully)
 4. **CDN bundle** — `marked.js` + `DOMPurify` in Viewer/Preview still loaded from CDN; extend `script-src` in `api/middleware.py` or bundle locally
 5. **Security audit** — 62 findings; ~54 outstanding — pre-prod blocker
-6. **Storage settings stubs** — Cloud prefetch, Credentials, Write guard, Sync & verification sections show "Coming soon" placeholder in new-UX settings/storage
 
 Full per-version detail (v0.34.6 and every prior release back to v0.13.x)
 lives in [`docs/version-history.md`](docs/version-history.md). **Do not

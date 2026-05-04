@@ -6,6 +6,18 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.41.3 — Storage settings sections built out
+
+**Cloud prefetch settings are now configurable.** The Cloud prefetch section in Settings → Storage now shows live toggles and inputs for all six prefetch options: enable/disable, concurrency, rate limit, per-file timeout, minimum file size, and the probe-all option.
+
+**Credentials section now shows share status.** The Credentials section lists all configured network shares and whether saved credentials exist for each.
+
+**Write guard section shows the active output directory.** See exactly which directory writes are protected, and a clear status indicator if no output path has been set.
+
+**Sync & verification explains automatic integrity checks.** The section describes what MarkFlow does automatically: SHA-256 content-hash keying, weekly database integrity checks, and mount health probing.
+
+---
+
 ## v0.41.2 — AI Providers settings sub-sections now show live data
 
 **Image Analysis Routing now shows which provider handles images.** The section was always showing "Not configured" even when a provider with AI Assist enabled was configured. Fixed.

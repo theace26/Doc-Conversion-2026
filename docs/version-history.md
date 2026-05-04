@@ -4,6 +4,35 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.41.3 — Storage settings: build out four stub sections (2026-05-04)
+
+**Summary:** The Cloud prefetch, Credentials, Write guard, and Sync & verification
+sections in the new-UX Settings → Storage page all showed "Coming soon" stubs.
+Replaced with functional content.
+
+**Cloud prefetch** — Live settings form backed by the 6 `cloud_prefetch_*`
+preferences that already existed in `DEFAULT_PREFERENCES` but had no schema
+entries and were not exposed in any settings UI. Added schema entries to
+`_PREFERENCE_SCHEMA`, added keys to `_SYSTEM_PREF_KEYS` (require manager role),
+wired the boot script to fetch `/api/preferences` and pass `prefs` to the
+component. The section shows toggles and number inputs for all 6 settings with
+Save/Discard bar.
+
+**Credentials** — Shows the list of configured network shares with their saved-
+credential status (masked). Admin-only clear-text reads are not shown here; a
+link directs to `/storage` for add/edit.
+
+**Write guard** — Read-only display of the configured output directory and an
+Active/Not configured status pill. Explanatory text makes clear the guard is
+always enforced and cannot be disabled. Warning if no output path is configured.
+
+**Sync & verification** — Informational section explaining what automatic
+integrity protection MarkFlow provides: SHA-256 content-hash keying of sidecar
+files, weekly DB `PRAGMA integrity_check`, and the 5-minute mount-health tick.
+No configurable options — all checks are automatic.
+
+---
+
 ## v0.41.2 — AI Providers settings sub-sections fix: BUG-027 (2026-05-04)
 
 **Summary:** Two non-functional sub-sections in the AI Providers settings page after
