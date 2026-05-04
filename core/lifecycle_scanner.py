@@ -1169,6 +1169,9 @@ def _update_scan_progress(
     started_at_dt: datetime,
 ) -> None:
     """Update the in-memory scan progress state."""
+    if not _scan_state.get("running"):
+        log.warning("lifecycle_scan.progress_after_terminal")
+        return
     _scan_state["scanned"] = counters["files_scanned"]
     try:
         _scan_state["current_file"] = str(file_path.relative_to(source_root))

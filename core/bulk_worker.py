@@ -978,7 +978,7 @@ class BulkJob:
                 # Active-ops registry tick (Task 23, v0.35.0): mirror
                 # counters after every file.  Skip during scan phase
                 # (_total_pending is 0 / unreliable until scanning=False).
-                if self._active_op_id is not None and not self._scanning:
+                if self._active_op_id is not None and not self._scanning and not self._cancel_event.is_set():
                     try:
                         from core import active_ops as _active_ops_tick
                         await _active_ops_tick.update_op(
