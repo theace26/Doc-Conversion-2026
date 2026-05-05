@@ -4,6 +4,28 @@ Detailed changelog for each version/phase. Referenced from CLAUDE.md.
 
 ---
 
+## v0.41.4 — Advanced Settings hub: log system navigation (2026-05-04)
+
+**Summary:** The "Advanced" card in the Settings overview was broken — clicking it
+redirected straight back to `/settings` because `"advanced"` was missing from
+`_SETTINGS_PAGES`. Built the `/settings/advanced` hub the card was already pointing to.
+Also fixed a role-mismatch bug in the avatar menu's "Log management" link.
+
+**Settings → Advanced hub** (`static/settings-advanced.html` + `static/js/pages/settings-advanced.js`
++ `static/js/settings-advanced-boot.js`) — New admin-only settings sub-page at
+`/settings/advanced`. Lists four admin-tool cards linking to the existing log and
+database pages: Log Viewer (`/log-viewer`, live tail + historical search), Log Management
+(`/log-mgmt`, file rotation, compression, retention), Log Levels (`/log-levels`,
+per-logger debug configuration), Database Health (`/settings/db-health`). Includes a
+"← Settings" breadcrumb. Non-admins are redirected to `/settings`.
+
+**Avatar-menu routing fix** (`static/js/components/avatar-menu-wiring.js`) — The
+new-UX "Log management" item previously routed to `/log-mgmt`. Operators who clicked it
+hit the admin-only gate and were silently redirected to `/`. Now routes to
+`/settings/advanced`, which redirects non-admins gracefully to `/settings` instead.
+
+---
+
 ## v0.41.3 — Storage settings: build out four stub sections (2026-05-04)
 
 **Summary:** The Cloud prefetch, Credentials, Write guard, and Sync & verification

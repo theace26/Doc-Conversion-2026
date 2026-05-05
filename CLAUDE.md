@@ -69,20 +69,21 @@ live", `key-files.md`. For "is this bug already known", `bug-log.md`.
 
 ---
 
-## Current Version — v0.41.3
+## Current Version — v0.41.4
 
-**Storage settings sections built out.** Cloud prefetch, Credentials, Write guard,
-and Sync & verification in Settings → Storage previously showed "Coming soon" stubs.
-All four now show functional content. Cloud prefetch exposes all 6 `cloud_prefetch_*`
-preferences (schema entries + manager-role gating added). Credentials lists network
-shares with saved-credential status. Write guard shows the active output directory
-and enforcement status. Sync & verification is informational (automatic, no config).
-`/api/version` reports `0.41.3`.
+**Advanced Settings hub built.** The "Advanced" card in the Settings overview was
+broken — clicking it redirected back to `/settings` because the page didn't exist.
+`/settings/advanced` is now live: an admin-only hub with four cards linking to Log
+Viewer, Log Management, Log Levels, and Database Health. Also fixed the avatar-menu
+"Log management" link which previously sent operators to a silent dead-end.
+`/api/version` reports `0.41.4`.
 
 ### What operators and users see
 
-All four Storage settings sections now show real content instead of "Coming soon."
-Cloud prefetch settings can be configured and saved.
+Settings → Advanced now opens a hub page instead of bouncing back to Settings. Admins
+can reach all three log pages and Database Health from one place. Operators who click
+"Log management" from the avatar menu now land on Settings (instead of getting silently
+redirected to the home page).
 
 ### Loose ends tracked forward
 

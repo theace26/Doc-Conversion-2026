@@ -6,6 +6,14 @@ versions on top. For internal engineering detail see
 
 ---
 
+## v0.41.4 — Settings → Advanced hub
+
+**Settings → Advanced now works.** The "Advanced" card in the Settings overview was silently broken — clicking it redirected straight back to the Settings page. It now opens a hub with four admin-tool cards: Log Viewer (live tail and historical search), Log Management (file rotation, compression, retention), Log Levels (per-logger debug configuration), and Database Health.
+
+**"Log management" in the avatar menu no longer dead-ends operators.** Operators who clicked "Log management" from the avatar menu were redirected silently to the home page. They now land on Settings → Advanced and are directed back to Settings if they don't have admin access.
+
+---
+
 ## v0.41.3 — Storage settings sections built out
 
 **Cloud prefetch settings are now configurable.** The Cloud prefetch section in Settings → Storage now shows live toggles and inputs for all six prefetch options: enable/disable, concurrency, rate limit, per-file timeout, minimum file size, and the probe-all option.
